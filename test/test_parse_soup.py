@@ -1,6 +1,7 @@
 import os
 import shutil
 from contextlib import contextmanager
+from datetime import datetime
 
 import mobi
 import pytest
@@ -270,6 +271,13 @@ def _list_metadata(fixture_soup, fixture: str, worknum: str) -> dict:
     return parse_soup.get_work_metadata_from_list(soup, f'https://archiveofourown.org/works/{worknum}')
 
 
+def _assert_reading_history_format(result: dict) -> None:
+    # last_visited and times_visited change whenever the fixtures are refreshed,
+    # so assert only that they are a valid AO3 date and a number
+    datetime.strptime(result['last_visited'], '%d %b %Y')
+    assert result['times_visited'].isdigit()
+
+
 def test_get_work_metadata_from_work_returns_expected_keys(fixture_soup, snapshot):
     soup = fixture_soup('unlockedWork')
     link = 'https://archiveofourown.org/works/12345678'
@@ -334,8 +342,7 @@ def test_get_work_metadata_from_list_bookmarker_notes(fixture_soup):
 def test_get_work_metadata_from_list_marked_for_later(fixture_soup):
     result = _list_metadata(fixture_soup, 'markedForLaterList', '66326125')
 
-    assert result['last_visited'] == '10 Jul 2026'
-    assert result['times_visited'] == '6'
+    _assert_reading_history_format(result)
     assert result['updated'] == '09 Jun 2025'
     assert result['series'] == []
     # reading history listings have no bookmark data
@@ -348,8 +355,7 @@ def test_get_work_metadata_from_list_marked_for_later_does_not_leak_from_other_b
     result = _list_metadata(fixture_soup, 'markedForLaterList', '334557')
 
     assert result['series'] == ["Part 1 of Watches 'Verse"]
-    assert result['last_visited'] == '27 Jun 2026'
-    assert result['times_visited'] == '2'
+    _assert_reading_history_format(result)
     assert result['updated'] == '06 Feb 2012'
 
 
