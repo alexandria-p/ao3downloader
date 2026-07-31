@@ -1,0 +1,34 @@
+# serializer version: 1
+# name: test_extracted_metadata_snapshot[incompleteWork.pdf]
+  dict({
+    'link': 'https://archiveofourown.org/works/218676',
+    'series': list([
+    ]),
+    'stats': 'Stats: Published: 2006-07-09 Updated: 2007-06-25 Words: 7,526 Chapters: 3/?',
+  })
+# ---
+# name: test_extracted_metadata_snapshot[pdfTest.pdf]
+  dict({
+    'link': 'https://archiveofourown.org/works/23009290',
+    'series': list([
+    ]),
+    'stats': 'Stats: Published: 2020-03-04 Words: 4,559 Chapters: 1/1',
+  })
+# ---
+# name: test_extracted_metadata_snapshot[tagWall.pdf]
+  dict({
+    'link': 'https://archiveofourown.org/works/20907563',
+    'series': list([
+    ]),
+    'stats': 'Stats: Published: 2019-10-05 Updated: 2020-05-27 Words: 13,800 Chapters: 10/?',
+  })
+# ---
+# name: test_extracted_metadata_snapshot[workInSeries.pdf]
+  dict({
+    'link': 'https://archiveofourown.org/works/334557',
+    'series': list([
+      'http://archiveofourown.org/series/15213',
+    ]),
+    'stats': 'Stats: Published: 2012-02-07 Words: 31,623 Chapters: 8/8',
+  })
+# ---

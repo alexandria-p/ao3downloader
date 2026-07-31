@@ -82,3 +82,22 @@
     'link': 'https://archiveofourown.org/works/218676',
   })
 # ---
+# name: test_process_file_pdf_tag_wall_snapshot
+  dict({
+    'chapters': '10',
+    'link': 'https://archiveofourown.org/works/20907563',
+  })
+# ---
+# name: test_process_file_pdf_update_false_snapshot
+  dict({
+    'link': 'https://archiveofourown.org/works/23009290',
+  })
+# ---
+# name: test_process_file_pdf_work_in_series_snapshot
+  dict({
+    'link': 'https://archiveofourown.org/works/334557',
+    'series': list([
+      'http://archiveofourown.org/series/15213',
+    ]),
+  })
+# ---

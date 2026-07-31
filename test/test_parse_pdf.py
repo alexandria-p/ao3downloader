@@ -1,46 +1,76 @@
 """Tests for ao3downloader.parse_pdf — PDF metadata extraction."""
 
+import glob
 import os
 from unittest.mock import MagicMock
 
-import pdfquery
 import pytest
+from pypdf import PageObject, PdfReader
+from pypdf.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject
 
-from ao3downloader import parse_pdf
+from ao3downloader import exceptions, parse_pdf
 
-from test.conftest import ebook_fixtures
+from test.conftest import EBOOK_DIR, ebook_fixtures
 
 
-def _load_pdf(path: str) -> pdfquery.PDFQuery:
-    pdf = pdfquery.PDFQuery(path)
-    try:
-        pdf.load(0, 1, 2)
-    except StopIteration:
-        pdf.load()
-    return pdf
+def _load_pages(path: str) -> list[PageObject]:
+    return list(PdfReader(path).pages[:3])
+
+
+def _load_lines(path: str) -> list[str]:
+    return parse_pdf.get_lines_pdf(_load_pages(path))
 
 
 def _ids(paths):
     return [os.path.basename(p) for p in paths]
 
 
-def _fake_pdf(text_by_selector: dict) -> MagicMock:
-    """Build a MagicMock PDFQuery whose `.pq(selector).text()` returns canned strings."""
-    pdf = MagicMock()
+def _annotation(uri: str | None = None) -> DictionaryObject:
+    """Build a link annotation like the ones AO3 pdfs use for series links."""
+    annotation = DictionaryObject()
+    if uri is not None:
+        action = DictionaryObject()
+        action[NameObject('/URI')] = TextStringObject(uri)
+        annotation[NameObject('/A')] = action
+    return annotation
 
-    def _pq(selector):
-        node = MagicMock()
-        text = text_by_selector.get(selector, '')
-        node.text.return_value = text
-        node.strip = lambda: text.strip()
-        # default next() returns empty
-        nxt = MagicMock()
-        nxt.text.return_value = ''
-        node.next.return_value = nxt
-        return node
 
-    pdf.pq.side_effect = _pq
-    return pdf
+def _page_with_annotations(annotations: list[DictionaryObject]) -> PageObject:
+    page = PageObject.create_blank_page(width=612, height=792)
+    page[NameObject('/Annots')] = ArrayObject(annotations)
+    return page
+
+
+# region fixture snapshots
+
+_CURRENT_PDFS = sorted(glob.glob(os.path.join(EBOOK_DIR, '*', 'current', '*.pdf')))
+
+
+@pytest.mark.parametrize('path', _CURRENT_PDFS, ids=_ids(_CURRENT_PDFS))
+def test_extracted_metadata_snapshot(path, snapshot):
+    """Pin the exact metadata extracted from every current pdf fixture."""
+    pages = _load_pages(path)
+    lines = parse_pdf.get_lines_pdf(pages)
+
+    assert {
+        'link': parse_pdf.get_work_link_pdf(lines),
+        'stats': parse_pdf.get_stats_pdf(lines),
+        'series': parse_pdf.get_series_pdf(pages),
+    } == snapshot
+
+# endregion
+
+
+# region get_lines_pdf
+
+def test_get_lines_pdf_wraps_extraction_errors():
+    page = MagicMock()
+    page.extract_text.side_effect = Exception('boom')
+
+    with pytest.raises(exceptions.PdfParsingException):
+        parse_pdf.get_lines_pdf([page])
+
+# endregion
 
 
 # region get_work_link_pdf
@@ -48,17 +78,15 @@ def _fake_pdf(text_by_selector: dict) -> MagicMock:
 @pytest.mark.parametrize('path', ebook_fixtures('23009290', '.pdf'),
                          ids=_ids(ebook_fixtures('23009290', '.pdf')))
 def test_get_work_link_pdf_extracts_url_from_real_fixture(path):
-    pdf = _load_pdf(path)
-    link = parse_pdf.get_work_link_pdf(pdf)
+    link = parse_pdf.get_work_link_pdf(_load_lines(path))
 
     assert link is not None
     assert 'archiveofourown.org/works/' in link
 
 
 def test_get_work_link_pdf_returns_none_when_marker_text_missing():
-    pdf = _fake_pdf({})  # all selectors return empty text
-
-    assert parse_pdf.get_work_link_pdf(pdf) is None
+    assert parse_pdf.get_work_link_pdf(['some text', 'that is not', 'an ao3 preface']) is None
+    assert parse_pdf.get_work_link_pdf([]) is None
 
 # endregion
 
@@ -68,8 +96,7 @@ def test_get_work_link_pdf_returns_none_when_marker_text_missing():
 @pytest.mark.parametrize('path', ebook_fixtures('23009290', '.pdf'),
                          ids=_ids(ebook_fixtures('23009290', '.pdf')))
 def test_get_stats_pdf_returns_chapters_when_on_same_line(path):
-    pdf = _load_pdf(path)
-    stats = parse_pdf.get_stats_pdf(pdf)
+    stats = parse_pdf.get_stats_pdf(_load_lines(path))
 
     assert stats is not None
     assert 'Chapters:' in stats
@@ -79,35 +106,32 @@ def test_get_stats_pdf_returns_chapters_when_on_same_line(path):
 @pytest.mark.parametrize('path', ebook_fixtures('20907563', '.pdf'),
                          ids=_ids(ebook_fixtures('20907563', '.pdf')))
 def test_get_stats_pdf_appends_next_line_for_multi_line_stats(path):
-    pdf = _load_pdf(path)
-    result = parse_pdf.get_stats_pdf(pdf)
+    result = parse_pdf.get_stats_pdf(_load_lines(path))
 
     assert result is not None
     assert 'Chapters:' in result
     assert '/' in result
 
 
+def test_get_stats_pdf_returns_line_when_chapter_count_complete():
+    assert parse_pdf.get_stats_pdf(['Words: 100 Chapters: 3/10', 'next line']) == 'Words: 100 Chapters: 3/10'
+
+
 def test_get_stats_pdf_inserts_space_after_colon_when_missing():
-    pdf = MagicMock()
-    node = MagicMock()
-    node.text.return_value = 'Chapters:'
-    nxt = MagicMock()
-    nxt.text.return_value = '3/10'
-    node.next.return_value = nxt
-    pdf.pq.return_value = node
-
-    result = parse_pdf.get_stats_pdf(pdf)
-
-    assert result == 'Chapters: 3/10'
+    assert parse_pdf.get_stats_pdf(['Chapters:', '3/10']) == 'Chapters: 3/10'
 
 
-def test_get_stats_pdf_returns_none_when_text_empty():
-    pdf = MagicMock()
-    node = MagicMock()
-    node.text.return_value = ''
-    pdf.pq.return_value = node
+def test_get_stats_pdf_appends_next_line_when_total_chapters_missing():
+    assert parse_pdf.get_stats_pdf(['Chapters: 3/', '10']) == 'Chapters: 3/10'
 
-    assert parse_pdf.get_stats_pdf(pdf) is None
+
+def test_get_stats_pdf_handles_chapters_marker_on_last_line():
+    assert parse_pdf.get_stats_pdf(['Chapters:']) == 'Chapters: '
+
+
+def test_get_stats_pdf_returns_none_when_chapters_marker_missing():
+    assert parse_pdf.get_stats_pdf(['no chapter data here']) is None
+    assert parse_pdf.get_stats_pdf([]) is None
 
 # endregion
 
@@ -117,15 +141,13 @@ def test_get_stats_pdf_returns_none_when_text_empty():
 @pytest.mark.parametrize('path', ebook_fixtures('23009290', '.pdf'),
                          ids=_ids(ebook_fixtures('23009290', '.pdf')))
 def test_get_series_pdf_returns_empty_when_no_series(path):
-    pdf = _load_pdf(path)
-    assert parse_pdf.get_series_pdf(pdf) == []
+    assert parse_pdf.get_series_pdf(_load_pages(path)) == []
 
 
 @pytest.mark.parametrize('path', ebook_fixtures('334557', '.pdf'),
                          ids=_ids(ebook_fixtures('334557', '.pdf')))
 def test_get_series_pdf_returns_series_from_work_in_series(path):
-    pdf = _load_pdf(path)
-    series = parse_pdf.get_series_pdf(pdf)
+    series = parse_pdf.get_series_pdf(_load_pages(path))
 
     assert series
     assert all('archiveofourown.org/series/' in s for s in series)
@@ -133,15 +155,16 @@ def test_get_series_pdf_returns_series_from_work_in_series(path):
 
 def test_get_series_pdf_filters_non_series_annotations():
     """Guard against partial URIs: only /series/ links should pass the filter."""
-    pdf = MagicMock()
-    annots = [
-        MagicMock(attrib={'URI': 'https://archiveofourown.org/works/111'}),
-        MagicMock(attrib={'URI': 'https://archiveofourown.org/series/222'}),
-        MagicMock(attrib={}),  # no URI
-        MagicMock(attrib={'URI': 'https://example.com/unrelated'}),
+    pages = [
+        PageObject.create_blank_page(width=612, height=792),  # no annotations at all
+        _page_with_annotations([
+            _annotation('https://archiveofourown.org/works/111'),
+            _annotation('https://archiveofourown.org/series/222'),
+            _annotation(),  # no link action
+            _annotation('https://example.com/unrelated'),
+        ]),
     ]
-    pdf.pq.return_value = annots
 
-    assert parse_pdf.get_series_pdf(pdf) == ['https://archiveofourown.org/series/222']
+    assert parse_pdf.get_series_pdf(pages) == ['https://archiveofourown.org/series/222']
 
 # endregion

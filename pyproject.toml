@@ -19,11 +19,9 @@ keywords = [
 ]
 dependencies = [
     "beautifulsoup4>=4.13.4",
-    "cryptography<49", # cryptography dropped support for Intel macs. needs follow-up, see issue 336
     "mobi>=0.3.3",
-    "pdfquery>=0.4.3",
+    "pypdf>=6.14.2",
     "requests>=2.32.5",
-    "six>=1.17.0",
     "tqdm>=4.67.1",
 ]
 

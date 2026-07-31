@@ -14,7 +14,7 @@ import zipfile
 
 import pytest
 
-from ao3downloader import update
+from ao3downloader import exceptions, strings, update
 
 from test.conftest import ebook_fixtures
 
@@ -339,6 +339,32 @@ def test_process_file_azw3_returns_none_when_extracted_file_not_epub(monkeypatch
 
 # region PDF
 
+def _minimal_pdf(text: str) -> bytes:
+    """Build a minimal but fully valid one-page PDF containing `text`."""
+    stream = f'BT /F1 12 Tf 72 720 Td ({text}) Tj ET'.encode()
+    objects = [
+        b'<< /Type /Catalog /Pages 2 0 R >>',
+        b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] '
+        b'/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+        b'<< /Length ' + str(len(stream)).encode() + b' >>\nstream\n' + stream + b'\nendstream',
+        b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ]
+    out = b'%PDF-1.4\n'
+    offsets = []
+    for i, obj in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f'{i} 0 obj\n'.encode() + obj + b'\nendobj\n'
+    xref_pos = len(out)
+    out += f'xref\n0 {len(objects) + 1}\n'.encode()
+    out += b'0000000000 65535 f \n'
+    for offset in offsets:
+        out += f'{offset:010d} 00000 n \n'.encode()
+    out += (f'trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n'
+            f'startxref\n{xref_pos}\n%%EOF\n').encode()
+    return out
+
+
 def test_process_file_pdf_incomplete_work_snapshot(snapshot):
     path = os.path.join(EBOOK_DIR, '218676', 'current', 'incompleteWork.pdf')
     assert update.process_file(path, 'PDF') == snapshot
@@ -354,10 +380,32 @@ def test_process_file_pdf_incomplete_work_structural(path):
     assert result['chapters']
 
 
+def test_process_file_pdf_tag_wall_snapshot(snapshot):
+    # the tag wall pushes the work text deep into the document; this pins that
+    # the metadata is still found when only the first pages are searched
+    path = os.path.join(EBOOK_DIR, '20907563', 'current', 'tagWall.pdf')
+    assert update.process_file(path, 'PDF') == snapshot
+
+
+@pytest.mark.parametrize('path', ebook_fixtures('20907563', '.pdf'),
+                         ids=_ids(ebook_fixtures('20907563', '.pdf')))
+def test_process_file_pdf_tag_wall_structural(path):
+    result = update.process_file(path, 'PDF')
+
+    assert result is not None
+    assert 'archiveofourown.org/works/' in result['link']
+    assert result['chapters']
+
+
 @pytest.mark.parametrize('path', ebook_fixtures('23009290', '.pdf'),
                          ids=_ids(ebook_fixtures('23009290', '.pdf')))
 def test_process_file_pdf_complete_work_returns_none(path):
     assert update.process_file(path, 'PDF') is None
+
+
+def test_process_file_pdf_update_false_snapshot(snapshot):
+    path = os.path.join(EBOOK_DIR, '23009290', 'current', 'pdfTest.pdf')
+    assert update.process_file(path, 'PDF', update=False) == snapshot
 
 
 @pytest.mark.parametrize('path', ebook_fixtures('23009290', '.pdf'),
@@ -369,6 +417,11 @@ def test_process_file_pdf_update_false_returns_link(path):
     assert 'archiveofourown.org/works/' in result['link']
 
 
+def test_process_file_pdf_work_in_series_snapshot(snapshot):
+    path = os.path.join(EBOOK_DIR, '334557', 'current', 'workInSeries.pdf')
+    assert update.process_file(path, 'PDF', update_series=True) == snapshot
+
+
 @pytest.mark.parametrize('path', ebook_fixtures('334557', '.pdf'),
                          ids=_ids(ebook_fixtures('334557', '.pdf')))
 def test_process_file_pdf_work_in_series_returns_series(path):
@@ -377,6 +430,31 @@ def test_process_file_pdf_work_in_series_returns_series(path):
     assert result is not None
     assert result['series']
     assert all('archiveofourown.org/series/' in s for s in result['series'])
+
+
+@pytest.mark.parametrize('path', ebook_fixtures('23009290', '.pdf'),
+                         ids=_ids(ebook_fixtures('23009290', '.pdf')))
+def test_process_file_pdf_update_series_returns_none_for_solo_work(path):
+    assert update.process_file(path, 'PDF', update_series=True) is None
+
+
+def test_process_file_pdf_returns_none_for_non_ao3_pdf(tmp_path):
+    # single-page pdf also exercises the fallback for documents shorter
+    # than the number of pages the parser tries to load
+    pdf_path = tmp_path / 'not_ao3.pdf'
+    pdf_path.write_bytes(_minimal_pdf('A pdf that did not come from the archive.'))
+
+    assert update.process_file(str(pdf_path), 'PDF') is None
+
+
+def test_process_file_pdf_returns_none_on_parse_failure(monkeypatch):
+    def raise_parse_error(pdf):
+        raise exceptions.PdfParsingException(strings.ERROR_PDF_PARSE)
+
+    monkeypatch.setattr('ao3downloader.update.parse_pdf.get_work_link_pdf', raise_parse_error)
+    path = os.path.join(EBOOK_DIR, '23009290', 'current', 'pdfTest.pdf')
+
+    assert update.process_file(path, 'PDF') is None
 
 # endregion
 

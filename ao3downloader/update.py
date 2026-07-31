@@ -4,8 +4,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 import mobi
-import pdfquery
 from bs4 import BeautifulSoup
+from pypdf import PdfReader
 
 from ao3downloader import exceptions, parse_pdf, parse_soup, parse_text, parse_xml, strings
 
@@ -66,15 +66,13 @@ def process_file(path: str, filetype: str, update: bool=True, update_series: boo
             shutil.rmtree(tempdir)
 
     elif filetype == 'PDF':
-        pdf = pdfquery.PDFQuery(path, input_text_formatter='utf-8')
+        reader = PdfReader(path)
+        pages = list(reader.pages[:3]) # take the first 3 pages. please god no one has a longer tag wall than that.
         try:
-            pdf.load(0, 1, 2) # load the first 3 pages. please god no one has a longer tag wall than that.
-        except StopIteration:
-            pdf.load() # handle pdfs with fewer than 3 pages
-        try:
-            href = parse_pdf.get_work_link_pdf(pdf)
-            stats = parse_pdf.get_stats_pdf(pdf)
-            if update_series: series = parse_pdf.get_series_pdf(pdf)
+            lines = parse_pdf.get_lines_pdf(pages)
+            href = parse_pdf.get_work_link_pdf(lines)
+            stats = parse_pdf.get_stats_pdf(lines)
+            if update_series: series = parse_pdf.get_series_pdf(pages)
         except exceptions.PdfParsingException:
             return None
 
