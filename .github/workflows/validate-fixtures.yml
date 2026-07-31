@@ -70,15 +70,26 @@ jobs:
 
       # region pass 2 - archive old ebook versions on structural break.
       # pass 1 failed even after snapshot update -> the live format changed in a way
-      # the parser cannot handle. preserve the pre-refresh (working) ebooks under
-      # archive/ so the human fix can be regression-tested against them.
+      # the parser cannot handle. rerun only the ebook parsing tests (marked via
+      # conftest.py) to check whether the ebooks themselves are implicated — a
+      # failure elsewhere (e.g. an html metadata assertion) should not archive
+      # anything. if the ebooks are broken, preserve the pre-refresh (working)
+      # ebooks under archive/ so the human fix can be regression-tested against them.
+
+      - name: check whether ebook tests fail
+        if: steps.pass1.outcome == 'failure' && steps.pass1-retry.outcome == 'failure'
+        id: ebook-tests
+        continue-on-error: true
+        env:
+          AO3_FIXTURE_MODE: current_only
+        run: uv run python -m pytest test/ -v -m ebook
 
       - name: archive pre-refresh ebook fixtures
-        if: steps.pass1.outcome == 'failure' && steps.pass1-retry.outcome == 'failure'
+        if: steps.ebook-tests.outcome == 'failure'
         run: uv run python dev/archive_old_fixtures.py
 
       - name: pass 2 — full suite (current + archive)
-        if: steps.pass1.outcome == 'failure' && steps.pass1-retry.outcome == 'failure'
+        if: steps.ebook-tests.outcome == 'failure'
         id: pass2
         continue-on-error: true
         run: uv run python -m pytest test/ -v
@@ -146,8 +157,8 @@ jobs:
           ## Summary
           - Weekly fixture refresh detected changes in AO3's HTML
           - **Tests are failing** even after snapshot update — parser likely needs to be fixed
-          - Pre-refresh ebook versions have been preserved under `test/fixtures/ebook/*/archive/`
-            so the fix can be regression-tested against them
+          - If the ebook parsing tests failed, pre-refresh ebook versions have been preserved
+            under `test/fixtures/ebook/*/archive/` so the fix can be regression-tested against them
           - See the workflow run for details
 
           *Automated by validate-fixtures workflow*
@@ -161,8 +172,8 @@ jobs:
           ## Summary
           - Weekly fixture refresh detected changes in AO3's HTML
           - **Tests are failing** even after snapshot update — parser likely needs to be fixed
-          - Pre-refresh ebook versions have been preserved under `test/fixtures/ebook/*/archive/`
-            so the fix can be regression-tested against them
+          - If the ebook parsing tests failed, pre-refresh ebook versions have been preserved
+            under `test/fixtures/ebook/*/archive/` so the fix can be regression-tested against them
           - See the workflow run for details
 
           *Automated by validate-fixtures workflow*

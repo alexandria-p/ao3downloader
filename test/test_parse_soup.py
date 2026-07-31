@@ -278,6 +278,13 @@ def _assert_reading_history_format(result: dict) -> None:
     assert result['times_visited'].isdigit()
 
 
+def _assert_bookmark_date_format(result: dict) -> None:
+    # ao3 renders the bookmark date inside a fragment cache that is not keyed
+    # on time zone, so the displayed day can shift when the cache regenerates -
+    # assert only that it is a valid AO3 date
+    datetime.strptime(result['date_bookmarked'], '%d %b %Y')
+
+
 def test_get_work_metadata_from_work_returns_expected_keys(fixture_soup, snapshot):
     soup = fixture_soup('unlockedWork')
     link = 'https://archiveofourown.org/works/12345678'
@@ -312,7 +319,7 @@ def test_get_work_metadata_from_list_does_not_leak_from_other_blurbs(fixture_sou
     assert 'Mind Meld' not in result['tags']
     assert result['series'] == []
     assert result['updated'] == '09 Jun 2025'
-    assert result['date_bookmarked'] == '19 May 2026'
+    _assert_bookmark_date_format(result)
     assert result['bookmarker_tags'] == []
     assert result['bookmarker_notes'] == ''
     # bookmark listings have no reading history data
@@ -325,7 +332,7 @@ def test_get_work_metadata_from_list_series_and_bookmarker_tags(fixture_soup):
 
     assert result['series'] == ['Part 1 of MXTX - Retellings', 'Part 1 of No Paths Are Bound + Extras']
     assert result['updated'] == '08 Sep 2022'
-    assert result['date_bookmarked'] == '18 May 2026'
+    _assert_bookmark_date_format(result)
     assert result['bookmarker_tags'] == ['long work']
     assert result['bookmarker_notes'] == ''
 
@@ -336,7 +343,7 @@ def test_get_work_metadata_from_list_bookmarker_notes(fixture_soup):
     assert result['bookmarker_notes'].strip() == '<p>This bookmark has a note!</p>'
     assert result['bookmarker_tags'] == []
     assert result['updated'] == '18 Oct 2022'
-    assert result['date_bookmarked'] == '18 May 2026'
+    _assert_bookmark_date_format(result)
 
 
 def test_get_work_metadata_from_list_marked_for_later(fixture_soup):

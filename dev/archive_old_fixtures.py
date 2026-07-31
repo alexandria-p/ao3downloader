@@ -1,10 +1,10 @@
 """Archive pre-refresh ebook fixtures after a format-breaking refresh.
 
-Called from the validate-fixtures CI workflow when the Pass 1 test run (with
-AO3_FIXTURE_MODE=current_only) fails: this means the newly-downloaded ebook in
-test/fixtures/ebook/<work_id>/current/ is no longer parseable by update.py, so
-we preserve the previous (working) version under the sibling archive/ folder
-for regression testing against future parser fixes.
+Called from the validate-fixtures CI workflow when the ebook-marked tests fail
+against a fresh refresh (with AO3_FIXTURE_MODE=current_only): this means the
+newly-downloaded ebook in test/fixtures/ebook/<work_id>/current/ is no longer
+parseable by update.py, so we preserve the previous (working) version under
+the sibling archive/ folder for regression testing against future parser fixes.
 
 For each ebook file that is modified relative to HEAD, this script:
   1. Retrieves the pre-refresh bytes via `git show HEAD:<path>`.
