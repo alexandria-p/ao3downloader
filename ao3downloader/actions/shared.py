@@ -60,6 +60,11 @@ def metadata() -> bool:
     return True if input() == strings.PROMPT_YES else False
 
 
+def metadata_work_dates() -> bool:
+    print(strings.AO3_PROMPT_METADATA_WORK_DATES)
+    return True if input() == strings.PROMPT_YES else False
+
+
 def ignorelist_check_deleted() -> bool:
     print(strings.IGNORELIST_PROMPT_CHECK_DELETED)
     return True if input() == strings.PROMPT_YES else False
@@ -194,16 +199,22 @@ def ao3_login(repo: Repository, fileops: FileOps, force: bool=False) -> None:
             raise
 
 
-def download_types(fileops: FileOps) -> list[str]:
+def download_types(fileops: FileOps, allow_metadata: bool = False) -> list[str]:
+    acceptable = strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES_WITH_METADATA if allow_metadata else strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES
+    prompt = strings.AO3_PROMPT_DOWNLOAD_TYPE_WITH_METADATA if allow_metadata else strings.AO3_PROMPT_DOWNLOAD_TYPE
     filetypes = fileops.get_setting(strings.SETTING_FILETYPES)
     if isinstance(filetypes, list):
-        print(strings.AO3_PROMPT_USE_SAVED_DOWNLOAD_TYPES)
-        if input() == strings.PROMPT_YES: return filetypes
+        # the saved list is shared with actions that can't produce metadata, so drop
+        # anything the action we're running now has no way to use
+        filetypes = [x for x in filetypes if x in acceptable]
+        if filetypes:
+            print(strings.AO3_PROMPT_USE_SAVED_DOWNLOAD_TYPES)
+            if input() == strings.PROMPT_YES: return filetypes
     filetypes = []
     while(True):
         filetype = ''
-        while filetype not in strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES:
-            print(strings.AO3_PROMPT_DOWNLOAD_TYPE)
+        while filetype not in acceptable:
+            print(prompt)
             filetype = input()
         filetypes.append(filetype)
         print(strings.AO3_INFO_FILE_TYPE.format(filetype))

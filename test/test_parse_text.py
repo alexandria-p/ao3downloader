@@ -307,6 +307,33 @@ def test_get_current_chapters_handles_index_0():
     # No characters before index 0, so we get an empty string back.
     assert parse_text.get_current_chapters('/10', 0) == ''
 
+
+@pytest.mark.parametrize('text, expected', [
+    ('1,158,737', 1158737),
+    ('7', 7),
+    ('  2,053,077  ', 2053077),
+    # ao3 leaves a stat out of the blurb when it is zero, so an absent value stays
+    # absent rather than being reported as a count of zero
+    ('', None),
+    ('Hits:', None),
+])
+def test_get_count_parses_displayed_stats(text, expected):
+    assert parse_text.get_count(text) == expected
+
+
+@pytest.mark.parametrize('text, expected', [
+    ('152/152', (152, 152)),
+    ('3/?', (3, None)),
+    ('1/1', (1, 1)),
+    ('\n            3\n          /?', (3, None)),
+    # a listing without a chapter count at all
+    ('', (None, None)),
+    # no separator: treat the whole thing as the published count
+    ('12', (12, None)),
+])
+def test_get_chapter_counts_splits_published_and_total(text, expected):
+    assert parse_text.get_chapter_counts(text) == expected
+
 # endregion
 
 

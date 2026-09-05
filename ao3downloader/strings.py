@@ -75,7 +75,14 @@ AO3_PROMPT_PASSWORD_SAVE_TRUE = 'will'
 AO3_PROMPT_PASSWORD_SAVE_FALSE = 'will not'
 AO3_PROMPT_USE_SAVED_DOWNLOAD_TYPES = 'use saved download type list? ({}/{})'.format(PROMPT_YES, PROMPT_NO)
 AO3_ACCEPTABLE_DOWNLOAD_TYPES = ['AZW3', 'EPUB', 'MOBI', 'PDF', 'HTML']
+AO3_DOWNLOAD_TYPE_METADATA = 'JSON'
+AO3_ACCEPTABLE_DOWNLOAD_TYPES_WITH_METADATA = AO3_ACCEPTABLE_DOWNLOAD_TYPES + [AO3_DOWNLOAD_TYPE_METADATA]
 AO3_PROMPT_DOWNLOAD_TYPE = 'please enter download type. choose from the following (case-sensitive):\n' + '\n'.join(AO3_ACCEPTABLE_DOWNLOAD_TYPES)
+AO3_PROMPT_DOWNLOAD_TYPE_WITH_METADATA = (
+    'please enter download type. choose from the following (case-sensitive):\n'
+    + '\n'.join(AO3_ACCEPTABLE_DOWNLOAD_TYPES_WITH_METADATA)
+    + '\nNOTE: ' + AO3_DOWNLOAD_TYPE_METADATA + ' does not download the works themselves. it saves work and\n'
+    + 'bookmark metadata for every work on the page to a single ' + AO3_DOWNLOAD_TYPE_METADATA.lower() + ' file.')
 AO3_PROMPT_DOWNLOAD_TYPES_COMPLETE = 'done entering file types? ({}/{})'.format(PROMPT_YES, PROMPT_NO)
 AO3_PROMPT_LINK = 'please enter a link to ao3 (for example bookmarks, search results, or a series)'
 AO3_PROMPT_LAST_PAGE = 'do you want to start downloading from the page you stopped on last time? ({}/{})'.format(PROMPT_YES, PROMPT_NO)
@@ -84,10 +91,19 @@ AO3_PROMPT_IMAGES = 'do you want to download embedded images? (will be saved sep
 AO3_PROMPT_SERIES = 'do you want to get works from all encountered series links? (bookmarked series and subscriptions will always be downloaded, regardless of this option) ({}/{})'.format(PROMPT_YES, PROMPT_NO)
 AO3_PROMPT_METADATA = 'do you want to include work metadata? ({}/{})'.format(PROMPT_YES, PROMPT_NO)
 AO3_PROMPT_FILE_INPUT = 'please enter complete file path (including file extension) to file containing links to download (must be a text file with one link on each line)'
+AO3_PROMPT_METADATA_WORK_DATES = 'do you want to look up the original publication date of every work? this is the only\nfield that is not on the listing page, so it requires loading each work separately\nand is a lot slower. ({}/{})'.format(PROMPT_YES, PROMPT_NO)
 AO3_INFO_LOGIN = 'logging in'
 AO3_INFO_DOWNLOADING = 'downloading works'
 AO3_INFO_FILE_TYPE = 'added {} to list of download types'
 AO3_INFO_VISITED = 'generating list of work links that are already in the downloads folder (will be skipped)'
+AO3_INFO_METADATA = 'getting metadata'
+AO3_INFO_METADATA_WORK_DATES = 'looking up publication dates for {} works'
+AO3_INFO_METADATA_PROGRESS = 'finished {} of {} works'
+AO3_INFO_METADATA_PAGE = 'finished page {} of {}. {} works so far'
+AO3_INFO_METADATA_SKIPPED = 'skipped {} bookmarks that are not works (series, external works, or deleted works)'
+AO3_INFO_METADATA_WRITTEN = 'wrote metadata for {} works to {}'
+AO3_INFO_METADATA_INCREMENTAL = 'saving one json file per work as each page is read. if you need to stop\nearly, press ctrl+c rather than closing the window'
+AO3_INFO_METADATA_NONE = 'no works found on that page. nothing was written'
 
 PROMPT_LINKS_ONLY = 'save links to a file instead of downloading? ({}/{})'.format(PROMPT_YES, PROMPT_NO)
 INFO_LINKS_FILE_WRITTEN = 'wrote {} links to {}'
@@ -198,6 +214,10 @@ ERROR_MARK_READ_SKIP = 'Skipping marking work as read; could not find form input
 ERROR_PDF_PARSE = 'Problem parsing pdf; skipping update check'
 ERROR_SERIES_LINK = 'Expected series information, but could not find it'
 ERROR_WORK_BLURB = 'Could not find work metadata in list'
+ERROR_METADATA_BLURB = 'Problem parsing work metadata from listing'
+ERROR_METADATA_SAVE = 'Problem saving work metadata file'
+ERROR_METADATA_WORK_DATES = 'Problem getting publication dates from work page'
+ERROR_METADATA_NOT_A_LISTING = 'The {} download type needs a link to a listing of works, such as bookmarks, search results, or a series. It cannot be used with a link to a single work.'
 
 FAILED_LOGIN_NOT_FOUND = 'could not retrieve login page'
 FAILED_LOGIN_NO_RESPONSE = 'could not get a response from login request'

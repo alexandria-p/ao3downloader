@@ -1,3 +1,5 @@
+import os
+
 from ao3downloader import strings
 from ao3downloader.actions import shared
 from ao3downloader.ao3 import Ao3
@@ -9,17 +11,39 @@ def action():
     fileops = FileOps()
     with Repository(fileops) as repo:
 
-        filetypes = shared.download_types(fileops)
-        series = shared.series()
+        filetypes = shared.download_types(fileops, allow_metadata=True)
+
+        # JSON isn't a format ao3 will hand us a work in - it means "export what the
+        # listing knows about these works" - so it runs as its own pass over the link.
+        metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in filetypes
+        downloadtypes = [x for x in filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+
+        series = shared.series() if downloadtypes else False
         link = shared.link(fileops)
         pages = shared.pages()
-        images = shared.images()
+        images = shared.images() if downloadtypes else False
+        workdates = shared.metadata_work_dates() if metadata else False
 
         shared.ao3_login(repo, fileops)
 
-        visited = shared.visited(fileops, filetypes)
+        # an empty filetype list would make every work look like it was already
+        # downloaded, so only build the skip list when we're actually downloading
+        visited = shared.visited(fileops, downloadtypes) if downloadtypes else []
 
-        print(strings.AO3_INFO_DOWNLOADING)
+        ao3 = Ao3(repo, fileops, downloadtypes, pages, series, images)
 
-        ao3 = Ao3(repo, fileops, filetypes, pages, series, images)
-        ao3.download(link, visited)
+        if metadata:
+            print(strings.AO3_INFO_METADATA)
+            print(strings.AO3_INFO_METADATA_INCREMENTAL)
+            records = ao3.get_metadata(link, workdates)
+            if records:
+                print(strings.AO3_INFO_METADATA_WRITTEN.format(
+                    str(len(records)), os.path.abspath(fileops.downloadfolder)))
+            else:
+                print(strings.AO3_INFO_METADATA_NONE)
+
+        if downloadtypes:
+            print(strings.AO3_INFO_DOWNLOADING)
+            ao3.download(link, visited)
+
+

@@ -1,0 +1,446 @@
+:host {
+  display: block;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 16px 20px 60px;
+}
+
+/* region top bar */
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.source {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.remembered {
+  color: #7fb069;
+  font-size: 0.7em;
+  vertical-align: middle;
+}
+
+.reconnect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16px 0;
+  padding: 10px 12px;
+  border: 1px solid #5a5230;
+  border-radius: 3px;
+  background: #2b2820;
+  font-size: 0.88rem;
+}
+
+.button {
+  display: inline-block;
+  font-family: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.button:hover {
+  background: #383838;
+}
+
+.button.subtle {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+/* endregion */
+
+/* region page-level messages */
+
+.error {
+  margin: 16px 0;
+  padding: 10px 12px;
+  border: 1px solid #6b3a3a;
+  border-radius: 3px;
+  background: #2e2020;
+  color: var(--danger);
+}
+
+.notice {
+  margin: 16px 0;
+  color: var(--text-dim);
+}
+
+.empty {
+  margin-top: 48px;
+  padding: 28px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.empty h2 {
+  margin-top: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.empty .hint {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.listing-heading {
+  margin: 20px 0 4px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.meta-line {
+  margin: 0 0 16px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+/* endregion */
+
+/* region pagination */
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  margin: 18px 0;
+}
+
+.pagination button {
+  min-width: 26px;
+  padding: 3px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--surface-2);
+  color: var(--link);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.pagination button:hover:not(:disabled):not(.current) {
+  background: #3a3a3a;
+  color: #fff;
+}
+
+.pagination button.current {
+  background: #f0f0f0;
+  border-color: #f0f0f0;
+  color: #1e1e1e;
+  font-weight: 600;
+  cursor: default;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pagination .step {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.pagination .gap {
+  padding: 0 2px;
+  color: var(--text-dim);
+}
+
+/* endregion */
+
+/* region blurbs */
+
+.index {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.blurb {
+  position: relative;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.blurb-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-right: 90px;
+}
+
+.blurb-titles {
+  min-width: 0;
+}
+
+.symbols {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, 13px);
+  gap: 2px;
+  margin-top: 3px;
+}
+
+.tile {
+  display: block;
+  width: 13px;
+  height: 13px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 2px;
+  background: #6b6b6b;
+}
+
+.rating-general { background: #7fb069; }
+.rating-teen { background: #e0c341; }
+.rating-mature { background: #e08b41; }
+.rating-explicit { background: #cc4b4b; }
+.rating-none { background: #6b6b6b; }
+
+.tile.category { background: #5a8fc7; border-radius: 50%; }
+
+.warning-none { background: #e6e6e6; }
+.warning-maybe { background: #9a9a9a; }
+.warning-yes { background: #cc4b4b; }
+
+.complete-yes { background: #7fb069; border-radius: 50%; }
+.complete-no { background: #b05a5a; border-radius: 50%; }
+
+.blurb > .datetime {
+  position: absolute;
+  top: 34px;
+  right: 14px;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
+.heading {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.heading .by {
+  margin: 0 4px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.heading a {
+  font-weight: 600;
+}
+
+/* a title with a downloaded copy behind it is worth telling apart from one that
+   will bounce out to ao3 */
+.heading a.title.local {
+  color: #fff;
+}
+
+.heading a.title:not(.local) {
+  color: var(--text);
+  text-decoration-style: dotted;
+}
+
+.fandoms {
+  margin: 0 0 8px;
+  font-size: 0.92rem;
+  font-weight: 400;
+}
+
+.tags {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  line-height: 1.7;
+}
+
+.tags li {
+  display: inline;
+}
+
+.tags li::after {
+  content: ',\00a0';
+  color: var(--text-dim);
+}
+
+.tags li:last-child::after {
+  content: '';
+}
+
+.tags li.warning .tag {
+  font-weight: 700;
+}
+
+.tag {
+  border-bottom: 1px solid var(--border-strong);
+  color: var(--link);
+  cursor: default;
+}
+
+.summary {
+  margin: 10px 0;
+  padding: 0;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.summary p {
+  margin: 0 0 8px;
+}
+
+.summary p:last-child {
+  margin-bottom: 0;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  justify-content: center;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.stats dt {
+  margin: 0;
+}
+
+.stats dd {
+  margin: 0;
+  color: var(--text);
+}
+
+/* endregion */
+
+/* region bookmarker section */
+
+.user {
+  position: relative;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+
+.user .byline {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.user .datetime {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-dim);
+  vertical-align: middle;
+}
+
+.badge.rec {
+  border-color: #7a6a3a;
+  color: #d8c07a;
+}
+
+.notes {
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 0.88rem;
+}
+
+.notes p {
+  margin: 0 0 6px;
+}
+
+.notes p:last-child {
+  margin-bottom: 0;
+}
+
+.bookmark-tags {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+}
+
+.bookmark-tags .label {
+  margin-right: 4px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+/* endregion */
+
+@media (max-width: 620px) {
+  .blurb > .datetime {
+    position: static;
+    margin-bottom: 6px;
+  }
+
+  .blurb-head,
+  .heading {
+    margin-right: 0;
+  }
+}

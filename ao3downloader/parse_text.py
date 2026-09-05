@@ -170,6 +170,28 @@ def get_num_from_link(link: str, start: int) -> str:
     return link[start:end]
 
 
+def get_count(text: str) -> int | None:
+    """
+    parses a stat count as displayed on ao3, for example '1,158,737', and returns it as an int.
+    returns None if there is no number in the text. ao3 omits a stat entirely when it is zero,
+    so a missing value is not the same thing as a value of zero and shouldn't be reported as one.
+    """
+
+    digits = re.sub(r'\D', '', text)
+    return int(digits) if digits else None
+
+
+def get_chapter_counts(text: str) -> tuple[int | None, int | None]:
+    """
+    parses the chapter count as displayed on ao3, for example '12/25' or '12/?',
+    and returns it as a (published, total) tuple. total is None for a work in progress.
+    """
+
+    parts = ' '.join(text.split()).split('/')
+    if len(parts) != 2: return get_count(text), None
+    return get_count(parts[0]), get_count(parts[1])
+
+
 def get_total_chapters(text: str, index: int) -> str:
     """
     read characters after index until encountering a space.

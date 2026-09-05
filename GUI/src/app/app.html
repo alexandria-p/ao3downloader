@@ -1,0 +1,262 @@
+<header class="topbar">
+  <h1>AO3 Bookmarks</h1>
+  <div class="picker">
+    @if (folderName() || sourceName()) {
+      <span class="source" [title]="sourceName()">
+        @if (folderName()) {
+          <span class="remembered" title="Remembered - loads automatically next time">&#9679;</span>
+          {{ folderName() }}
+        } @else {
+          {{ sourceName() }}
+        }
+      </span>
+    }
+
+    @if (canPickFolder) {
+      <button type="button" class="button" (click)="pickFolder()">
+        {{ folderName() ? 'Change folder' : 'Choose downloads folder' }}
+      </button>
+      @if (folderName()) {
+        <button type="button" class="button subtle" (click)="forget()">Forget</button>
+      }
+    } @else {
+      <label class="button">
+        {{ data() ? 'Change folder' : 'Choose downloads folder' }}
+        <input type="file" webkitdirectory multiple (change)="choose($event)" hidden />
+      </label>
+    }
+
+    <label class="button subtle">
+      Choose json files
+      <input type="file" accept="application/json,.json" multiple (change)="choose($event)" hidden />
+    </label>
+  </div>
+</header>
+
+@if (needsReconnect()) {
+  <p class="reconnect">
+    <span>
+      <strong>{{ folderName() }}</strong> is remembered, but this browser needs you to confirm
+      access again.
+    </span>
+    <button type="button" class="button" (click)="reconnect()">Reconnect</button>
+  </p>
+}
+
+@if (error()) {
+  <p class="error">{{ error() }}</p>
+}
+
+@if (loading()) {
+  <p class="notice">Reading files...</p>
+}
+
+@if (!data() && !loading()) {
+  <section class="empty">
+    <h2>Pick the folder your bookmarks were downloaded to</h2>
+    <p>
+      Run ao3downloader, choose option <code>a</code> and the <code>JSON</code> file type, then
+      point this page at the <code>downloads</code> folder it wrote to.
+    </p>
+    <p class="hint">
+      Choosing the whole folder rather than just the json file is what lets a work title open
+      your downloaded copy. Nothing leaves your computer - the files are read in the browser.
+    </p>
+    @if (canPickFolder) {
+      <p class="hint">
+        You only have to do this once. The folder is remembered and reopens by itself next time.
+      </p>
+    }
+  </section>
+}
+
+@if (data(); as file) {
+  <p class="listing-heading">
+    {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Bookmarks
+    @if (owner()) {
+      by <a [href]="'https://archiveofourown.org/users/' + owner()" target="_blank" rel="noopener">{{ owner() }}</a>
+    }
+  </p>
+
+  <p class="meta-line">
+    Retrieved {{ file.retrieved }}.
+    @if (linkedCount() > 0) {
+      {{ linkedCount() | number }} of {{ total() | number }} works have a downloaded copy in this
+      folder - click a title to open one.
+    } @else {
+      No downloaded work files in this folder, so titles open on AO3 instead.
+    }
+  </p>
+
+  <ng-container *ngTemplateOutlet="pager"></ng-container>
+
+  <ol class="index">
+    @for (work of pageWorks(); track $index) {
+      <li class="blurb">
+        @if (work.error) {
+          <p class="error">This bookmark could not be read from the listing page.</p>
+        } @else {
+          <p class="datetime">{{ work.date_updated }}</p>
+
+          <div class="blurb-head">
+            <div class="symbols" aria-hidden="true">
+              <span class="tile" [class]="ratingClass(work.tags.rating)" [title]="work.tags.rating || 'Not Rated'"></span>
+              <span class="tile category" [title]="work.tags.categories.join(', ') || 'No category'"></span>
+              <span class="tile" [class]="warningClass(work.warnings)" [title]="work.warnings.join(', ') || 'No warnings'"></span>
+              <span class="tile" [class]="isComplete(work) ? 'complete-yes' : 'complete-no'"
+                    [title]="isComplete(work) ? 'Complete Work' : 'Work in Progress'"></span>
+            </div>
+
+            <div class="blurb-titles">
+              <h4 class="heading">
+                <a
+                  class="title"
+                  [href]="work.link"
+                  [class.local]="hasLocalCopy(work)"
+                  [title]="hasLocalCopy(work) ? 'Open your downloaded copy' : 'Open on AO3 (no local copy in this folder)'"
+                  (click)="openWork(work, $event)"
+                  >{{ work.title }}</a
+                >
+                @if (work.authors.length) {
+                  <span class="by">by</span>
+                  @for (author of work.authors; track author; let last = $last) {
+                    <a [href]="authorLink(author)" target="_blank" rel="noopener">{{ author }}</a>@if (!last) {, }
+                  }
+                }
+              </h4>
+
+              @if (work.fandoms.length) {
+                <h5 class="fandoms">
+                  @for (fandom of work.fandoms; track fandom; let last = $last) {
+                    <span class="tag">{{ fandom }}</span>@if (!last) {, }
+                  }
+                </h5>
+              }
+            </div>
+          </div>
+
+          <ul class="tags">
+            @for (warning of work.warnings; track warning) {
+              <li class="warning"><span class="tag">{{ warning }}</span></li>
+            }
+            @for (relationship of work.tags.relationships; track relationship) {
+              <li><span class="tag">{{ relationship }}</span></li>
+            }
+            @for (character of work.tags.characters; track character) {
+              <li><span class="tag">{{ character }}</span></li>
+            }
+            @for (tag of work.tags.additional; track tag) {
+              <li><span class="tag">{{ tag }}</span></li>
+            }
+          </ul>
+
+          @if (work.summary) {
+            <blockquote class="summary">
+              @for (line of paragraphs(work.summary); track $index) {
+                <p>{{ line }}</p>
+              }
+            </blockquote>
+          }
+
+          <dl class="stats">
+            @if (work.words !== null) {
+              <dt>Words:</dt>
+              <dd>{{ work.words | number }}</dd>
+            }
+            <dt>Chapters:</dt>
+            <dd>{{ chapterCount(work) }}</dd>
+            @if (work.comments !== null) {
+              <dt>Comments:</dt>
+              <dd>{{ work.comments | number }}</dd>
+            }
+            @if (work.kudos !== null) {
+              <dt>Kudos:</dt>
+              <dd>{{ work.kudos | number }}</dd>
+            }
+            @if (work.bookmarks !== null) {
+              <dt>Bookmarks:</dt>
+              <dd>{{ work.bookmarks | number }}</dd>
+            }
+            @if (work.hits !== null) {
+              <dt>Hits:</dt>
+              <dd>{{ work.hits | number }}</dd>
+            }
+          </dl>
+
+          @if (work.date_bookmarked || work.bookmark_notes || work.bookmark_tags.length || work.bookmark_collections.length) {
+            <div class="user">
+              <h5 class="byline">
+                Bookmarked by {{ owner() || 'you' }}
+                @if (work.bookmark_private) {
+                  <span class="badge">Private</span>
+                }
+                @if (work.bookmark_rec) {
+                  <span class="badge rec">Rec</span>
+                }
+              </h5>
+              <p class="datetime">{{ work.date_bookmarked }}</p>
+
+              @if (work.bookmark_notes) {
+                <blockquote class="notes">
+                  @for (line of paragraphs(work.bookmark_notes); track $index) {
+                    <p>{{ line }}</p>
+                  }
+                </blockquote>
+              }
+
+              @if (work.bookmark_tags.length) {
+                <p class="bookmark-tags">
+                  <span class="label">Bookmarker's Tags:</span>
+                  @for (tag of work.bookmark_tags; track tag; let last = $last) {
+                    <span class="tag">{{ tag }}</span>@if (!last) {, }
+                  }
+                </p>
+              }
+
+              @if (work.bookmark_collections.length) {
+                <p class="bookmark-tags">
+                  <span class="label">Collections:</span>
+                  @for (collection of work.bookmark_collections; track collection; let last = $last) {
+                    <span class="tag">{{ collection }}</span>@if (!last) {, }
+                  }
+                </p>
+              }
+            </div>
+          }
+        }
+      </li>
+    } @empty {
+      <li class="notice">This export has no works in it.</li>
+    }
+  </ol>
+
+  <ng-container *ngTemplateOutlet="pager"></ng-container>
+}
+
+<ng-template #pager>
+  @if (totalPages() > 1) {
+    <nav class="pagination" aria-label="Pages">
+      <button type="button" class="step" [disabled]="page() === 1" (click)="goTo(page() - 1)">
+        &larr; Previous
+      </button>
+      @for (item of pages(); track $index) {
+        @if (item === 'gap') {
+          <span class="gap">&hellip;</span>
+        } @else {
+          <button
+            type="button"
+            class="page"
+            [class.current]="item === page()"
+            [attr.aria-current]="item === page() ? 'page' : null"
+            (click)="goTo($any(item))"
+          >
+            {{ item }}
+          </button>
+        }
+      }
+      <button type="button" class="step" [disabled]="page() === totalPages()" (click)="goTo(page() + 1)">
+        Next &rarr;
+      </button>
+    </nav>
+  }
+</ng-template>

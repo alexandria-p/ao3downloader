@@ -2,10 +2,11 @@ import os
 import shutil
 from contextlib import contextmanager
 from datetime import datetime
+from unittest.mock import MagicMock
 
 import mobi
 import pytest
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 import ao3downloader.parse_soup as parse_soup
 from ao3downloader import strings
@@ -403,6 +404,264 @@ def test_get_work_metadata_from_list_plain_listing_sets_empty_optional_fields():
     assert result['bookmarker_notes'] == ''
     assert result['last_visited'] == ''
     assert result['times_visited'] == ''
+
+# endregion
+
+
+# region blurb metadata (json export)
+
+# a bookmark blurb exercising the fields that no fixture covers: a private rec, a
+# work in progress, collections, multi-paragraph notes, and a missing comment count
+PRIVATE_REC_BLURB = (
+    '<ol class="bookmark index group">'
+    '<li id="bookmark_1" class="bookmark blurb group work-99 user-1">'
+    '<p class="status" title="3 Bookmarks">'
+    '<a class="help symbol question modal"><span class="private" title="Private Bookmark">'
+    '<span class="text">Private Bookmark</span></span></a>'
+    '<a class="help symbol question modal"><span class="rec" title="Rec">'
+    '<span class="text">Rec</span></span></a>'
+    '</p>'
+    '<div class="header module">'
+    '<h4 class="heading"><a href="/works/99">A WIP</a> by '
+    '<a href="/users/x/pseuds/x" rel="author">Writer</a></h4>'
+    '<p class="datetime">01 Jan 2024</p>'
+    '</div>'
+    '<dl class="stats">'
+    '<dt class="words">Words:</dt><dd class="words">1,234</dd>'
+    '<dt class="chapters">Chapters:</dt>'
+    '<dd class="chapters"><a href="/works/99/chapters/1">3</a>/?</dd>'
+    '<dt class="kudos">Kudos:</dt><dd class="kudos"><a>7</a></dd>'
+    '</dl>'
+    '<div class="own user module group">'
+    '<h5 class="byline heading">Bookmarked by <a href="/users/me">me</a></h5>'
+    '<p class="datetime">02 Feb 2025</p>'
+    '<h6 class="landmark heading">Bookmarker\'s Notes</h6>'
+    '<blockquote class="userstuff notes"><p>line one</p><p>line two</p></blockquote>'
+    '<h6 class="meta heading">Bookmarker\'s Tags:</h6>'
+    '<ul class="meta tags commas"><li><a class="tag" href="/tags/fav/bookmarks">fav</a></li></ul>'
+    '<h6 class="landmark heading">Bookmarker\'s Collections</h6>'
+    '<ul class="meta commas">'
+    '<li><a href="/collections/my_faves">My Faves</a></li>'
+    '<li><a href="/collections/reread">Reread Pile</a></li>'
+    '</ul>'
+    '</div></li></ol>')
+
+
+def _blurb(html: str) -> Tag:
+    return parse_soup.get_blurbs(BeautifulSoup(html, 'html.parser'))[0]
+
+
+def _blurb_metadata(fixture_soup, fixture: str, worknum: str) -> dict:
+    soup = fixture_soup(fixture)
+    blurb = next(b for b in parse_soup.get_blurbs(soup)
+                 if parse_soup.get_blurb_work_number(b) == worknum)
+    return parse_soup.get_blurb_metadata(blurb)
+
+
+def test_get_blurbs_returns_every_blurb_on_the_page(fixture_soup):
+    soup = fixture_soup('bookmarks')
+
+    blurbs = parse_soup.get_blurbs(soup)
+
+    # the fixture holds 19 bookmarked works plus one bookmarked series
+    assert len(blurbs) == 20
+    assert all(isinstance(x, Tag) for x in blurbs)
+
+
+def test_get_blurbs_falls_back_when_index_container_is_missing():
+    # the ol wrapper is the fast path; a blurb outside one must still be found
+    html = '<div><li class="work blurb group work-99"></li></div>'
+
+    assert len(parse_soup.get_blurbs(BeautifulSoup(html, 'html.parser'))) == 1
+
+
+def test_get_blurb_work_number_skips_non_work_bookmarks(fixture_soup):
+    soup = fixture_soup('bookmarks')
+
+    numbers = [parse_soup.get_blurb_work_number(b) for b in parse_soup.get_blurbs(soup)]
+
+    # the bookmarked series has no work number, so it is skipped rather than exported
+    assert numbers.count(None) == 1
+    assert '34816549' in numbers
+
+
+def test_get_blurb_work_number_falls_back_to_the_title_link():
+    # plain work listings don't always carry the work number in the class list
+    html = '<li class="work blurb group"><h4 class="heading"><a href="/works/77">T</a></h4></li>'
+
+    assert parse_soup.get_blurb_work_number(_blurb(html)) == '77'
+
+
+def test_get_blurb_work_number_ignores_external_works():
+    html = ('<li class="bookmark blurb group"><h4 class="heading">'
+            '<a href="/external_works/123">Elsewhere</a></h4></li>')
+
+    assert parse_soup.get_blurb_work_number(_blurb(html)) is None
+
+
+def test_get_blurb_metadata_reads_every_exported_field(fixture_soup):
+    result = _blurb_metadata(fixture_soup, 'bookmarks', '34816549')
+
+    assert 'error' not in result
+    assert result['id'] == '34816549'
+    assert result['link'] == 'https://archiveofourown.org/works/34816549'
+    assert result['title'] == 'No Paths Are Bound'
+    assert result['authors'] == ['Cataclysmic_Calamity']
+    assert result['date_updated'] == '08 Sep 2022'
+    assert result['fandoms'] == ['天官赐福 - 墨香铜臭 | Tiān Guān Cì Fú - Mòxiāng Tóngxiù']
+    assert result['warnings'] == ['Graphic Depictions Of Violence']
+    assert result['tags']['rating'] == 'Explicit'
+    assert result['tags']['categories'] == ['M/M']
+    assert 'Hua Cheng/Xie Lian (Tian Guan Ci Fu)' in result['tags']['relationships']
+    assert 'Xie Lian (Tian Guan Ci Fu)' in result['tags']['characters']
+    assert 'Hurt/Comfort' in result['tags']['additional']
+    # the summary is a multi-paragraph blockquote; paragraph breaks survive as newlines
+    assert result['summary']
+    assert '\n' in result['summary']
+    assert '<p>' not in result['summary']
+    assert result['words'] == 1158737
+    assert result['chapters_published'] == 152
+    assert result['chapters_total'] == 152
+    assert result['comments'] == 11925
+    assert result['kudos'] == 36317
+    assert result['bookmarks'] == 8141
+    assert result['hits'] == 2053077
+    assert result['bookmark_tags'] == ['long work']
+    _assert_bookmark_date_format(result)
+    # the publication date is not on a listing page, so it starts out unset
+    assert result['date_created'] is None
+
+
+def test_get_blurb_metadata_does_not_leak_from_other_blurbs(fixture_soup):
+    # this bookmark has no notes or bookmarker's tags while its neighbors do
+    result = _blurb_metadata(fixture_soup, 'bookmarks', '66326125')
+
+    assert 'error' not in result
+    assert result['title'] == 'Being An Account of An Abduction, and Its Aftermath'
+    assert result['fandoms'] == ['Final Fantasy XIV']
+    assert result['bookmark_tags'] == []
+    assert result['bookmark_notes'] == ''
+    assert result['bookmark_collections'] == []
+    assert 'Pon Farr' not in result['tags']['additional']
+
+
+def test_get_blurb_metadata_reads_bookmarker_notes(fixture_soup):
+    result = _blurb_metadata(fixture_soup, 'bookmarks', '42461841')
+
+    assert result['bookmark_notes'] == 'This bookmark has a note!'
+
+
+def test_get_blurb_metadata_reads_private_rec_and_collections():
+    result = parse_soup.get_blurb_metadata(_blurb(PRIVATE_REC_BLURB))
+
+    assert 'error' not in result
+    assert result['bookmark_private'] is True
+    assert result['bookmark_rec'] is True
+    assert result['bookmark_collections'] == ['My Faves', 'Reread Pile']
+    assert result['bookmark_tags'] == ['fav']
+    assert result['bookmark_notes'] == 'line one\nline two'
+    assert result['date_bookmarked'] == '02 Feb 2025'
+
+
+def test_get_blurb_metadata_reads_counts_as_numbers():
+    result = parse_soup.get_blurb_metadata(_blurb(PRIVATE_REC_BLURB))
+
+    assert result['words'] == 1234
+    assert result['kudos'] == 7
+    assert result['chapters_published'] == 3
+    # ao3 shows '?' as the total for a work in progress
+    assert result['chapters_total'] is None
+    # ao3 omits a stat entirely when it is zero, which is not the same as a count of zero
+    assert result['comments'] is None
+    assert result['hits'] is None
+
+
+def test_get_blurb_metadata_keeps_sentences_with_inline_markup_intact():
+    # splitting on every string node would break this into three lines
+    html = ('<li class="work blurb group work-99">'
+            '<blockquote class="userstuff summary">'
+            '<p>It <em>is</em> the first time.</p>'
+            '<p>Second paragraph.</p>'
+            '</blockquote></li>')
+
+    result = parse_soup.get_blurb_metadata(_blurb(html))
+
+    assert result['summary'] == 'It is the first time.\nSecond paragraph.'
+
+
+def test_get_blurb_metadata_breaks_summary_on_line_breaks():
+    html = ('<li class="work blurb group work-99">'
+            '<blockquote class="userstuff summary"><p>one<br/>two</p></blockquote></li>')
+
+    result = parse_soup.get_blurb_metadata(_blurb(html))
+
+    assert result['summary'] == 'one\ntwo'
+
+
+def test_get_blurb_metadata_reads_a_summary_with_no_paragraph_markup():
+    html = ('<li class="work blurb group work-99">'
+            '<blockquote class="userstuff summary">bare <b>text</b></blockquote></li>')
+
+    result = parse_soup.get_blurb_metadata(_blurb(html))
+
+    assert result['summary'] == 'bare text'
+
+
+def test_get_blurb_metadata_keeps_notes_with_inline_markup_intact():
+    html = ('<li class="bookmark blurb group work-99"><div class="user module group">'
+            '<blockquote class="userstuff notes"><p>Really <i>love</i> this one.</p></blockquote>'
+            '</div></li>')
+
+    result = parse_soup.get_blurb_metadata(_blurb(html))
+
+    assert result['bookmark_notes'] == 'Really love this one.'
+
+
+def test_get_blurb_metadata_defaults_to_anonymous_without_a_byline():
+    html = ('<li class="work blurb group work-99">'
+            '<h4 class="heading"><a href="/works/99">Untitled</a></h4></li>')
+
+    result = parse_soup.get_blurb_metadata(_blurb(html))
+
+    assert result['authors'] == ['Anonymous']
+
+
+def test_get_blurb_metadata_plain_listing_has_empty_bookmark_fields():
+    # search results and series pages have no bookmarker section at all
+    html = ('<li class="work blurb group work-99">'
+            '<div class="header module">'
+            '<h4 class="heading"><a href="/works/99">Some Work</a></h4>'
+            '<p class="datetime">01 Jan 2020</p></div></li>')
+
+    result = parse_soup.get_blurb_metadata(_blurb(html))
+
+    assert 'error' not in result
+    assert result['date_updated'] == '01 Jan 2020'
+    assert result['date_bookmarked'] == ''
+    assert result['bookmark_notes'] == ''
+    assert result['bookmark_tags'] == []
+    assert result['bookmark_collections'] == []
+    assert result['bookmark_private'] is False
+    assert result['bookmark_rec'] is False
+
+
+def test_get_blurb_metadata_returns_error_field_on_malformed_blurb():
+    blurb = Tag(name='li')
+    blurb.select_one = MagicMock(side_effect=ValueError('boom'))
+
+    result = parse_soup.get_blurb_metadata(blurb)
+
+    assert 'error' in result
+
+
+def test_has_bookmark_symbol_matches_on_title_when_class_changes():
+    # ao3 could rename the css class; the title must keep the flag from silently going false
+    html = '<p class="status"><span class="renamed" title="Private Bookmark"></span></p>'
+    status = BeautifulSoup(html, 'html.parser').select_one('p.status')
+
+    assert parse_soup.has_bookmark_symbol(status, 'private', 'Private Bookmark') is True
+    assert parse_soup.has_bookmark_symbol(status, 'rec', 'Rec') is False
+    assert parse_soup.has_bookmark_symbol(None, 'private', 'Private Bookmark') is False
 
 # endregion
 

@@ -64,6 +64,42 @@ def test_save_bytes_overwrites_existing_file(fake_fileops):
 # endregion
 
 
+# region save_json
+
+def test_save_json_round_trips_a_metadata_document(fake_fileops):
+    document = {
+        'id': '111',
+        'title': '天官赐福',
+        'bookmark_notes': 'line one\nline two',
+        'tags': {'additional': ['Hurt/Comfort']},
+        'hits': None,
+    }
+
+    path = fake_fileops.save_json('111 A Work - Author.json', document)
+
+    with open(path, encoding='utf-8') as f:
+        assert json.load(f) == document
+
+
+def test_save_json_creates_parent_dirs(fake_fileops):
+    # a file name pattern containing '/' puts works in subfolders
+    path = fake_fileops.save_json(os.path.join('A Fandom', '111 A Work.json'), {'id': '111'})
+
+    assert os.path.exists(path)
+    assert os.path.dirname(path).endswith('A Fandom')
+
+
+def test_save_json_overwrites_existing_file(fake_fileops):
+    # the file is rewritten once publication dates have been looked up
+    fake_fileops.save_json('111.json', {'id': '111', 'date_created': None})
+    path = fake_fileops.save_json('111.json', {'id': '111', 'date_created': '01 Jan 2019'})
+
+    with open(path, encoding='utf-8') as f:
+        assert json.load(f)['date_created'] == '01 Jan 2019'
+
+# endregion
+
+
 # region save_setting / get_setting
 
 def test_save_setting_roundtrips_through_get_setting(fake_fileops):

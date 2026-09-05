@@ -32,6 +32,8 @@ def make_ao3(
     repo = MagicMock(spec=Repository)
     fileops = MagicMock(spec=FileOps)
     fileops.get_ini_value_boolean.return_value = debug
+    fileops.get_ini_value.return_value = strings.INI_DEFAULT_NAME_PATTERN
+    fileops.get_ini_value_integer.return_value = strings.INI_DEFAULT_NAME_LENGTH
     ao3 = Ao3(repo=repo, fileops=fileops, filetypes=filetypes or ['EPUB'],
               pages=pages, series=series, images=images, mark=mark)
     return ao3, repo, fileops
@@ -746,6 +748,287 @@ def test_get_work_links_invalid_link() -> None:
          patch('ao3downloader.parse_text.is_series', return_value=False):
         with pytest.raises(exceptions.InvalidLinkException):
             ao3.get_work_links_recursive({}, 'https://example.com/fic', [], False)
+
+# endregion
+
+# region get_metadata() — json export
+
+def _blurb_html(worknum: str, bookmark_id: str | None = None) -> str:
+    return (
+        f'<li id="bookmark_{bookmark_id or worknum}" class="bookmark blurb group work-{worknum} user-1">'
+        f'<div class="header module">'
+        f'<h4 class="heading"><a href="/works/{worknum}">Work {worknum}</a> by '
+        f'<a href="/users/a/pseuds/a" rel="author">A</a></h4>'
+        f'<p class="datetime">01 Jan 2020</p></div>'
+        f'<div class="user module group"><p class="datetime">02 Feb 2021</p></div></li>')
+
+
+def _listing_soup(worknums: list[str], total_pages: int = 1, extra: str = '') -> BeautifulSoup:
+    """A real bookmarks listing page, so the crawl exercises the actual blurb parsing."""
+    blurbs = ''.join(_blurb_html(n) for n in worknums)
+    pagination = ''
+    if total_pages > 1:
+        items = ''.join(f'<li>{i}</li>' for i in range(1, total_pages + 1))
+        pagination = f'<ol class="pagination actions">{items}</ol>'
+    return BeautifulSoup(
+        f'<ol class="bookmark index group">{blurbs}{extra}</ol>{pagination}', 'html.parser')
+
+
+def _work_soup(published: str = '01 Jan 2019', status: str = '05 May 2021') -> BeautifulSoup:
+    stats = f'<dd class="published">{published}</dd>'
+    if status: stats += f'<dd class="status">{status}</dd>'
+    return BeautifulSoup(f'<dl class="stats">{stats}</dl>', 'html.parser')
+
+
+def test_get_metadata_rejects_a_single_work_link() -> None:
+    ao3, repo, _ = make_ao3()
+
+    with pytest.raises(exceptions.InvalidLinkException):
+        ao3.get_metadata(WORK_URL, False)
+
+    repo.get_soup.assert_not_called()
+
+
+def test_get_metadata_rejects_a_non_ao3_link() -> None:
+    ao3, repo, _ = make_ao3()
+
+    with pytest.raises(exceptions.InvalidLinkException):
+        ao3.get_metadata('https://example.com/fic', False)
+
+    repo.get_soup.assert_not_called()
+
+
+def test_get_metadata_collects_every_work_on_the_page() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222'])
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['id'] for r in records] == ['111', '222']
+    assert records[0]['link'] == 'https://archiveofourown.org/works/111'
+    assert records[0]['date_bookmarked'] == '02 Feb 2021'
+    assert repo.get_soup.call_count == 1
+
+
+def _saved(fileops) -> dict[str, dict]:
+    """Filename -> document, for everything save_json was called with."""
+    return {call.args[0]: call.args[1] for call in fileops.save_json.call_args_list}
+
+
+def test_get_metadata_writes_one_file_per_work() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222'])
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    saved = _saved(fileops)
+    assert sorted(saved) == ['111 Work 111 - A.json', '222 Work 222 - A.json']
+    assert saved['111 Work 111 - A.json']['id'] == '111'
+
+
+def test_get_metadata_names_files_with_the_configured_pattern() -> None:
+    ao3, repo, fileops = make_ao3()
+    fileops.get_ini_value.return_value = '{worknum}'
+    repo.get_soup.return_value = _listing_soup(['111'])
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    assert list(_saved(fileops)) == ['111.json']
+
+
+def test_get_metadata_records_the_listing_and_its_order() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222'])
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['position'] for r in records] == [1, 2]
+    # the source is the link that was asked for, not the last page walked to
+    assert all(r['source'] == LISTING_URL for r in records)
+    assert all(r['retrieved'] for r in records)
+
+
+def test_get_metadata_writes_each_page_as_it_is_read() -> None:
+    # the point of writing incrementally: a long run leaves usable output behind
+    ao3, repo, fileops = make_ao3()
+    written_before_second_page = []
+
+    def pages(_url):
+        if repo.get_soup.call_count == 2:
+            written_before_second_page.append(fileops.save_json.call_count)
+        return _listing_soup(['111'] if repo.get_soup.call_count == 1 else ['222'], total_pages=2)
+
+    repo.get_soup.side_effect = pages
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    assert written_before_second_page == [1]
+    assert fileops.save_json.call_count == 2
+
+
+def test_get_metadata_keeps_the_files_written_before_a_page_failed() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = [_listing_soup(['111'], total_pages=3), ValueError('connection reset')]
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    assert list(_saved(fileops)) == ['111 Work 111 - A.json']
+
+
+def test_get_metadata_falls_back_to_the_work_id_when_the_pattern_is_empty() -> None:
+    ao3, repo, fileops = make_ao3()
+    fileops.get_ini_value.return_value = '{language}'  # never present on a listing
+    repo.get_soup.return_value = _listing_soup(['111'])
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    assert list(_saved(fileops)) == ['111.json']
+
+
+def test_get_metadata_survives_an_unwritable_file() -> None:
+    ao3, repo, fileops = make_ao3()
+    fileops.save_json.side_effect = OSError('disk full')
+    repo.get_soup.return_value = _listing_soup(['111', '222'])
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    # both were still parsed, and the failures were logged rather than ending the run
+    assert len(records) == 2
+    logged = [c.args[0] for c in fileops.write_log.call_args_list]
+    assert sum(1 for x in logged if x.get('message') == strings.ERROR_METADATA_SAVE) == 2
+
+
+def test_get_metadata_rewrites_files_after_work_dates_are_filled() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = [_listing_soup(['111']), _work_soup()]
+
+    ao3.get_metadata(LISTING_URL, True)
+
+    # once during the crawl, once with the dates in
+    assert fileops.save_json.call_count == 2
+    assert fileops.save_json.call_args.args[1]['date_created'] == '01 Jan 2019'
+
+
+def test_get_metadata_does_not_load_work_pages_by_default() -> None:
+    # the whole point of reading the listing is one request per page, not per work
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222', '333'])
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert len(records) == 3
+    assert repo.get_soup.call_count == 1
+    assert all(r['date_created'] is None for r in records)
+
+
+def test_get_metadata_paginates() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.side_effect = [
+        _listing_soup(['111'], total_pages=2),
+        _listing_soup(['222'], total_pages=2)]
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['id'] for r in records] == ['111', '222']
+    assert repo.get_soup.call_count == 2
+
+
+def test_get_metadata_respects_page_limit() -> None:
+    ao3, repo, _ = make_ao3(pages=2)
+    repo.get_soup.side_effect = [
+        _listing_soup(['111'], total_pages=5),
+        _listing_soup(['222'], total_pages=5)]
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['id'] for r in records] == ['111', '222']
+    assert repo.get_soup.call_count == 2
+
+
+def test_get_metadata_skips_bookmarks_that_are_not_works(capsys) -> None:
+    series = ('<li id="bookmark_9" class="bookmark blurb group series-5 user-1">'
+              '<h4 class="heading"><a href="/series/5">A Series</a></h4></li>')
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111'], extra=series)
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['id'] for r in records] == ['111']
+    assert '1' in capsys.readouterr().out
+
+
+def test_get_metadata_dedupes_a_bookmark_seen_on_two_pages() -> None:
+    # works shift between pages while a long list is being read
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.side_effect = [
+        _listing_soup(['111', '222'], total_pages=2),
+        _listing_soup(['222', '333'], total_pages=2)]
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['id'] for r in records] == ['111', '222', '333']
+
+
+def test_get_metadata_keeps_the_same_work_bookmarked_twice() -> None:
+    # two pseuds of the same user can each bookmark one work; both are real bookmarks
+    ao3, repo, _ = make_ao3()
+    both = _blurb_html('111', bookmark_id='1') + _blurb_html('111', bookmark_id='2')
+    repo.get_soup.return_value = BeautifulSoup(
+        f'<ol class="bookmark index group">{both}</ol>', 'html.parser')
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['id'] for r in records] == ['111', '111']
+
+
+def test_get_metadata_returns_partial_results_when_a_page_fails() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = [
+        _listing_soup(['111'], total_pages=3),
+        ValueError('connection reset')]
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['id'] for r in records] == ['111']
+    assert fileops.write_log.called
+
+
+def test_get_metadata_looks_up_work_dates_when_asked() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.side_effect = [_listing_soup(['111']), _work_soup()]
+
+    records = ao3.get_metadata(LISTING_URL, True)
+
+    assert records[0]['date_created'] == '01 Jan 2019'
+    assert records[0]['date_updated'] == '05 May 2021'
+    assert repo.get_soup.call_count == 2
+
+
+def test_add_work_dates_keeps_listing_date_when_work_has_no_status() -> None:
+    # single chapter works have no 'Updated' line, so the listing date is all there is
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _work_soup(status='')
+    records = [{'link': WORK_URL, 'date_created': None, 'date_updated': '01 Jan 2020'}]
+
+    ao3.add_work_dates(records)
+
+    assert records[0]['date_created'] == '01 Jan 2019'
+    assert records[0]['date_updated'] == '01 Jan 2020'
+
+
+def test_add_work_dates_logs_and_continues_past_a_failed_work() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = [ValueError('boom'), _work_soup()]
+    records = [
+        {'link': WORK_URL, 'date_created': None, 'date_updated': '01 Jan 2020'},
+        {'link': 'https://archiveofourown.org/works/222', 'date_created': None, 'date_updated': ''}]
+
+    ao3.add_work_dates(records)
+
+    assert records[0]['date_created'] is None
+    assert records[1]['date_created'] == '01 Jan 2019'
+    logged = [c.args[0] for c in fileops.write_log.call_args_list]
+    assert any(x.get('message') == strings.ERROR_METADATA_WORK_DATES for x in logged)
 
 # endregion
 

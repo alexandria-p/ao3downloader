@@ -1,3 +1,4 @@
+import copy
 import re
 import traceback
 from typing import Any
@@ -241,17 +242,61 @@ def has_custom_skin(soup: BeautifulSoup) -> bool:
 def get_title(soup: BeautifulSoup, link: str, pattern: str) -> list[str]:
     """Get (non-truncated) filename for the work"""
 
+    return apply_name_pattern(get_work_metadata_from_work(soup, link), pattern)
+
+
+def apply_name_pattern(metadata: dict, pattern: str) -> list[str]:
+    """Fill the configured file name pattern in from work metadata.
+
+    A '/' in the pattern separates directory names, so the result is one string per
+    path segment.
+    """
+
     result = []
-    metadata = get_work_metadata_from_work(soup, link)
-    split_pattern = pattern.split('/')
-    
-    for part in split_pattern:
+
+    for part in pattern.split('/'):
         part_result = part
         for key, value in metadata.items():
             part_result = part_result.replace(f'{{{key}}}', value)
         result.append(part_result)
 
     return result
+
+
+def get_name_metadata_from_blurb(record: dict) -> dict:
+    """The file name pattern fields, taken from an exported blurb record.
+
+    Same keys as get_work_metadata_from_work so the pattern behaves the same way for a
+    metadata export as it does for a download. The fields a listing page doesn't carry
+    are empty rather than missing, so a pattern using one of them still resolves.
+    """
+
+    tags = record.get('tags') or {}
+
+    def joined(values) -> str:
+        return ', '.join(values or [])
+
+    def number(value) -> str:
+        return '' if value is None else str(value)
+
+    return {
+        'worknum': record.get('id') or '',
+        'title': record.get('title') or '',
+        'author': joined(record.get('authors')),
+        'fandom': joined(record.get('fandoms')),
+        'pairing': joined(tags.get('relationships')),
+        'rating': tags.get('rating') or '',
+        'warning': joined(record.get('warnings')),
+        'category': joined(tags.get('categories')),
+        'words': number(record.get('words')),
+        'chapters': number(record.get('chapters_published')),
+        'published': record.get('date_created') or '',
+        'updated': record.get('date_updated') or '',
+        # a listing page carries none of these
+        'language': '',
+        'series_title': '',
+        'series_index': '',
+    }
 
 
 def get_work_metadata_from_work(soup: BeautifulSoup, link: str) -> dict:
@@ -332,6 +377,134 @@ def get_work_metadata_from_list(soup: BeautifulSoup, link: str) -> dict:
     except Exception as e: # don't crash the entire download if there is an unhandled exception
         metadata['error'] = ''.join(traceback.TracebackException.from_exception(e).format())
     return metadata
+
+
+def get_blurbs(soup: BeautifulSoup) -> list[Tag]:
+    """Get every work/bookmark blurb element from an ao3 listing page."""
+
+    blurbs = soup.select('ol.index.group > li.blurb')
+    if not blurbs: blurbs = soup.select('li.blurb')
+    return [x for x in blurbs if isinstance(x, Tag)]
+
+
+def get_blurb_id(blurb: Tag) -> str | None:
+    """Get the id attribute of a blurb, which uniquely identifies the bookmark it belongs to."""
+
+    blurb_id = blurb.get('id')
+    return str(blurb_id) if blurb_id else None
+
+
+def get_blurb_work_number(blurb: Tag) -> str | None:
+    """Get the work number from a blurb, or None if the blurb isn't for a work.
+    Bookmarks of series, external works, and deleted works all return None."""
+
+    classes = blurb.get('class') or []
+    if not isinstance(classes, list): classes = [str(classes)]
+    for classname in classes:
+        if str(classname).startswith('work-'):
+            worknum = str(classname)[len('work-'):]
+            if worknum.isdigit(): return worknum
+
+    # not every listing puts the work number in the class list, so fall back to the title link
+    heading = blurb.select_one('h4.heading a')
+    if heading:
+        href = heading.get('href')
+        if href: return parse_text.get_work_number(str(href))
+
+    return None
+
+
+def get_blurb_metadata(blurb: Tag) -> dict:
+    """Get work metadata, and the bookmarker's own data where it exists, from a single blurb.
+
+    Everything here comes off the listing page itself, so a whole page of works costs one
+    request. The one thing a listing doesn't carry is the original publication date, which
+    is why 'date_created' starts out as None - see Ao3.add_work_dates.
+    """
+
+    metadata: dict[str, Any] = {}
+    try:
+        worknum = get_blurb_work_number(blurb)
+        metadata['id'] = worknum
+        metadata['link'] = get_full_work_url('/works/' + worknum) if worknum else None
+        metadata['title'] = get_text_or_empty(blurb, 'h4.heading a')
+        metadata['authors'] = [x.get_text().strip() for x in blurb.find_all('a', rel='author')]
+        if not metadata['authors']: metadata['authors'] = ['Anonymous']
+        metadata['date_created'] = None # not available on listing pages
+        metadata['date_updated'] = get_text_or_empty(blurb, 'div.header p.datetime')
+        metadata['fandoms'] = [x.get_text().strip() for x in blurb.select('h5.fandoms a')]
+        metadata['warnings'] = [x.get_text().strip() for x in blurb.select('li.warnings a')]
+        metadata['tags'] = {
+            'rating': get_text_or_empty(blurb, 'span.rating'),
+            'categories': [x.strip() for x in get_text_or_empty(blurb, 'span.category').split(',') if x.strip()],
+            'relationships': [x.get_text().strip() for x in blurb.select('li.relationships a')],
+            'characters': [x.get_text().strip() for x in blurb.select('li.characters a')],
+            'additional': [x.get_text().strip() for x in blurb.select('li.freeforms a')],
+        }
+        summary = blurb.select_one('blockquote.summary')
+        metadata['summary'] = get_userstuff_text(summary) if summary else '' # some works don't have a summary
+        metadata['words'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.words'))
+        published, total = parse_text.get_chapter_counts(get_text_or_empty(blurb, 'dd.chapters'))
+        metadata['chapters_published'] = published
+        metadata['chapters_total'] = total # None for a work in progress, which ao3 displays as '?'
+        # ao3 leaves a stat out of the blurb entirely when it is zero, so these stay None
+        # rather than 0 - a missing count isn't the same claim as a count of nothing.
+        metadata['comments'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.comments'))
+        metadata['kudos'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.kudos'))
+        metadata['bookmarks'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.bookmarks'))
+        metadata['hits'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.hits'))
+        metadata.update(get_bookmark_metadata(blurb))
+    except Exception as e: # don't lose the rest of the page over one unparseable blurb
+        metadata['error'] = ''.join(traceback.TracebackException.from_exception(e).format())
+    return metadata
+
+
+def get_bookmark_metadata(blurb: Tag) -> dict:
+    """Get the bookmarker's own data from a blurb. A blurb from a listing that isn't a
+    bookmarks page has none of this, in which case the fields come back empty."""
+
+    metadata: dict[str, Any] = {}
+    metadata['date_bookmarked'] = get_text_or_empty(blurb, 'div.user p.datetime')
+    notes = blurb.select_one('div.user blockquote.notes')
+    metadata['bookmark_notes'] = get_userstuff_text(notes) if notes else ''
+    metadata['bookmark_tags'] = [x.get_text().strip() for x in blurb.select('div.user ul.meta.tags a.tag')]
+    metadata['bookmark_collections'] = [x.get_text().strip() for x in blurb.select('div.user a[href*="/collections/"]')]
+    status = blurb.select_one('p.status')
+    metadata['bookmark_private'] = has_bookmark_symbol(status, 'private', 'Private Bookmark')
+    metadata['bookmark_rec'] = has_bookmark_symbol(status, 'rec', 'Rec')
+    return metadata
+
+
+def get_userstuff_text(tag: Tag) -> str:
+    """Plain text of a userstuff block (a summary or a bookmark note).
+
+    Breaks on paragraphs and line breaks only. Splitting on every string node instead
+    would put a break in the middle of any sentence containing inline markup, turning
+    'It <em>is</em> the first time' into three lines.
+    """
+
+    working = copy.copy(tag)
+    for linebreak in working.find_all('br'):
+        linebreak.replace_with('\n')
+
+    blocks = working.find_all(['p', 'div'], recursive=False)
+    parts = [x.get_text() for x in blocks] if blocks else [working.get_text()]
+
+    lines = []
+    for part in parts:
+        for line in part.split('\n'):
+            line = ' '.join(line.split())
+            if line: lines.append(line)
+    return '\n'.join(lines)
+
+
+def has_bookmark_symbol(status: Tag | None, classname: str, title: str) -> bool:
+    """Check the bookmark symbols block for one of ao3's status icons.
+    Checks the title as well as the class, so a css rename doesn't silently flip these to false."""
+
+    if not status: return False
+    if status.select_one('span.' + classname): return True
+    return status.find('span', title=title) is not None
 
 
 def get_current_chapters(soup: BeautifulSoup) -> str:

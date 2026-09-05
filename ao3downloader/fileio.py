@@ -104,6 +104,14 @@ class FileOps:
             f.write(content)
 
 
+    def save_json(self, filename: str, content) -> str:
+        file = os.path.join(self.downloadfolder, filename)
+        os.makedirs(os.path.dirname(file), exist_ok=True)
+        with open(file, 'w', encoding='utf-8') as f:
+            json.dump(content, f, ensure_ascii=False, indent=2)
+        return file
+
+
     def save_setting(self, setting: str, value) -> None:
         js = self.get_settings_json()
         if value is None:

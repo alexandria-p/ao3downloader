@@ -1,0 +1,9 @@
+- make local html/(js or angular or react) to display json results just like ao3 looks like, in a paginated table
+- clicking on the link displays the html file of the fic, if downloaded, in a new page.
+- a button at the top of the page - one to DOWNLOAD NEW BOOKMARKS, one to UPDATE EXISTING DOWNLOADED WORKS
+- eventually, combine these into a single button press
+- eventually, host this somewhere simple (github pages?)
+
+upload to, and read from, dropbox link (instead of local downloads folder)
+-checkbox for which types to download
+- HTML and JSON are REQUIRED (for the site code to run), all others are optional.

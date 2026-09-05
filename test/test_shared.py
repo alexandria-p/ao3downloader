@@ -178,6 +178,15 @@ def test_metadata_returns_expected_bool(answer, expected, monkeypatch, capsys) -
     assert shared.metadata() is expected
 
 
+@pytest.mark.parametrize('answer, expected', [
+    (strings.PROMPT_YES, True),
+    (strings.PROMPT_NO, False),
+])
+def test_metadata_work_dates_returns_expected_bool(answer, expected, monkeypatch, capsys) -> None:
+    monkeypatch.setattr('builtins.input', lambda: answer)
+    assert shared.metadata_work_dates() is expected
+
+
 @pytest.mark.parametrize('answer, expected_exclude', [
     # pinboard_exclude has inverted logic — 'yes include unread' means don't exclude
     (strings.PROMPT_YES, False),
@@ -186,6 +195,65 @@ def test_metadata_returns_expected_bool(answer, expected, monkeypatch, capsys) -
 def test_pinboard_exclude_inverts_input(answer, expected_exclude, monkeypatch, capsys) -> None:
     monkeypatch.setattr('builtins.input', lambda: answer)
     assert shared.pinboard_exclude() is expected_exclude
+
+# endregion
+
+
+# region download_types
+
+def _answers(monkeypatch, *answers: str) -> None:
+    responses = iter(answers)
+    monkeypatch.setattr('builtins.input', lambda: next(responses))
+
+
+def test_download_types_rejects_metadata_type_by_default(monkeypatch, capsys) -> None:
+    fileops = MagicMock()
+    fileops.get_setting.return_value = ''
+    # JSON is not offered outside the ao3 download action, so it re-prompts
+    _answers(monkeypatch, strings.AO3_DOWNLOAD_TYPE_METADATA, 'EPUB', strings.PROMPT_YES)
+
+    assert shared.download_types(fileops) == ['EPUB']
+
+
+def test_download_types_accepts_metadata_type_when_allowed(monkeypatch, capsys) -> None:
+    fileops = MagicMock()
+    fileops.get_setting.return_value = ''
+    _answers(monkeypatch, strings.AO3_DOWNLOAD_TYPE_METADATA, strings.PROMPT_YES)
+
+    result = shared.download_types(fileops, allow_metadata=True)
+
+    assert result == [strings.AO3_DOWNLOAD_TYPE_METADATA]
+    fileops.save_setting.assert_called_once_with(
+        strings.SETTING_FILETYPES, [strings.AO3_DOWNLOAD_TYPE_METADATA])
+
+
+def test_download_types_reuses_saved_list(monkeypatch, capsys) -> None:
+    fileops = MagicMock()
+    fileops.get_setting.return_value = ['EPUB', strings.AO3_DOWNLOAD_TYPE_METADATA]
+    _answers(monkeypatch, strings.PROMPT_YES)
+
+    result = shared.download_types(fileops, allow_metadata=True)
+
+    assert result == ['EPUB', strings.AO3_DOWNLOAD_TYPE_METADATA]
+
+
+def test_download_types_drops_saved_metadata_type_for_other_actions(monkeypatch, capsys) -> None:
+    # the saved list is shared between actions; one that can't export metadata
+    # must not be handed a JSON entry it would try to download as a file
+    fileops = MagicMock()
+    fileops.get_setting.return_value = ['EPUB', strings.AO3_DOWNLOAD_TYPE_METADATA]
+    _answers(monkeypatch, strings.PROMPT_YES)
+
+    assert shared.download_types(fileops) == ['EPUB']
+
+
+def test_download_types_prompts_when_saved_list_has_nothing_usable(monkeypatch, capsys) -> None:
+    fileops = MagicMock()
+    fileops.get_setting.return_value = [strings.AO3_DOWNLOAD_TYPE_METADATA]
+    # nothing usable survives the filter, so the saved-list prompt is skipped entirely
+    _answers(monkeypatch, 'PDF', strings.PROMPT_YES)
+
+    assert shared.download_types(fileops) == ['PDF']
 
 # endregion
 

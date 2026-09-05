@@ -1,5 +1,6 @@
 """Download works from ao3."""
 
+import datetime
 import os
 import traceback
 
@@ -59,6 +60,125 @@ class Ao3:
             self.download_series(link, log, visited)
         except Exception as e:
             self.log_error(log, e)
+
+
+    def get_metadata(self, link: str, workdates: bool) -> list[dict]:
+        """Walk a listing and save metadata for every work on it, one file per bookmark.
+
+        One request per page rather than per work, so a bookmarks list of any size is
+        cheap. Each file is written as its page is parsed, so a long run leaves usable
+        output behind even if it is interrupted partway. Bookmarks of series, external
+        works, and deleted works have none of the fields we're collecting, so they're
+        counted and skipped rather than exported.
+        """
+
+        if parse_text.is_work(link):
+            raise exceptions.InvalidLinkException(
+                strings.ERROR_METADATA_NOT_A_LISTING.format(strings.AO3_DOWNLOAD_TYPE_METADATA))
+        if strings.AO3_BASE_URL not in link:
+            raise exceptions.InvalidLinkException(strings.ERROR_INVALID_LINK)
+
+        source = link # the loop below walks `link` on to the next page
+        retrieved = datetime.datetime.now().strftime(strings.TIMESTAMP_FORMAT)
+
+        records: list[dict] = []
+        seen: set[str] = set()
+        skipped = 0
+        total_pages = None
+
+        try:
+            while True:
+                self.fileops.write_log({'link': link, 'message': strings.INFO_STARTING_PAGE, 'level': 'debug'})
+                thesoup = self.repo.get_soup(link)
+                if total_pages is None:
+                    total_pages = parse_soup.get_total_pages(thesoup)
+                for blurb in parse_soup.get_blurbs(thesoup):
+                    if not parse_soup.get_blurb_work_number(blurb):
+                        skipped += 1
+                        continue
+                    # a work can be bookmarked more than once, and can shift between pages
+                    # while we're paging through, so dedupe on the bookmark rather than the work
+                    key = parse_soup.get_blurb_id(blurb) or str(parse_soup.get_blurb_work_number(blurb))
+                    if key in seen: continue
+                    seen.add(key)
+                    document = {
+                        'source': source,
+                        'retrieved': retrieved,
+                        # the listing order, which is the order ao3 shows the bookmarks in
+                        'position': len(records) + 1,
+                    }
+                    document.update(parse_soup.get_blurb_metadata(blurb))
+                    records.append(document)
+                    self.save_metadata(document)
+                pagenum = parse_text.get_page_number(link)
+                if not total_pages or pagenum >= total_pages:
+                    break
+                link = parse_text.get_next_page(link)
+                pagenum = parse_text.get_page_number(link)
+                if self.pages and pagenum == self.pages + 1:
+                    if self.debug: self.fileops.write_log({'link': link, 'message': strings.INFO_PAGE_LIMIT_REACHED, 'level': 'debug'})
+                    break
+                print(strings.AO3_INFO_METADATA_PAGE.format(str(pagenum - 1), str(total_pages), str(len(records))))
+        except Exception as e:
+            print(strings.ERROR_LINKS_LIST)
+            self.log_error({'message': strings.ERROR_LINKS_LIST, 'link': link}, e)
+        except KeyboardInterrupt:
+            print(strings.INFO_LINKS_LIST_CANCELED)
+
+        if skipped: print(strings.AO3_INFO_METADATA_SKIPPED.format(str(skipped)))
+        if workdates and records: self.add_work_dates(records)
+
+        return records
+
+
+    def save_metadata(self, document: dict) -> None:
+        """Write one bookmark to its own json file.
+
+        Named with the same pattern as a downloaded work, so a fic's metadata sits next
+        to its epub or html under the same name.
+        """
+
+        try:
+            pattern = self.fileops.get_ini_value(strings.INI_NAME_PATTERN, strings.INI_DEFAULT_NAME_PATTERN)
+            maximum = self.fileops.get_ini_value_integer(strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+            name = parse_soup.apply_name_pattern(parse_soup.get_name_metadata_from_blurb(document), pattern)
+            filename = parse_text.get_valid_filename(name, maximum)
+            # a pattern can resolve to nothing if every field it uses is empty
+            if not filename: filename = str(document.get('id') or document.get('position'))
+            self.fileops.save_json(
+                filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA), document)
+        except Exception as e:
+            # one unwritable file shouldn't end the run
+            self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
+
+
+    def add_work_dates(self, records: list[dict]) -> None:
+        """Fill in date_created, and refine date_updated, by loading each work page.
+
+        Listing pages show a single date and no publication date at all, so this is the
+        only way to get both. It costs one request per work, hence the separate prompt.
+        """
+
+        print(strings.AO3_INFO_METADATA_WORK_DATES.format(str(len(records))))
+
+        for index, record in enumerate(records, start=1):
+            work_link = record.get('link')
+            if not work_link: continue
+            try:
+                thesoup = self.proceed(self.repo.get_soup(work_link))
+                record['date_created'] = parse_soup.get_text_or_empty(thesoup, 'dd.published')
+                # single chapter works have no status line; keep the listing date in that case
+                updated = parse_soup.get_text_or_empty(thesoup, 'dd.status')
+                if updated: record['date_updated'] = updated
+                # the file was written during the crawl, so rewrite it with the dates in
+                self.save_metadata(record)
+            except KeyboardInterrupt:
+                print(strings.INFO_LINKS_LIST_CANCELED)
+                break
+            except Exception as e:
+                self.log_error({'message': strings.ERROR_METADATA_WORK_DATES, 'link': work_link}, e)
+            if index % 10 == 0 or index == len(records):
+                print(strings.AO3_INFO_METADATA_PROGRESS.format(str(index), str(len(records))))
 
 
     def get_work_links(self, link: str, metadata: bool) -> dict[str, dict]:
