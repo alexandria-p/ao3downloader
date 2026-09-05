@@ -1,10 +1,24 @@
 # Alex Tips
 
+keep settings.ini and data.json in root directory
+make sure to update the location of your downloads folder (my_downloads for me)
+
 Open powershell
 powershell.exe -ExecutionPolicy Bypass -File .\run-local.ps1
 
-# Original Readme
 
+For running the GUI:
+
+Open git bash CLI window, 
+
+From the repo root:
+npm --prefix GUI start
+(or, cd GUI; npm start)
+
+Then open http://localhost:4200.
+
+
+# Original Readme
 
 ## What is this?
 
@@ -88,9 +102,7 @@ This is basically what the install script does, but broken out into manual steps
   - Note that this feature does not encode any association between the downloaded images and the fic file aside from the file name.
   - Most file formats will include embedded image files anyway, regardless of whether you choose this option. I have confirmed this for PDF, EPUB, MOBI, and AZW3 file formats. (If you saw me contradict this in an earlier version of this readme... no you didn't)
   - Should an image download fail, the details of the failure will be logged in the log file with the message '<!--CHECK-->Problem getting image<!--ERROR_IMAGE-->' along with the work link and the image link. It's a good idea to check the log file for these messages, since you may still be able to download the image manually or track it down some other way.
-- <span id="json-metadata-export"></span>**If you choose the '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' file type** when using the option '<!--CHECK-->download from ao3 link<!--ACTION_DESCRIPTION_AO3-->', the script does not download any works. Instead it reads through the listing you gave it and writes everything it can see about each work to the downloads folder, as one json file per work. Those files are named using the same '<!--CHECK-->FileNamePattern<!--INI_NAME_PATTERN-->' setting as downloaded works, so a fic's metadata sits next to its epub or html under the same name. This needs a link to a _listing_ of works - bookmarks, search results, an author's works, a series - not a link to a single work.
-  - Each file is written as its page is read, rather than everything being saved at the end. A long listing therefore leaves usable output behind even if the run does not finish. If you need to stop early, press ctrl+c rather than closing the window, so the script can finish tidily.
-  - Along with the work's own metadata, every file records the listing it came from, when it was retrieved, and the work's position in that listing (so the original bookmark order can be reconstructed).
+- <span id="json-metadata-export"></span>**If you choose the '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' file type** when using the option '<!--CHECK-->download from ao3 link<!--ACTION_DESCRIPTION_AO3-->', the script does not download any works. Instead it reads through the listing you gave it and writes everything it can see about each work to a single json file in the downloads folder, named '<!--CHECK-->bookmarks_<!--METADATA_FILE_NAME-->' plus a timestamp. This needs a link to a _listing_ of works - bookmarks, search results, an author's works, a series - not a link to a single work.
   - For each work you get: the work id, title, author(s), link, publication and update dates, summary, fandoms, warnings, and tags (rating, categories, relationships, characters, and additional tags), plus word count, chapter counts, comments, kudos, bookmarks, and hits.
   - If the listing is your (or someone else's) bookmarks page, you also get the date the work was bookmarked, the bookmarker's notes, the bookmarker's tags, whether the bookmark is private, whether it is a rec, and any collections the bookmark was added to. On listings that aren't bookmarks, such as search results, these fields are still present but empty.
   - Counts that ao3 leaves off a listing entirely (it omits a stat when it is zero) come out as `null` rather than `0`, so you can tell "nothing there" apart from "ao3 didn't say". The total chapter count is `null` for a work in progress, which ao3 displays as '?'.

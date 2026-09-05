@@ -102,8 +102,9 @@ export class Library {
       const jsonFiles = files.filter((f) => /\.json$/i.test(baseName(f)));
       if (jsonFiles.length === 0) {
         this.error.set(
-          'No metadata files in there. Run ao3downloader, choose option a and the JSON file ' +
-            'type, then reload.',
+          'No json files in that folder. Pick the folder ao3downloader saves into - the ' +
+            'DownloadFolder from settings.ini - which should hold your .json metadata files ' +
+            'alongside your downloaded works.',
         );
         return;
       }

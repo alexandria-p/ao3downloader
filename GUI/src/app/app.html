@@ -25,11 +25,6 @@
         <input type="file" webkitdirectory multiple (change)="choose($event)" hidden />
       </label>
     }
-
-    <label class="button subtle">
-      Choose json files
-      <input type="file" accept="application/json,.json" multiple (change)="choose($event)" hidden />
-    </label>
   </div>
 </header>
 
@@ -53,14 +48,20 @@
 
 @if (!data() && !loading()) {
   <section class="empty">
-    <h2>Pick the folder your bookmarks were downloaded to</h2>
+    <h2>Choose your downloads folder</h2>
     <p>
-      Run ao3downloader, choose option <code>a</code> and the <code>JSON</code> file type, then
-      point this page at the <code>downloads</code> folder it wrote to.
+      Pick the <strong>whole folder</strong> ao3downloader saves into - the one named by
+      <code>DownloadFolder</code> in <code>settings.ini</code>. It should be the directory holding
+      both your <code>.json</code> metadata files and your downloaded <code>.html</code> works.
     </p>
     <p class="hint">
-      Choosing the whole folder rather than just the json file is what lets a work title open
-      your downloaded copy. Nothing leaves your computer - the files are read in the browser.
+      Pick the directory itself, not individual files. Reading the whole folder is what pairs each
+      bookmark with its downloaded copy, so clicking a title opens the fic instead of sending you
+      to AO3. Nothing leaves your computer - the files are read here in the browser.
+    </p>
+    <p class="hint">
+      No json files yet? Run ao3downloader, choose option <code>a</code>, and pick the
+      <code>JSON</code> file type - add <code>HTML</code> too if you want the works themselves.
     </p>
     @if (canPickFolder) {
       <p class="hint">

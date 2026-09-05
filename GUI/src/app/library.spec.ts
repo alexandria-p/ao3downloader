@@ -160,7 +160,7 @@ describe('Library', () => {
   it('explains itself when the folder holds no export', async () => {
     await library.load([new File(['<html></html>'], '111 A Work - X.html')] as unknown as FileList);
 
-    expect(library.error()).toContain('No metadata file');
+    expect(library.error()).toContain('No json files in that folder');
     expect(library.data()).toBeNull();
   });
 
