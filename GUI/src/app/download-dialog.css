@@ -216,6 +216,78 @@ legend {
   font-variant-numeric: tabular-nums;
 }
 
+/* what is being fetched right now */
+.current {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  font-size: 0.86rem;
+}
+
+.current .label {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.current .fic {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+.current .format {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid #5a7f9a;
+  border-radius: 10px;
+  color: #9fc4dc;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+/* what this run was asked to do */
+.chosen {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+}
+
+.chosen dt {
+  color: var(--text-dim);
+}
+
+.chosen dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.button.danger {
+  border-color: #7a4444;
+  background: #3b2626;
+  color: #e6b3b3;
+}
+
+.button.danger:hover:not(:disabled) {
+  background: #4c2f2f;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .log {
   max-height: 200px;
   margin: 0;

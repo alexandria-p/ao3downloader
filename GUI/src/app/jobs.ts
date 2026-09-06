@@ -18,6 +18,15 @@ export interface ServerConfig {
   forced: string[];
 }
 
+/** the questions the console menu asks after the file types */
+export interface JobOptions {
+  /** page to stop on; 0 means every page */
+  pages: number;
+  series: boolean;
+  images: boolean;
+  workdates: boolean;
+}
+
 export interface JobEvent {
   type: string;
   text?: string;
@@ -26,17 +35,23 @@ export interface JobEvent {
   works?: number;
   done?: number;
   title?: string;
+  /** which format is being fetched for the work named in `title` */
+  filetype?: string;
   phase?: string;
   seconds?: number;
   until?: string;
   error?: string;
   folder?: string;
   action?: string;
+  filetypes?: string[];
+  options?: JobOptions;
+  cancelled?: boolean;
 }
 
 export interface StartRequest {
   action: JobAction;
   filetypes: string[];
+  options: JobOptions;
   username: string;
   password: string;
 }
@@ -72,6 +87,18 @@ export class Jobs {
     const body = await response.json();
     if (!response.ok) throw new Error(body?.error ?? `request failed (${response.status})`);
     return body.jobId as string;
+  }
+
+  /**
+   * Ask the helper to stop. The run unwinds at its next checkpoint, keeping whatever it
+   * has already written, so this is safe rather than destructive.
+   */
+  async cancel(jobId: string): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/api/jobs/${jobId}/cancel`, { method: 'POST' });
+    } catch {
+      // the helper may already have stopped; the stream closing will tell us
+    }
   }
 
   /**

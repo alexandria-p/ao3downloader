@@ -53,16 +53,42 @@ def resolve_filetypes(requested) -> list[str]:
     return filetypes
 
 
+def resolve_options(requested) -> dict:
+    """The questions the console menu asks after the file types, with the same defaults.
+
+    'pages' is the page to stop on, where 0 means all of them - the wording the console
+    uses. Ao3 wants None for that, which is done at the point of use.
+    """
+
+    given = requested or {}
+
+    try:
+        pages = int(given.get('pages') or 0)
+    except (TypeError, ValueError):
+        pages = 0
+    if pages < 0: pages = 0
+
+    return {
+        'pages': pages,
+        'series': bool(given.get('series')),
+        'images': bool(given.get('images')),
+        'workdates': bool(given.get('workdates')),
+    }
+
+
 class Job:
     """One download run, executing on its own thread and publishing progress events."""
 
-    def __init__(self, action: str, filetypes: list[str], username: str) -> None:
+    def __init__(self, action: str, filetypes: list[str], username: str,
+                 options: dict | None = None) -> None:
         self.id = uuid.uuid4().hex
         self.action = action
         self.filetypes = filetypes
         self.username = username
+        self.options = options or resolve_options(None)
         self.events: queue.Queue = queue.Queue()
         self.done = threading.Event()
+        self.cancel = threading.Event()
         self.history: list[dict] = []
         self.lock = threading.Lock()
 
@@ -104,15 +130,16 @@ def run_job(job: Job, password: str) -> None:
         fileops = FileOps()
         fileops.initialize()
         with contextlib.redirect_stdout(stream):
-            with Repository(fileops, progress=report) as repo:
+            with Repository(fileops, progress=report, cancelled=job.cancel.is_set) as repo:
                 job.emit({'type': progress.STARTED, 'action': job.action,
-                          'folder': fileops.downloadfolder})
+                          'folder': fileops.downloadfolder,
+                          'filetypes': job.filetypes, 'options': job.options})
                 repo.login(job.username, password)
                 if job.action == ACTION_BOOKMARKS:
                     run_bookmarks(job, fileops, repo, report)
                 else:
                     run_update(job, fileops, repo, report)
-        job.emit({'type': progress.FINISHED})
+        job.emit({'type': progress.FINISHED, 'cancelled': job.cancel.is_set()})
     except Exception as e:
         job.emit({'type': progress.FAILED, 'error': str(e),
                   'detail': traceback.format_exc()})
@@ -131,13 +158,17 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
 
+    # 0 means every page, which Ao3 expects as None
+    pages = job.options['pages'] or None
+
     visited = shared.visited(fileops, downloadtypes) if downloadtypes else []
-    ao3 = Ao3(repo, fileops, downloadtypes, None, False, False, progress=report)
+    ao3 = Ao3(repo, fileops, downloadtypes, pages, job.options['series'],
+              job.options['images'], progress=report, cancelled=job.cancel.is_set)
 
     if metadata:
         print(strings.AO3_INFO_METADATA)
-        ao3.get_metadata(link, False)
-    if downloadtypes:
+        ao3.get_metadata(link, job.options['workdates'])
+    if downloadtypes and not job.cancel.is_set():
         print(strings.AO3_INFO_DOWNLOADING)
         ao3.download(link, visited)
 
@@ -156,6 +187,7 @@ def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     print(strings.UPDATE_INFO_URLS)
     works: dict[str, int] = {}
     for index, item in enumerate(files, start=1):
+        if job.cancel.is_set(): break
         try:
             work = update.process_file(item['path'], item['filetype'])
             if work:
@@ -170,10 +202,12 @@ def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
                 'phase': 'scanning'})
     print(strings.UPDATE_INFO_URLS_DONE)
 
-    ao3 = Ao3(repo, fileops, downloadtypes, None, False, False, progress=report)
+    ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
+              progress=report, cancelled=job.cancel.is_set)
 
     print(strings.UPDATE_INFO_DOWNLOADING)
     for index, (link, chapters) in enumerate(works.items(), start=1):
+        if job.cancel.is_set(): break
         ao3.update(link, str(chapters))
         report({'type': progress.WORK, 'done': index, 'total': len(works),
                 'phase': 'downloading'})
@@ -239,6 +273,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(404, {'error': 'not found'})
 
     def do_POST(self) -> None:
+        if self.path.startswith('/api/jobs/') and self.path.endswith('/cancel'):
+            self.cancel_job(self.path.split('/')[3])
+            return
+
         if self.path != '/api/jobs':
             self.send_json(404, {'error': 'not found'})
             return
@@ -261,15 +299,27 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         filetypes = resolve_filetypes(body.get('filetypes'))
+        options = resolve_options(body.get('options'))
 
-        job = Job(action, filetypes, username)
+        job = Job(action, filetypes, username, options)
         with Handler.jobs_lock:
             Handler.jobs[job.id] = job
 
         thread = threading.Thread(target=run_job, args=(job, password), daemon=True)
         thread.start()
 
-        self.send_json(202, {'jobId': job.id, 'filetypes': filetypes})
+        self.send_json(202, {'jobId': job.id, 'filetypes': filetypes, 'options': options})
+
+    def cancel_job(self, job_id: str) -> None:
+        with Handler.jobs_lock:
+            job = Handler.jobs.get(job_id)
+        if not job:
+            self.send_json(404, {'error': 'no such job'})
+            return
+
+        # the run notices at its next checkpoint and unwinds, keeping what it has saved
+        job.cancel.set()
+        self.send_json(202, {'cancelling': True})
 
     def stream_events(self, job_id: str) -> None:
         with Handler.jobs_lock:

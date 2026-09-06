@@ -145,6 +145,7 @@ INFO_EXCLUDING_WORKS = 'filtering out works that are already in the downloads fo
 INFO_STARTING_PAGE = 'starting page'
 INFO_FINISHED_PAGE = 'finished getting page {}. starting page {} of {}'
 INFO_PARSING_LOGS = 'parsing data from log entries with timestamps starting at {} and ending at {}'
+INFO_CANCELLED = 'stopped at your request. anything already saved has been kept.'
 INFO_LINKS_LIST_CANCELED = '\nlink list generation manually canceled. list may not be complete.'
 INFO_NO_WORKS_ON_PAGE = 'ending scrape because no work or series urls were found on page'
 INFO_PAGE_LIMIT_REACHED = 'ending scrape because page limit was reached'

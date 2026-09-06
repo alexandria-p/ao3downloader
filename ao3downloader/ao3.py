@@ -3,6 +3,7 @@
 import datetime
 import os
 import traceback
+from collections.abc import Callable
 
 from bs4 import BeautifulSoup
 
@@ -22,10 +23,12 @@ class Ao3:
             series: bool, 
             images: bool,
             mark: bool = False,
-            progress: ProgressCallback | None = None) -> None:
+            progress: ProgressCallback | None = None,
+            cancelled: Callable[[], bool] | None = None) -> None:
         self.repo = repo
         self.fileops = fileops
         self.progress = progress
+        self.cancelled = cancelled
         self.filetypes = filetypes
         self.pages = pages
         self.series = series
@@ -41,6 +44,9 @@ class Ao3:
 
         try:
             self.download_recursive(link, log, visited)
+        except exceptions.CancelledException:
+            # works already downloaded stay where they are; this is not a failure
+            print(strings.INFO_CANCELLED)
         except Exception as e:
             self.log_error(log, e)
 
@@ -51,6 +57,8 @@ class Ao3:
         
         try:
             self.download_work(link, log, chapters)
+        except exceptions.CancelledException:
+            print(strings.INFO_CANCELLED)
         except Exception as e:
             self.log_error(log, e)
 
@@ -91,6 +99,7 @@ class Ao3:
 
         try:
             while True:
+                self.check_cancelled()
                 self.fileops.write_log({'link': link, 'message': strings.INFO_STARTING_PAGE, 'level': 'debug'})
                 thesoup = self.repo.get_soup(link)
                 if total_pages is None:
@@ -125,6 +134,9 @@ class Ao3:
                     if self.debug: self.fileops.write_log({'link': link, 'message': strings.INFO_PAGE_LIMIT_REACHED, 'level': 'debug'})
                     break
                 print(strings.AO3_INFO_METADATA_PAGE.format(str(pagenum - 1), str(total_pages), str(len(records))))
+        except exceptions.CancelledException:
+            # everything written so far stays on disk; this is not an error
+            print(strings.INFO_CANCELLED)
         except Exception as e:
             print(strings.ERROR_LINKS_LIST)
             self.log_error({'message': strings.ERROR_LINKS_LIST, 'link': link}, e)
@@ -171,6 +183,7 @@ class Ao3:
             work_link = record.get('link')
             if not work_link: continue
             try:
+                self.check_cancelled()
                 thesoup = self.proceed(self.repo.get_soup(work_link))
                 record['date_created'] = parse_soup.get_text_or_empty(thesoup, 'dd.published')
                 # single chapter works have no status line; keep the listing date in that case
@@ -178,6 +191,9 @@ class Ao3:
                 if updated: record['date_updated'] = updated
                 # the file was written during the crawl, so rewrite it with the dates in
                 self.save_metadata(record)
+            except exceptions.CancelledException:
+                print(strings.INFO_CANCELLED)
+                break
             except KeyboardInterrupt:
                 print(strings.INFO_LINKS_LIST_CANCELED)
                 break
@@ -264,6 +280,8 @@ class Ao3:
 
     def download_recursive(self, link: str, log: dict, visited: list[str]) -> None:
 
+        self.check_cancelled()
+
         if link in visited: return
         visited.append(link)
 
@@ -323,6 +341,8 @@ class Ao3:
                 if not total_pages or pagenum >= total_pages:
                     break
                 link = parse_text.get_next_page(link)
+        except exceptions.CancelledException:
+            raise # let a stop unwind rather than being logged as a series failure
         except Exception as e:
             log['link'] = link
             self.log_error(log, e)
@@ -335,6 +355,8 @@ class Ao3:
             log['link'] = link
             downloaded = self.try_download(link, log, chapters)
             if downloaded == False: return
+        except exceptions.CancelledException:
+            raise # a stop is not a failed download, and must not be logged as one
         except Exception as e:
             self.log_error(log, e)
         else:
@@ -361,7 +383,15 @@ class Ao3:
         log['title'] = title
         log['workskin'] = parse_soup.has_custom_skin(thesoup)
 
+        # what is being fetched right now, so the ui can name the fic and the format
+        display = ' / '.join(x for x in title if x)
+        progress.report(self.progress, progress.WORK, title=display, link=work_url,
+                        phase='downloading')
+
         for filetype in self.filetypes:
+            self.check_cancelled()
+            progress.report(self.progress, progress.WORK, title=display, link=work_url,
+                            filetype=filetype, phase='downloading')
             link = parse_soup.get_download_link(thesoup, filetype)
             response = self.repo.get_book(link)
             filetype = parse_text.get_file_type(filetype)
@@ -403,6 +433,17 @@ class Ao3:
             proceed_url = parse_soup.get_proceed_link(thesoup)
             thesoup = self.repo.get_soup(proceed_url)
         return thesoup
+
+
+    def check_cancelled(self) -> None:
+        """Stop the run if the caller has asked it to.
+
+        Called at loop boundaries rather than mid-work, so whatever was being written
+        finishes first and nothing is left half-saved.
+        """
+
+        if self.cancelled is not None and self.cancelled():
+            raise exceptions.CancelledException(strings.INFO_CANCELLED)
 
 
     def log_error(self, log: dict, exception: Exception):

@@ -1,7 +1,7 @@
 import { Component, OnDestroy, computed, inject, input, output, signal } from '@angular/core';
 import { JobAction, JobEvent, Jobs } from './jobs';
 
-type Step = 'filetypes' | 'credentials' | 'running' | 'done' | 'failed';
+type Step = 'filetypes' | 'options' | 'credentials' | 'running' | 'done' | 'failed';
 
 const USERNAME_KEY = 'ao3.username';
 const REMEMBER_KEY = 'ao3.remember';
@@ -28,6 +28,12 @@ export class DownloadDialog implements OnDestroy {
   /** opt-in: only true once the user has asked to be remembered */
   protected readonly remember = signal(false);
 
+  // the questions the console menu asks after the file types
+  protected readonly pages = signal(0);
+  protected readonly series = signal(false);
+  protected readonly images = signal(false);
+  protected readonly workdates = signal(false);
+
   protected readonly log = signal<string[]>([]);
   protected readonly percent = signal<number | null>(null);
   protected readonly paused = signal<{ seconds: number; until: string } | null>(null);
@@ -35,6 +41,14 @@ export class DownloadDialog implements OnDestroy {
   protected readonly error = signal('');
   protected readonly folder = signal('');
 
+  /** what is being fetched right now */
+  protected readonly currentTitle = signal('');
+  protected readonly currentFiletype = signal('');
+
+  protected readonly cancelling = signal(false);
+  protected readonly wasCancelled = signal(false);
+
+  private jobId: string | null = null;
   private stop: (() => void) | null = null;
   private unloadGuard: ((event: BeforeUnloadEvent) => void) | null = null;
 
@@ -50,6 +64,21 @@ export class DownloadDialog implements OnDestroy {
 
   /** JSON is metadata rather than a work, so the update run cannot produce it */
   protected readonly metadataNotApplicable = computed(() => this.action() === 'update');
+
+  /** page limits, series expansion and publication dates only mean something for a listing */
+  protected readonly listingOptions = computed(() => this.action() === 'bookmarks');
+
+  /** what the run was asked to do, shown back while it works */
+  protected readonly chosenOptions = computed(() => {
+    const chosen: string[] = [];
+    if (this.listingOptions()) {
+      chosen.push(this.pages() === 0 ? 'all pages' : `stop after page ${this.pages()}`);
+      if (this.series()) chosen.push('expand series links');
+      if (this.workdates()) chosen.push('look up publication dates');
+    }
+    if (this.images()) chosen.push('embedded images');
+    return chosen;
+  });
 
   constructor() {
     void this.init();
@@ -91,8 +120,17 @@ export class DownloadDialog implements OnDestroy {
     );
   }
 
+  protected toOptions(): void {
+    this.step.set('options');
+  }
+
   protected toCredentials(): void {
     this.step.set('credentials');
+  }
+
+  protected setPages(value: string): void {
+    const parsed = Number.parseInt(value, 10);
+    this.pages.set(Number.isFinite(parsed) && parsed > 0 ? parsed : 0);
   }
 
   // endregion
@@ -137,12 +175,22 @@ export class DownloadDialog implements OnDestroy {
     this.log.set([]);
     this.percent.set(null);
     this.error.set('');
+    this.currentTitle.set('');
+    this.currentFiletype.set('');
+    this.cancelling.set(false);
+    this.wasCancelled.set(false);
 
     let jobId: string;
     try {
       jobId = await this.jobs.start({
         action: this.action(),
         filetypes: this.selected(),
+        options: {
+          pages: this.pages(),
+          series: this.series(),
+          images: this.images(),
+          workdates: this.workdates(),
+        },
         username: this.username().trim(),
         password: this.password(),
       });
@@ -155,6 +203,7 @@ export class DownloadDialog implements OnDestroy {
       this.password.set('');
     }
 
+    this.jobId = jobId;
     this.holdUnloadGuard();
     this.stop = this.jobs.stream(
       jobId,
@@ -178,13 +227,18 @@ export class DownloadDialog implements OnDestroy {
         break;
       case 'work':
         if (event.total) this.percent.set(Math.round(((event.done ?? 0) / event.total) * 100));
-        this.summary.set(
-          event.phase === 'scanning'
-            ? `checking file ${event.done} of ${event.total}`
-            : event.done !== undefined
-              ? `work ${event.done} of ${event.total}`
-              : (event.title ?? ''),
-        );
+        if (event.title) {
+          this.currentTitle.set(event.title);
+          // a work event without a filetype means the work page itself, not a format
+          this.currentFiletype.set(event.filetype ?? '');
+        }
+        if (event.done !== undefined && event.total) {
+          this.summary.set(
+            event.phase === 'scanning'
+              ? `checking file ${event.done} of ${event.total}`
+              : `work ${event.done} of ${event.total}`,
+          );
+        }
         break;
       case 'paused':
         this.paused.set({ seconds: event.seconds ?? 0, until: event.until ?? '' });
@@ -196,8 +250,11 @@ export class DownloadDialog implements OnDestroy {
         if (event.text) this.append(event.text);
         break;
       case 'finished':
-        this.percent.set(100);
+        this.wasCancelled.set(!!event.cancelled);
+        if (!event.cancelled) this.percent.set(100);
         this.summary.set('');
+        this.currentTitle.set('');
+        this.currentFiletype.set('');
         this.step.set('done');
         this.finishUp();
         break;
@@ -219,8 +276,18 @@ export class DownloadDialog implements OnDestroy {
     }
   }
 
+  /** Ask the helper to stop. It keeps everything already written. */
+  protected async requestStop(): Promise<void> {
+    if (!this.jobId || this.cancelling()) return;
+    this.cancelling.set(true);
+    this.append('stopping at your request...');
+    await this.jobs.cancel(this.jobId);
+  }
+
   private finishUp(): void {
     this.paused.set(null);
+    this.cancelling.set(false);
+    this.jobId = null;
     this.stop?.();
     this.stop = null;
     this.releaseUnloadGuard();

@@ -3,6 +3,7 @@
 import datetime
 import traceback
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from time import sleep
 
 import requests
@@ -20,13 +21,17 @@ class Repository:
     timeout = 60
 
     retry_statuses = frozenset([500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530])
+    # how long a cancellable pause waits before checking whether it has been stopped
+    pause_slice = 1
     retry_initial_delay = 0.1
     retry_max_delay = 30
 
 
-    def __init__(self, fileops: FileOps, progress: ProgressCallback | None = None) -> None:
+    def __init__(self, fileops: FileOps, progress: ProgressCallback | None = None,
+                 cancelled: Callable[[], bool] | None = None) -> None:
         self.fileops = fileops
         self.progress = progress
+        self.cancelled = cancelled
         self.session = requests.Session()
         self.debug = fileops.get_ini_value_boolean(strings.INI_DEBUG_LOGGING, False)
         self.extra_wait = fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0)
@@ -40,6 +45,27 @@ class Repository:
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         self.session.close()
+
+
+    def pause(self, seconds: int) -> None:
+        """Wait out an ao3 rate limit break, in slices.
+
+        A single long sleep would make a stop request look like a hang, since ao3 can ask
+        for several minutes. Cancelling here just ends the wait - the caller notices at
+        its next check and unwinds from there.
+        """
+
+        # nothing can interrupt a caller that cannot cancel, so it just waits
+        if self.cancelled is None:
+            sleep(seconds)
+            return
+
+        remaining = seconds
+        while remaining > 0:
+            if self.cancelled(): return
+            slice_length = min(self.pause_slice, remaining)
+            sleep(slice_length)
+            remaining -= slice_length
 
 
     def get_xml(self, url: str) -> ET.Element:
@@ -123,7 +149,7 @@ class Repository:
                 print(strings.MESSAGE_TOO_MANY_REQUESTS.format(pause_time, now.strftime('%H:%M:%S'), later.strftime('%H:%M:%S')))
                 progress.report(self.progress, progress.PAUSED, seconds=pause_time,
                                 until=later.strftime('%H:%M:%S'))
-                sleep(pause_time)
+                self.pause(pause_time)
                 print(strings.MESSAGE_RESUMING)
                 progress.report(self.progress, progress.RESUMED)
                 continue

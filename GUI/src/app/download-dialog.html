@@ -60,6 +60,45 @@
       </section>
       <footer>
         <button type="button" class="button subtle" (click)="close()">Cancel</button>
+        <button type="button" class="button primary" (click)="toOptions()">Continue</button>
+      </footer>
+    }
+
+    <!-- step 2: the questions the console menu asks -->
+    @if (step() === 'options') {
+      <section class="body">
+        @if (listingOptions()) {
+          <label class="field">
+            <span>Stop after page number (0 for all pages)</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              [value]="pages()"
+              (input)="setPages($any($event.target).value)"
+            />
+          </label>
+
+          <label class="check">
+            <input type="checkbox" [checked]="series()" (change)="series.set($any($event.target).checked)" />
+            <span>Get works from all encountered series links</span>
+          </label>
+          <p class="hint">
+            If a bookmarked work belongs to a series, download the whole series too. This can
+            take a great deal longer. Series you bookmarked directly are always downloaded
+            either way.
+          </p>
+        }
+
+        <label class="check">
+          <input type="checkbox" [checked]="images()" (change)="images.set($any($event.target).checked)" />
+          <span>Download embedded images</span>
+        </label>
+        <p class="hint">Saved separately, into an <code>images</code> subfolder.</p>
+
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="step.set('filetypes')">Back</button>
         <button type="button" class="button primary" (click)="toCredentials()">Continue</button>
       </footer>
     }
@@ -109,7 +148,7 @@
         </p>
       </form>
       <footer>
-        <button type="button" class="button subtle" (click)="step.set('filetypes')">Back</button>
+        <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
         <button type="button" class="button primary" (click)="submit($event)">Start download</button>
       </footer>
     }
@@ -142,6 +181,31 @@
           <span>{{ summary() || 'working...' }}</span>
         </p>
 
+        <!-- what is being fetched right now -->
+        <div class="current">
+          @if (currentTitle()) {
+            <span class="label">Downloading</span>
+            <span class="fic">{{ currentTitle() }}</span>
+            @if (currentFiletype()) {
+              <span class="format">{{ currentFiletype() }}</span>
+            }
+          } @else {
+            <span class="label">Reading the bookmarks listing</span>
+          }
+        </div>
+
+        <!-- what this run was asked to do -->
+        <dl class="chosen">
+          <dt>Saving as</dt>
+          <dd>{{ selected().join(', ') }}</dd>
+          @if (chosenOptions().length) {
+            <dt>Options</dt>
+            <dd>{{ chosenOptions().join(', ') }}</dd>
+          }
+          <dt>Into</dt>
+          <dd><code>{{ folder() }}</code></dd>
+        </dl>
+
         @if (paused(); as pause) {
           <p class="warning pause">
             AO3 has asked us to slow down, so the download is paused for
@@ -155,12 +219,24 @@
 }</pre>
         }
       </section>
+      <footer>
+        <button type="button" class="button danger" [disabled]="cancelling()" (click)="requestStop()">
+          {{ cancelling() ? 'Stopping...' : 'Stop' }}
+        </button>
+      </footer>
     }
 
     <!-- step 4: outcome -->
     @if (step() === 'done') {
       <section class="body">
-        <p class="success">Finished. Files were saved to <code>{{ folder() }}</code>.</p>
+        @if (wasCancelled()) {
+          <p class="warning">
+            Stopped. Everything downloaded before you stopped was kept, in
+            <code>{{ folder() }}</code>.
+          </p>
+        } @else {
+          <p class="success">Finished. Files were saved to <code>{{ folder() }}</code>.</p>
+        }
         <p class="hint">
           Point the folder picker at that folder (or reopen it) to see the new bookmarks here.
         </p>

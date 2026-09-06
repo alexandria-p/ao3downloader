@@ -102,7 +102,13 @@ The page has two buttons:
 - **Download newly added bookmarks** - the same as the console option 'download from ao3 link', pointed at `https://archiveofourown.org/users/<your username>/bookmarks`. Works already in your downloads folder are skipped, so a second run only picks up bookmarks added since the last one.
 - **Update any bookmarks marked as incomplete** - the same as the console option 'download latest version of incomplete fics'. It scans your downloads folder for works that were incomplete and re-downloads any with new chapters.
 
-Each button asks which file types you want. JSON and HTML are always produced and cannot be unticked; the ebook formats are optional. You are then asked to log in to ao3, and progress is shown in the dialog, including a message when ao3 asks the script to pause. **Leave the tab open while a download runs** - refreshing or closing it interrupts the run.
+Each button asks which file types you want. JSON and HTML are always produced and cannot be unticked; the ebook formats are optional. It then asks the same questions the console menu does - which page to stop on (0 for all of them), whether to follow series links, whether to save embedded images, and whether to look up publication dates - leaving out any that do not apply to the action you picked. Finally it asks you to log in to ao3.
+
+While a run is in progress the dialog shows a progress bar, the file types and options you chose, the folder being written to, and the name of the fic being fetched right now along with the format it is being fetched in. A message appears if ao3 asks the script to slow down. **Leave the tab open while a download runs** - refreshing or closing it interrupts the run.
+
+There is a **Stop** button throughout. Stopping is safe: the run finishes what it is writing and unwinds, so everything already saved is kept. It is not a rollback.
+
+If a work has already been downloaded it is skipped rather than fetched again, which is what makes the first button 'newly added'. A work counts as already downloaded when it appears in <!--CHECK-->log.jsonl<!--LOG_FILE_NAME--> *and* a file exists for every file type you selected. If either is untrue - the log was deleted, or you asked for a format you did not download last time - it is fetched again and the file is overwritten in place. JSON metadata is the exception: it is always rewritten, so the metadata stays current even for works that are skipped.
 
 On your login details: only your username is saved by the page, in browser storage. Your password is sent to the helper to log in to ao3 and is never written anywhere - let your browser's own password manager remember it if you want it filled in next time.
 

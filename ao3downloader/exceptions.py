@@ -51,3 +51,9 @@ class PdfParsingException(Ao3DownloaderException):
 
 class SeriesLinkException(Ao3DownloaderException):
     pass
+
+
+class CancelledException(Ao3DownloaderException):
+    """Raised when a caller asks for a run to stop. Unwinds to the nearest handler,
+    which keeps whatever was already written rather than discarding it."""
+    pass

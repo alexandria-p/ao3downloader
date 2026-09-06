@@ -48,6 +48,29 @@ def test_resolve_filetypes_handles_a_missing_list():
 # endregion
 
 
+# region resolve_options
+
+def test_resolve_options_defaults_match_the_console_defaults():
+    assert server.resolve_options(None) == {
+        'pages': 0, 'series': False, 'images': False, 'workdates': False,
+    }
+
+
+def test_resolve_options_reads_what_was_asked_for():
+    result = server.resolve_options(
+        {'pages': '3', 'series': True, 'images': True, 'workdates': True})
+
+    assert result == {'pages': 3, 'series': True, 'images': True, 'workdates': True}
+
+
+@pytest.mark.parametrize('pages', ['abc', None, '', {}, -5])
+def test_resolve_options_falls_back_to_all_pages_on_junk(pages):
+    # 0 is the console's wording for "every page"
+    assert server.resolve_options({'pages': pages})['pages'] == 0
+
+# endregion
+
+
 # region LineStream
 
 def test_line_stream_emits_complete_lines():
@@ -253,6 +276,97 @@ def test_run_update_takes_the_least_complete_copy_of_a_work(fake_environment):
         server.run_update(job, fake_environment['fileops'], fake_environment['repo'], MagicMock())
 
     ao3.update.assert_called_once_with('https://archiveofourown.org/works/1', '4')
+
+
+def test_run_bookmarks_passes_the_chosen_options_through(fake_environment):
+    job = server.Job(server.ACTION_BOOKMARKS, ['EPUB', 'HTML'], 'Someone',
+                     server.resolve_options({'pages': 3, 'series': True, 'images': True}))
+
+    with patch.object(server, 'Ao3') as ao3_class, \
+         patch.object(server.shared, 'visited', return_value=[]):
+        server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    args = ao3_class.call_args.args
+    assert args[3] == 3      # pages
+    assert args[4] is True   # series
+    assert args[5] is True   # images
+
+
+def test_run_bookmarks_treats_page_zero_as_every_page(fake_environment):
+    # Ao3 wants None for "no limit"; the console asks for 0
+    job = server.Job(server.ACTION_BOOKMARKS, ['HTML'], 'Someone',
+                     server.resolve_options({'pages': 0}))
+
+    with patch.object(server, 'Ao3') as ao3_class, \
+         patch.object(server.shared, 'visited', return_value=[]):
+        server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert ao3_class.call_args.args[3] is None
+
+
+def test_run_bookmarks_asks_for_work_dates_when_requested(fake_environment):
+    job = server.Job(server.ACTION_BOOKMARKS, [strings.AO3_DOWNLOAD_TYPE_METADATA], 'Someone',
+                     server.resolve_options({'workdates': True}))
+    ao3 = MagicMock()
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'visited', return_value=[]):
+        server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert ao3.get_metadata.call_args.args[1] is True
+
+
+def test_run_bookmarks_skips_the_download_phase_once_cancelled(fake_environment):
+    job = server.Job(server.ACTION_BOOKMARKS,
+                     [strings.AO3_DOWNLOAD_TYPE_METADATA, 'EPUB'], 'Someone')
+    ao3 = MagicMock()
+    # metadata finishes, then the user hits stop
+    ao3.get_metadata.side_effect = lambda *a: job.cancel.set()
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'visited', return_value=[]):
+        server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    ao3.download.assert_not_called()
+
+
+def test_run_update_stops_scanning_when_cancelled(fake_environment):
+    job = server.Job(server.ACTION_UPDATE, ['HTML'], 'Someone')
+    job.cancel.set()
+    files = [{'path': 'a.html', 'filetype': 'HTML'}]
+
+    with patch.object(server, 'Ao3'), \
+         patch.object(server.shared, 'get_files_of_type', return_value=files), \
+         patch.object(server.update, 'process_file') as process:
+        server.run_update(job, fake_environment['fileops'], fake_environment['repo'], MagicMock())
+
+    process.assert_not_called()
+
+
+def test_run_job_reports_a_cancelled_finish_rather_than_a_failure(fake_environment):
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON'], 'Someone')
+
+    with patch.object(server, 'run_bookmarks', side_effect=lambda *a: job.cancel.set()):
+        server.run_job(job, 'a-password')
+
+    finished = [e for e in job.history if e['type'] == progress.FINISHED]
+    assert len(finished) == 1
+    assert finished[0]['cancelled'] is True
+    assert not [e for e in job.history if e['type'] == progress.FAILED]
+
+
+def test_run_job_announces_the_chosen_filetypes_and_options(fake_environment):
+    # the ui shows these back while the run is in progress
+    job = server.Job(server.ACTION_BOOKMARKS, ['EPUB', 'HTML'], 'Someone',
+                     server.resolve_options({'pages': 2, 'images': True}))
+
+    with patch.object(server, 'run_bookmarks'):
+        server.run_job(job, 'a-password')
+
+    started = [e for e in job.history if e['type'] == progress.STARTED][0]
+    assert started['filetypes'] == ['EPUB', 'HTML']
+    assert started['options']['pages'] == 2
+    assert started['options']['images'] is True
 
 
 def test_run_update_survives_a_file_it_cannot_parse(fake_environment):

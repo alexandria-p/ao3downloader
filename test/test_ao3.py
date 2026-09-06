@@ -909,6 +909,69 @@ def test_get_metadata_rewrites_files_after_work_dates_are_filled() -> None:
     assert fileops.save_json.call_args.args[1]['date_created'] == '01 Jan 2019'
 
 
+def test_get_metadata_stops_when_cancelled_and_keeps_what_it_saved() -> None:
+    # stopping must not throw away pages already written
+    ao3, repo, fileops = make_ao3()
+    cancelled = {'value': False}
+    ao3.cancelled = lambda: cancelled['value']
+
+    def pages(_url):
+        if repo.get_soup.call_count == 1:
+            return _listing_soup(['111'], total_pages=5)
+        cancelled['value'] = True
+        return _listing_soup(['222'], total_pages=5)
+
+    repo.get_soup.side_effect = pages
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['id'] for r in records] == ['111', '222']
+    assert sorted(_saved(fileops)) == ['111 Work 111 - A.json', '222 Work 222 - A.json']
+    # a stop is not an error
+    logged = [c.args[0] for c in fileops.write_log.call_args_list]
+    assert not any(x.get('message') == strings.ERROR_LINKS_LIST for x in logged)
+
+
+def test_get_metadata_stops_before_the_first_page_when_already_cancelled() -> None:
+    ao3, repo, fileops = make_ao3()
+    ao3.cancelled = lambda: True
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert records == []
+    repo.get_soup.assert_not_called()
+
+
+def test_add_work_dates_stops_when_cancelled() -> None:
+    ao3, repo, _ = make_ao3()
+    ao3.cancelled = lambda: True
+    records = [{'link': WORK_URL, 'date_created': None, 'date_updated': '01 Jan 2020'}]
+
+    ao3.add_work_dates(records)
+
+    repo.get_soup.assert_not_called()
+    assert records[0]['date_created'] is None
+
+
+def test_download_stops_when_cancelled_without_logging_a_failure() -> None:
+    ao3, repo, fileops = make_ao3()
+    ao3.cancelled = lambda: True
+
+    ao3.download(LISTING_URL, [])
+
+    repo.get_soup.assert_not_called()
+    logged = [c.args[0] for c in fileops.write_log.call_args_list]
+    assert not any(x.get('success') is False for x in logged)
+
+
+def test_check_cancelled_does_nothing_without_a_callback() -> None:
+    # the console app passes none, and must be unaffected
+    ao3, _, _ = make_ao3()
+
+    assert ao3.cancelled is None
+    ao3.check_cancelled()
+
+
 def test_get_metadata_does_not_load_work_pages_by_default() -> None:
     # the whole point of reading the listing is one request per page, not per work
     ao3, repo, _ = make_ao3()
