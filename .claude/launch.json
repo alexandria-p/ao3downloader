@@ -4,7 +4,7 @@
     {
       "name": "gui",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "GUI", "start"],
+      "runtimeArgs": ["--prefix", "gui_source", "start"],
       "port": 4200
     }
   ]

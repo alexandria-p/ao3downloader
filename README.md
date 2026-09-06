@@ -2,20 +2,20 @@
 
 it's worth running uv run python dev/readme.py after a rewrite.(?)
 
+Downloads via the site go to whichever location is specified in the config/settings.ini -> DownloadFolder
 
-keep settings.ini and data.json in root directory
-make sure to update the location of your downloads folder (my_downloads for me)
+## Development Build  
+settings.ini and data.json can be found in the powershell_source directory
+make sure to update the location of your downloads folder here.
 
+### Running full project on your local
 Open powershell
-powershell.exe -ExecutionPolicy Bypass -File .\run-gui.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\run_development_build.ps1
 That starts both pieces — the local helper on port 4400 and the web UI on port 4200 — then leave the window open and go to http://localhost:4200.
 
 Ctrl+C in that window stops both
 
-downloads via gui go to settings.ini -> DownloadFolder
-
-
-For running the GUI ONLY:
+### For running the GUI ONLY:
 
 Open git bash CLI window, 
 
@@ -24,6 +24,23 @@ npm --prefix GUI start
 (or, cd GUI; npm start)
 
 Then open http://localhost:4200.
+
+## Build Artifact
+
+### How to bundle it
+
+Open powershell in the root directory:
+powershell.exe -ExecutionPolicy Bypass -File .\generate_build_artifacts.ps1
+
+Everthing gets bundled to the /build folder.
+
+### How to run the build artifact
+
+Open powershell in the /build directory:
+powershell.exe -ExecutionPolicy Bypass -File .\Start-Application.ps1
+
+This starts the local download helper on port 4400 and the web UI on port 4200
+Leave the window open and go to http://localhost:4200.
 
 
 # Original Readme
@@ -84,10 +101,10 @@ This is basically what the install script does, but broken out into manual steps
 
 ## Web UI
 
-There is a local web interface in the `GUI` folder for browsing your downloaded bookmarks and starting downloads without using the console menu. Start everything with:
+There is a local web interface, with its source in the `gui_source` folder, for browsing your downloaded bookmarks and starting downloads without using the console menu. Start everything with:
 
 ```
-.\run-gui.ps1
+.\run_development_build.ps1
 ```
 
 That launches two things and then opens at <http://localhost:4200>:
@@ -112,7 +129,9 @@ If a work has already been downloaded it is skipped rather than fetched again, w
 
 On your login details: only your username is saved by the page, in browser storage. Your password is sent to the helper to log in to ao3 and is never written anywhere - let your browser's own password manager remember it if you want it filled in next time.
 
-If you only want to browse bookmarks you have already downloaded, you can run the web app on its own with `npm --prefix GUI start`; the download buttons will tell you the helper is not running.
+If you only want to browse bookmarks you have already downloaded, you can run the web app on its own with `npm --prefix gui_source start`; the download buttons will tell you the helper is not running.
+
+To produce a copy you can move to another machine, run `.\generate_build_artifacts.ps1`, which gathers everything needed into a `build` folder. See INSTRUCTIONS.txt.
 
 ## Menu Options Explanation
 

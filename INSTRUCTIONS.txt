@@ -1,0 +1,143 @@
+================================================================================
+ BUILDING THE DEPLOYABLE BUNDLE
+================================================================================
+
+1) HOW TO GENERATE IT
+---------------------
+
+Open PowerShell in the project root and run:
+
+    powershell.exe -ExecutionPolicy Bypass -File .\generate_build_artifacts.ps1
+
+That is the whole process. It takes a minute or so, most of it compiling the
+web app.
+
+If only the launcher or the python code changed and the web app has not, you
+can skip recompiling the site:
+
+    powershell.exe -ExecutionPolicy Bypass -File .\generate_build_artifacts.ps1 -SkipWeb
+
+You need uv installed. You also need Node installed, but only for generating
+the bundle - not for running it afterwards.
+
+
+2) WHERE IT GETS BUILT TO
+-------------------------
+
+    build\
+
+...in the project root. That folder is the deliverable: everything needed to
+run the site lives inside it, and nothing outside it is required.
+
+    build\Start-Application.ps1       starts the helper and serves the site
+    build\web\                        the compiled web app (static files)
+    build\README.md                   how to run the bundle
+
+    build\ao3_download_helper\
+        source_code\                  the code behind the download buttons
+        pyproject.toml, uv.lock       so uv can build the environment
+        README.md                     required by pyproject.toml's readme field,
+                                      so do not delete it
+        logs\                         created as the application runs
+
+    build\config\
+        settings.ini                  your settings, including the download folder
+        data.json                     saved username and file type choices
+
+All of it is needed. The bundle deliberately mirrors the working copy - the python
+sits in ao3_download_helper\ exactly as it does under powershell_source\ - which is
+what lets pyproject.toml be copied across without rewriting.
+
+Config and logs are in different folders, which the application would not normally
+allow: it looks for settings.ini, data.json and logs\ in one working directory. The
+launcher tells it otherwise through two environment variables,
+AO3DOWNLOADER_CONFIG_FOLDER and AO3DOWNLOADER_LOG_FOLDER. Unset - which is the case
+in the working copy - everything falls back to the working directory as before.
+
+Running the bundle creates .venv\, logs\ and the downloads folder inside build\.
+Those are working files, not part of the artifact - if you copy build\ elsewhere,
+leave .venv\ behind and let the first run rebuild it.
+
+There is one launcher in the working copy and one in the bundle, nothing in
+between:
+
+    run_development_build.ps1  ->  build\Start-Application.ps1
+
+On the way it folds ao3-env.ps1 into the script, so the copy that ships is a
+single self-contained file with nothing to dot-source.
+
+Rebuilding overwrites everything in build\ EXCEPT settings.ini and data.json.
+Those are only created if they are not already there, so your settings and
+saved username survive a rebuild.
+
+To run the bundle:
+
+    cd build
+    powershell.exe -ExecutionPolicy Bypass -File .\Start-Application.ps1
+
+Then open http://localhost:4200
+
+
+3) WHERE EVERYTHING LIVES NOW
+-----------------------------
+
+    gui_source\           the Angular source for the web ui
+    run_development_build.ps1  starts the web ui against gui_source, with hot reload
+    build\                generated - see above
+
+    powershell_source\
+        run-locally.ps1           runs the console menu
+        README.md                 describes this folder
+        settings.ini, data.json   runtime state, created on first run
+        logs\, downloads\         written here as the app runs
+
+    powershell_source\ao3_download_helper\
+        source_code\              the application: console menu, downloader, and
+                                  the local helper that the web ui talks to
+        test\                     its test suite
+        pyproject.toml, uv.lock   the python project; uv builds .venv here
+        README.md                 required by pyproject.toml's readme field
+        ao3-env.ps1               shared launcher functions
+        build_artifacts.py        assembles the bundle
+        test_build_artifacts.py   its tests, kept beside it
+
+The runtime files sit one level ABOVE the python project. The launchers set their
+working directory to powershell_source\ (which is what decides where settings.ini,
+data.json, logs\ and a relative DownloadFolder resolve) while pointing uv at
+ao3_download_helper\ (which is where pyproject.toml is). A generated build is flat,
+so there the two are the same folder.
+
+    run the console menu:  powershell_source\run-locally.ps1
+    run the web ui:        run_development_build.ps1
+    build the bundle:      generate_build_artifacts.ps1
+
+A note on the folder name: source_code is what python imports the package
+by, so the local helper starts as `python -m source_code.server`. The
+distribution is still called ao3downloader, which is why pyproject.toml has to
+tell hatchling where the package lives.
+
+Tests have to be run from inside ao3_download_helper. pyproject.toml is there,
+and pytest only finds its configuration when it runs from that folder:
+
+    cd powershell_source\ao3_download_helper
+    uv run pytest
+
+Run it from the repository root instead and the tests still pass, but the
+settings in [tool.pytest.ini_options] are ignored - including the registration
+of the 'ebook' marker.
+
+
+4) ONE THING TO KNOW BEFORE DEPLOYING IT SOMEWHERE
+--------------------------------------------------
+
+The web app itself is static and will serve from anywhere. The two download
+buttons will not.
+
+They talk to the helper on 127.0.0.1:4400. That means the helper has to run on
+the same machine as the browser, and downloads land on the machine running the
+helper. Put this on a remote web server and visitors get a bookmark browser
+whose buttons fail; any download that did run would save to the server's disk,
+logged in as whoever's ao3 account was typed in.
+
+So: run it locally, or on a machine only you use. It is a bundle you can copy
+and run anywhere, rather than a site to host publicly.

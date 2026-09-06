@@ -1,5 +1,3 @@
-- make local html/(js or angular or react) to display json results just like ao3 looks like, in a paginated table
-- clicking on the link displays the html file of the fic, if downloaded, in a new page.
 - a button at the top of the page - one to DOWNLOAD NEW BOOKMARKS, one to UPDATE EXISTING DOWNLOADED WORKS
 - eventually, combine these into a single button press
 - eventually, host this somewhere simple (github pages?)
@@ -11,3 +9,27 @@ upload to, and read from, dropbox link (instead of local downloads folder)
 how to handle cancel midway through download (especially for html with images?)
 
 can we improve 'update incomplete fics' -> to instead search to see if json has changed (eg update date or chapter count) since last pull. I think existing system is outdated and is redownloading ALL incomplete works, but will not catch if complete works add bonus chapters, like jane dutch.
+
+should we force redownload json every time? idk think about versioning .....
+
+do i need .venv ??
+
+
+do /downloads and /logs get created automatically in /powershell_source if run-locally.ps1 is run?
+
+also, remove readme.md(s) from being generated in /build/ao3_download_helper.
+
+is data.json needed in /build/config?
+
+remove SavePassword=false from /build/config/settings.ini
+
+show a spinning in modal while attempting to verify login (in gui)
+
+
+
+change to 20 bookmarks per page.
+
+
+long term:
+
+filtering in-app
