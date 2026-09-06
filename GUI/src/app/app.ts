@@ -1,5 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
+import { DownloadDialog } from './download-dialog';
+import { JobAction } from './jobs';
 import { Library } from './library';
 import {
   Bookmark,
@@ -17,7 +19,7 @@ const PER_PAGE = 19;
 
 @Component({
   selector: 'app-root',
-  imports: [DecimalPipe, NgTemplateOutlet],
+  imports: [DecimalPipe, NgTemplateOutlet, DownloadDialog],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })
@@ -26,6 +28,8 @@ export class App {
 
   protected readonly perPage = PER_PAGE;
   protected readonly page = signal(1);
+  /** which download dialog is open, if any */
+  protected readonly dialogAction = signal<JobAction | null>(null);
 
   protected readonly data = this.library.data;
   protected readonly error = this.library.error;

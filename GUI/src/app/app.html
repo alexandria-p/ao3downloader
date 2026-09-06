@@ -28,6 +28,19 @@
   </div>
 </header>
 
+<div class="actions">
+  <button type="button" class="button primary" (click)="dialogAction.set('bookmarks')">
+    Download newly added bookmarks
+  </button>
+  <button type="button" class="button" (click)="dialogAction.set('update')">
+    Update any bookmarks marked as incomplete
+  </button>
+</div>
+
+@if (dialogAction(); as action) {
+  <app-download-dialog [action]="action" (closed)="dialogAction.set(null)" />
+}
+
 @if (needsReconnect()) {
   <p class="reconnect">
     <span>

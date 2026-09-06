@@ -7,3 +7,7 @@
 upload to, and read from, dropbox link (instead of local downloads folder)
 -checkbox for which types to download
 - HTML and JSON are REQUIRED (for the site code to run), all others are optional.
+
+how to handle cancel midway through download (especially for html with images?)
+
+can we improve 'update incomplete fics' -> to instead search to see if json has changed (eg update date or chapter count) since last pull. I think existing system is outdated and is redownloading ALL incomplete works, but will not catch if complete works add bonus chapters, like jane dutch.

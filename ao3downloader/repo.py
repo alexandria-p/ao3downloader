@@ -9,8 +9,9 @@ import requests
 from bs4 import BeautifulSoup
 from requests import codes
 
-from ao3downloader import exceptions, parse_soup, parse_text, strings
+from ao3downloader import exceptions, parse_soup, parse_text, progress, strings
 from ao3downloader.fileio import FileOps
+from ao3downloader.progress import ProgressCallback
 
 
 class Repository:
@@ -23,8 +24,9 @@ class Repository:
     retry_max_delay = 30
 
 
-    def __init__(self, fileops: FileOps) -> None:
+    def __init__(self, fileops: FileOps, progress: ProgressCallback | None = None) -> None:
         self.fileops = fileops
+        self.progress = progress
         self.session = requests.Session()
         self.debug = fileops.get_ini_value_boolean(strings.INI_DEBUG_LOGGING, False)
         self.extra_wait = fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0)
@@ -119,8 +121,11 @@ class Repository:
                 now = datetime.datetime.now()
                 later = now + datetime.timedelta(0, pause_time)
                 print(strings.MESSAGE_TOO_MANY_REQUESTS.format(pause_time, now.strftime('%H:%M:%S'), later.strftime('%H:%M:%S')))
+                progress.report(self.progress, progress.PAUSED, seconds=pause_time,
+                                until=later.strftime('%H:%M:%S'))
                 sleep(pause_time)
                 print(strings.MESSAGE_RESUMING)
+                progress.report(self.progress, progress.RESUMED)
                 continue
 
             # this check follows the retry-after check because a cloudflare response that is also 

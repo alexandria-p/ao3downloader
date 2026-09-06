@@ -1,13 +1,21 @@
 # Alex Tips
 
+it's worth running uv run python dev/readme.py after a rewrite.(?)
+
+
 keep settings.ini and data.json in root directory
 make sure to update the location of your downloads folder (my_downloads for me)
 
 Open powershell
-powershell.exe -ExecutionPolicy Bypass -File .\run-local.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\run-gui.ps1
+That starts both pieces — the local helper on port 4400 and the web UI on port 4200 — then leave the window open and go to http://localhost:4200.
+
+Ctrl+C in that window stops both
+
+downloads via gui go to settings.ini -> DownloadFolder
 
 
-For running the GUI:
+For running the GUI ONLY:
 
 Open git bash CLI window, 
 
@@ -74,9 +82,35 @@ This is basically what the install script does, but broken out into manual steps
     ```
 5. Anytime you want to run ao3downloader again, repeat steps 2 and 4. If you would like to update your ao3downloader version, repeat step 3.
 
+## Web UI
+
+There is a local web interface in the `GUI` folder for browsing your downloaded bookmarks and starting downloads without using the console menu. Start everything with:
+
+```
+.\run-gui.ps1
+```
+
+That launches two things and then opens at <http://localhost:4200>:
+
+- **the Angular app**, which reads your downloads folder in the browser and lists your bookmarks
+- **the local helper** (`ao3downloader.server`), which performs the actual downloads
+
+The helper exists because a web page cannot do this work itself. Ao3 sends no CORS headers, so a page cannot read it; a page cannot hold an ao3 login session; and the update scan has to read the ebook files on your disk. The helper listens on `127.0.0.1` only - nothing outside your machine can reach it - and it calls exactly the same code the console menu calls.
+
+The page has two buttons:
+
+- **Download newly added bookmarks** - the same as the console option 'download from ao3 link', pointed at `https://archiveofourown.org/users/<your username>/bookmarks`. Works already in your downloads folder are skipped, so a second run only picks up bookmarks added since the last one.
+- **Update any bookmarks marked as incomplete** - the same as the console option 'download latest version of incomplete fics'. It scans your downloads folder for works that were incomplete and re-downloads any with new chapters.
+
+Each button asks which file types you want. JSON and HTML are always produced and cannot be unticked; the ebook formats are optional. You are then asked to log in to ao3, and progress is shown in the dialog, including a message when ao3 asks the script to pause. **Leave the tab open while a download runs** - refreshing or closing it interrupts the run.
+
+On your login details: only your username is saved by the page, in browser storage. Your password is sent to the helper to log in to ao3 and is never written anywhere - let your browser's own password manager remember it if you want it filled in next time.
+
+If you only want to browse bookmarks you have already downloaded, you can run the web app on its own with `npm --prefix GUI start`; the download buttons will tell you the helper is not running.
+
 ## Menu Options Explanation
 
-- **'<!--CHECK-->download from ao3 link<!--ACTION_DESCRIPTION_AO3-->'** - this works for most links to [ao3](https://archiveofourown.org/). for example, you can use this to download a single work, a series, or any ao3 page that contains links to works or series (such as your bookmarks or an author's works). the program will download multiple pages automatically without the need to enter the next page link manually. as well as the usual ebook formats, you can choose the file type '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' here, which saves detailed information about every work on the page to a single json file instead of downloading the works themselves - see [the note below](#json-metadata-export) for what that includes.
+- **'<!--CHECK-->download from ao3 link<!--ACTION_DESCRIPTION_AO3-->'** - this works for most links to [ao3](https://archiveofourown.org/). for example, you can use this to download a single work, a series, or any ao3 page that contains links to works or series (such as your bookmarks or an author's works). the program will download multiple pages automatically without the need to enter the next page link manually. as well as the usual ebook formats, you can choose the file type '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' here, which saves detailed information about every work on the page as one json file per work, instead of downloading the works themselves - see [the note below](#json-metadata-export) for what that includes.
 - **'<!--CHECK-->get all work links from an ao3 listing (saves links only)<!--ACTION_DESCRIPTION_LINKS_ONLY-->'** - instead of downloading works, this will simply get a list of all the work links on the page you specify (as well as subsequent pages) and save them in a .txt file inside the downloads folder (one link on each line). this is useful if you prefer to download fics through FanFicFare or some other method, rather than using the ao3 download buttons. this option is much, much faster than a full download - usually only a few seconds per page. when using this option you can also choose to download a csv (spreadsheet) file containing detailed work metadata, instead of a plain text file containing links only. Should you need to cancel a links download in the middle, please do so by pressing ctrl+c before closing the window - this will allow the script to save the metadata it has collected so far, so that you don't have to completely start over when/if you choose to resume.
 - **'<!--CHECK-->download links from file<!--ACTION_DESCRIPTION_FILE_INPUT-->'** - allows downloading links from a text file with one work or series link on each line. good if you have already harvested the links you want to download via some other method.
 - **'<!--CHECK-->download latest version of incomplete fics<!--ACTION_DESCRIPTION_UPDATE-->'** - you can use this to check a folder on your computer (and any subfolders) for files downloaded from ao3 that are incomplete works. for each incomplete fic found, the program will check ao3 to see if there are any new chapters, and if so, will download the new version to the downloads folder.
@@ -102,13 +136,15 @@ This is basically what the install script does, but broken out into manual steps
   - Note that this feature does not encode any association between the downloaded images and the fic file aside from the file name.
   - Most file formats will include embedded image files anyway, regardless of whether you choose this option. I have confirmed this for PDF, EPUB, MOBI, and AZW3 file formats. (If you saw me contradict this in an earlier version of this readme... no you didn't)
   - Should an image download fail, the details of the failure will be logged in the log file with the message '<!--CHECK-->Problem getting image<!--ERROR_IMAGE-->' along with the work link and the image link. It's a good idea to check the log file for these messages, since you may still be able to download the image manually or track it down some other way.
-- <span id="json-metadata-export"></span>**If you choose the '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' file type** when using the option '<!--CHECK-->download from ao3 link<!--ACTION_DESCRIPTION_AO3-->', the script does not download any works. Instead it reads through the listing you gave it and writes everything it can see about each work to a single json file in the downloads folder, named '<!--CHECK-->bookmarks_<!--METADATA_FILE_NAME-->' plus a timestamp. This needs a link to a _listing_ of works - bookmarks, search results, an author's works, a series - not a link to a single work.
+- <span id="json-metadata-export"></span>**If you choose the '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' file type** when using the option '<!--CHECK-->download from ao3 link<!--ACTION_DESCRIPTION_AO3-->', the script does not download any works. Instead it reads through the listing you gave it and writes everything it can see about each work to the downloads folder, as one json file per work. Those files are named using the same '<!--CHECK-->FileNamePattern<!--INI_NAME_PATTERN-->' setting as downloaded works, so a fic's metadata sits next to its epub or html under the same name. This needs a link to a _listing_ of works - bookmarks, search results, an author's works, a series - not a link to a single work.
+  - Each file is written as its page is read, rather than everything being saved at the end. A long listing therefore leaves usable output behind even if the run does not finish. If you need to stop early, press ctrl+c rather than closing the window, so the script can finish tidily.
+  - Along with the work's own metadata, every file records the listing it came from, when it was retrieved, and the work's position in that listing (so the original bookmark order can be reconstructed).
   - For each work you get: the work id, title, author(s), link, publication and update dates, summary, fandoms, warnings, and tags (rating, categories, relationships, characters, and additional tags), plus word count, chapter counts, comments, kudos, bookmarks, and hits.
   - If the listing is your (or someone else's) bookmarks page, you also get the date the work was bookmarked, the bookmarker's notes, the bookmarker's tags, whether the bookmark is private, whether it is a rec, and any collections the bookmark was added to. On listings that aren't bookmarks, such as search results, these fields are still present but empty.
   - Counts that ao3 leaves off a listing entirely (it omits a stat when it is zero) come out as `null` rather than `0`, so you can tell "nothing there" apart from "ao3 didn't say". The total chapter count is `null` for a work in progress, which ao3 displays as '?'.
   - Bookmarks of series, external works, and deleted works are skipped, since none of the above exists for them. The script prints how many it skipped.
   - This is much faster than a real download, because it reads one page at a time rather than one work at a time. The one exception is the original publication date, which ao3 does not put on listing pages at all. You will be asked whether you want to '<!--CHECK-->look up the original publication date of every work<!--AO3_PROMPT_METADATA_WORK_DATES-->' - saying yes means loading every work separately, which is as slow as a full download, so say no unless you specifically need that field.
-  - You can pick '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' alongside ebook formats. If you do, the metadata file is written first and then the works are downloaded as normal.
+  - You can pick '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' alongside ebook formats. If you do, the metadata files are written first and then the works are downloaded as normal.
 - **If you need to stop a download in the middle,** you can just close the window. When you restart the script:
   - If you are using the option '<!--CHECK-->download from ao3 link<!--ACTION_DESCRIPTION_AO3-->', you will be given an option to restart the download from the page you left off on. The program will attempt to avoid re-downloading works that are already in the downloads folder.
   - If you are using the option '<!--CHECK-->download bookmarks from pinboard<!--ACTION_DESCRIPTION_PINBOARD-->' or '<!--CHECK-->re-download fics saved in one format in a different format<!--ACTION_DESCRIPTION_REDOWNLOAD-->', the list of fics to download will be retrieved as normal but will then be filtered to remove work links that meet the following conditions:

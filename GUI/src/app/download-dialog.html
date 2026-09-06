@@ -1,0 +1,191 @@
+<div class="backdrop" (click)="close()"></div>
+
+<div class="dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+  <header>
+    <h2>{{ title() }}</h2>
+    @if (step() !== 'running') {
+      <button type="button" class="icon" (click)="close()" aria-label="Close">&times;</button>
+    }
+  </header>
+
+  @if (available() === false) {
+    <section class="body">
+      <p class="error">The local helper isn't running, so downloads can't be started from here.</p>
+      <p>
+        A web page can't reach AO3 or write to your disk on its own. Start the helper in a
+        terminal, then reopen this:
+      </p>
+      <pre>uv run python -m ao3downloader.server</pre>
+      <p class="hint">
+        Run it from the folder holding <code>settings.ini</code>, so it uses the same settings
+        and downloads folder as the console app.
+      </p>
+    </section>
+    <footer>
+      <button type="button" class="button" (click)="close()">Close</button>
+    </footer>
+  } @else if (available() === null) {
+    <section class="body"><p class="hint">Looking for the local helper...</p></section>
+  } @else {
+    <!-- step 1: what to download -->
+    @if (step() === 'filetypes') {
+      <section class="body">
+        <p>{{ blurb() }}</p>
+        <p class="hint">Files are saved to <code>{{ folder() }}</code>.</p>
+
+        <fieldset>
+          <legend>File types</legend>
+          @for (filetype of config()?.filetypes ?? []; track filetype) {
+            <label class="check" [class.locked]="isForced(filetype)">
+              <input
+                type="checkbox"
+                [checked]="isSelected(filetype)"
+                [disabled]="isForced(filetype)"
+                (change)="toggle(filetype)"
+              />
+              <span>{{ filetype }}</span>
+              @if (isForced(filetype)) {
+                <span class="badge">always on</span>
+              }
+            </label>
+          }
+        </fieldset>
+
+        @if (metadataNotApplicable()) {
+          <p class="hint">
+            JSON metadata comes from the bookmarks listing, so this run won't rewrite it - it
+            updates the works themselves.
+          </p>
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="close()">Cancel</button>
+        <button type="button" class="button primary" (click)="toCredentials()">Continue</button>
+      </footer>
+    }
+
+    <!-- step 2: who you are -->
+    @if (step() === 'credentials') {
+      <form class="body" (submit)="submit($event)">
+        <p>Log in to AO3 so restricted works and your own bookmarks are visible.</p>
+
+        <label class="field">
+          <span>Username</span>
+          <input
+            type="text"
+            name="username"
+            autocomplete="username"
+            required
+            [value]="username()"
+            (input)="setUsername($any($event.target).value)"
+          />
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <input
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            required
+            [value]="password()"
+            (input)="setPassword($any($event.target).value)"
+          />
+        </label>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            [checked]="remember()"
+            (change)="toggleRemember($any($event.target).checked)"
+          />
+          <span>Remember my username</span>
+        </label>
+
+        <p class="hint">
+          Only the username is saved by this page. Your password is sent straight to AO3 to log
+          in and is never stored here - let your browser's password manager keep it if you want
+          it filled in next time.
+        </p>
+      </form>
+      <footer>
+        <button type="button" class="button subtle" (click)="step.set('filetypes')">Back</button>
+        <button type="button" class="button primary" (click)="submit($event)">Start download</button>
+      </footer>
+    }
+
+    <!-- step 3: working -->
+    @if (step() === 'running') {
+      <section class="body">
+        <p class="warning">
+          <strong>Leave this tab open.</strong> Refreshing, closing or navigating away will
+          interrupt the download.
+        </p>
+
+        <div
+          class="bar"
+          role="progressbar"
+          [attr.aria-valuenow]="percent()"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        >
+          <div
+            class="fill"
+            [class.indeterminate]="percent() === null"
+            [style.width.%]="percent() ?? 100"
+          ></div>
+        </div>
+        <p class="status">
+          @if (percent() !== null) {
+            <span class="percent">{{ percent() }}%</span>
+          }
+          <span>{{ summary() || 'working...' }}</span>
+        </p>
+
+        @if (paused(); as pause) {
+          <p class="warning pause">
+            AO3 has asked us to slow down, so the download is paused for
+            {{ pause.seconds }} seconds@if (pause.until) { , resuming around {{ pause.until }}}.
+            This is normal - nothing has gone wrong, and it will carry on by itself.
+          </p>
+        }
+
+        @if (log().length) {
+          <pre class="log">@for (line of log(); track $index) {{{ line }}
+}</pre>
+        }
+      </section>
+    }
+
+    <!-- step 4: outcome -->
+    @if (step() === 'done') {
+      <section class="body">
+        <p class="success">Finished. Files were saved to <code>{{ folder() }}</code>.</p>
+        <p class="hint">
+          Point the folder picker at that folder (or reopen it) to see the new bookmarks here.
+        </p>
+        @if (log().length) {
+          <pre class="log">@for (line of log(); track $index) {{{ line }}
+}</pre>
+        }
+      </section>
+      <footer>
+        <button type="button" class="button primary" (click)="close()">Done</button>
+      </footer>
+    }
+
+    @if (step() === 'failed') {
+      <section class="body">
+        <p class="error">{{ error() }}</p>
+        @if (log().length) {
+          <pre class="log">@for (line of log(); track $index) {{{ line }}
+}</pre>
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="step.set('filetypes')">Try again</button>
+        <button type="button" class="button" (click)="close()">Close</button>
+      </footer>
+    }
+  }
+</div>

@@ -40,6 +40,23 @@
   font-size: 0.85rem;
 }
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+
+.button.primary {
+  border-color: #5a7f9a;
+  background: #33566b;
+  color: var(--text-strong);
+}
+
+.button.primary:hover {
+  background: #3d6580;
+}
+
 .remembered {
   color: #7fb069;
   font-size: 0.7em;

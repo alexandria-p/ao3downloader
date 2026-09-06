@@ -6,8 +6,9 @@ import traceback
 
 from bs4 import BeautifulSoup
 
-from ao3downloader import exceptions, parse_soup, parse_text, strings
+from ao3downloader import exceptions, parse_soup, parse_text, progress, strings
 from ao3downloader.fileio import FileOps
+from ao3downloader.progress import ProgressCallback
 from ao3downloader.repo import Repository
 
 
@@ -19,10 +20,12 @@ class Ao3:
             filetypes: list[str], 
             pages: int | None, 
             series: bool, 
-            images: bool, 
-            mark: bool = False) -> None:
+            images: bool,
+            mark: bool = False,
+            progress: ProgressCallback | None = None) -> None:
         self.repo = repo
         self.fileops = fileops
+        self.progress = progress
         self.filetypes = filetypes
         self.pages = pages
         self.series = series
@@ -110,6 +113,9 @@ class Ao3:
                     document.update(parse_soup.get_blurb_metadata(blurb))
                     records.append(document)
                     self.save_metadata(document)
+                progress.report(self.progress, progress.PAGE,
+                                page=parse_text.get_page_number(link),
+                                total=total_pages, works=len(records))
                 pagenum = parse_text.get_page_number(link)
                 if not total_pages or pagenum >= total_pages:
                     break
@@ -177,6 +183,8 @@ class Ao3:
                 break
             except Exception as e:
                 self.log_error({'message': strings.ERROR_METADATA_WORK_DATES, 'link': work_link}, e)
+            progress.report(self.progress, progress.WORK, done=index, total=len(records),
+                            title=record.get('title', ''))
             if index % 10 == 0 or index == len(records):
                 print(strings.AO3_INFO_METADATA_PROGRESS.format(str(index), str(len(records))))
 
@@ -288,6 +296,7 @@ class Ao3:
                         if self.debug: self.fileops.write_log({'link': link, 'message': strings.INFO_PAGE_LIMIT_REACHED, 'level': 'debug'})
                         break
                     print(strings.INFO_FINISHED_PAGE.format(str(pagenum - 1), str(pagenum), str(total_pages)))
+                    progress.report(self.progress, progress.PAGE, page=pagenum - 1, total=total_pages)
                 else:
                     total_pages = parse_soup.get_total_pages(thesoup)
                     if not total_pages or total_pages <= 1:
@@ -331,6 +340,7 @@ class Ao3:
         else:
             log['success'] = True
             self.fileops.write_log(log)
+            progress.report(self.progress, progress.WORK, title=log.get('title', ''), link=link)
 
 
     def try_download(self, work_url: str, log: dict, chapters: str | None) -> bool:
