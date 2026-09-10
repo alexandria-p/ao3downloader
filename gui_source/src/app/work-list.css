@@ -32,6 +32,13 @@
   color: var(--text-dim);
 }
 
+/* a work a collection lists that the index knows nothing about beyond its number */
+.not-indexed {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
 /* region pagination */
 
 .pagination {

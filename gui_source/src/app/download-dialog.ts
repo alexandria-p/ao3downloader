@@ -1,7 +1,10 @@
 import { Component, OnDestroy, computed, inject, input, output, signal } from '@angular/core';
 import { JobAction, JobEvent, Jobs } from './jobs';
 
-type Step = 'filetypes' | 'options' | 'credentials' | 'running' | 'done' | 'failed';
+type Step = 'link' | 'filetypes' | 'options' | 'credentials' | 'running' | 'done' | 'failed';
+
+/** any page of a collection will do, so this only asks that a name follows /collections/ */
+const COLLECTION_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/collections\/([^/?#]+)/i;
 
 const USERNAME_KEY = 'ao3.username';
 const REMEMBER_KEY = 'ao3.remember';
@@ -29,10 +32,14 @@ export class DownloadDialog implements OnDestroy {
   protected readonly remember = signal(false);
 
   // the questions the console menu asks after the file types
+  protected readonly start = signal(1);
   protected readonly pages = signal(0);
   protected readonly series = signal(false);
   protected readonly images = signal(false);
   protected readonly workdates = signal(false);
+
+  /** the collection to index, for the action that works from a link */
+  protected readonly collectionUrl = signal('');
 
   protected readonly log = signal<string[]>([]);
   protected readonly percent = signal<number | null>(null);
@@ -64,7 +71,9 @@ export class DownloadDialog implements OnDestroy {
       case 'bookmarks':
         return 'Download newly added bookmarks';
       case 'collections':
-        return 'Index collections';
+        return 'Index my collections';
+      case 'collection':
+        return 'Index collection by URL';
       default:
         return 'Update incomplete fics';
     }
@@ -76,6 +85,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Reads your AO3 bookmarks and downloads anything not already in your downloads folder.';
       case 'collections':
         return 'Saves a json file describing each of your collections, including the work IDs it contains. The works themselves are not downloaded - they come from your index.';
+      case 'collection':
+        return 'Indexes any one collection on AO3, whether or not it is yours. Saved alongside your own collections, in the same shape.';
       default:
         return 'Scans your downloads folder for works that were incomplete, and re-downloads any that have new chapters.';
     }
@@ -88,12 +99,22 @@ export class DownloadDialog implements OnDestroy {
   protected readonly listingOptions = computed(() => this.action() === 'bookmarks');
 
   /**
-   * Syncing collections writes metadata only, so there is nothing to pick: no file types
-   * and no download options. It goes straight to the login.
+   * Indexing collections writes metadata only, so there is nothing to pick: no file types
+   * and no download options. Indexing one by link asks for the link first; indexing your
+   * own goes straight to the login.
    */
-  protected readonly picksFiletypes = computed(() => this.action() !== 'collections');
-  protected readonly firstStep = computed<Step>(() =>
-    this.picksFiletypes() ? 'filetypes' : 'credentials',
+  protected readonly picksFiletypes = computed(
+    () => this.action() !== 'collections' && this.action() !== 'collection',
+  );
+  protected readonly needsLink = computed(() => this.action() === 'collection');
+  protected readonly firstStep = computed<Step>(() => {
+    if (this.needsLink()) return 'link';
+    return this.picksFiletypes() ? 'filetypes' : 'credentials';
+  });
+
+  /** whether what has been typed is a link to one collection */
+  protected readonly linkIsValid = computed(() =>
+    COLLECTION_URL.test(this.collectionUrl().trim()),
   );
 
   /** what the current stage is doing, in words */
@@ -107,6 +128,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Scanning your downloads folder for incomplete works';
       case 'downloading':
         return 'Downloading works';
+      case 'collections':
+        return 'Reading collections';
       default:
         return '';
     }
@@ -116,13 +139,24 @@ export class DownloadDialog implements OnDestroy {
   protected readonly chosenOptions = computed(() => {
     const chosen: string[] = [];
     if (this.listingOptions()) {
-      chosen.push(this.pages() === 0 ? 'all pages' : `stop after page ${this.pages()}`);
+      chosen.push(this.pageRange());
       if (this.series()) chosen.push('expand series links');
       if (this.workdates()) chosen.push('look up publication dates');
     }
     if (this.images()) chosen.push('embedded images');
     return chosen;
   });
+
+  /** the slice of the listing this run covers, in words */
+  protected readonly pageRange = computed(() => {
+    const start = this.start();
+    const stop = this.pages();
+    if (start <= 1) return stop === 0 ? 'all pages' : `pages 1 to ${stop}`;
+    return stop === 0 ? `page ${start} onwards` : `pages ${start} to ${stop}`;
+  });
+
+  /** what settings.ini says this run will work from */
+  protected readonly settings = computed(() => this.config()?.settings ?? null);
 
   constructor() {
     void this.init();
@@ -177,6 +211,21 @@ export class DownloadDialog implements OnDestroy {
   protected setPages(value: string): void {
     const parsed = Number.parseInt(value, 10);
     this.pages.set(Number.isFinite(parsed) && parsed > 0 ? parsed : 0);
+  }
+
+  protected setStart(value: string): void {
+    const parsed = Number.parseInt(value, 10);
+    this.start.set(Number.isFinite(parsed) && parsed > 1 ? parsed : 1);
+  }
+
+  protected setCollectionUrl(value: string): void {
+    this.collectionUrl.set(value);
+  }
+
+  /** from the link step: only worth going on once the link is one we can use */
+  protected fromLink(): void {
+    if (!this.linkIsValid()) return;
+    this.step.set('credentials');
   }
 
   // endregion
@@ -235,6 +284,7 @@ export class DownloadDialog implements OnDestroy {
         action: this.action(),
         filetypes: this.selected(),
         options: {
+          start: this.start(),
           pages: this.pages(),
           series: this.series(),
           images: this.images(),
@@ -242,6 +292,7 @@ export class DownloadDialog implements OnDestroy {
         },
         username: this.username().trim(),
         password: this.password(),
+        url: this.needsLink() ? this.collectionUrl().trim() : undefined,
       });
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));

@@ -89,7 +89,9 @@ describe('CollectionsView', () => {
   it('says so when no collections have been indexed', async () => {
     await render([]);
 
-    expect(element.querySelector('.notice')?.textContent).toContain('Index collections');
+    const notice = element.querySelector('.notice')?.textContent ?? '';
+    expect(notice).toContain('Index my collections');
+    expect(notice).toContain('Index collection by URL');
     expect(titles()).toEqual([]);
   });
 
@@ -196,12 +198,44 @@ describe('CollectionsView', () => {
     expect(listed).toEqual(['Work 1', 'Work 2']);
   });
 
-  it('counts the works it cannot show rather than quietly dropping them', async () => {
-    // a collection holds works that are not in your bookmarks; only their number is known
+  it('lists works that are not indexed by number, rather than dropping them', async () => {
+    // a collection holds works that are not in your bookmarks; only their number is known,
+    // which is still worth showing
     await render([collection({ work_ids: ['1', '2', '3'] })], ['1']);
     await openFirst();
 
-    expect(element.querySelectorAll('.blurb')).toHaveLength(1);
+    expect(element.querySelectorAll('.blurb')).toHaveLength(3);
+    const titles = Array.from(element.querySelectorAll('.blurb .heading a.title')).map((a) =>
+      a.textContent?.trim(),
+    );
+    expect(titles).toEqual(['Work 1', 'Work 2', 'Work 3']);
+  });
+
+  it('sends an unindexed work to ao3, since there is no local copy to open', async () => {
+    await render([collection({ work_ids: ['404'] })], []);
+    await openFirst();
+
+    const link = element.querySelector<HTMLAnchorElement>('.blurb .heading a.title')!;
+    expect(link.getAttribute('href')).toBe('https://archiveofourown.org/works/404');
+    expect(element.querySelector('.not-indexed')?.textContent).toContain(
+      'only its work number is known',
+    );
+  });
+
+  it('keeps the collection order, indexed or not', async () => {
+    await render([collection({ work_ids: ['9', '1', '7'] })], ['1']);
+    await openFirst();
+
+    const titles = Array.from(element.querySelectorAll('.blurb .heading a.title')).map((a) =>
+      a.textContent?.trim(),
+    );
+    expect(titles).toEqual(['Work 9', 'Work 1', 'Work 7']);
+  });
+
+  it('still says how many of them it knows nothing about', async () => {
+    await render([collection({ work_ids: ['1', '2', '3'] })], ['1']);
+    await openFirst();
+
     const note = element.querySelector('.meta-line.note')?.textContent ?? '';
     expect(note).toContain('2 of 3');
     expect(note).toContain('not in your bookmarks index');
@@ -227,11 +261,13 @@ describe('CollectionsView', () => {
   });
 
   it('explains an empty listing instead of showing a bare table', async () => {
-    await render([collection({ work_ids: ['404'] })], ['1']);
+    // nothing was recorded for it at all - not the same as nothing being indexed
+    await render([collection({ work_ids: [] })], ['1']);
     await openFirst();
 
+    expect(element.querySelectorAll('.blurb')).toHaveLength(0);
     expect(element.querySelector('.notice')?.textContent).toContain(
-      'None of the works in this collection',
+      'No works were recorded for this collection',
     );
   });
 

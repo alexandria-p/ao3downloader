@@ -149,13 +149,11 @@ function Initialize-Ao3Config {
         }
     }
 
+    # data.json is deliberately not created. The web ui keeps nothing in it - the username
+    # lives in browser storage and the password is never stored at all - so a bundle should
+    # not have one sitting there. The console menu creates it itself when it saves a setting.
     if (Test-Path $dataFile) {
         Write-Step "data.json:    $dataFile"
-    }
-    else {
-        # no BOM - python's json reader chokes on one
-        [System.IO.File]::WriteAllText($dataFile, '{}', (New-Object System.Text.UTF8Encoding $false))
-        Write-Step "data.json:    created $dataFile"
     }
 
     # show where fics will land, since that is the other thing settings.ini decides

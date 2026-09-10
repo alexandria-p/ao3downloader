@@ -24,7 +24,8 @@ class Ao3:
             images: bool,
             mark: bool = False,
             progress: ProgressCallback | None = None,
-            cancelled: Callable[[], bool] | None = None) -> None:
+            cancelled: Callable[[], bool] | None = None,
+            start: int = 1) -> None:
         self.repo = repo
         self.fileops = fileops
         self.progress = progress
@@ -33,6 +34,9 @@ class Ao3:
         self.indexed_on = indexing.now()
         self.filetypes = filetypes
         self.pages = pages
+        # which page of a listing to begin at. 'pages' is where to stop, and both are
+        # absolute page numbers, so a run can cover a slice in the middle of a listing.
+        self.start = start if start and start > 1 else 1
         self.series = series
         self.images = images
         self.mark = mark
@@ -92,6 +96,13 @@ class Ao3:
             raise exceptions.InvalidLinkException(strings.ERROR_INVALID_LINK)
 
         source = link # the loop below walks `link` on to the next page
+        # the listing itself is the source, not whichever page the run happened to begin
+        # on, so a run that starts partway through still writes the same provenance
+        link = parse_text.set_page_number(link, self.start)
+        # positions are places in the whole listing, so a run starting at page 5 carries on
+        # from where page 4 left off rather than numbering its first fic 1. ao3 serves
+        # listings 20 to a page, which is what makes the pages before this one countable.
+        position_offset = (self.start - 1) * strings.AO3_LISTING_PAGE_SIZE
         # one timestamp for the whole run, so every file this run touches agrees on when
         # it was indexed, and a second save of the same fic updates rather than appends
         self.indexed_on = indexing.now()
@@ -120,7 +131,7 @@ class Ao3:
                     document = {
                         'source': source,
                         # the listing order, which is the order ao3 shows the bookmarks in
-                        'position': len(records) + 1,
+                        'position': position_offset + len(records) + 1,
                     }
                     document.update(parse_soup.get_blurb_metadata(blurb))
                     records.append(document)
@@ -215,7 +226,7 @@ class Ao3:
                 for blurb in parse_soup.get_collection_blurbs(soup):
                     slug = parse_soup.get_collection_slug(blurb)
                     if not slug: continue
-                    document = self.read_collection(blurb, slug, source)
+                    document = self.read_collection(slug, source, blurb)
                     records.append(document)
                     self.save_collection(document)
                     progress.report(self.progress, progress.WORK,
@@ -233,16 +244,64 @@ class Ao3:
         return records
 
 
-    def read_collection(self, blurb, slug: str, source: str) -> dict:
-        """Everything one collection has to say, across its listing blurb and its pages."""
+    def get_collection(self, link: str) -> list[dict]:
+        """Index a single collection, given a link to any of its pages.
 
-        document = {'source': source}
-        document.update(parse_soup.get_collection_metadata(blurb))
+        Returns a list so a caller can treat this and get_collections alike. Costs one
+        request for the profile plus the item listings, and skips those listings entirely
+        when the counts say nothing has moved - the same as indexing your own collections.
+        """
+
+        if strings.AO3_BASE_URL not in link:
+            raise exceptions.InvalidLinkException(strings.ERROR_INVALID_LINK)
+        slug = parse_text.get_collection_name(link)
+        if not slug:
+            raise exceptions.InvalidLinkException(strings.ERROR_NOT_A_COLLECTION)
+
+        self.indexed_on = indexing.now()
+        records: list[dict] = []
+
+        try:
+            print(strings.AO3_INFO_COLLECTION_ONE.format(slug))
+            document = self.read_collection(slug, link)
+            records.append(document)
+            self.save_collection(document)
+            progress.report(self.progress, progress.WORK,
+                            title=document.get('title') or slug,
+                            phase=progress.COLLECTIONS, done=1, total=1)
+            print(strings.AO3_INFO_COLLECTION_SAVED.format(slug))
+        except exceptions.CancelledException:
+            print(strings.INFO_CANCELLED)
+        except Exception as e:
+            print(strings.ERROR_COLLECTIONS)
+            self.log_error({'message': strings.ERROR_COLLECTIONS, 'link': link}, e)
+        except KeyboardInterrupt:
+            print(strings.INFO_LINKS_LIST_CANCELED)
+
+        return records
+
+
+    def read_collection(self, slug: str, source: str, blurb=None) -> dict:
+        """Everything one collection has to say, across its listing blurb and its pages.
+
+        `blurb` is its entry in a collections listing, when the crawl came from one. There
+        is none when a single collection is indexed by url, so the three things a blurb
+        would have supplied - display title, description and flags - are read off the
+        profile page instead, which carries all of them.
+        """
 
         base = f'{strings.AO3_BASE_URL}/collections/{slug}'
+        document = {'source': source, 'name': slug, 'link': base}
+        if blurb is not None:
+            document.update(parse_soup.get_collection_metadata(blurb))
+
         try:
-            document.update(parse_soup.get_collection_profile(
-                self.repo.get_soup(f'{base}/profile')))
+            profile = self.repo.get_soup(f'{base}/profile')
+            # only when there is no blurb: the listing is otherwise the established source
+            # for these, and taking them from elsewhere would show up as a spurious change
+            if blurb is None:
+                document.update(parse_soup.get_collection_header(profile))
+            document.update(parse_soup.get_collection_profile(profile))
         except exceptions.CancelledException:
             raise
         except Exception as e:

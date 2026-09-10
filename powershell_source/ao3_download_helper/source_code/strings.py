@@ -110,6 +110,11 @@ AO3_INFO_COLLECTION_SAVED = 'saved collection {}'
 AO3_INFO_COLLECTION_UNCHANGED = 'collection {} still has {} {}, so the saved ones are kept'
 AO3_INFO_COLLECTIONS_DONE = 'saved {} collections to {}'
 AO3_INFO_COLLECTIONS_NONE = 'no collections found for that user'
+AO3_INFO_COLLECTION_ONE = 'indexing the collection {}'
+
+# how many entries ao3 puts on a page of a listing. only used to work out how many works
+# sit before a run that starts partway through, so its positions carry on from there.
+AO3_LISTING_PAGE_SIZE = 20
 AO3_INFO_METADATA_WORK_DATES = 'looking up publication dates for {} works'
 AO3_INFO_METADATA_PROGRESS = 'finished {} of {} works'
 AO3_INFO_METADATA_PAGE = 'finished page {} of {}. {} works so far'
@@ -231,6 +236,7 @@ ERROR_WORK_BLURB = 'Could not find work metadata in list'
 ERROR_METADATA_BLURB = 'Problem parsing work metadata from listing'
 ERROR_METADATA_SAVE = 'Problem saving work metadata file'
 ERROR_COLLECTIONS = 'Error encountered while syncing collections. Some may be missing.'
+ERROR_NOT_A_COLLECTION = 'That is not a link to an ao3 collection. It should look like https://archiveofourown.org/collections/somename'
 ERROR_COLLECTION_PROFILE = 'Problem reading a collection profile page'
 ERROR_COLLECTION_ITEMS = 'Problem reading the items in a collection'
 ERROR_COLLECTION_SAVE = 'Problem saving collection file'

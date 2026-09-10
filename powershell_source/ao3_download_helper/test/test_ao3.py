@@ -26,6 +26,7 @@ def make_ao3(
     images: bool = False,
     mark: bool = False,
     debug: bool = False,
+    start: int = 1,
 ) -> tuple[Ao3, MagicMock, MagicMock]:
     """Create an Ao3 instance with mocked dependencies.
     Returns (ao3, repo_mock, fileops_mock)."""
@@ -37,7 +38,7 @@ def make_ao3(
     # no index on disk yet, unless a test says otherwise
     fileops.load_json.return_value = None
     ao3 = Ao3(repo=repo, fileops=fileops, filetypes=filetypes or ['EPUB'],
-              pages=pages, series=series, images=images, mark=mark)
+              pages=pages, series=series, images=images, mark=mark, start=start)
     return ao3, repo, fileops
 
 
@@ -891,6 +892,36 @@ def test_get_metadata_names_files_with_the_configured_pattern() -> None:
     ao3.get_metadata(LISTING_URL, False)
 
     assert list(_saved(fileops)) == _indexed('111.json')
+
+
+def test_get_metadata_begins_on_the_requested_page() -> None:
+    ao3, repo, fileops = make_ao3(start=5)
+    repo.get_soup.return_value = _listing_soup(['111'])
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    assert repo.get_soup.call_args_list[0].args[0] == LISTING_URL + '?page=5'
+
+
+def test_get_metadata_counts_positions_on_from_the_pages_it_skipped() -> None:
+    # a run over the middle of a listing has to number its works where they actually sit,
+    # or a later run over the first pages would collide with them
+    ao3, repo, fileops = make_ao3(start=5)
+    repo.get_soup.return_value = _listing_soup(['111', '222'])
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert [r['position'] for r in records] == [81, 82]
+
+
+def test_get_metadata_still_records_the_listing_itself_as_the_source() -> None:
+    # the page it started on is not the provenance; the listing is
+    ao3, repo, fileops = make_ao3(start=3)
+    repo.get_soup.return_value = _listing_soup(['111'])
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert records[0]['source'] == LISTING_URL
 
 
 def test_get_metadata_records_the_listing_and_its_order() -> None:

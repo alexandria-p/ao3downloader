@@ -27,6 +27,43 @@
   } @else if (available() === null) {
     <section class="body"><p class="hint">Looking for the local helper...</p></section>
   } @else {
+    <!-- step 1a: which collection, when it is not one of yours -->
+    @if (step() === 'link') {
+      <form class="body" (submit)="$event.preventDefault(); fromLink()">
+        <p>{{ blurb() }}</p>
+
+        <label class="field">
+          <span>Collection link</span>
+          <input
+            type="url"
+            name="collection"
+            placeholder="https://archiveofourown.org/collections/yuletide2024"
+            [value]="collectionUrl()"
+            (input)="setCollectionUrl($any($event.target).value)"
+          />
+        </label>
+
+        @if (collectionUrl().trim() && !linkIsValid()) {
+          <p class="error">
+            That is not a link to a collection. It should look like
+            <code>https://archiveofourown.org/collections/somename</code>.
+          </p>
+        }
+
+        <p class="hint">
+          Any page of the collection will do - the dashboard, the profile, its works - so a
+          link copied straight out of the address bar works.
+        </p>
+        <p class="hint">Saved to <code>{{ folder() }}</code>, alongside your own collections.</p>
+      </form>
+      <footer>
+        <button type="button" class="button subtle" (click)="close()">Cancel</button>
+        <button type="button" class="button primary" [disabled]="!linkIsValid()" (click)="fromLink()">
+          Continue
+        </button>
+      </footer>
+    }
+
     <!-- step 1: what to download -->
     @if (step() === 'filetypes') {
       <section class="body">
@@ -75,15 +112,34 @@
       <section class="body">
         @if (listingOptions()) {
           <label class="field">
+            <span>Start on page number</span>
+            <input
+              type="number"
+              name="start"
+              min="1"
+              step="1"
+              [value]="start()"
+              (input)="setStart($any($event.target).value)"
+            />
+          </label>
+
+          <label class="field">
             <span>Stop after page number (0 for all pages)</span>
             <input
               type="number"
+              name="pages"
               min="0"
               step="1"
               [value]="pages()"
               (input)="setPages($any($event.target).value)"
             />
           </label>
+
+          <p class="hint">
+            Both are positions in the whole listing, so you can cover a slice in the middle
+            of it - useful for picking up where a stopped run left off. This run will fetch
+            <strong>{{ pageRange() }}</strong>.
+          </p>
 
           <label class="check">
             <input type="checkbox" [checked]="series()" (change)="series.set($any($event.target).checked)" />
@@ -154,9 +210,11 @@
         </p>
       </form>
       <footer>
-        <!-- syncing collections has no earlier step to go back to -->
+        <!-- indexing your own collections has no earlier step to go back to -->
         @if (picksFiletypes()) {
           <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
+        } @else if (needsLink()) {
+          <button type="button" class="button subtle" (click)="step.set('link')">Back</button>
         } @else {
           <button type="button" class="button subtle" (click)="close()">Cancel</button>
         }
@@ -234,6 +292,32 @@
           <dt>Into</dt>
           <dd><code>{{ folder() }}</code></dd>
         </dl>
+
+        <!-- what settings.ini says, since that decides pacing and file names -->
+        @if (settings(); as ini) {
+          <details class="settings">
+            <summary>Settings this run is using</summary>
+            <dl>
+              <dt>Wait between requests</dt>
+              <dd>
+                {{ ini.extraWaitTime }}s
+                @if (ini.extraWaitTime === 0) {
+                  <span class="warn">- no pause, which is what trips AO3's rate limit</span>
+                }
+              </dd>
+              <dt>File names</dt>
+              <dd><code>{{ ini.fileNamePattern }}</code>, cut to {{ ini.fileNameLength }} characters</dd>
+              <dt>Retries / timeouts</dt>
+              <dd>{{ ini.maxRetries === 0 ? 'unlimited' : ini.maxRetries }} / {{ ini.maxTimeouts }}</dd>
+              @if (ini.debugLogging) {
+                <dt>Debug logging</dt>
+                <dd>on</dd>
+              }
+              <dt>Read from</dt>
+              <dd><code class="path">{{ ini.file }}</code></dd>
+            </dl>
+          </details>
+        }
 
         @if (paused(); as pause) {
           <p class="warning pause">

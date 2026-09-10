@@ -156,13 +156,20 @@ class FileOps:
 
 
     def get_settings_json(self) -> dict:
-        with open(self.settingsfile, 'a', encoding='utf-8'):
-            pass
-        with open(self.settingsfile, 'r', encoding='utf-8') as f:
-            try:
+        """Saved settings, or nothing when none have been saved.
+
+        Reading deliberately does not create the file. The web ui asks for the saved
+        username every time the page loads, and it keeps nothing of its own here, so
+        creating one on read left an empty data.json sitting in the config folder of a
+        bundle that is meant not to have one. save_setting still creates it, which is
+        what the console menu needs.
+        """
+
+        try:
+            with open(self.settingsfile, 'r', encoding='utf-8') as f:
                 return json.load(f)
-            except:
-                return {}
+        except (OSError, ValueError):
+            return {}
 
 
     def setting(self, prompt: str, setting: str, save: bool = True, sensitive: bool = False) -> str:

@@ -52,6 +52,11 @@ export interface Bookmark {
   bookmark_rec: boolean;
   /** present instead of the rest when a blurb could not be parsed */
   error?: string;
+  /**
+   * Set when this stands in for a work that is listed somewhere - a collection - but has
+   * no entry in the index. Its number and link are all that is known about it.
+   */
+  placeholder?: boolean;
 }
 
 export interface BookmarksExport {
@@ -83,6 +88,42 @@ export function flattenRecord(parsed: unknown): Bookmark | null {
   }
 
   return record['id'] || record['title'] ? (record as unknown as Bookmark) : null;
+}
+
+/**
+ * A stand-in for a work that something lists but the index has no entry for.
+ *
+ * A collection records the works it holds by work number alone, and a collection can hold
+ * works you have never bookmarked. Rather than dropping those, they are shown with the one
+ * thing that is known about them - the number - and a link to the work on ao3.
+ */
+export function placeholderWork(id: string): Bookmark {
+  return {
+    placeholder: true,
+    id,
+    link: `${AO3_BASE_URL}/works/${id}`,
+    title: `Work ${id}`,
+    authors: [],
+    date_created: null,
+    date_updated: '',
+    fandoms: [],
+    warnings: [],
+    tags: { rating: '', categories: [], relationships: [], characters: [], additional: [] },
+    summary: '',
+    words: null,
+    chapters_published: null,
+    chapters_total: null,
+    comments: null,
+    kudos: null,
+    bookmarks: null,
+    hits: null,
+    date_bookmarked: '',
+    bookmark_notes: '',
+    bookmark_tags: [],
+    bookmark_collections: [],
+    bookmark_private: false,
+    bookmark_rec: false,
+  };
 }
 
 export type PageItem = number | 'gap';

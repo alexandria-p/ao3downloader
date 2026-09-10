@@ -125,12 +125,15 @@ describe('App', () => {
     ]);
   });
 
-  it('offers only the collections job on the collections page', async () => {
-    // each page carries the button that fills it, so neither offers the other's job
+  it('offers only the collections jobs on the collections page', async () => {
+    // each page carries the buttons that fill it, so neither offers the other's job
     const { fixture, element } = await render(1);
     await showCollections(fixture, element);
 
-    expect(actionLabels(element)).toEqual(['Index collections']);
+    expect(actionLabels(element)).toEqual([
+      'Index my collections',
+      'Index collection by URL',
+    ]);
   });
 
   it('switches between the two listings', async () => {

@@ -412,6 +412,44 @@ def get_collection_flags(blurb: Tag) -> list[str]:
     return [part.strip() for part in text.split(',') if part.strip()]
 
 
+def get_flag_fields(flags: list[str]) -> dict:
+    """The known flags, read out of the parenthesised list.
+
+    Membership is exact rather than substring: ao3 writes 'Unmoderated' as well as
+    'Moderated', and a substring test would read the first as the second.
+    """
+
+    return {
+        'flags': flags,
+        'closed': 'Closed' in flags,
+        'moderated': 'Moderated' in flags,
+        'unrevealed': 'Unrevealed' in flags,
+        'anonymous': 'Anonymous' in flags,
+        # a challenge collection names its type among the flags; anything else has none
+        'challenge_type': next((x for x in flags if x.endswith('Challenge')), None)
+                          or 'No Challenge',
+    }
+
+
+def get_collection_header(soup: BeautifulSoup) -> dict:
+    """What a collection's own page says about itself, with no listing blurb to read.
+
+    Indexing a collection by url has no listing behind it, so the three things a blurb
+    would have supplied - the display title, the description, and the parenthesised flags -
+    are taken from the profile page instead, which carries all of them.
+    """
+
+    header: dict[str, Any] = {}
+    try:
+        header['title'] = get_text_or_empty(soup, '#main h2.heading')
+        summary = soup.select_one('#main blockquote.userstuff')
+        header['description'] = get_userstuff_text(summary) if summary else ''
+        header.update(get_flag_fields(get_collection_flags(soup)))
+    except Exception as e: # a header we cannot read should not lose the collection
+        header['error'] = ''.join(traceback.TracebackException.from_exception(e).format())
+    return header
+
+
 def get_collection_metadata(blurb: Tag) -> dict:
     """What a collections listing says about one collection.
 
@@ -430,15 +468,7 @@ def get_collection_metadata(blurb: Tag) -> dict:
         summary = blurb.select_one('blockquote.userstuff.summary')
         metadata['description'] = get_userstuff_text(summary) if summary else ''
 
-        flags = get_collection_flags(blurb)
-        metadata['flags'] = flags
-        metadata['closed'] = 'Closed' in flags
-        metadata['moderated'] = 'Moderated' in flags
-        metadata['unrevealed'] = 'Unrevealed' in flags
-        metadata['anonymous'] = 'Anonymous' in flags
-        # a challenge collection names its type among the flags; anything else has none
-        challenge = next((x for x in flags if x.endswith('Challenge')), None)
-        metadata['challenge_type'] = challenge or 'No Challenge'
+        metadata.update(get_flag_fields(get_collection_flags(blurb)))
 
         metadata['created'] = get_text_or_empty(blurb, 'p.datetime')
         metadata['work_count'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.works'))

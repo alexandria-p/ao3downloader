@@ -198,3 +198,56 @@ def test_profile_survives_a_page_with_no_meta_list():
     assert result['multifandom'] is None
 
 # endregion
+
+
+# region the header, for a collection indexed by link
+
+def test_the_header_carries_what_a_listing_blurb_would_have_said(tagged):
+    # indexing by link has no listing to read, so title, description and flags come off
+    # the profile page instead
+    result = parse_soup.get_collection_header(tagged)
+
+    assert result['title'] == 'Best of DCMK - Detective Conan & Magic Kaito'
+    assert 'curated collection' in result['description']
+    assert result['flags'] == ['Closed', 'Moderated']
+    assert 'error' not in result
+
+
+def test_the_header_reads_a_challenge_type_off_the_flags(exchange):
+    result = parse_soup.get_collection_header(exchange)
+
+    assert result['title'] == 'Yuletide 2012'
+    assert result['challenge_type'] == 'Gift Exchange Challenge'
+    assert result['closed'] is True
+    assert result['moderated'] is True
+
+
+def test_the_header_does_not_read_unmoderated_as_moderated(prompt_meme):
+    # ao3 writes both words, and a substring test would get this exactly backwards
+    result = parse_soup.get_collection_header(prompt_meme)
+
+    assert 'Unmoderated' in result['flags']
+    assert result['moderated'] is False
+    assert result['challenge_type'] == 'Prompt Meme Challenge'
+
+
+def test_the_header_says_so_rather_than_raising_when_there_is_nothing_to_read():
+    result = parse_soup.get_collection_header(BeautifulSoup('<div></div>', 'html.parser'))
+
+    assert result['title'] == ''
+    assert result['description'] == ''
+    assert result['flags'] == []
+    assert result['challenge_type'] == 'No Challenge'
+
+
+def test_the_header_and_the_blurb_agree_about_a_collection_in_both(listing, tagged):
+    # the same collection read two ways should not look like two different collections
+    blurb = blurb_named(listing, 'DCMK_Works')
+    from_blurb = parse_soup.get_collection_metadata(blurb)
+    from_header = parse_soup.get_collection_header(tagged)
+
+    assert from_header['title'] == from_blurb['title']
+    assert from_header['flags'] == from_blurb['flags']
+    assert from_header['challenge_type'] == from_blurb['challenge_type']
+
+# endregion

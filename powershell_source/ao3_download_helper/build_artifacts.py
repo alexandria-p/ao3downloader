@@ -330,13 +330,17 @@ changed over time:
 
 ## What is inside a collection file
 
-The **Index collections** button reads your collections listing and writes one json file
-per collection into `<downloads>/collections/`, named after the collection's ao3 name -
-the part of the url after `/collections/` - cut to the same `FileNameLength` limit.
+Two buttons write these. **Index my collections** reads your own collections listing;
+**Index collection by URL** takes a link to any one collection on ao3, yours or not - any
+page of it will do. Both write one json file per collection into
+`<downloads>/collections/`, named after the collection's ao3 name - the part of the url
+after `/collections/` - cut to the same `FileNameLength` limit.
 
-Nothing is downloaded by this button. A collection file records what the collection
-*contains*, by work id, which is what lets it pair up with fics you already have. It is
-versioned exactly like an index file:
+No works are downloaded by either. A collection file records what the collection
+*contains*, by work id, which is what lets it pair up with fics you already have. Works it
+lists that are not in your index are still shown on the collections page, by work number
+with a link to ao3, since the number is all that is known about them. It is versioned
+exactly like an index file:
 
 ```json
 {
@@ -400,6 +404,15 @@ answers a burst with a pause of several minutes. Two settings decide how often y
 - The file types you tick. Indexing reads one page per 20 works; every other type costs a
   request per work on top. Unticking everything but JSON gives a metadata-only run, which
   is roughly a fortieth of the requests.
+
+A fic's page is fetched once however many formats you tick - every format's download link
+is read off that one page - so a second format costs one extra transfer per fic, not a
+second crawl of it. The transfers themselves cannot be merged: each format is its own file
+at its own address.
+
+The bookmarks run can also start partway through a listing. Start and stop are both
+positions in the whole listing, so pages 5 to 9 fetches just that slice - useful for
+carrying on after a stopped run without refetching what you already have.
 
 Nothing is lost when you are paused - the run waits and carries on by itself, and the
 **Stop** button keeps everything already written.

@@ -413,3 +413,51 @@ pre {
 }
 
 /* endregion */
+
+/* region the settings a run is working from */
+
+.settings {
+  margin: 10px 0 0;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-2);
+  font-size: 0.82rem;
+}
+
+.settings summary {
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.settings summary:hover {
+  color: var(--text-strong);
+}
+
+.settings dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 10px 0 0;
+}
+
+.settings dt {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.settings dd {
+  margin: 0;
+  color: var(--text);
+}
+
+/* the ini path is long, and breaking it is better than scrolling the dialog sideways */
+.settings .path {
+  overflow-wrap: anywhere;
+}
+
+.settings .warn {
+  color: #d9b45f;
+}
+
+/* endregion */

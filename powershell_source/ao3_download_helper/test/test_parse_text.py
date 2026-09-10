@@ -449,3 +449,64 @@ def test_get_unsuccessful_downloads_empty_list():
     assert parse_text.get_unsuccessful_downloads([]) == []
 
 # endregion
+
+
+# region set_page_number
+
+def test_set_page_number_adds_a_querystring_when_there_is_none():
+    assert parse_text.set_page_number('https://example.com/foo', 5) == \
+        'https://example.com/foo?page=5'
+
+
+def test_set_page_number_appends_to_an_existing_querystring():
+    assert parse_text.set_page_number('https://example.com/foo?a=1', 5) == \
+        'https://example.com/foo?a=1&page=5'
+
+
+def test_set_page_number_replaces_a_page_that_is_already_there():
+    assert parse_text.set_page_number('https://example.com/foo?page=3', 12) == \
+        'https://example.com/foo?page=12'
+
+
+@pytest.mark.parametrize('page', [1, 0, -3])
+def test_set_page_number_leaves_the_link_alone_for_the_first_page(page):
+    # ao3 serves the first page with no page= element, so adding one says nothing
+    assert parse_text.set_page_number('https://example.com/foo', page) == \
+        'https://example.com/foo'
+
+
+def test_set_page_number_round_trips_with_get_page_number():
+    link = parse_text.set_page_number('https://example.com/foo?a=1', 7)
+
+    assert parse_text.get_page_number(link) == 7
+
+# endregion
+
+
+# region get_collection_name
+
+@pytest.mark.parametrize('link,expected', [
+    ('https://archiveofourown.org/collections/yuletide2024', 'yuletide2024'),
+    ('https://archiveofourown.org/collections/yuletide2024/profile', 'yuletide2024'),
+    ('https://archiveofourown.org/collections/yuletide2024/works?page=2', 'yuletide2024'),
+    ('https://archiveofourown.org/collections/Some_Name-1/bookmarks', 'Some_Name-1'),
+])
+def test_get_collection_name_reads_any_page_of_a_collection(link, expected):
+    assert parse_text.get_collection_name(link) == expected
+
+
+@pytest.mark.parametrize('link', [
+    '',
+    None,
+    'https://archiveofourown.org/collections',
+    # a user's own collections listing is not one collection
+    'https://archiveofourown.org/users/Someone/collections',
+    # the form for making one, not one that exists
+    'https://archiveofourown.org/collections/new',
+    'https://archiveofourown.org/works/123',
+])
+def test_get_collection_name_returns_nothing_for_what_is_not_one_collection(link):
+    assert parse_text.get_collection_name(link) is None
+    assert parse_text.is_collection(link) is False
+
+# endregion

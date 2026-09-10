@@ -2,7 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { Library } from './library';
 import { WorkList } from './work-list';
-import { Bookmark, pageItems, paragraphs } from './bookmarks';
+import { Bookmark, pageItems, paragraphs, placeholderWork } from './bookmarks';
 import {
   Collection,
   collectionBadges,
@@ -76,19 +76,19 @@ export class CollectionsView {
   });
 
   /**
-   * The indexed works among them. A collection can hold works that are not in your
-   * bookmarks, and those cannot be shown - there is nothing recorded about them beyond
-   * the number - so they are counted instead.
+   * Every work the collection lists, in its listed order.
+   *
+   * A collection records what it holds by work number alone, and can hold works you have
+   * never bookmarked. Those have no index entry to show, so they appear as a placeholder
+   * carrying the one thing that is known - the number - and a link to the work on ao3.
    */
   protected readonly openWorks = computed<Bookmark[]>(() => {
     const byId = this.worksById();
-    return this.openIds()
-      .map((id) => byId.get(id))
-      .filter((work): work is Bookmark => !!work);
+    return this.openIds().map((id) => byId.get(id) ?? placeholderWork(id));
   });
 
   protected readonly missingCount = computed(
-    () => this.openIds().length - this.openWorks().length,
+    () => this.openWorks().filter((work) => work.placeholder).length,
   );
 
   protected readonly note = computed(() => {
@@ -96,15 +96,15 @@ export class CollectionsView {
     if (missing === 0) return '';
     return (
       `${missing.toLocaleString()} of ${this.openIds().length.toLocaleString()} works in this ` +
-      'collection are not in your bookmarks index, so only their work numbers are known. ' +
-      'They are not listed below.'
+      'collection are not in your bookmarks index. They are listed by work number, and open ' +
+      'on AO3 rather than as a local copy.'
     );
   });
 
   protected readonly emptyMessage = computed(() =>
     this.tab() === 'works'
-      ? 'None of the works in this collection are in your bookmarks index.'
-      : 'None of the bookmarked items in this collection are in your bookmarks index.',
+      ? 'No works were recorded for this collection.'
+      : 'No bookmarked items were recorded for this collection.',
   );
 
   // template helpers

@@ -193,8 +193,23 @@ def test_get_settings_json_returns_empty_dict_when_file_missing(fake_fileops):
     result = fake_fileops.get_settings_json()
 
     assert result == {}
-    # 'a' mode should have created the file
+
+
+def test_reading_settings_does_not_create_the_file(fake_fileops):
+    # the web ui asks for the saved username on every page load and stores nothing here,
+    # so reading used to leave an empty data.json in a bundle meant not to have one
+    fake_fileops.get_settings_json()
+    fake_fileops.get_setting(strings.SETTING_USERNAME)
+
+    assert not os.path.exists(fake_fileops.settingsfile)
+
+
+def test_saving_a_setting_still_creates_the_file(fake_fileops):
+    # the console menu depends on this: it is where saved answers live
+    fake_fileops.save_setting(strings.SETTING_USERNAME, 'Someone')
+
     assert os.path.exists(fake_fileops.settingsfile)
+    assert fake_fileops.get_setting(strings.SETTING_USERNAME) == 'Someone'
 
 
 def test_get_settings_json_returns_empty_dict_when_file_malformed(fake_fileops):

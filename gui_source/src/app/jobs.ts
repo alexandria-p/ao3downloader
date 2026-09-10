@@ -8,21 +8,36 @@ import { Injectable, signal } from '@angular/core';
  * the same python the console menu runs, and this service drives it.
  */
 
-export type JobAction = 'bookmarks' | 'update' | 'collections';
+export type JobAction = 'bookmarks' | 'update' | 'collections' | 'collection';
+
+/** what settings.ini says, so a run can show what it is working from */
+export interface ServerSettings {
+  /** which settings.ini is in force - not obvious, and worth being able to check */
+  file: string;
+  downloadFolder: string;
+  extraWaitTime: number;
+  fileNamePattern: string;
+  fileNameLength: number;
+  maxRetries: number;
+  maxTimeouts: number;
+  debugLogging: boolean;
+}
 
 export interface ServerConfig {
   downloadFolder: string;
   username: string;
   filetypes: string[];
-  /** always produced, shown ticked and locked in the ui */
   /** ticked and locked: produced whatever the request says */
   forced: string[];
   /** ticked when the dialog opens, but free to untick */
   defaults: string[];
+  settings?: ServerSettings;
 }
 
 /** the questions the console menu asks after the file types */
 export interface JobOptions {
+  /** page to begin on; 1 is the start of the listing */
+  start: number;
   /** page to stop on; 0 means every page */
   pages: number;
   series: boolean;
@@ -61,6 +76,8 @@ export interface StartRequest {
   options: JobOptions;
   username: string;
   password: string;
+  /** the collection to index, for the one action that works from a link */
+  url?: string;
 }
 
 const API_BASE = 'http://127.0.0.1:4400';

@@ -5,6 +5,7 @@ menu runs, which is covered by the other suites. What matters here is the plumbi
 it - what gets requested, what gets reported, and what never leaves the machine.
 """
 
+import os
 import socket
 import threading
 from http.server import ThreadingHTTPServer
@@ -12,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from source_code import progress, server, strings
+from source_code import parse_text, progress, server, strings
 
 
 # region resolve_filetypes
@@ -70,15 +71,29 @@ def test_html_is_offered_by_default_but_can_be_turned_off():
 
 def test_resolve_options_defaults_match_the_console_defaults():
     assert server.resolve_options(None) == {
-        'pages': 0, 'series': False, 'images': False, 'workdates': False,
+        'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
     }
 
 
 def test_resolve_options_reads_what_was_asked_for():
     result = server.resolve_options(
-        {'pages': '3', 'series': True, 'images': True, 'workdates': True})
+        {'start': '5', 'pages': '8', 'series': True, 'images': True, 'workdates': True})
 
-    assert result == {'pages': 3, 'series': True, 'images': True, 'workdates': True}
+    assert result == {'start': 5, 'pages': 8, 'series': True,
+                      'images': True, 'workdates': True}
+
+
+@pytest.mark.parametrize('start', ['abc', None, '', {}, -5, 0])
+def test_resolve_options_starts_at_the_first_page_on_junk(start):
+    assert server.resolve_options({'start': start})['start'] == 1
+
+
+def test_resolve_options_ignores_a_stop_that_comes_before_the_start():
+    # asking for pages 5 to 2 would otherwise fetch nothing at all
+    result = server.resolve_options({'start': 5, 'pages': 2})
+
+    assert result['start'] == 5
+    assert result['pages'] == 0
 
 
 @pytest.mark.parametrize('pages', ['abc', None, '', {}, -5])
@@ -309,6 +324,110 @@ def test_run_collections_downloads_no_works(fake_environment):
 
 def test_collections_is_an_accepted_action():
     assert server.ACTION_COLLECTIONS in server.ACTIONS
+
+
+# region the settings a run will use
+
+def test_read_settings_reports_what_the_run_will_actually_use(tmp_path):
+    fileops = MagicMock()
+    fileops.inifile = str(tmp_path / 'config' / 'settings.ini')
+    fileops.downloadfolder = str(tmp_path / 'my_downloads')
+    fileops.get_ini_value_integer.side_effect = lambda key, default: {
+        strings.INI_WAIT_TIME: 15, strings.INI_NAME_LENGTH: 50,
+        strings.INI_MAX_RETRIES: 0, strings.INI_MAX_TIMEOUTS: 3}[key]
+    fileops.get_ini_value.return_value = strings.INI_DEFAULT_NAME_PATTERN
+    fileops.get_ini_value_boolean.return_value = False
+
+    result = server.read_settings(fileops)
+
+    assert result['extraWaitTime'] == 15
+    assert result['fileNamePattern'] == strings.INI_DEFAULT_NAME_PATTERN
+    assert result['fileNameLength'] == 50
+
+
+def test_read_settings_says_which_settings_file_is_in_force(tmp_path):
+    # a helper left running from an earlier session is the usual reason settings look
+    # ignored, so naming the file it read is what makes that visible
+    fileops = MagicMock()
+    fileops.inifile = str(tmp_path / 'config' / 'settings.ini')
+    fileops.downloadfolder = 'downloads'
+    fileops.get_ini_value_integer.return_value = 0
+    fileops.get_ini_value.return_value = ''
+    fileops.get_ini_value_boolean.return_value = False
+
+    result = server.read_settings(fileops)
+
+    assert result['file'] == os.path.abspath(str(tmp_path / 'config' / 'settings.ini'))
+    # relative in the ini, absolute here, so there is no doubt where fics land
+    assert os.path.isabs(result['downloadFolder'])
+
+# endregion
+
+
+# region indexing one collection by link
+
+def test_indexing_a_collection_by_link_is_an_accepted_action():
+    assert server.ACTION_COLLECTION in server.ACTIONS
+    # it is the one action that cannot work out its own link from the username
+    assert server.ACTION_COLLECTION in server.ACTIONS_NEEDING_URL
+
+
+def test_run_collection_indexes_the_link_it_was_given(fake_environment):
+    job = server.Job(server.ACTION_COLLECTION, ['JSON'], 'Someone',
+                     url='https://archiveofourown.org/collections/yuletide2024')
+    ao3 = MagicMock()
+    ao3.get_collection.return_value = [{'name': 'yuletide2024'}]
+
+    with patch.object(server, 'Ao3', return_value=ao3):
+        server.run_collection(job, fake_environment['fileops'],
+                              fake_environment['repo'], MagicMock())
+
+    assert ao3.get_collection.call_args.args[0] == \
+        'https://archiveofourown.org/collections/yuletide2024'
+
+
+def test_run_collection_downloads_no_works(fake_environment):
+    job = server.Job(server.ACTION_COLLECTION, ['JSON'], 'Someone',
+                     url='https://archiveofourown.org/collections/yuletide2024')
+    ao3 = MagicMock()
+    ao3.get_collection.return_value = []
+
+    with patch.object(server, 'Ao3', return_value=ao3) as constructor:
+        server.run_collection(job, fake_environment['fileops'],
+                              fake_environment['repo'], MagicMock())
+
+    assert constructor.call_args.args[2] == []
+    ao3.download.assert_not_called()
+
+
+@pytest.mark.parametrize('url', [
+    '',
+    'https://example.com/collections/yuletide',
+    'https://archiveofourown.org/users/Someone/collections',
+    'https://archiveofourown.org/works/123',
+])
+def test_a_link_that_is_not_one_collection_is_refused_before_the_job_starts(url):
+    # answering the request is more use than a job that starts and immediately fails
+    sent = {}
+    handler = MagicMock()
+    handler.path = '/api/jobs'
+    handler.read_json.return_value = {
+        'action': server.ACTION_COLLECTION, 'username': 'Someone',
+        'password': 'a-password', 'url': url}
+    handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
+
+    server.Handler.do_POST(handler)
+
+    assert sent['status'] == 400
+    assert 'collection' in sent['body']['error'].lower()
+
+
+def test_a_collection_link_deeper_than_the_dashboard_is_accepted():
+    # whatever page of the collection was open when the link was copied
+    assert parse_text.get_collection_name(
+        'https://archiveofourown.org/collections/yuletide2024/works?page=2') == 'yuletide2024'
+
+# endregion
 
 
 def test_run_update_scans_only_formats_that_can_be_parsed(fake_environment):

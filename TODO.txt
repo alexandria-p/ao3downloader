@@ -20,7 +20,7 @@ long term:
 
 filtering in-app
 make html look nice, load images into html fics.
-save collections
+
 
 
 for github pages - do not create downloads folder automatically. all buttons are greyed out until a downloads folder is selected  (make this a deployment option, that updates settings.ini, that is read by project)
@@ -29,32 +29,25 @@ for github pages - do not bother keeping logs (make this a deployment option, th
 
 ask claude to help with how to configure this for github pages, and that for every push to /main should redeploy the new build.
 
+stop trawl once you catch up to where you were (optional, starts as ticked).
+
+'update bookmarks marked as incomplete' - eh still buggy, can we do better?
 
 
-perfect. okay, now I want to be able to toggle between BOOKMARKS and COLLECTIONS view.
-
-bookmarks page has the Download newly added bookmarks button and the update any bookmarks marked as incomplete button, as well as paginated table of bookmarks as before.
-
-collections page has Index collections button.
-also has a paginated display of collections.
-
-when you click on a collection, then display more data about it based on what we have collected - you decide how best to show this. fics in the collection we have opened should display in a paginated table (identical to bookmarks, reuse components where possible).
-
-
-
-allow to add a collection by url instead of your own
-
-(index my collections)
+allow to add a collection by url instead only being able to index your own
+New buttons:
+(index my collections) - the existing button in the app
 (index collection by URL)
 
-stop trawl once you catch up to where you were (optional, starts as ticked).
-option for start page, not just stop page
+
+
+if a collection Work or collection Bookmark does not match any indexed works in your downloads folder, just display it as the work ID & link to the work on ao3 for that entry in the table.
 
 data.json is still being built in build/config when i run the app. i told you not to build it anymore since we dont need it.
 
 also - show the settings used for current crawl in the modal (e.g. from the settings.ini file being references)
 
-option for start page, not just stop page, on Download newly added bookmarks
+add a option for start page, not just stop page, on Download newly added bookmarks
 
 is there a way to make downloading fics more efficient, so you only need to crawl a page once (instead of for every type)? For example, can we download PDF, HTML and EPUB with a single page hit?
 

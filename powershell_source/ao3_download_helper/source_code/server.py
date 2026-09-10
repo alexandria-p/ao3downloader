@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from source_code import progress, strings, update
+from source_code import parse_text, progress, strings, update
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -34,7 +34,12 @@ ACTION_BOOKMARKS = 'bookmarks'
 ACTION_UPDATE = 'update'
 ACTION_COLLECTIONS = 'collections'
 
-ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS)
+ACTION_COLLECTION = 'collection'
+
+ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION)
+
+# actions that need a link from the caller rather than working it out from the username
+ACTIONS_NEEDING_URL = (ACTION_COLLECTION,)
 
 # json is always produced, so the ui shows it ticked and locked. it is what the web page
 # reads, and it costs nothing extra: the metadata comes off the listing page that has to be
@@ -80,7 +85,16 @@ def resolve_options(requested) -> dict:
         pages = 0
     if pages < 0: pages = 0
 
+    try:
+        start = int(given.get('start') or 1)
+    except (TypeError, ValueError):
+        start = 1
+    if start < 1: start = 1
+    # a stop before the start would fetch nothing at all; treat it as no stop instead
+    if pages and pages < start: pages = 0
+
     return {
+        'start': start,
         'pages': pages,
         'series': bool(given.get('series')),
         'images': bool(given.get('images')),
@@ -88,15 +102,39 @@ def resolve_options(requested) -> dict:
     }
 
 
+def read_settings(fileops: FileOps) -> dict:
+    """The settings.ini values a run will actually use, for the ui to show back.
+
+    The path is included on purpose. Which settings.ini is in force is not obvious - it
+    depends on where the helper was started from - and a helper left running from an
+    earlier session is the usual explanation for settings that appear to be ignored.
+    """
+
+    return {
+        'file': os.path.abspath(fileops.inifile),
+        'downloadFolder': os.path.abspath(fileops.downloadfolder),
+        'extraWaitTime': fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0),
+        'fileNamePattern': fileops.get_ini_value(
+            strings.INI_NAME_PATTERN, strings.INI_DEFAULT_NAME_PATTERN),
+        'fileNameLength': fileops.get_ini_value_integer(
+            strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH),
+        'maxRetries': fileops.get_ini_value_integer(strings.INI_MAX_RETRIES, 0),
+        'maxTimeouts': fileops.get_ini_value_integer(strings.INI_MAX_TIMEOUTS, 3),
+        'debugLogging': fileops.get_ini_value_boolean(strings.INI_DEBUG_LOGGING, False),
+    }
+
+
 class Job:
     """One download run, executing on its own thread and publishing progress events."""
 
     def __init__(self, action: str, filetypes: list[str], username: str,
-                 options: dict | None = None) -> None:
+                 options: dict | None = None, url: str = '') -> None:
         self.id = uuid.uuid4().hex
         self.action = action
         self.filetypes = filetypes
         self.username = username
+        # only the actions in ACTIONS_NEEDING_URL use this; the rest build their own link
+        self.url = url
         self.options = options or resolve_options(None)
         self.events: queue.Queue = queue.Queue()
         self.done = threading.Event()
@@ -155,6 +193,8 @@ def run_job(job: Job, password: str) -> None:
                     run_bookmarks(job, fileops, repo, report)
                 elif job.action == ACTION_COLLECTIONS:
                     run_collections(job, fileops, repo, report)
+                elif job.action == ACTION_COLLECTION:
+                    run_collection(job, fileops, repo, report)
                 else:
                     run_update(job, fileops, repo, report)
         job.emit({'type': progress.FINISHED, 'cancelled': job.cancel.is_set()})
@@ -179,9 +219,12 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     # 0 means every page, which Ao3 expects as None
     pages = job.options['pages'] or None
 
+    start = job.options['start']
+
     visited = shared.visited(fileops, downloadtypes) if downloadtypes else []
     ao3 = Ao3(repo, fileops, downloadtypes, pages, job.options['series'],
-              job.options['images'], progress=report, cancelled=job.cancel.is_set)
+              job.options['images'], progress=report, cancelled=job.cancel.is_set,
+              start=start)
 
     # indexing first: every bookmark gets its json before any work is downloaded, so an
     # interrupted run still leaves a complete index of what is bookmarked.
@@ -193,7 +236,8 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     if downloadtypes and not job.cancel.is_set():
         progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
         print(strings.AO3_INFO_DOWNLOADING)
-        ao3.download(link, visited)
+        # the download walks the same listing, so it begins on the same page
+        ao3.download(parse_text.set_page_number(link, start), visited)
 
 
 def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -218,6 +262,24 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
             len(records), os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)))
     else:
         print(strings.AO3_INFO_COLLECTIONS_NONE)
+
+
+def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """Index one collection from a link, which need not be one of the user's own.
+
+    Written to the same downloads/collections folder, in the same shape, as the
+    collections you own - so an indexed collection is an indexed collection either way.
+    """
+
+    progress.report(report, progress.PHASE, name=progress.COLLECTIONS)
+
+    ao3 = Ao3(repo, fileops, [], None, False, False,
+              progress=report, cancelled=job.cancel.is_set)
+    records = ao3.get_collection(job.url)
+
+    if records:
+        print(strings.AO3_INFO_COLLECTIONS_DONE.format(
+            len(records), os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)))
 
 
 def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -313,6 +375,7 @@ class Handler(BaseHTTPRequestHandler):
                 'filetypes': strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES_WITH_METADATA,
                 'forced': FORCED_FILETYPES,
                 'defaults': DEFAULT_FILETYPES,
+                'settings': read_settings(fileops),
             })
             return
 
@@ -356,7 +419,15 @@ class Handler(BaseHTTPRequestHandler):
         filetypes = resolve_filetypes(body.get('filetypes'))
         options = resolve_options(body.get('options'))
 
-        job = Job(action, filetypes, username, options)
+        url = (body.get('url') or '').strip()
+        if action in ACTIONS_NEEDING_URL:
+            # checked here rather than on the thread, so a bad link is a straight answer to
+            # the request instead of a job that starts and immediately fails
+            if strings.AO3_BASE_URL not in url or not parse_text.get_collection_name(url):
+                self.send_json(400, {'error': strings.ERROR_NOT_A_COLLECTION})
+                return
+
+        job = Job(action, filetypes, username, options, url)
         with Handler.jobs_lock:
             Handler.jobs[job.id] = job
 

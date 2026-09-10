@@ -71,6 +71,9 @@ def collection_profile(slug: str, subcollections: int = 0, fandoms: int = 3) -> 
                   f'Subcollections ({subcollections})</a></li>')
     return BeautifulSoup(f"""
       <div id="main" class="collection_profile-show">
+        <h2 class="heading">Title of {slug}</h2>
+        <p class="type">(Closed, Moderated)</p>
+        <blockquote class="userstuff"><p>About {slug}.</p></blockquote>
         <dl class="meta group">
           <dt>Active since:<dd>2024-01-01</dd>
           <dt>Collection tags:</dt>
@@ -395,6 +398,88 @@ def test_keeps_the_saved_subcollections_when_their_count_has_not_moved():
 
     assert not any(url.endswith('/alpha/collections') for url in urls)
     assert written[indexing.INDEXES][-1]['subcollections'] == subs
+
+
+def test_indexing_one_collection_by_link_saves_only_that_one():
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = pages_for(['alpha'])
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/alpha')
+
+    assert [r['name'] for r in records] == ['alpha']
+    assert list(saved(fileops)) == [path_for('alpha')]
+
+
+def test_indexing_by_link_never_asks_for_a_user_listing():
+    # there is no listing behind it: the link is the whole input
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = pages_for(['alpha'])
+
+    ao3.get_collection('https://archiveofourown.org/collections/alpha')
+
+    assert not any('/users/' in call.args[0] for call in repo.get_soup.call_args_list)
+
+
+def test_indexing_by_link_reads_what_a_blurb_would_have_given_off_the_profile():
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = pages_for(['alpha'])
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/alpha')
+
+    entry = records[0]
+    assert entry['name'] == 'alpha'
+    assert entry['link'] == 'https://archiveofourown.org/collections/alpha'
+    assert entry['title'] == 'Title of alpha'
+    assert entry['description'] == 'About alpha.'
+    assert entry['flags'] == ['Closed', 'Moderated']
+    assert entry['closed'] is True
+
+
+def test_indexing_by_link_records_the_items_the_same_way_as_a_listing_crawl():
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = pages_for(['alpha'])
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/alpha')
+
+    assert records[0]['work_ids'] == ['111', '222']
+    assert records[0]['bookmark_ids'] == ['333']
+
+
+def test_indexing_by_link_accepts_a_link_to_any_page_of_the_collection():
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = pages_for(['alpha'])
+
+    records = ao3.get_collection(
+        'https://archiveofourown.org/collections/alpha/works?page=3')
+
+    assert records[0]['name'] == 'alpha'
+
+
+@pytest.mark.parametrize('link', [
+    'https://example.com/collections/alpha',
+    'https://archiveofourown.org/users/Someone/collections',
+    'https://archiveofourown.org/works/123',
+])
+def test_indexing_by_link_refuses_a_link_that_is_not_one_collection(link):
+    ao3, repo, fileops = make_ao3()
+
+    with pytest.raises(exceptions.InvalidLinkException):
+        ao3.get_collection(link)
+
+    repo.get_soup.assert_not_called()
+
+
+def test_indexing_by_link_also_keeps_saved_ids_when_the_counts_have_not_moved():
+    ao3, repo, fileops = make_ao3()
+    fileops.load_json.return_value = stored(
+        work_count=2, work_ids=['777', '888'], bookmark_count=3, bookmark_ids=['999'])
+    repo.get_soup.side_effect = pages_for(['alpha'])
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/alpha')
+
+    urls = requested(repo)
+    assert not any(url.endswith('/works') for url in urls)
+    assert records[0]['work_ids'] == ['777', '888']
 
 
 def test_crawls_the_subcollections_when_their_count_has_moved():

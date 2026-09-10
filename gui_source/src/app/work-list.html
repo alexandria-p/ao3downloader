@@ -25,6 +25,14 @@
     <li class="blurb">
       @if (work.error) {
         <p class="error">This bookmark could not be read from the listing page.</p>
+      } @else if (work.placeholder) {
+        <!-- listed by number only: nothing is indexed about it, so there is nothing to show -->
+        <h4 class="heading">
+          <a class="title" [href]="work.link" target="_blank" rel="noopener">Work {{ work.id }}</a>
+        </h4>
+        <p class="not-indexed">
+          Not in your bookmarks index, so only its work number is known. Open it on AO3.
+        </p>
       } @else {
         <p class="datetime">{{ work.date_updated }}</p>
 

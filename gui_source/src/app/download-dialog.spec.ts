@@ -9,6 +9,16 @@ const CONFIG: ServerConfig = {
   filetypes: ['AZW3', 'EPUB', 'MOBI', 'PDF', 'HTML', 'JSON'],
   forced: ['JSON'],
   defaults: ['JSON', 'HTML'],
+  settings: {
+    file: 'C:\\app\\config\\settings.ini',
+    downloadFolder: 'C:\\app\\my_downloads',
+    extraWaitTime: 15,
+    fileNamePattern: '{worknum} {title} - {author}',
+    fileNameLength: 50,
+    maxRetries: 0,
+    maxTimeouts: 3,
+    debugLogging: false,
+  },
 };
 
 class FakeJobs extends Jobs {
@@ -16,11 +26,16 @@ class FakeJobs extends Jobs {
   cancelled: string[] = [];
   push: ((event: JobEvent) => void) | null = null;
   closed = false;
+  /** set by a test that needs settings.ini to say something other than the default */
+  settingsOverride: ServerConfig['settings'] | null = null;
 
   override async loadConfig(): Promise<ServerConfig | null> {
-    this.config.set(CONFIG);
+    const config = this.settingsOverride
+      ? { ...CONFIG, settings: this.settingsOverride }
+      : CONFIG;
+    this.config.set(config);
     this.available.set(true);
-    return CONFIG;
+    return config;
   }
 
   override async start(request: StartRequest): Promise<string> {
@@ -134,7 +149,7 @@ describe('DownloadDialog', () => {
     await open('bookmarks');
     await advanceTo('options');
 
-    expect(element.querySelector('input[type="number"]')).toBeTruthy();
+    expect(element.querySelector('input[name="pages"]')).toBeTruthy();
     expect(checkbox('series links')).toBeTruthy();
     expect(checkbox('embedded images')).toBeTruthy();
   });
@@ -159,7 +174,7 @@ describe('DownloadDialog', () => {
     await advanceTo('options');
 
     // no listing to page through, no series to expand, no metadata to date
-    expect(element.querySelector('input[type="number"]')).toBeNull();
+    expect(element.querySelector('input[name="pages"]')).toBeNull();
     expect(checkbox('series links')).toBeUndefined();
     expect(checkbox('publication date')).toBeUndefined();
     // images still apply to a re-download
@@ -170,7 +185,7 @@ describe('DownloadDialog', () => {
     await open('bookmarks');
     await advanceTo('options');
 
-    const pages = element.querySelector<HTMLInputElement>('input[type="number"]')!;
+    const pages = element.querySelector<HTMLInputElement>('input[name="pages"]')!;
     pages.value = '3';
     pages.dispatchEvent(new Event('input'));
     checkbox('series links')!.click();
@@ -181,6 +196,7 @@ describe('DownloadDialog', () => {
 
     expect(jobs.started).toHaveLength(1);
     expect(jobs.started[0].options).toEqual({
+      start: 1,
       pages: 3,
       series: true,
       images: true,
@@ -188,11 +204,55 @@ describe('DownloadDialog', () => {
     });
   });
 
+  it('sends the page to start on as well as the one to stop after', async () => {
+    await open('bookmarks');
+    await advanceTo('options');
+
+    const start = element.querySelector<HTMLInputElement>('input[name="start"]')!;
+    start.value = '5';
+    start.dispatchEvent(new Event('input'));
+    const pages = element.querySelector<HTMLInputElement>('input[name="pages"]')!;
+    pages.value = '9';
+    pages.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.start).toBe(5);
+    expect(jobs.started[0].options.pages).toBe(9);
+  });
+
+  it('treats a blank or first page as starting at the beginning', async () => {
+    await open('bookmarks');
+    await advanceTo('options');
+
+    const start = element.querySelector<HTMLInputElement>('input[name="start"]')!;
+    start.value = '';
+    start.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.start).toBe(1);
+  });
+
+  it('says which slice of the listing the run will cover', async () => {
+    await open('bookmarks');
+    await advanceTo('options');
+
+    const start = element.querySelector<HTMLInputElement>('input[name="start"]')!;
+    start.value = '5';
+    start.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    expect(element.textContent).toContain('page 5 onwards');
+  });
+
   it('treats a blank or zero page limit as every page', async () => {
     await open('bookmarks');
     await advanceTo('options');
 
-    const pages = element.querySelector<HTMLInputElement>('input[type="number"]')!;
+    const pages = element.querySelector<HTMLInputElement>('input[name="pages"]')!;
     pages.value = '';
     pages.dispatchEvent(new Event('input'));
     await fixture.whenStable();
@@ -215,10 +275,126 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  // endregion
+
+  // region indexing one collection by link
+
+  const LINK = 'https://archiveofourown.org/collections/yuletide2024';
+
+  function linkBox(): HTMLInputElement {
+    return element.querySelector<HTMLInputElement>('input[name="collection"]')!;
+  }
+
+  async function typeLink(url: string): Promise<void> {
+    const box = linkBox();
+    box.value = url;
+    box.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+  }
+
+  it('asks for the link first, before anything else', async () => {
+    await open('collection');
+
+    expect(linkBox()).toBeTruthy();
+    expect(element.querySelector('input[name="password"]')).toBeNull();
+    expect(element.querySelector('.dialog fieldset')).toBeNull();
+  });
+
+  it('will not go on until the link is one it can use', async () => {
+    await open('collection');
+    expect(button('Continue')?.disabled).toBe(true);
+
+    await typeLink(LINK);
+
+    expect(button('Continue')?.disabled).toBe(false);
+  });
+
+  it('says what is wrong with a link that is not a collection', async () => {
+    await open('collection');
+
+    await typeLink('https://archiveofourown.org/works/123');
+
+    expect(button('Continue')?.disabled).toBe(true);
+    expect(element.querySelector('.error')?.textContent).toContain('not a link to a collection');
+  });
+
+  it('accepts a link to any page of the collection', async () => {
+    await open('collection');
+
+    await typeLink(LINK + '/works?page=2');
+
+    expect(button('Continue')?.disabled).toBe(false);
+  });
+
+  it('sends the link with the job', async () => {
+    await open('collection');
+    await typeLink(LINK);
+    button('Continue')!.click();
+    await fixture.whenStable();
+    await startCollections();
+
+    expect(jobs.started[0].action).toBe('collection');
+    expect(jobs.started[0].url).toBe(LINK);
+  });
+
+  it('lets you go back to correct the link', async () => {
+    await open('collection');
+    await typeLink(LINK);
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    button('Back')!.click();
+    await fixture.whenStable();
+
+    expect(linkBox().value).toBe(LINK);
+  });
+
+  it('never sends a link on a job that does not take one', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    expect(jobs.started[0].url).toBeUndefined();
+  });
+
+  // endregion
+
+  // region the settings a run is using
+
+  it('shows what settings.ini says, so the run can be taken at its word', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    const shown = element.querySelector('.settings')?.textContent ?? '';
+    expect(shown).toContain('15');
+    expect(shown).toContain('{worknum} {title} - {author}');
+    expect(shown).toContain('50');
+  });
+
+  it('names the settings file it read, since which one is in force is not obvious', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    expect(element.querySelector('.settings')?.textContent).toContain(
+      'C:\\app\\config\\settings.ini',
+    );
+  });
+
+  it('flags a zero wait, which is what trips the rate limit', async () => {
+    jobs.settingsOverride = { ...CONFIG.settings!, extraWaitTime: 0 };
+    await open('bookmarks');
+    await advanceTo('running');
+
+    expect(element.querySelector('.settings .warn')?.textContent).toContain('rate limit');
+  });
+
+  // endregion
+
+  // region syncing your own collections
+
   it('names itself after the job it is doing', async () => {
     await open('collections');
 
-    expect(element.querySelector('.dialog h2')?.textContent?.trim()).toBe('Index collections');
+    expect(element.querySelector('.dialog h2')?.textContent?.trim()).toBe('Index my collections');
   });
 
   it('goes straight to the login, since there is nothing to choose', async () => {

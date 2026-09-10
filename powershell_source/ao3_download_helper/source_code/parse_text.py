@@ -76,6 +76,31 @@ def get_series_number(link: str) -> str | None:
     return get_digits_after('/series/', link)
 
 
+def get_collection_name(link: str) -> str | None:
+    """The ao3 name of a collection, from a link to any of its pages.
+
+    Accepts the dashboard, the profile, the works listing and so on, so a link pasted
+    straight out of the address bar works. A user's own collections listing
+    (/users/<name>/collections) is not one collection and returns None, as does the site
+    wide /collections listing - neither has a name after /collections/.
+    """
+
+    if not link: return None
+    match = re.search(r'/collections/([^/?#]+)', link)
+    if not match: return None
+    name = match.group(1).strip()
+    # /collections/new is the form for making one, not a collection that exists
+    return name if name and name.lower() != 'new' else None
+
+
+def is_collection(link: str) -> bool:
+    """
+    checks if a link is for a single ao3 collection
+    """
+
+    return get_collection_name(link) != None
+
+
 def is_work(link: str) -> bool:
     """
     checks if a link is for an ao3 work
@@ -140,6 +165,23 @@ def get_next_page(link: str) -> str:
         nextpage = int(page) + 1
         newlink = link.replace('page=' + page, 'page=' + str(nextpage))
     return newlink
+
+
+def set_page_number(link: str, page: int) -> str:
+    """
+    point an ao3 link at a particular page of a listing, and return the updated url
+    """
+
+    # ao3 serves the first page with no 'page=' element, so page 1 is the link as it stands
+    if page <= 1: return link
+
+    index = str.find(link, 'page=')
+    if index == -1:
+        separator = '&' if str.find(link, '?') != -1 else '?'
+        return link + separator + 'page=' + str(page)
+
+    current = get_num_from_link(link, index + 5)
+    return link.replace('page=' + current, 'page=' + str(page))
 
 
 def get_page_number(link: str) -> int:
