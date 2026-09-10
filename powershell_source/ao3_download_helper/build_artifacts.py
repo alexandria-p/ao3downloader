@@ -231,7 +231,7 @@ overwrites the rest.
 | --- | --- |
 | `Start-Application.ps1` | Starts the helper and serves the site. Self-contained. |
 | `web/` | The compiled web app - plain static files. |
-| `ao3_download_helper/` | The python behind the two download buttons. |
+| `ao3_download_helper/` | The python behind the download buttons. |
 | `config/settings.ini` | Your settings, including where fics are saved. |
 
 `config/data.json` is not shipped. The web ui remembers your username in the browser and
@@ -270,6 +270,7 @@ Inside it:
 | `<downloads>/indexing/` | One json file per bookmark - the index. |
 | `<downloads>/` | The works themselves: html, epub, pdf and so on. |
 | `<downloads>/images/` | Images embedded in works, if you asked for them. |
+| `<downloads>/collections/` | One json file per collection, if you have synced them. |
 
 ## How files are named, and how they get linked together
 
@@ -326,6 +327,82 @@ changed over time:
 - a new entry is added to `indexes` only when the reading differs from the one before it
 - `position` is where the fic sat in your bookmarks that run, and is not part of the
   history - a fic sliding down the list is not a change to the fic
+
+## What is inside a collection file
+
+The **Index collections** button reads your collections listing and writes one json file
+per collection into `<downloads>/collections/`, named after the collection's ao3 name -
+the part of the url after `/collections/` - cut to the same `FileNameLength` limit.
+
+Nothing is downloaded by this button. A collection file records what the collection
+*contains*, by work id, which is what lets it pair up with fics you already have. It is
+versioned exactly like an index file:
+
+```json
+{
+  "name": "yuletide2024",
+  "link": "https://archiveofourown.org/collections/yuletide2024",
+  "source": "https://archiveofourown.org/users/you/collections",
+  "last_indexed": "2026-09-10T12:34:56+00:00",
+  "indexes": [
+    {
+      "indexed_on": "2026-09-10T12:34:56+00:00",
+      "title": "Yuletide 2024",
+      "description": "...",
+      "maintainers": ["someone"],
+      "tags": ["Yuletide"],
+      "active_since": "01 Sep 2024",
+      "challenge_type": "Gift Exchange Challenge",
+      "multifandom": true,
+      "closed": true,
+      "moderated": true,
+      "fandom_count": 1193,
+      "work_count": 4021,
+      "parent_collection": "https://archiveofourown.org/collections/yuletide",
+      "subcollections": ["https://archiveofourown.org/collections/..."],
+      "work_ids": ["34816549", "..."],
+      "bookmark_ids": ["..."]
+    }
+  ]
+}
+```
+
+- `challenge_type` is `Gift Exchange Challenge`, `Prompt Meme Challenge` or `No Challenge`
+- `multifandom` is whether the collection's profile page counts more than one fandom
+- `parent_collection` and `subcollections` are links rather than nested copies - a
+  subcollection you own gets a file of its own
+- `work_ids` and `bookmark_ids` are the work numbers in the collection's works and
+  bookmarked items, which is what your downloaded file names start with
+
+### Re-indexing a collection you already have
+
+Walking a collection's works is the most expensive thing this program does: one request
+per twenty works, so a large collection runs to hundreds of requests on its own.
+
+It is also usually unnecessary. The profile page - which has to be fetched anyway - says
+how many works and bookmarked items the collection holds. When that total matches the one
+already in the file, the saved ids are kept and the listing is not walked at all, so an
+unchanged collection costs two requests instead of hundreds. Works, bookmarked items and
+subcollections are each judged on their own count.
+
+The one case this cannot see is a collection that had one work added and another removed
+between runs, leaving the total unchanged. Delete that collection's json file to force a
+full crawl. A crawl that failed or was stopped is never mistaken for a complete one.
+
+## Keeping ao3 happy
+
+Ao3 rate-limits by *how fast* requests arrive, not how many you make in total, and it
+answers a burst with a pause of several minutes. Two settings decide how often you meet it:
+
+- `ExtraWaitTime` in `config/settings.ini` is how long to wait after every request. `0`
+  means "as fast as possible", which is what trips the limit fastest. 15 seconds is the
+  default here and is a reasonable place to start.
+- The file types you tick. Indexing reads one page per 20 works; every other type costs a
+  request per work on top. Unticking everything but JSON gives a metadata-only run, which
+  is roughly a fortieth of the requests.
+
+Nothing is lost when you are paused - the run waits and carries on by itself, and the
+**Stop** button keeps everything already written.
 
 ## A caveat about deploying this to a server
 

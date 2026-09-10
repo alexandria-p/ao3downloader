@@ -56,6 +56,12 @@
             JSON metadata comes from the bookmarks listing, so this run won't rewrite it - it
             updates the works themselves.
           </p>
+        } @else {
+          <p class="hint">
+            JSON is indexed first and cannot be turned off - it is read off the listing pages,
+            one request per 20 works. Every other type is fetched per work instead, so leaving
+            them all unticked gives a metadata-only run that is far lighter on ao3's rate limit.
+          </p>
         }
       </section>
       <footer>
@@ -148,7 +154,12 @@
         </p>
       </form>
       <footer>
-        <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
+        <!-- syncing collections has no earlier step to go back to -->
+        @if (picksFiletypes()) {
+          <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
+        } @else {
+          <button type="button" class="button subtle" (click)="close()">Cancel</button>
+        }
         <button type="button" class="button primary" (click)="submit($event)">Start download</button>
       </footer>
     }
@@ -264,7 +275,9 @@
         }
       </section>
       <footer>
-        <button type="button" class="button primary" (click)="close()">Done</button>
+        <button type="button" class="button primary" (click)="close()">
+          {{ wasCancelled() ? 'Close modal' : 'Done' }}
+        </button>
       </footer>
     }
 
@@ -287,7 +300,7 @@
       <footer>
         <!-- a rejected login sends you back to the details, not to the file types -->
         <button type="button" class="button subtle"
-                (click)="step.set(loginVerified() === false ? 'credentials' : 'filetypes')">
+                (click)="step.set(loginVerified() === false ? 'credentials' : firstStep())">
           Try again
         </button>
         <button type="button" class="button" (click)="close()">Close</button>

@@ -248,8 +248,17 @@ class Ao3:
         except Exception as e:
             self.log_error({'message': strings.ERROR_COLLECTION_PROFILE, 'link': base}, e)
 
-        for key, url in (('work_ids', f'{base}/works'),
-                         ('bookmark_ids', f'{base}/bookmarks')):
+        # what we already know about this collection, to avoid re-walking what has not moved
+        previous = self.previous_collection(slug)
+
+        for key, count_key, label, url in (
+                ('work_ids', 'work_count', 'works', f'{base}/works'),
+                ('bookmark_ids', 'bookmark_count', 'bookmarked items', f'{base}/bookmarks')):
+            kept = self.unchanged_items(previous, document, key, count_key)
+            if kept is not None:
+                document[key] = kept
+                print(strings.AO3_INFO_COLLECTION_UNCHANGED.format(slug, len(kept), label))
+                continue
             try:
                 document[key] = self.collect_work_ids(url)
             except exceptions.CancelledException:
@@ -261,29 +270,92 @@ class Ao3:
         # only worth asking for when the sidebar says there are some
         document['subcollections'] = []
         if document.get('subcollection_count'):
-            try:
-                document['subcollections'] = self.collect_collection_links(
-                    document.get('subcollections_link') or f'{base}/collections')
-            except exceptions.CancelledException:
-                raise
-            except Exception as e:
-                self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': base}, e)
+            kept = self.unchanged_items(previous, document, 'subcollections',
+                                        'subcollection_count')
+            if kept is not None:
+                document['subcollections'] = kept
+                print(strings.AO3_INFO_COLLECTION_UNCHANGED.format(
+                    slug, len(kept), 'subcollections'))
+            else:
+                try:
+                    document['subcollections'] = self.collect_collection_links(
+                        document.get('subcollections_link') or f'{base}/collections')
+                except exceptions.CancelledException:
+                    raise
+                except Exception as e:
+                    self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': base}, e)
 
         return document
+
+
+    def previous_collection(self, name: str) -> dict:
+        """The newest reading of this collection from an earlier run, or nothing.
+
+        A missing or unreadable file is not a problem: it only means there is nothing to
+        reuse, and everything gets fetched as it would on a first run.
+        """
+
+        try:
+            stored = self.fileops.load_json(self.collection_path(name))
+        except Exception:
+            return {}
+        if not isinstance(stored, dict): return {}
+
+        readings = stored.get(indexing.INDEXES)
+        if isinstance(readings, list) and readings and isinstance(readings[-1], dict):
+            # identity lives at the root and is not versioned, so it goes back on top
+            return {**readings[-1], **stored}
+        return stored
+
+
+    def unchanged_items(self, previous: dict, document: dict,
+                        key: str, count_key: str) -> list | None:
+        """The ids saved last time, when the count says a crawl would find the same ones.
+
+        Walking a collection's works costs one request per twenty of them, so a large
+        collection runs to hundreds of requests - by far the most expensive thing this
+        does. Ao3 puts the total on the profile page we have already fetched, so an
+        unchanged total is enough to keep what we have.
+
+        Returns None whenever anything is uncertain, which means fetch it properly: no
+        saved list, an empty one, or a count missing from either side.
+
+        A partly-gathered list is never saved, so it cannot be reused: a stop raises out
+        of read_collection before anything is written, and a failed crawl stores an empty
+        list, which is rejected here. The length of the list is deliberately not compared
+        against the count - a listing can hold bookmarks of series and external works,
+        which have no work number and so are counted by ao3 but not recorded here.
+
+        The one thing this cannot see is a collection that had a work added and another
+        removed between runs, leaving the total the same. Delete its json file to force a
+        full crawl.
+        """
+
+        saved = previous.get(key)
+        if not isinstance(saved, list) or not saved: return None
+
+        count = document.get(count_key)
+        if count is None or count != previous.get(count_key): return None
+
+        return list(saved)
+
+
+    def collection_path(self, name: str) -> str:
+        """Where one collection's file lives, named the same way everything else is."""
+
+        maximum = self.fileops.get_ini_value_integer(
+            strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+        filename = parse_text.get_valid_filename([name], maximum) or name
+        return os.path.join(
+            strings.COLLECTIONS_FOLDER_NAME,
+            filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA))
 
 
     def save_collection(self, document: dict) -> None:
         """Write one collection to its own json file, keeping its history."""
 
         try:
-            name = document.get('name') or 'collection'
-            maximum = self.fileops.get_ini_value_integer(
-                strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
-            filename = parse_text.get_valid_filename([name], maximum) or name
-            path = os.path.join(
-                strings.COLLECTIONS_FOLDER_NAME,
-                filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA))
-
+            path = self.collection_path(document.get('name') or 'collection')
             merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on,
                                     indexing.COLLECTION_IDENTITY_FIELDS)
             self.fileops.save_json(path, merged)

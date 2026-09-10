@@ -5,6 +5,9 @@ menu runs, which is covered by the other suites. What matters here is the plumbi
 it - what gets requested, what gets reported, and what never leaves the machine.
 """
 
+import socket
+import threading
+from http.server import ThreadingHTTPServer
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -44,6 +47,21 @@ def test_resolve_filetypes_drops_anything_unrecognised():
 
 def test_resolve_filetypes_handles_a_missing_list():
     assert sorted(server.resolve_filetypes(None)) == sorted(server.FORCED_FILETYPES)
+
+
+def test_only_the_metadata_is_forced():
+    # everything else costs a request per work, so a metadata-only run has to be possible:
+    # indexing reads the listing pages, which is a twentieth of the requests
+    assert server.FORCED_FILETYPES == [strings.AO3_DOWNLOAD_TYPE_METADATA]
+
+
+def test_a_metadata_only_run_downloads_no_works():
+    assert server.resolve_filetypes([]) == [strings.AO3_DOWNLOAD_TYPE_METADATA]
+
+
+def test_html_is_offered_by_default_but_can_be_turned_off():
+    assert 'HTML' in server.DEFAULT_FILETYPES
+    assert 'HTML' not in server.FORCED_FILETYPES
 
 # endregion
 
@@ -249,6 +267,50 @@ def test_run_bookmarks_skips_works_already_downloaded(fake_environment):
     assert ao3.download.call_args.args[1] == ['already/1']
 
 
+def test_run_job_routes_the_collections_action(fake_environment):
+    job = server.Job(server.ACTION_COLLECTIONS, ['JSON'], 'Someone')
+
+    with patch.object(server, 'run_collections') as run_collections, \
+         patch.object(server, 'run_bookmarks') as run_bookmarks, \
+         patch.object(server, 'run_update') as run_update:
+        server.run_job(job, 'a-password')
+
+    run_collections.assert_called_once()
+    run_bookmarks.assert_not_called()
+    run_update.assert_not_called()
+
+
+def test_run_collections_targets_the_users_own_collections(fake_environment):
+    job = server.Job(server.ACTION_COLLECTIONS, ['JSON'], 'Someone')
+    ao3 = MagicMock()
+    ao3.get_collections.return_value = [{'name': 'alpha'}]
+
+    with patch.object(server, 'Ao3', return_value=ao3):
+        server.run_collections(job, fake_environment['fileops'],
+                               fake_environment['repo'], MagicMock())
+
+    assert ao3.get_collections.call_args.args[0] == \
+        'https://archiveofourown.org/users/Someone/collections'
+
+
+def test_run_collections_downloads_no_works(fake_environment):
+    # collections record work ids only; the works themselves come from the index
+    job = server.Job(server.ACTION_COLLECTIONS, ['JSON', 'EPUB'], 'Someone')
+    ao3 = MagicMock()
+    ao3.get_collections.return_value = []
+
+    with patch.object(server, 'Ao3', return_value=ao3) as ao3_class:
+        server.run_collections(job, fake_environment['fileops'],
+                               fake_environment['repo'], MagicMock())
+
+    assert ao3_class.call_args.args[2] == []
+    ao3.download.assert_not_called()
+
+
+def test_collections_is_an_accepted_action():
+    assert server.ACTION_COLLECTIONS in server.ACTIONS
+
+
 def test_run_update_scans_only_formats_that_can_be_parsed(fake_environment):
     job = server.Job(server.ACTION_UPDATE,
                      [strings.AO3_DOWNLOAD_TYPE_METADATA, 'HTML', 'EPUB'], 'Someone')
@@ -429,5 +491,76 @@ def test_run_update_survives_a_file_it_cannot_parse(fake_environment):
 
     ao3.update.assert_called_once_with('https://archiveofourown.org/works/2', '3')
     fake_environment['fileops'].write_log.assert_called()
+
+# endregion
+
+
+# region only one helper at a time
+
+def test_a_helper_that_is_actually_listening_is_noticed():
+    # on windows SO_REUSEADDR lets a second process bind a port the first is listening on,
+    # so binding cannot be relied on to fail. asking by connecting is what catches it.
+    live = ThreadingHTTPServer((server.HOST, 0), server.Handler)
+    thread = threading.Thread(target=live.serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert server.already_listening(server.HOST, live.server_address[1]) is True
+    finally:
+        live.shutdown()
+        live.server_close()
+
+
+def test_a_port_with_nothing_on_it_is_free():
+    spare = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    spare.bind((server.HOST, 0))
+    port = spare.getsockname()[1]
+    spare.close()
+
+    assert server.already_listening(server.HOST, port, timeout=0.2) is False
+
+
+def test_serve_gives_up_rather_than_starting_a_second_helper(capsys):
+    with patch.object(server, 'already_listening', return_value=True):
+        with pytest.raises(SystemExit):
+            server.serve(port=4400)
+
+    said = capsys.readouterr().out
+    assert 'already listening' in said
+    # the fix is to close the old one, so say so rather than leaving a bare stack trace
+    assert 'earlier' in said
+
+
+def test_serve_starts_when_the_port_is_free(capsys):
+    # a port left in TIME_WAIT by a normal shutdown must not stop the next start
+    httpd = MagicMock()
+    with patch.object(server, 'already_listening', return_value=False), \
+         patch.object(server, 'ThreadingHTTPServer', return_value=httpd):
+        server.serve(port=4400)
+
+    httpd.serve_forever.assert_called_once()
+
+# endregion
+
+
+# region telling a stale helper apart from a bad request
+
+def test_an_unknown_action_names_what_this_helper_does_understand():
+    sent = {}
+
+    handler = MagicMock()
+    handler.path = '/api/jobs'
+    handler.read_json.return_value = {'action': 'collections'}
+    handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
+
+    # a helper from before collections existed, asked to index collections
+    with patch.object(server, 'ACTIONS', ('bookmarks', 'update')):
+        server.Handler.do_POST(handler)
+
+    assert sent['status'] == 400
+    error = sent['body']['error']
+    assert 'collections' in error
+    assert 'bookmarks' in error
+    # the usual cause is an old helper, not a malformed request
+    assert 'older code' in error
 
 # endregion

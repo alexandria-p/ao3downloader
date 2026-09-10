@@ -599,3 +599,90 @@ def test_log_error_omits_stacktrace_for_ao3_exception(mock_repo, fake_fileops):
     assert 'stacktrace' not in entry
 
 # endregion
+
+
+# region stopping a run
+
+def stoppable(fake_fileops, monkeypatch, stop_on_sleep: bool):
+    """A repository that can be stopped, and optionally is - while it is waiting."""
+
+    stopped = {'value': False}
+
+    def fake_sleep(_seconds):
+        if stop_on_sleep: stopped['value'] = True
+
+    monkeypatch.setattr('source_code.repo.sleep', fake_sleep)
+    repo = Repository(fake_fileops, cancelled=lambda: stopped['value'])
+    repo.session = MagicMock()
+    return repo, stopped
+
+
+def test_a_stop_during_a_rate_limit_break_unwinds_instead_of_asking_again(
+        fake_fileops, monkeypatch):
+    # the bug this covers: the wait used to end quietly when stopped, and the loop went
+    # straight back to the same request - which simply earned another break the same
+    # length, over and over, so the run never actually stopped
+    repo, _ = stoppable(fake_fileops, monkeypatch, stop_on_sleep=True)
+    repo.session.request.return_value = make_response(
+        status_code=429, headers={'retry-after': '600'})
+
+    with pytest.raises(exceptions.CancelledException):
+        repo.my_request('GET', AO3_URL)
+
+    assert repo.session.request.call_count == 1
+
+
+def test_a_stop_is_noticed_during_the_wait_between_requests(fake_fileops, monkeypatch):
+    # at 15 or 30 seconds a plain sleep makes a stop look like a hang
+    repo, _ = stoppable(fake_fileops, monkeypatch, stop_on_sleep=True)
+    repo.extra_wait = 30
+    repo.session.request.return_value = make_response(status_code=200, text='ok')
+
+    with pytest.raises(exceptions.CancelledException):
+        repo.my_request('GET', AO3_URL)
+
+
+def test_a_stop_is_noticed_before_a_retry_is_sent(fake_fileops, monkeypatch):
+    repo, _ = stoppable(fake_fileops, monkeypatch, stop_on_sleep=True)
+    repo.session.request.side_effect = [
+        make_response(status_code=500), make_response(status_code=200, text='ok')]
+
+    with pytest.raises(exceptions.CancelledException):
+        repo.my_request('GET', AO3_URL)
+
+    assert repo.session.request.call_count == 1
+
+
+def test_a_stop_already_asked_for_never_reaches_ao3(fake_fileops):
+    repo = Repository(fake_fileops, cancelled=lambda: True)
+    repo.session = MagicMock()
+
+    with pytest.raises(exceptions.CancelledException):
+        repo.my_request('GET', AO3_URL)
+
+    assert repo.session.request.call_count == 0
+
+
+def test_a_break_is_waited_in_slices_so_a_stop_is_seen_within_a_second(
+        fake_fileops, monkeypatch):
+    repo, _ = stoppable(fake_fileops, monkeypatch, stop_on_sleep=False)
+    sleeps = []
+    monkeypatch.setattr('source_code.repo.sleep', lambda s: sleeps.append(s))
+
+    repo.pause(5)
+
+    assert sleeps == [1, 1, 1, 1, 1]
+
+
+def test_a_break_is_one_sleep_when_there_is_nothing_that_could_stop_it(
+        fake_fileops, monkeypatch):
+    # the console has no stop button, so slicing the wait would only add wake-ups
+    sleeps = []
+    monkeypatch.setattr('source_code.repo.sleep', lambda s: sleeps.append(s))
+    repo = Repository(fake_fileops)
+
+    repo.pause(600)
+
+    assert sleeps == [600]
+
+# endregion

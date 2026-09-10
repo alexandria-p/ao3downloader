@@ -8,14 +8,17 @@ import { Injectable, signal } from '@angular/core';
  * the same python the console menu runs, and this service drives it.
  */
 
-export type JobAction = 'bookmarks' | 'update';
+export type JobAction = 'bookmarks' | 'update' | 'collections';
 
 export interface ServerConfig {
   downloadFolder: string;
   username: string;
   filetypes: string[];
   /** always produced, shown ticked and locked in the ui */
+  /** ticked and locked: produced whatever the request says */
   forced: string[];
+  /** ticked when the dialog opens, but free to untick */
+  defaults: string[];
 }
 
 /** the questions the console menu asks after the file types */

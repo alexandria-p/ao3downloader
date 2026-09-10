@@ -47,13 +47,22 @@ class Repository:
         self.session.close()
 
 
-    def pause(self, seconds: int) -> None:
-        """Wait out an ao3 rate limit break, in slices.
+    def check_cancelled(self) -> None:
+        """Raise if a stop has been asked for, so the caller unwinds rather than carries on."""
 
-        A single long sleep would make a stop request look like a hang, since ao3 can ask
-        for several minutes. Cancelling here just ends the wait - the caller notices at
-        its next check and unwinds from there.
+        if self.cancelled is not None and self.cancelled():
+            raise exceptions.CancelledException()
+
+
+    def wait(self, seconds: float) -> None:
+        """Sleep, in slices, so that a stop is noticed instead of waited out.
+
+        Raises CancelledException rather than returning quietly. A stop has to unwind the
+        request, not just cut the wait short: ao3 asks for several minutes at a time, and
+        going straight back to the same request only earns another break of the same length.
         """
+
+        if seconds <= 0: return
 
         # nothing can interrupt a caller that cannot cancel, so it just waits
         if self.cancelled is None:
@@ -62,10 +71,17 @@ class Repository:
 
         remaining = seconds
         while remaining > 0:
-            if self.cancelled(): return
+            self.check_cancelled()
             slice_length = min(self.pause_slice, remaining)
             sleep(slice_length)
             remaining -= slice_length
+        self.check_cancelled()
+
+
+    def pause(self, seconds: int) -> None:
+        """Wait out an ao3 rate limit break. Raises if stopped partway through."""
+
+        self.wait(seconds)
 
 
     def get_xml(self, url: str) -> ET.Element:
@@ -103,6 +119,8 @@ class Repository:
         timeouts = 0
 
         while True:
+            # a stop asked for while this was retrying or waiting must not start it again
+            self.check_cancelled()
             should_retry = strings.AO3_DOMAIN in url.lower() and (self.max_retries == 0 or attempt < self.max_retries)
             retry_delay = self.get_delay(attempt)
 
@@ -122,7 +140,7 @@ class Repository:
                 if should_retry and not timeout_capped:
                     attempt += 1
                     self.log_error(url, strings.MESSAGE_RETRY.format(method, attempt, retry_delay), e)
-                    sleep(retry_delay)
+                    self.wait(retry_delay)
                     continue
                 else:
                     self.log_error(url, strings.ERROR_HTTP_REQUEST, e)
@@ -163,7 +181,8 @@ class Repository:
                     attempt += 1
                     continue
 
-            if self.extra_wait > 0: sleep(self.extra_wait)
+            # cancellable: at 15 or 30 seconds a plain sleep makes a stop look like a hang
+            if self.extra_wait > 0: self.wait(self.extra_wait)
 
             if self.debug:
                 self.fileops.write_log(

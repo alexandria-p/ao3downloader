@@ -118,12 +118,20 @@ That launches two things and then opens at <http://localhost:4200>:
 
 The helper exists because a web page cannot do this work itself. Ao3 sends no CORS headers, so a page cannot read it; a page cannot hold an ao3 login session; and the update scan has to read the ebook files on your disk. The helper listens on `127.0.0.1` only - nothing outside your machine can reach it - and it calls exactly the same code the console menu calls.
 
-The page has two buttons:
+The page has two tabs, **Bookmarks** and **Collections**, each carrying the buttons that fill it.
+
+The **Bookmarks** tab lists your indexed bookmarks and has:
 
 - **Download newly added bookmarks** - the same as the console option 'download from ao3 link', pointed at `https://archiveofourown.org/users/<your username>/bookmarks`. Works already in your downloads folder are skipped, so a second run only picks up bookmarks added since the last one.
 - **Update any bookmarks marked as incomplete** - the same as the console option 'download latest version of incomplete fics'. It scans your downloads folder for works that were incomplete and re-downloads any with new chapters.
 
-Each button asks which file types you want. JSON and HTML are always produced and cannot be unticked; the ebook formats are optional. It then asks the same questions the console menu does - which page to stop on (0 for all of them), whether to follow series links, whether to save embedded images, and whether to look up publication dates - leaving out any that do not apply to the action you picked. Finally it asks you to log in to ao3.
+The **Collections** tab lists your indexed collections and has:
+
+- **Index collections** - reads `https://archiveofourown.org/users/<your username>/collections` and saves a json file describing each collection. No works are downloaded; see [collection files](#collection-files) below.
+
+Clicking a collection opens what was recorded about it - maintainers, tags, challenge type, counts, the collection it belongs to and any subcollections - along with the works in it, in the same listing the Bookmarks tab uses. A collection records only the *work numbers* it holds, so the works shown are the matching entries from your bookmarks index; a collection can hold works you have not bookmarked, and those are counted rather than listed, since nothing but their number is known. A parent or subcollection that has been indexed too opens in the page; one that has not links out to AO3.
+
+The two bookmark buttons ask which file types you want. JSON is always produced and cannot be unticked - it is the index this page reads, and it costs nothing extra, being read off the listing pages that have to be fetched anyway. Everything else is optional: HTML starts ticked because most people want it, but **unticking it leaves a metadata-only run**, which is far lighter on ao3's rate limit. Indexing reads one page per 20 works; every other file type costs a request per work on top of that, so a full re-download of 700 bookmarks is roughly 1,500 requests where indexing alone is about 40. It then asks the same questions the console menu does - which page to stop on (0 for all of them), whether to follow series links, whether to save embedded images, and whether to look up publication dates - leaving out any that do not apply to the action you picked. Finally it asks you to log in to ao3. **Index collections** has nothing to choose, so it goes straight to the login.
 
 While a run is in progress the dialog shows a progress bar, the file types and options you chose, the folder being written to, and the name of the fic being fetched right now along with the format it is being fetched in. A message appears if ao3 asks the script to slow down. **Leave the tab open while a download runs** - refreshing or closing it interrupts the run.
 
@@ -146,6 +154,7 @@ Inside your downloads folder:
 | `<!--CHECK-->indexing<!--INDEXING_FOLDER_NAME-->/` | One json file per bookmark - the index. |
 | the folder itself | The works: html, epub, pdf and so on. |
 | `<!--CHECK-->images<!--IMAGE_FOLDER_NAME-->/` | Images embedded in works, if you asked for them. |
+| `<!--CHECK-->collections<!--COLLECTIONS_FOLDER_NAME-->/` | One json file per collection, if you have synced them. |
 
 ### How files are named
 
@@ -185,6 +194,88 @@ Each json file keeps a history rather than being overwritten, so you can see how
 - `last_indexed` is updated every time the fic is indexed, whether or not anything changed
 - a new entry is added to `indexes` only when the reading differs from the one before it
 - `position` is where the fic sat in your bookmarks on that run, and is not part of the history - a fic sliding down the list is not a change to the fic
+
+### <span id="collection-files"></span>Collection files
+
+**Index collections** writes one json file per collection into `<!--CHECK-->collections<!--COLLECTIONS_FOLDER_NAME-->/`, named after the collection's ao3 name (the part of the url after `/collections/`) and cut to the same '<!--CHECK-->FileNameLength<!--INI_NAME_LENGTH-->' limit as everything else. Nothing is downloaded: a collection file records what the collection *contains*, by work id, so it pairs up with the fics you already have.
+
+Each file is versioned the same way an index file is - `last_indexed`, plus an `indexes` list that only grows when something actually changed:
+
+```json
+{
+  "name": "yuletide2024",
+  "link": "https://archiveofourown.org/collections/yuletide2024",
+  "source": "https://archiveofourown.org/users/you/collections",
+  "last_indexed": "2026-09-10T12:34:56+00:00",
+  "indexes": [
+    {
+      "indexed_on": "2026-09-10T12:34:56+00:00",
+      "title": "Yuletide 2024",
+      "description": "...",
+      "maintainers": ["someone"],
+      "tags": ["Yuletide"],
+      "active_since": "01 Sep 2024",
+      "created": "01 Sep 2024",
+      "challenge_type": "Gift Exchange Challenge",
+      "multifandom": true,
+      "closed": true,
+      "moderated": true,
+      "unrevealed": false,
+      "anonymous": false,
+      "flags": ["Closed", "Moderated"],
+      "fandom_count": 1193,
+      "work_count": 4021,
+      "bookmark_count": 12,
+      "parent_collection": "https://archiveofourown.org/collections/yuletide",
+      "subcollection_count": 12,
+      "subcollections": ["https://archiveofourown.org/collections/..."],
+      "work_ids": ["34816549", "..."],
+      "bookmark_ids": ["..."]
+    }
+  ]
+}
+```
+
+- `challenge_type` is one of `Gift Exchange Challenge`, `Prompt Meme Challenge` or `No Challenge`
+- `multifandom` is simply whether the profile page's sidebar counts more than one fandom
+- `parent_collection` and `subcollections` are links, not nested copies - a subcollection you own gets its own file
+- `work_ids` and `bookmark_ids` are the work numbers in the collection's works and bookmarked items, which is exactly what the file names in your downloads folder start with
+
+#### Re-indexing a collection you already have
+
+Walking a collection's works is the most expensive thing this program does: one request per twenty works, so a collection the size of Yuletide runs to hundreds of requests on its own.
+
+It is also usually unnecessary. The collection's profile page - which has to be fetched anyway - says how many works and bookmarked items it holds. When that total is the same as the one in the file from last time, the saved ids are kept and the listing is not walked at all. An unchanged collection therefore costs **two requests instead of hundreds**, and the console says so:
+
+```
+collection yuletide2024 still has 4021 works, so the saved ones are kept
+```
+
+Works, bookmarked items and subcollections are each judged on their own count, so a collection whose works are unchanged but which has gained a bookmark only re-walks the bookmarks.
+
+The one case this cannot see is a collection that had one work added and another removed between runs, leaving the total unchanged. **Delete that collection's json file to force a full crawl.** A crawl that failed or was stopped is never mistaken for a complete one: nothing is written for a collection you stopped on, and a failed listing is stored as an empty list, which is always re-fetched.
+
+## Getting Rate Limited
+
+Ao3 limits by **how fast requests arrive**, not how many you make in total. Go too fast and it answers with `Retry-After` - often several minutes - which the script waits out and then carries on by itself. Nothing is lost, and the **Stop** button keeps everything already written.
+
+Three things decide how often you meet it, in order of how much they matter:
+
+**1. `<!--CHECK-->ExtraWaitTime<!--INI_WAIT_TIME-->` in <!--CHECK-->settings.ini<!--INI_FILE_NAME-->** - how long to wait after *every* request. `0` means "as fast as the network allows", which trips the limit almost immediately: indexing 700 bookmarks is 35 back-to-back page fetches. The default is 15 seconds. If you are being paused repeatedly, this is the first thing to change, and it is usually the only thing you need to change.
+
+**2. Which file types you tick.** JSON metadata is read off the listing pages - **one request per 20 works** - and is always produced. Every other file type is fetched per work, which is one request for the work page plus one per format:
+
+| Run over 700 bookmarks | Roughly |
+| --- | --- |
+| JSON only (metadata refresh) | 35 requests |
+| JSON + HTML | 1,435 requests |
+| JSON + HTML + EPUB | 2,135 requests |
+
+So a metadata-only run - untick everything but JSON - is about a fortieth of the work. Works you have already downloaded are skipped before any request is made, so only genuinely new ones cost anything.
+
+**3. Indexing collections.** See [re-indexing a collection you already have](#re-indexing-a-collection-you-already-have) - an unchanged collection costs two requests rather than hundreds, but a first run over a large collection is expensive however you cut it.
+
+The 'look up publication dates' option costs one request per work and is not offered in the web UI for that reason.
 
 ## Menu Options Explanation
 

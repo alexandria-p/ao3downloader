@@ -1,0 +1,215 @@
+@if (open(); as collection) {
+  <!-- one collection, opened -->
+  <p class="crumb">
+    <button type="button" class="linklike" (click)="back()">&larr; All collections</button>
+  </p>
+
+  <header class="collection-head">
+    <h2>
+      <a [href]="link(collection)" target="_blank" rel="noopener">{{ collection.title }}</a>
+    </h2>
+    <p class="slug"><code>{{ collection.name }}</code></p>
+
+    @if (badges(collection).length) {
+      <p class="flags">
+        @for (badge of badges(collection); track badge) {
+          <span class="badge">{{ badge }}</span>
+        }
+        <span class="badge challenge">{{ collection.challenge_type }}</span>
+      </p>
+    } @else {
+      <p class="flags"><span class="badge challenge">{{ collection.challenge_type }}</span></p>
+    }
+  </header>
+
+  @if (collection.description) {
+    <blockquote class="summary">
+      @for (line of paragraphs(collection.description); track $index) {
+        <p>{{ line }}</p>
+      }
+    </blockquote>
+  }
+
+  @if (collection.tags.length) {
+    <ul class="tags">
+      @for (tag of collection.tags; track tag) {
+        <li><span class="tag">{{ tag }}</span></li>
+      }
+    </ul>
+  }
+
+  <dl class="facts">
+    @if (collection.maintainers.length) {
+      <dt>Maintainers</dt>
+      <dd>
+        @for (person of collection.maintainers; track person; let last = $last) {
+          <a [href]="'https://archiveofourown.org/users/' + person" target="_blank" rel="noopener">{{ person }}</a>@if (!last) {, }
+        }
+      </dd>
+    }
+    @if (collection.active_since) {
+      <dt>Active since</dt>
+      <dd>{{ collection.active_since }}</dd>
+    }
+    @if (collection.created) {
+      <dt>Created</dt>
+      <dd>{{ collection.created }}</dd>
+    }
+    <dt>Fandoms</dt>
+    <dd>{{ count(collection.fandom_count) }}</dd>
+    <dt>Works</dt>
+    <dd>{{ count(collection.work_count) }}</dd>
+    <dt>Bookmarked items</dt>
+    <dd>{{ count(collection.bookmark_count) }}</dd>
+    @if (collection.last_indexed) {
+      <dt>Last indexed</dt>
+      <dd>
+        {{ collection.last_indexed }}
+        @if (historyLength(collection) > 1) {
+          <span class="dim">({{ historyLength(collection) }} readings kept)</span>
+        }
+      </dd>
+    }
+  </dl>
+
+  @if (collection.parent_collection || collection.subcollections.length) {
+    <div class="related">
+      @if (collection.parent_collection; as parent) {
+        <p>
+          <span class="label">Part of</span>
+          <a
+            [href]="parent"
+            [class.known]="isIndexed(parent)"
+            target="_blank"
+            rel="noopener"
+            (click)="follow(parent, $event)"
+            >{{ nameFromLink(parent) }}</a
+          >
+        </p>
+      }
+      @if (collection.subcollections.length) {
+        <p>
+          <span class="label">Subcollections ({{ collection.subcollections.length }})</span>
+          @for (child of collection.subcollections; track child; let last = $last) {
+            <a
+              [href]="child"
+              [class.known]="isIndexed(child)"
+              target="_blank"
+              rel="noopener"
+              (click)="follow(child, $event)"
+              >{{ nameFromLink(child) }}</a
+            >@if (!last) {, }
+          }
+        </p>
+        <p class="hint">Underlined in white means that one has been indexed too - click to open it here.</p>
+      }
+    </div>
+  }
+
+  @if (collection.error) {
+    <p class="error">Part of this collection could not be read when it was indexed.</p>
+  }
+
+  <!-- the works in it, in the same listing as the bookmarks page -->
+  <nav class="tabs" aria-label="What to list">
+    <button type="button" [class.current]="tab() === 'works'" (click)="tab.set('works')">
+      Works <span class="count">{{ collection.work_ids.length | number }}</span>
+    </button>
+    <button type="button" [class.current]="tab() === 'bookmarks'" (click)="tab.set('bookmarks')">
+      Bookmarked items <span class="count">{{ collection.bookmark_ids.length | number }}</span>
+    </button>
+  </nav>
+
+  <app-work-list
+    [works]="openWorks()"
+    [label]="tab() === 'works' ? 'works in this collection' : 'bookmarked items in this collection'"
+    [note]="note()"
+    [emptyMessage]="emptyMessage()"
+  />
+} @else {
+  <!-- the listing of collections -->
+  <p class="listing-heading">
+    {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
+  </p>
+
+  <ol class="collections">
+    @for (collection of visible(); track collection.name) {
+      <li class="collection">
+        <h4 class="heading">
+          <button type="button" class="title linklike" (click)="show(collection)">
+            {{ collection.title }}
+          </button>
+          @if (collection.maintainers.length) {
+            <span class="by">by</span>
+            @for (person of collection.maintainers; track person; let last = $last) {
+              <a [href]="'https://archiveofourown.org/users/' + person" target="_blank" rel="noopener">{{ person }}</a>@if (!last) {, }
+            }
+          }
+        </h4>
+
+        <p class="flags">
+          <span class="badge challenge">{{ collection.challenge_type }}</span>
+          @for (badge of badges(collection); track badge) {
+            <span class="badge">{{ badge }}</span>
+          }
+        </p>
+
+        @if (collection.description) {
+          <blockquote class="summary">
+            <p>{{ collection.description }}</p>
+          </blockquote>
+        }
+
+        @if (collection.tags.length) {
+          <ul class="tags">
+            @for (tag of collection.tags; track tag) {
+              <li><span class="tag">{{ tag }}</span></li>
+            }
+          </ul>
+        }
+
+        <dl class="stats">
+          <dt>Works:</dt>
+          <dd>{{ collection.work_ids.length | number }}</dd>
+          <dt>Bookmarked items:</dt>
+          <dd>{{ collection.bookmark_ids.length | number }}</dd>
+          @if (collection.subcollections.length) {
+            <dt>Subcollections:</dt>
+            <dd>{{ collection.subcollections.length | number }}</dd>
+          }
+        </dl>
+      </li>
+    } @empty {
+      <li class="notice">
+        No collections in this folder yet. Use <strong>Index collections</strong> above to fetch
+        them.
+      </li>
+    }
+  </ol>
+
+  @if (totalPages() > 1) {
+    <nav class="pagination" aria-label="Pages">
+      <button type="button" class="step" [disabled]="page() === 1" (click)="goTo(page() - 1)">
+        &larr; Previous
+      </button>
+      @for (item of pages(); track $index) {
+        @if (item === 'gap') {
+          <span class="gap">&hellip;</span>
+        } @else {
+          <button
+            type="button"
+            class="page"
+            [class.current]="item === page()"
+            [attr.aria-current]="item === page() ? 'page' : null"
+            (click)="goTo($any(item))"
+          >
+            {{ item }}
+          </button>
+        }
+      }
+      <button type="button" class="step" [disabled]="page() === totalPages()" (click)="goTo(page() + 1)">
+        Next &rarr;
+      </button>
+    </nav>
+  }
+}

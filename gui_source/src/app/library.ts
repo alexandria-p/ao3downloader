@@ -1,5 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { Bookmark, BookmarksExport, flattenRecord, workIdFromFilename } from './bookmarks';
+import { Collection, flattenCollection, isCollectionRecord } from './collections';
 import { DirectoryHandle, FolderStore } from './folder-store';
 
 /**
@@ -11,6 +12,7 @@ import { DirectoryHandle, FolderStore } from './folder-store';
 @Injectable({ providedIn: 'root' })
 export class Library {
   readonly data = signal<BookmarksExport | null>(null);
+  readonly collections = signal<Collection[]>([]);
   readonly sourceName = signal('');
   readonly folderName = signal('');
   readonly htmlFiles = signal<Map<string, File>>(new Map());
@@ -73,6 +75,7 @@ export class Library {
     this.folderName.set('');
     this.needsReconnect.set(false);
     this.data.set(null);
+    this.collections.set([]);
     this.sourceName.set('');
     this.htmlFiles.set(new Map());
   }
@@ -109,8 +112,8 @@ export class Library {
         return;
       }
 
-      const works = await this.readRecords(jsonFiles);
-      if (works.length === 0) {
+      const { works, collections } = await this.readRecords(jsonFiles);
+      if (works.length === 0 && collections.length === 0) {
         this.error.set(
           `Found ${jsonFiles.length} json file(s) in there, but none of them look like an ` +
             'ao3downloader export.',
@@ -120,6 +123,16 @@ export class Library {
 
       // one file per bookmark, so the listing order has to be restored from the records
       works.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      collections.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+      this.collections.set(collections);
+      this.htmlFiles.set(this.mapHtmlFiles(files));
+
+      if (works.length === 0) {
+        // collections synced but nothing indexed yet: the collections page still works
+        this.data.set(null);
+        this.sourceName.set(`${collections.length} collections`);
+        return;
+      }
 
       this.data.set({
         source: works.find((w) => w.source)?.source ?? '',
@@ -132,17 +145,21 @@ export class Library {
         works,
       });
       this.sourceName.set(`${works.length} works`);
-      this.htmlFiles.set(this.mapHtmlFiles(files));
     } finally {
       this.loading.set(false);
     }
   }
 
   /**
-   * Each json file is one bookmark. A file holding a `works` array is read as well, so an
-   * export from the older single-file version of this still opens.
+   * Each json file is one bookmark or one collection. A file holding a `works` array is
+   * read as well, so an export from the older single-file version of this still opens.
+   *
+   * The two kinds are told apart by shape rather than by which folder they came from: a
+   * folder read through the file system access api arrives flat, with the paths gone.
    */
-  private async readRecords(jsonFiles: File[]): Promise<Bookmark[]> {
+  private async readRecords(
+    jsonFiles: File[],
+  ): Promise<{ works: Bookmark[]; collections: Collection[] }> {
     const parsed = await Promise.all(
       jsonFiles.map(async (file) => {
         try {
@@ -154,8 +171,17 @@ export class Library {
     );
 
     const works: Bookmark[] = [];
+    const collections: Collection[] = [];
     for (const entry of parsed) {
       if (!entry || typeof entry !== 'object') continue;
+
+      // checked before the works array, since a collection also holds a list of works
+      if (isCollectionRecord(entry)) {
+        const collection = flattenCollection(entry);
+        if (collection) collections.push(collection);
+        continue;
+      }
+
       const aggregate = entry as BookmarksExport;
       if (Array.isArray(aggregate.works)) {
         works.push(...aggregate.works);
@@ -164,7 +190,7 @@ export class Library {
       const record = flattenRecord(entry);
       if (record) works.push(record);
     }
-    return works;
+    return { works, collections };
   }
 
   private mapHtmlFiles(files: File[]): Map<string, File> {

@@ -7,7 +7,8 @@ const CONFIG: ServerConfig = {
   downloadFolder: 'my_downloads',
   username: 'Someone',
   filetypes: ['AZW3', 'EPUB', 'MOBI', 'PDF', 'HTML', 'JSON'],
-  forced: ['JSON', 'HTML'],
+  forced: ['JSON'],
+  defaults: ['JSON', 'HTML'],
 };
 
 class FakeJobs extends Jobs {
@@ -100,6 +101,31 @@ describe('DownloadDialog', () => {
     expect(checkbox('EPUB')!.checked).toBe(false);
   });
 
+  it('ticks html to begin with but lets it be turned off', async () => {
+    // it costs a request per work on top of the indexing, which is the expensive half
+    await open();
+
+    const html = checkbox('HTML')!;
+    expect(html.checked).toBe(true);
+    expect(html.disabled).toBe(false);
+  });
+
+  it('asks for metadata only when everything else is unticked', async () => {
+    await open('bookmarks');
+    checkbox('HTML')!.click();
+    await fixture.whenStable();
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].filetypes).toEqual(['JSON']);
+  });
+
+  it('says what unticking the rest buys, where the choice is made', async () => {
+    await open('bookmarks');
+
+    expect(element.textContent).toContain('rate limit');
+  });
+
   // endregion
 
   // region options step
@@ -174,6 +200,61 @@ describe('DownloadDialog', () => {
     await advanceTo('running');
 
     expect(jobs.started[0].options.pages).toBe(0);
+  });
+
+  // endregion
+
+  // region syncing collections
+
+  async function startCollections() {
+    const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
+    password.value = 'a-password';
+    password.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    button('Start download')?.click();
+    await fixture.whenStable();
+  }
+
+  it('names itself after the job it is doing', async () => {
+    await open('collections');
+
+    expect(element.querySelector('.dialog h2')?.textContent?.trim()).toBe('Index collections');
+  });
+
+  it('goes straight to the login, since there is nothing to choose', async () => {
+    // collections write metadata only: no file types, no download options
+    await open('collections');
+
+    expect(element.querySelector('input[name="password"]')).toBeTruthy();
+    expect(element.querySelector('.dialog fieldset')).toBeNull();
+    expect(element.querySelector('.dialog input[type="number"]')).toBeNull();
+  });
+
+  it('offers no way back past the login', async () => {
+    await open('collections');
+
+    expect(button('Back')).toBeUndefined();
+    expect(button('Cancel')).toBeTruthy();
+  });
+
+  it('sends the collections action', async () => {
+    await open('collections');
+    await startCollections();
+
+    expect(jobs.started).toHaveLength(1);
+    expect(jobs.started[0].action).toBe('collections');
+  });
+
+  it('still shows progress and a stop button while it runs', async () => {
+    await open('collections');
+    await startCollections();
+
+    jobs.push!({ type: 'phase', name: 'collections' });
+    jobs.push!({ type: 'work', title: 'Best of DCMK', phase: 'collections', done: 1 });
+    await fixture.whenStable();
+
+    expect(element.querySelector('.current')?.textContent).toContain('Best of DCMK');
+    expect(button('Stop')).toBeTruthy();
   });
 
   // endregion
@@ -301,6 +382,19 @@ describe('DownloadDialog', () => {
     const warning = element.querySelector('.warning')?.textContent ?? '';
     expect(warning).toContain('Stopped');
     expect(warning).toContain('kept');
+  });
+
+  it('offers a way out of the modal once the stop has taken effect', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    button('Stop')!.click();
+    await fixture.whenStable();
+    jobs.push!({ type: 'finished', cancelled: true });
+    await fixture.whenStable();
+
+    expect(button('Stopping...')).toBeUndefined();
+    expect(button('Close modal')).toBeTruthy();
   });
 
   it('reports a clean finish as success', async () => {

@@ -11,7 +11,9 @@ and it holds the ao3 password just long enough to log in - it is never written a
 import contextlib
 import io
 import json
+import os
 import queue
+import socket
 import threading
 import traceback
 import uuid
@@ -34,8 +36,15 @@ ACTION_COLLECTIONS = 'collections'
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS)
 
-# these two are always produced, so the ui shows them ticked and locked
-FORCED_FILETYPES = [strings.AO3_DOWNLOAD_TYPE_METADATA, 'HTML']
+# json is always produced, so the ui shows it ticked and locked. it is what the web page
+# reads, and it costs nothing extra: the metadata comes off the listing page that has to be
+# fetched anyway, rather than one request per work.
+FORCED_FILETYPES = [strings.AO3_DOWNLOAD_TYPE_METADATA]
+
+# ticked when the dialog opens, but free to untick. html is here rather than above because
+# it costs a request per work on top of the indexing, so a metadata-only refresh - which is
+# a great deal lighter on the rate limit - has to be possible.
+DEFAULT_FILETYPES = [strings.AO3_DOWNLOAD_TYPE_METADATA, 'HTML']
 
 
 def resolve_filetypes(requested) -> list[str]:
@@ -303,6 +312,7 @@ class Handler(BaseHTTPRequestHandler):
                 'username': fileops.get_setting(strings.SETTING_USERNAME) or '',
                 'filetypes': strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES_WITH_METADATA,
                 'forced': FORCED_FILETYPES,
+                'defaults': DEFAULT_FILETYPES,
             })
             return
 
@@ -328,8 +338,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         action = body.get('action')
-        if action not in (ACTION_BOOKMARKS, ACTION_UPDATE):
-            self.send_json(400, {'error': 'unknown action'})
+        if action not in ACTIONS:
+            # naming both sides matters: the usual cause is not a bad request but a helper
+            # left running from an earlier session, which predates the action being added
+            self.send_json(400, {'error':
+                f"this helper does not know the action '{action}'. It understands "
+                f"{', '.join(ACTIONS)}. If the button you pressed is newer than the helper, "
+                'it is running older code - close its window and start the application again.'})
             return
 
         username = (body.get('username') or '').strip()
@@ -394,7 +409,40 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
 
+def already_listening(host: str, port: int, timeout: float = 0.5) -> bool:
+    """Whether a helper is already answering on this port.
+
+    This asks by connecting, rather than by trying to bind and seeing what happens, because
+    the two questions have different answers. On Windows SO_REUSEADDR - which HTTPServer
+    turns on by default - lets a second process bind a port another one is already
+    listening on: both 'start', and which of them answers any given request is undefined.
+    The result is a helper that is silently the wrong one, an older build from a previous
+    session answering the new page with its own settings.ini and its own code, which looks
+    exactly like the new build ignoring its config.
+
+    Turning SO_REUSEADDR off would stop that, but it also makes the port unbindable for
+    minutes after a normal shutdown, while closed connections sit in TIME_WAIT - so
+    stopping the application and starting it again would fail for no good reason. Probing
+    for a live listener separates the two: a helper that is actually there is refused, and
+    a port merely remembered by the operating system is not.
+    """
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(timeout)
+        return probe.connect_ex((host, port)) == 0
+
+
 def serve(port: int = DEFAULT_PORT) -> None:
+    if already_listening(HOST, port):
+        print(f'could not start: something is already listening on {HOST}:{port}.')
+        print('that is almost always an ao3downloader helper left running from an earlier')
+        print('session. close its window, or stop it with:')
+        print(f'    powershell -c "Get-NetTCPConnection -LocalPort {port} -State Listen | '
+              'ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"')
+        print('then start this again. carrying on would leave the page talking to the old')
+        print('helper, which has its own settings and may be running older code.')
+        raise SystemExit(1)
+
     httpd = ThreadingHTTPServer((HOST, port), Handler)
     print(f'ao3downloader local api listening on http://{HOST}:{port}')
     print('this window has to stay open while the web ui is running.')

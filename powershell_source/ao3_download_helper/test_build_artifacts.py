@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from source_code import strings
+
 
 # this folder is a set of scripts rather than a package, so load the module by path
 MODULE_PATH = Path(__file__).resolve().parent / 'build_artifacts.py'
@@ -267,6 +269,21 @@ def test_build_writes_a_readme_explaining_how_to_run_it(fake_root):
     readme = (bundle(fake_root) / 'README.md').read_text(encoding='utf-8')
     assert build_artifacts.LAUNCHER_OUTPUT in readme
     assert 'localhost:4200' in readme
+
+
+def test_build_documents_the_file_layout_and_naming_every_time(fake_root):
+    # the bundle travels on its own, so whoever receives it has only this readme to
+    # tell them how downloaded files are named and how to bring their own files in
+    build_artifacts.build(fake_root, skip_web=True)
+
+    readme = (bundle(fake_root) / 'README.md').read_text(encoding='utf-8')
+    for folder in (strings.INDEXING_FOLDER_NAME, strings.IMAGE_FOLDER_NAME,
+                   strings.COLLECTIONS_FOLDER_NAME):
+        assert f'<downloads>/{folder}/' in readme, folder
+    assert strings.INI_NAME_PATTERN in readme
+    assert strings.INI_NAME_LENGTH in readme
+    assert 'work number has to come first' in readme
+    assert '"work_ids"' in readme
 
 
 def test_build_replaces_a_stale_package_copy(fake_root):

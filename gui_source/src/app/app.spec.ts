@@ -1,8 +1,9 @@
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
 import { Library } from './library';
 import { Bookmark, BookmarksExport } from './bookmarks';
+import { Collection } from './collections';
 
 function work(id: number): Bookmark {
   return {
@@ -48,6 +49,35 @@ function exportOf(count: number): BookmarksExport {
   };
 }
 
+function collection(name: string): Collection {
+  return {
+    name,
+    link: `https://archiveofourown.org/collections/${name}`,
+    title: `The ${name} Collection`,
+    description: '',
+    maintainers: [],
+    tags: [],
+    active_since: '',
+    created: '',
+    flags: [],
+    challenge_type: 'No Challenge',
+    multifandom: null,
+    closed: false,
+    moderated: false,
+    unrevealed: false,
+    anonymous: false,
+    fandom_count: null,
+    work_count: null,
+    bookmark_count: null,
+    subcollection_count: null,
+    parent_collection: null,
+    subcollections_link: null,
+    subcollections: [],
+    work_ids: [],
+    bookmark_ids: [],
+  };
+}
+
 async function render(count: number) {
   const library = TestBed.inject(Library);
   library.data.set(exportOf(count));
@@ -57,11 +87,93 @@ async function render(count: number) {
   return { fixture, element: fixture.nativeElement as HTMLElement, library };
 }
 
+function actionLabels(element: HTMLElement): (string | undefined)[] {
+  return Array.from(element.querySelectorAll('.actions button')).map((b) => b.textContent?.trim());
+}
+
+function tab(element: HTMLElement, name: string): HTMLButtonElement | undefined {
+  return Array.from(element.querySelectorAll<HTMLButtonElement>('.views button')).find((b) =>
+    b.textContent?.includes(name),
+  );
+}
+
+async function showCollections(
+  fixture: ComponentFixture<App>,
+  element: HTMLElement,
+): Promise<void> {
+  tab(element, 'Collections')!.click();
+  await fixture.whenStable();
+}
+
 describe('App', () => {
   beforeEach(async () => {
     vi.stubGlobal('scrollTo', vi.fn());
     await TestBed.configureTestingModule({ imports: [App] }).compileComponents();
     TestBed.inject(Library).data.set(null);
+    TestBed.inject(Library).collections.set([]);
+    TestBed.inject(Library).htmlFiles.set(new Map());
+  });
+
+  it('offers the two bookmark jobs on the bookmarks page', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(actionLabels(element)).toEqual([
+      'Download newly added bookmarks',
+      'Update any bookmarks marked as incomplete',
+    ]);
+  });
+
+  it('offers only the collections job on the collections page', async () => {
+    // each page carries the button that fills it, so neither offers the other's job
+    const { fixture, element } = await render(1);
+    await showCollections(fixture, element);
+
+    expect(actionLabels(element)).toEqual(['Index collections']);
+  });
+
+  it('switches between the two listings', async () => {
+    const { fixture, element } = await render(3);
+    expect(element.querySelectorAll('.blurb').length).toBe(3);
+
+    await showCollections(fixture, element);
+    expect(element.querySelector('app-collections-view')).toBeTruthy();
+    expect(element.querySelectorAll('.blurb').length).toBe(0);
+
+    tab(element, 'Bookmarks')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('app-collections-view')).toBeNull();
+    expect(element.querySelectorAll('.blurb').length).toBe(3);
+  });
+
+  it('counts what each page holds on its tab', async () => {
+    const library = TestBed.inject(Library);
+    library.data.set(exportOf(3));
+    library.collections.set([collection('a'), collection('b')]);
+
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(tab(element, 'Bookmarks')?.textContent).toContain('3');
+    expect(tab(element, 'Collections')?.textContent).toContain('2');
+  });
+
+  it('opens a folder whose collections are synced but whose bookmarks are not', async () => {
+    // collections can be indexed first, and that folder is not an empty one
+    const library = TestBed.inject(Library);
+    library.collections.set([collection('a')]);
+
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('.empty')).toBeNull();
+    expect(element.querySelector('.notice')?.textContent).toContain('No bookmarks indexed');
+
+    await showCollections(fixture, element);
+    expect(element.querySelectorAll('.collection').length).toBe(1);
   });
 
   it('asks for a folder before anything is loaded', async () => {
@@ -116,7 +228,7 @@ describe('App', () => {
 
     const title = element.querySelector('.heading a.title');
     expect(title?.classList.contains('local')).toBe(false);
-    expect(element.querySelector('.meta-line')?.textContent).toContain('No downloaded work files');
+    expect(element.querySelector('.meta-line.linked')?.textContent).toContain('No downloaded work files');
   });
 
   it('links a title to its downloaded copy when the folder has one', async () => {
@@ -129,6 +241,6 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.heading a.title')?.classList.contains('local')).toBe(true);
-    expect(element.querySelector('.meta-line')?.textContent).toContain('1 of 1 works');
+    expect(element.querySelector('.meta-line.linked')?.textContent).toContain('1 of 1 works');
   });
 });

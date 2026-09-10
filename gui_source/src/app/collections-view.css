@@ -1,0 +1,349 @@
+/*
+ * The collections page: the listing of collections, and one opened.
+ *
+ * The works inside a collection are rendered by app-work-list, which brings its own
+ * styles - what is here is only the collection itself.
+ */
+
+.listing-heading {
+  margin: 20px 0 4px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.notice {
+  margin: 16px 0;
+  color: var(--text-dim);
+}
+
+.error {
+  margin: 16px 0;
+  padding: 10px 12px;
+  border: 1px solid #6b3a3a;
+  border-radius: 3px;
+  background: #2e2020;
+  color: var(--danger);
+}
+
+.hint {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.dim {
+  color: var(--text-dim);
+}
+
+/* a button that reads as a link, for navigation that stays on this page */
+.linklike {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.linklike:hover {
+  color: #fff;
+}
+
+/* region the listing */
+
+.collections {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.collection {
+  position: relative;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.collection .heading {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.collection .heading .title {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.collection .heading .by {
+  margin: 0 4px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* endregion */
+
+/* region one collection */
+
+.crumb {
+  margin: 18px 0 0;
+  font-size: 0.85rem;
+}
+
+.collection-head {
+  margin: 10px 0 4px;
+}
+
+.collection-head h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.slug {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.flags {
+  margin: 8px 0 0;
+}
+
+.badge {
+  margin-right: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-dim);
+  vertical-align: middle;
+}
+
+.badge.challenge {
+  border-color: #5a7f9a;
+  color: var(--accent);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.facts dt {
+  margin: 0;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.related {
+  margin: 12px 0 0;
+  font-size: 0.85rem;
+}
+
+.related p {
+  margin: 0 0 4px;
+}
+
+.related .label {
+  margin-right: 6px;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+/* a collection that has been indexed too opens here rather than on ao3 */
+.related a {
+  color: var(--text-dim);
+  text-decoration-style: dotted;
+}
+
+.related a.known {
+  color: var(--link);
+  text-decoration-style: solid;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 22px 0 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tabs button:hover {
+  color: var(--text-strong);
+}
+
+.tabs button.current {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text-strong);
+}
+
+.tabs .count {
+  margin-left: 4px;
+  color: var(--text-dim);
+  font-weight: 400;
+  font-size: 0.82rem;
+}
+
+/* endregion */
+
+/* region shared with the works listing */
+
+.summary {
+  margin: 10px 0;
+  padding: 0;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.summary p {
+  margin: 0 0 8px;
+}
+
+.summary p:last-child {
+  margin-bottom: 0;
+}
+
+.tags {
+  margin: 10px 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  line-height: 1.7;
+}
+
+.tags li {
+  display: inline;
+}
+
+.tags li::after {
+  content: ',\00a0';
+  color: var(--text-dim);
+}
+
+.tags li:last-child::after {
+  content: '';
+}
+
+.tag {
+  border-bottom: 1px solid var(--border-strong);
+  color: var(--link);
+  cursor: default;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  justify-content: center;
+  margin: 12px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.stats dt {
+  margin: 0;
+}
+
+.stats dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  margin: 18px 0;
+}
+
+.pagination button {
+  min-width: 26px;
+  padding: 3px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
+  background: var(--surface-2);
+  color: var(--link);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.pagination button:hover:not(:disabled):not(.current) {
+  background: #3a3a3a;
+  color: #fff;
+}
+
+.pagination button.current {
+  background: #f0f0f0;
+  border-color: #f0f0f0;
+  color: #1e1e1e;
+  font-weight: 600;
+  cursor: default;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pagination .step {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.pagination .gap {
+  padding: 0 2px;
+  color: var(--text-dim);
+}
+
+/* endregion */
+
+@media (max-width: 620px) {
+  .facts {
+    grid-template-columns: 1fr;
+  }
+
+  .facts dt {
+    margin-top: 6px;
+  }
+}

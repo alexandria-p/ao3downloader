@@ -20,6 +20,30 @@ function recordFile(id: string, position: number): File {
   return new File([JSON.stringify(record(id, position))], `${id} Work ${id} - X.json`);
 }
 
+/** one file per collection, as the 'index collections' action writes them */
+function collectionFile(name: string, title = name): File {
+  return new File(
+    [
+      JSON.stringify({
+        name,
+        link: `https://archiveofourown.org/collections/${name}`,
+        source: 'https://archiveofourown.org/users/Someone/collections',
+        last_indexed: '2026-09-10T12:00:00+00:00',
+        indexes: [
+          {
+            indexed_on: '2026-09-10T12:00:00+00:00',
+            title,
+            challenge_type: 'No Challenge',
+            work_ids: ['111'],
+            bookmark_ids: [],
+          },
+        ],
+      }),
+    ],
+    `${name}.json`,
+  );
+}
+
 function folderFiles(): File[] {
   return [recordFile('111', 1), new File(['<html></html>'], '111 Work 111 - X.html')];
 }
@@ -268,4 +292,78 @@ describe('Library', () => {
 
     expect(library.data()?.works.map((w) => w.id)).toEqual(['111', '222']);
   });
+
+  // region collections
+
+  it('keeps collection files out of the bookmarks listing', async () => {
+    // a collection file has a versioned history too, so without telling the two apart
+    // it would be flattened and shown as though it were a bookmarked work
+    store.files = [recordFile('111', 1), collectionFile('yuletide')];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
+    expect(library.collections().map((c) => c.name)).toEqual(['yuletide']);
+  });
+
+  it('opens a folder that has collections but nothing indexed yet', async () => {
+    store.files = [collectionFile('yuletide')];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect(library.error()).toBe('');
+    expect(library.data()).toBeNull();
+    expect(library.collections()).toHaveLength(1);
+  });
+
+  it('reads the newest reading of a collection, keeping the identity at the root', async () => {
+    store.files = [
+      new File(
+        [
+          JSON.stringify({
+            name: 'yuletide',
+            link: 'https://archiveofourown.org/collections/yuletide',
+            source: 'https://archiveofourown.org/users/Someone/collections',
+            last_indexed: '2026-09-10T12:00:00+00:00',
+            indexes: [
+              { indexed_on: '2026-09-01T10:00:00+00:00', title: 'Old Name', work_ids: ['1'] },
+              { indexed_on: '2026-09-10T12:00:00+00:00', title: 'Yuletide', work_ids: ['1', '2'] },
+            ],
+          }),
+        ],
+        'yuletide.json',
+      ),
+    ];
+    store.recalled = handle();
+
+    await library.restore();
+
+    const collection = library.collections()[0];
+    expect(collection.title).toBe('Yuletide');
+    expect(collection.work_ids).toEqual(['1', '2']);
+    expect(collection.name).toBe('yuletide');
+  });
+
+  it('sorts collections by title, since they have no listing order of their own', async () => {
+    store.files = [collectionFile('beta', 'Beta'), collectionFile('alpha', 'Alpha')];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect(library.collections().map((c) => c.title)).toEqual(['Alpha', 'Beta']);
+  });
+
+  it('drops remembered collections when the folder is forgotten', async () => {
+    store.files = [collectionFile('yuletide')];
+    store.recalled = handle();
+    await library.restore();
+
+    await library.forget();
+
+    expect(library.collections()).toEqual([]);
+  });
+
+  // endregion
 });

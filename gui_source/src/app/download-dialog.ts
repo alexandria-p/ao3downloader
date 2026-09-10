@@ -59,21 +59,42 @@ export class DownloadDialog implements OnDestroy {
   private stop: (() => void) | null = null;
   private unloadGuard: ((event: BeforeUnloadEvent) => void) | null = null;
 
-  protected readonly title = computed(() =>
-    this.action() === 'bookmarks' ? 'Download newly added bookmarks' : 'Update incomplete fics',
-  );
+  protected readonly title = computed(() => {
+    switch (this.action()) {
+      case 'bookmarks':
+        return 'Download newly added bookmarks';
+      case 'collections':
+        return 'Index collections';
+      default:
+        return 'Update incomplete fics';
+    }
+  });
 
-  protected readonly blurb = computed(() =>
-    this.action() === 'bookmarks'
-      ? 'Reads your AO3 bookmarks and downloads anything not already in your downloads folder.'
-      : 'Scans your downloads folder for works that were incomplete, and re-downloads any that have new chapters.',
-  );
+  protected readonly blurb = computed(() => {
+    switch (this.action()) {
+      case 'bookmarks':
+        return 'Reads your AO3 bookmarks and downloads anything not already in your downloads folder.';
+      case 'collections':
+        return 'Saves a json file describing each of your collections, including the work IDs it contains. The works themselves are not downloaded - they come from your index.';
+      default:
+        return 'Scans your downloads folder for works that were incomplete, and re-downloads any that have new chapters.';
+    }
+  });
 
   /** JSON is metadata rather than a work, so the update run cannot produce it */
   protected readonly metadataNotApplicable = computed(() => this.action() === 'update');
 
   /** page limits, series expansion and publication dates only mean something for a listing */
   protected readonly listingOptions = computed(() => this.action() === 'bookmarks');
+
+  /**
+   * Syncing collections writes metadata only, so there is nothing to pick: no file types
+   * and no download options. It goes straight to the login.
+   */
+  protected readonly picksFiletypes = computed(() => this.action() !== 'collections');
+  protected readonly firstStep = computed<Step>(() =>
+    this.picksFiletypes() ? 'filetypes' : 'credentials',
+  );
 
   /** what the current stage is doing, in words */
   protected readonly phaseLabel = computed(() => {
@@ -112,7 +133,9 @@ export class DownloadDialog implements OnDestroy {
     if (!config) return;
 
     this.folder.set(config.downloadFolder);
-    this.selected.set([...config.forced]);
+    // the defaults are a starting point, not a rule: only `forced` cannot be unticked
+    this.selected.set([...(config.defaults ?? config.forced)]);
+    this.step.set(this.firstStep());
 
     const remembered = safeGet(REMEMBER_KEY) === 'true';
     this.remember.set(remembered);
