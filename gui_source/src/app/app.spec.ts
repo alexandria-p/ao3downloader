@@ -73,17 +73,17 @@ describe('App', () => {
     expect(element.querySelectorAll('.blurb').length).toBe(0);
   });
 
-  it('shows 19 works on a page', async () => {
+  it('shows 20 works on a page', async () => {
     const { element } = await render(25);
 
-    expect(element.querySelectorAll('.blurb').length).toBe(19);
+    expect(element.querySelectorAll('.blurb').length).toBe(20);
   });
 
   it('reports the range and the owner of the listing', async () => {
     const { element } = await render(25);
 
     const heading = element.querySelector('.listing-heading')?.textContent ?? '';
-    expect(heading).toContain('1 - 19 of 25 Bookmarks');
+    expect(heading).toContain('1 - 20 of 25 Bookmarks');
     expect(heading).toContain('Someone');
   });
 
@@ -94,14 +94,14 @@ describe('App', () => {
     pages.find((button) => button.textContent?.trim() === '2')?.click();
     await fixture.whenStable();
 
-    expect(element.querySelectorAll('.blurb').length).toBe(6);
-    expect(element.querySelector('.listing-heading')?.textContent).toContain('20 - 25 of 25');
+    expect(element.querySelectorAll('.blurb').length).toBe(5);
+    expect(element.querySelector('.listing-heading')?.textContent).toContain('21 - 25 of 25');
   });
 
   it('does not paginate when everything fits on one page', async () => {
-    const { element } = await render(19);
+    const { element } = await render(20);
 
-    expect(element.querySelectorAll('.blurb').length).toBe(19);
+    expect(element.querySelectorAll('.blurb').length).toBe(20);
     expect(element.querySelector('.pagination')).toBeNull();
   });
 

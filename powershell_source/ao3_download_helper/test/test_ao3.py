@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from bs4 import BeautifulSoup
 
-from source_code import exceptions, strings
+from source_code import exceptions, indexing, strings
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
 from source_code.repo import Repository
@@ -34,6 +34,8 @@ def make_ao3(
     fileops.get_ini_value_boolean.return_value = debug
     fileops.get_ini_value.return_value = strings.INI_DEFAULT_NAME_PATTERN
     fileops.get_ini_value_integer.return_value = strings.INI_DEFAULT_NAME_LENGTH
+    # no index on disk yet, unless a test says otherwise
+    fileops.load_json.return_value = None
     ao3 = Ao3(repo=repo, fileops=fileops, filetypes=filetypes or ['EPUB'],
               pages=pages, series=series, images=images, mark=mark)
     return ao3, repo, fileops
@@ -810,6 +812,11 @@ def test_get_metadata_collects_every_work_on_the_page() -> None:
     assert repo.get_soup.call_count == 1
 
 
+def _indexed(*names: str) -> list[str]:
+    """Where save_metadata puts json files: the indexing subfolder of downloads."""
+    return sorted(os.path.join(strings.INDEXING_FOLDER_NAME, name) for name in names)
+
+
 def _saved(fileops) -> dict[str, dict]:
     """Filename -> document, for everything save_json was called with."""
     return {call.args[0]: call.args[1] for call in fileops.save_json.call_args_list}
@@ -822,8 +829,58 @@ def test_get_metadata_writes_one_file_per_work() -> None:
     ao3.get_metadata(LISTING_URL, False)
 
     saved = _saved(fileops)
-    assert sorted(saved) == ['111 Work 111 - A.json', '222 Work 222 - A.json']
-    assert saved['111 Work 111 - A.json']['id'] == '111'
+    assert sorted(saved) == _indexed('111 Work 111 - A.json', '222 Work 222 - A.json')
+    assert saved[_indexed('111 Work 111 - A.json')[0]]['id'] == '111'
+
+
+def test_get_metadata_puts_json_in_the_indexing_subfolder() -> None:
+    # keeps the downloads folder to actual works, with the index beside rather than among
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111'])
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    written = list(_saved(fileops))[0]
+    assert os.path.dirname(written) == strings.INDEXING_FOLDER_NAME
+    # the file name itself is unchanged, so it still matches its downloaded work
+    assert os.path.basename(written) == '111 Work 111 - A.json'
+
+
+def test_get_metadata_adds_a_reading_when_the_fic_has_changed() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111'])
+    # what a previous run left behind, with a different kudos count
+    fileops.load_json.return_value = {
+        'id': '111',
+        indexing.LAST_INDEXED: '2020-01-01T00:00:00+00:00',
+        indexing.INDEXES: [{indexing.INDEXED_ON: '2020-01-01T00:00:00+00:00',
+                            'title': 'Work 111', 'kudos': 1}],
+    }
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    written = list(_saved(fileops).values())[0]
+    assert len(written[indexing.INDEXES]) == 2
+    assert written[indexing.LAST_INDEXED] == ao3.indexed_on
+
+
+def test_get_metadata_only_restamps_a_fic_that_has_not_changed() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111'])
+
+    # index once, then feed that exact result back as what is already on disk
+    ao3.get_metadata(LISTING_URL, False)
+    first = list(_saved(fileops).values())[0]
+    fileops.load_json.return_value = first
+    fileops.save_json.reset_mock()
+    repo.get_soup.return_value = _listing_soup(['111'])
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    written = list(_saved(fileops).values())[0]
+    assert len(written[indexing.INDEXES]) == 1
+    # checked again, so the file says so even though nothing was added
+    assert written[indexing.LAST_INDEXED] == ao3.indexed_on
 
 
 def test_get_metadata_names_files_with_the_configured_pattern() -> None:
@@ -833,7 +890,7 @@ def test_get_metadata_names_files_with_the_configured_pattern() -> None:
 
     ao3.get_metadata(LISTING_URL, False)
 
-    assert list(_saved(fileops)) == ['111.json']
+    assert list(_saved(fileops)) == _indexed('111.json')
 
 
 def test_get_metadata_records_the_listing_and_its_order() -> None:
@@ -845,7 +902,9 @@ def test_get_metadata_records_the_listing_and_its_order() -> None:
     assert [r['position'] for r in records] == [1, 2]
     # the source is the link that was asked for, not the last page walked to
     assert all(r['source'] == LISTING_URL for r in records)
-    assert all(r['retrieved'] for r in records)
+    # when it was read is recorded in the file rather than on the record
+    written = list(_saved(fileops).values())
+    assert all(w[indexing.LAST_INDEXED] for w in written)
 
 
 def test_get_metadata_writes_each_page_as_it_is_read() -> None:
@@ -872,7 +931,7 @@ def test_get_metadata_keeps_the_files_written_before_a_page_failed() -> None:
 
     ao3.get_metadata(LISTING_URL, False)
 
-    assert list(_saved(fileops)) == ['111 Work 111 - A.json']
+    assert list(_saved(fileops)) == _indexed('111 Work 111 - A.json')
 
 
 def test_get_metadata_falls_back_to_the_work_id_when_the_pattern_is_empty() -> None:
@@ -882,7 +941,7 @@ def test_get_metadata_falls_back_to_the_work_id_when_the_pattern_is_empty() -> N
 
     ao3.get_metadata(LISTING_URL, False)
 
-    assert list(_saved(fileops)) == ['111.json']
+    assert list(_saved(fileops)) == _indexed('111.json')
 
 
 def test_get_metadata_survives_an_unwritable_file() -> None:
@@ -906,7 +965,10 @@ def test_get_metadata_rewrites_files_after_work_dates_are_filled() -> None:
 
     # once during the crawl, once with the dates in
     assert fileops.save_json.call_count == 2
-    assert fileops.save_json.call_args.args[1]['date_created'] == '01 Jan 2019'
+    entries = fileops.save_json.call_args.args[1][indexing.INDEXES]
+    # the second save replaces this run's reading rather than adding a second one
+    assert len(entries) == 1
+    assert entries[0]['date_created'] == '01 Jan 2019'
 
 
 def test_get_metadata_stops_when_cancelled_and_keeps_what_it_saved() -> None:
@@ -926,7 +988,7 @@ def test_get_metadata_stops_when_cancelled_and_keeps_what_it_saved() -> None:
     records = ao3.get_metadata(LISTING_URL, False)
 
     assert [r['id'] for r in records] == ['111', '222']
-    assert sorted(_saved(fileops)) == ['111 Work 111 - A.json', '222 Work 222 - A.json']
+    assert sorted(_saved(fileops)) == _indexed('111 Work 111 - A.json', '222 Work 222 - A.json')
     # a stop is not an error
     logged = [c.args[0] for c in fileops.write_log.call_args_list]
     assert not any(x.get('message') == strings.ERROR_LINKS_LIST for x in logged)

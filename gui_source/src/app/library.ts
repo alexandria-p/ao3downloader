@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { Bookmark, BookmarksExport, workIdFromFilename } from './bookmarks';
+import { Bookmark, BookmarksExport, flattenRecord, workIdFromFilename } from './bookmarks';
 import { DirectoryHandle, FolderStore } from './folder-store';
 
 /**
@@ -123,7 +123,11 @@ export class Library {
 
       this.data.set({
         source: works.find((w) => w.source)?.source ?? '',
-        retrieved: works.find((w) => w.retrieved)?.retrieved ?? '',
+        // newer files record when they were last checked; older ones a single retrieval
+        retrieved:
+          works.find((w) => w.last_indexed)?.last_indexed ??
+          works.find((w) => w.retrieved)?.retrieved ??
+          '',
         count: works.length,
         works,
       });
@@ -157,8 +161,8 @@ export class Library {
         works.push(...aggregate.works);
         continue;
       }
-      const record = entry as Bookmark;
-      if (record.id || record.title) works.push(record);
+      const record = flattenRecord(entry);
+      if (record) works.push(record);
     }
     return works;
   }

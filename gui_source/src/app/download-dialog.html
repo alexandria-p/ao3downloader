@@ -161,6 +161,24 @@
           interrupt the download.
         </p>
 
+        @if (phase() === 'authenticating' && loginVerified() === null) {
+          <p class="checking">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Verifying your AO3 login...</span>
+          </p>
+        } @else if (loginVerified() === true) {
+          <p class="signed-in">
+            Signed in@if (signedInAs()) { as <strong>{{ signedInAs() }}</strong>}.
+          </p>
+        }
+
+        @if (phaseLabel() && phase() !== 'authenticating') {
+          <p class="phase">
+            <span class="step">Step</span>
+            <span>{{ phaseLabel() }}</span>
+          </p>
+        }
+
         <div
           class="bar"
           role="progressbar"
@@ -252,14 +270,26 @@
 
     @if (step() === 'failed') {
       <section class="body">
-        <p class="error">{{ error() }}</p>
+        @if (loginVerified() === false) {
+          <p class="error">
+            <strong>Login failed.</strong> AO3 did not accept those details, so nothing was
+            downloaded. Check your username and password and try again.
+          </p>
+          <p class="hint">AO3 reported: {{ error() }}</p>
+        } @else {
+          <p class="error">{{ error() }}</p>
+        }
         @if (log().length) {
           <pre class="log">@for (line of log(); track $index) {{{ line }}
 }</pre>
         }
       </section>
       <footer>
-        <button type="button" class="button subtle" (click)="step.set('filetypes')">Try again</button>
+        <!-- a rejected login sends you back to the details, not to the file types -->
+        <button type="button" class="button subtle"
+                (click)="step.set(loginVerified() === false ? 'credentials' : 'filetypes')">
+          Try again
+        </button>
         <button type="button" class="button" (click)="close()">Close</button>
       </footer>
     }

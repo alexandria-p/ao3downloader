@@ -214,6 +214,33 @@ describe('DownloadDialog', () => {
     expect(current).toContain('123 A Fic - Author');
   });
 
+  it('names the stage the run is in', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'phase', name: 'indexing' });
+    await fixture.whenStable();
+    expect(element.querySelector('.phase')?.textContent).toContain('Indexing');
+
+    jobs.push!({ type: 'phase', name: 'downloading' });
+    await fixture.whenStable();
+    expect(element.querySelector('.phase')?.textContent).toContain('Downloading works');
+  });
+
+  it('restarts the bar when the stage changes', async () => {
+    // each stage has its own scale, so carrying a percentage across would be a lie
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'page', page: 20, total: 20 });
+    await fixture.whenStable();
+    expect(element.querySelector('.percent')?.textContent).toContain('100');
+
+    jobs.push!({ type: 'phase', name: 'downloading' });
+    await fixture.whenStable();
+    expect(element.querySelector('.percent')).toBeNull();
+  });
+
   it('tracks progress from page events', async () => {
     await open('bookmarks');
     await advanceTo('running');

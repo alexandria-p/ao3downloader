@@ -30,6 +30,28 @@ SHARED = """function Write-Step($message) {
 }
 """
 
+PYPROJECT = f"""[project]
+name = "ao3downloader"
+version = "1.0.0"
+{build_artifacts.README_FIELD}
+
+[tool.hatch.build.targets.wheel]
+packages = ["source_code"]
+"""
+
+SETTINGS_TEMPLATE = """[settings]
+
+# how long to wait between requests
+ExtraWaitTime=0
+
+# set this to 'true' to save your password in the settings file
+# so that you do not have to enter it every time.
+SavePassword=false
+
+# where downloads are saved
+DownloadFolder=downloads
+"""
+
 
 @pytest.fixture
 def fake_root(tmp_path) -> Path:
@@ -44,12 +66,13 @@ def fake_root(tmp_path) -> Path:
     package = python_home / build_artifacts.PACKAGE_NAME
     (package / 'settings').mkdir(parents=True)
     (package / '__init__.py').write_text('', encoding='utf-8')
-    (package / 'settings' / 'settings.ini').write_text(
-        '[settings]\nDownloadFolder=downloads\n', encoding='utf-8')
+    (package / 'settings' / 'settings.ini').write_text(SETTINGS_TEMPLATE, encoding='utf-8')
     # should not be copied into the bundle
     (package / '__pycache__').mkdir()
     (package / '__pycache__' / 'junk.pyc').write_text('x', encoding='utf-8')
 
+    (python_home / 'pyproject.toml').write_text(PYPROJECT, encoding='utf-8')
+    (python_home / 'README.md').write_text('# helper\n', encoding='utf-8')
     for name in build_artifacts.PROJECT_FILES:
         (python_home / name).write_text(f'# {name}\n', encoding='utf-8')
 
@@ -133,40 +156,104 @@ def test_build_copies_the_package_without_bytecode(fake_root):
     assert not (package / '__pycache__').exists()
 
 
-def test_build_copies_pyproject_unchanged(fake_root):
+def test_build_ships_no_readme_beside_the_package(fake_root):
     build_artifacts.build(fake_root, skip_web=True)
 
-    source = (fake_root / build_artifacts.PYTHON_HOME / 'pyproject.toml').read_text(encoding='utf-8')
+    assert not (helper_dir(fake_root) / 'README.md').exists()
+
+
+def test_build_removes_a_readme_left_by_an_earlier_build(fake_root):
+    build_artifacts.build(fake_root, skip_web=True)
+    (helper_dir(fake_root) / 'README.md').write_text('# stale\n', encoding='utf-8')
+
+    build_artifacts.build(fake_root, skip_web=True)
+
+    assert not (helper_dir(fake_root) / 'README.md').exists()
+
+
+def test_build_drops_the_readme_field_from_pyproject(fake_root):
+    # hatchling refuses to build when readme names a file the bundle does not ship
+    build_artifacts.build(fake_root, skip_web=True)
+
     shipped = (helper_dir(fake_root) / 'pyproject.toml').read_text(encoding='utf-8')
-    assert shipped == source
+    assert 'readme' not in shipped
+    # the rest of the metadata is untouched
+    assert 'name = "ao3downloader"' in shipped
+    assert 'packages = ["source_code"]' in shipped
+
+
+def test_build_says_so_when_the_readme_field_changes_shape(fake_root):
+    (fake_root / build_artifacts.PYTHON_HOME / 'pyproject.toml').write_text(
+        '[project]\nname = "ao3downloader"\nreadme = {file = "README.md"}\n', encoding='utf-8')
+
+    with pytest.raises(ValueError, match='README_FIELD'):
+        build_artifacts.build(fake_root, skip_web=True)
+
+
+def test_strip_readme_field_leaves_a_pyproject_without_one_alone():
+    content = '[project]\nname = "x"\n'
+
+    assert build_artifacts.strip_readme_field(content) == content
 
 # endregion
 
 
 # region config
 
+def test_build_leaves_the_password_setting_out(fake_root):
+    # the web ui logs in each time and never stores a password
+    build_artifacts.build(fake_root, skip_web=True)
+
+    settings = (config_dir(fake_root) / 'settings.ini').read_text(encoding='utf-8')
+    assert build_artifacts.SAVE_PASSWORD_KEY not in settings
+    # and takes the explanation with it rather than leaving it dangling
+    assert 'save your password in the settings file' not in settings
+    # everything else survives
+    assert 'ExtraWaitTime=0' in settings
+    assert 'DownloadFolder=downloads' in settings
+
+
+def test_strip_setting_keeps_a_file_that_does_not_have_it():
+    content = '[settings]\n\n# a comment\nOther=1\n'
+
+    assert build_artifacts.strip_setting(content, 'SavePassword') == content
+
+
 def test_build_seeds_config_in_its_own_folder(fake_root):
     result = build_artifacts.build(fake_root, skip_web=True)
 
     assert 'DownloadFolder' in (config_dir(fake_root) / 'settings.ini').read_text(encoding='utf-8')
-    assert json.loads((config_dir(fake_root) / 'data.json').read_text(encoding='utf-8')) == {}
-    assert sorted(result['config_created']) == ['data.json', 'settings.ini']
+    assert result['config_created'] == ['settings.ini']
     # and not at the top level, where an older bundle put them
     assert not (bundle(fake_root) / 'settings.ini').exists()
 
 
+def test_build_does_not_ship_data_json(fake_root):
+    # the web ui keeps the username in the browser and never stores a password, so the
+    # application creates this itself if it ever needs one
+    build_artifacts.build(fake_root, skip_web=True)
+
+    assert not (config_dir(fake_root) / 'data.json').exists()
+
+
+def test_build_removes_a_data_json_left_by_an_earlier_build(fake_root):
+    build_artifacts.build(fake_root, skip_web=True)
+    (config_dir(fake_root) / 'data.json').write_text('{"username": "Someone"}', encoding='utf-8')
+
+    build_artifacts.build(fake_root, skip_web=True)
+
+    assert not (config_dir(fake_root) / 'data.json').exists()
+
+
 def test_build_does_not_overwrite_config_that_is_already_there(fake_root):
-    # a rebuild must not throw away the download folder or the saved username
+    # a rebuild must not throw away the download folder
     build_artifacts.build(fake_root, skip_web=True)
     settings = config_dir(fake_root) / 'settings.ini'
-    data = config_dir(fake_root) / 'data.json'
     settings.write_text('[settings]\nDownloadFolder=D:\\fic\n', encoding='utf-8')
-    data.write_text('{"username": "Someone"}', encoding='utf-8')
 
     result = build_artifacts.build(fake_root, skip_web=True)
 
     assert 'D:\\fic' in settings.read_text(encoding='utf-8')
-    assert json.loads(data.read_text(encoding='utf-8'))['username'] == 'Someone'
     assert result['config_created'] == []
 
 # endregion

@@ -1,6 +1,8 @@
 # Alex Tips
 
-it's worth running uv run python dev/readme.py after a rewrite.(?)
+Download and view saved fanfic as an Angular web app. Can be ran entirely locally.
+
+![Alt text](Screenshot.png)
 
 Downloads via the site go to whichever location is specified in the config/settings.ini -> DownloadFolder
 
@@ -28,6 +30,8 @@ Then open http://localhost:4200.
 ## Build Artifact
 
 ### How to bundle it
+
+(it's worth running uv run python dev/readme.py after a rewrite.(?))
 
 Open powershell in the root directory:
 powershell.exe -ExecutionPolicy Bypass -File .\generate_build_artifacts.ps1
@@ -132,6 +136,55 @@ On your login details: only your username is saved by the page, in browser stora
 If you only want to browse bookmarks you have already downloaded, you can run the web app on its own with `npm --prefix gui_source start`; the download buttons will tell you the helper is not running.
 
 To produce a copy you can move to another machine, run `.\generate_build_artifacts.ps1`, which gathers everything needed into a `build` folder. See INSTRUCTIONS.txt.
+
+## File Naming and Indexing
+
+Inside your downloads folder:
+
+| Path | What lands there |
+| --- | --- |
+| `<!--CHECK-->indexing<!--INDEXING_FOLDER_NAME-->/` | One json file per bookmark - the index. |
+| the folder itself | The works: html, epub, pdf and so on. |
+| `<!--CHECK-->images<!--IMAGE_FOLDER_NAME-->/` | Images embedded in works, if you asked for them. |
+
+### How files are named
+
+Every file - json, html, epub, pdf - is named from the '<!--CHECK-->FileNamePattern<!--INI_NAME_PATTERN-->' setting in <!--CHECK-->settings.ini<!--INI_FILE_NAME-->, which defaults to `{worknum} {title} - {author}`. That produces names like `34816549 No Paths Are Bound - Cataclysmic_Cal.html`. The result is then cut to the '<!--CHECK-->FileNameLength<!--INI_NAME_LENGTH-->' setting (50 characters by default), which is why longer titles end mid-word.
+
+### The bare minimum for a file to be linked to its index entry
+
+**The work number has to come first.** That is the only part of the name that matters for pairing a downloaded work with its json entry. The rule is exact:
+
+- the digits at the **start** of the file name, and
+- followed immediately by a space, `_`, `.` or `-` (or the name ends there)
+
+So `34816549 No Paths Are Bound.html` links up. `No Paths Are Bound 34816549.html` does not, because the number is not first. `99Red Balloons.html` does not either, because nothing separates the digits from the title - that rule is deliberate, so a title that merely begins with digits is not mistaken for a work number, while `99 Red Balloons.html` is correctly read as work 99.
+
+So for a file you bring in from somewhere else: **start the file name with the AO3 work id, then a separator.** Everything after that is free.
+
+If you change the naming pattern so the work number is no longer first, indexing still works, but the web page can no longer pair works with it - every title opens on AO3 instead of your local copy. The line under the heading tells you when that is happening, by reporting how many works it found a downloaded copy for.
+
+### What is inside an index file
+
+Each json file keeps a history rather than being overwritten, so you can see how a fic changed between runs:
+
+```json
+{
+  "id": "34816549",
+  "link": "https://archiveofourown.org/works/34816549",
+  "source": "https://archiveofourown.org/users/you/bookmarks",
+  "position": 4,
+  "last_indexed": "2026-09-10T12:34:56+00:00",
+  "indexes": [
+    { "indexed_on": "2026-09-01T10:00:00+00:00", "title": "...", "kudos": 12 },
+    { "indexed_on": "2026-09-10T12:34:56+00:00", "title": "...", "kudos": 15 }
+  ]
+}
+```
+
+- `last_indexed` is updated every time the fic is indexed, whether or not anything changed
+- a new entry is added to `indexes` only when the reading differs from the one before it
+- `position` is where the fic sat in your bookmarks on that run, and is not part of the history - a fic sliding down the list is not a change to the fic
 
 ## Menu Options Explanation
 

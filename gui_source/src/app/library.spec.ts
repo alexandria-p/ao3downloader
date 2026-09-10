@@ -183,6 +183,55 @@ describe('Library', () => {
     expect(library.data()?.source).toBe(SOURCE);
   });
 
+  it('reads the newest reading out of a versioned file', async () => {
+    const versioned = {
+      id: '111',
+      link: 'https://archiveofourown.org/works/111',
+      source: SOURCE,
+      position: 1,
+      last_indexed: '2026-09-10T12:00:00+00:00',
+      indexes: [
+        { indexed_on: '2026-09-01T10:00:00+00:00', title: 'Old Title', kudos: 1 },
+        { indexed_on: '2026-09-10T12:00:00+00:00', title: 'New Title', kudos: 9 },
+      ],
+    };
+    store.files = [new File([JSON.stringify(versioned)], '111 x.json')];
+    store.recalled = handle();
+
+    await library.restore();
+
+    const work = library.data()!.works[0];
+    expect(work.title).toBe('New Title');
+    expect(work.id).toBe('111');
+    // the root identity is not overwritten by the reading
+    expect(work.position).toBe(1);
+    expect(library.data()!.retrieved).toBe('2026-09-10T12:00:00+00:00');
+  });
+
+  it('still reads a flat file written before histories existed', async () => {
+    store.files = [recordFile('111', 1)];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
+  });
+
+  it('finds records in the indexing subfolder and pairs them with works above it', async () => {
+    // the exporter writes json into downloads/indexing/, while works stay in downloads/
+    const nested = new File([JSON.stringify(record('111', 1))], '111 Work 111 - X.json');
+    Object.defineProperty(nested, 'webkitRelativePath', {
+      value: 'downloads/indexing/111 Work 111 - X.json',
+    });
+    store.files = [nested, new File(['<html></html>'], '111 Work 111 - X.html')];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
+    expect(library.htmlFiles().get('111')).toBeTruthy();
+  });
+
   it('skips json in the folder that has nothing to do with the export', async () => {
     store.files = [recordFile('111', 1), new File(['{"some":"config"}'], 'other.json')];
     store.recalled = handle();

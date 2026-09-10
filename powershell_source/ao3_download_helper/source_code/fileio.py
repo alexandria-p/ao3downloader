@@ -113,6 +113,22 @@ class FileOps:
             f.write(content)
 
 
+    def load_json(self, filename: str) -> dict | None:
+        """Read a json file from the downloads folder, or None if it isn't usable.
+
+        A file that has been damaged is treated as absent rather than crashing the run;
+        the next save replaces it.
+        """
+
+        file = os.path.join(self.downloadfolder, filename)
+        try:
+            with open(file, 'r', encoding='utf-8') as f:
+                content = json.load(f)
+        except (OSError, ValueError):
+            return None
+        return content if isinstance(content, dict) else None
+
+
     def save_json(self, filename: str, content) -> str:
         file = os.path.join(self.downloadfolder, filename)
         os.makedirs(os.path.dirname(file), exist_ok=True)

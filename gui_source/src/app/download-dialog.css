@@ -216,6 +216,63 @@ legend {
   font-variant-numeric: tabular-nums;
 }
 
+/* waiting on ao3 to accept the login */
+.checking,
+.signed-in {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: center;
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  font-size: 0.88rem;
+}
+
+.signed-in {
+  border-color: #3f5f45;
+  background: #1f2a21;
+  color: #9fd4ab;
+}
+
+.spinner {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
+}
+
+/* which stage of the run is in progress */
+.phase {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  color: var(--text-strong);
+}
+
+.phase .step {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 /* what is being fetched right now */
 .current {
   display: flex;

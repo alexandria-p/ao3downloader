@@ -41,6 +41,13 @@ export class DownloadDialog implements OnDestroy {
   protected readonly error = signal('');
   protected readonly folder = signal('');
 
+  /** which stage of the run is in progress */
+  protected readonly phase = signal('');
+
+  /** null while the login is being checked, then whether it worked */
+  protected readonly loginVerified = signal<boolean | null>(null);
+  protected readonly signedInAs = signal('');
+
   /** what is being fetched right now */
   protected readonly currentTitle = signal('');
   protected readonly currentFiletype = signal('');
@@ -67,6 +74,22 @@ export class DownloadDialog implements OnDestroy {
 
   /** page limits, series expansion and publication dates only mean something for a listing */
   protected readonly listingOptions = computed(() => this.action() === 'bookmarks');
+
+  /** what the current stage is doing, in words */
+  protected readonly phaseLabel = computed(() => {
+    switch (this.phase()) {
+      case 'authenticating':
+        return 'Verifying your AO3 login';
+      case 'indexing':
+        return 'Indexing - saving a json file for every bookmark';
+      case 'scanning':
+        return 'Scanning your downloads folder for incomplete works';
+      case 'downloading':
+        return 'Downloading works';
+      default:
+        return '';
+    }
+  });
 
   /** what the run was asked to do, shown back while it works */
   protected readonly chosenOptions = computed(() => {
@@ -177,6 +200,9 @@ export class DownloadDialog implements OnDestroy {
     this.error.set('');
     this.currentTitle.set('');
     this.currentFiletype.set('');
+    this.phase.set('');
+    this.loginVerified.set(null);
+    this.signedInAs.set('');
     this.cancelling.set(false);
     this.wasCancelled.set(false);
 
@@ -218,6 +244,16 @@ export class DownloadDialog implements OnDestroy {
         if (event.folder) this.folder.set(event.folder);
         this.append('starting');
         break;
+      case 'phase':
+        this.phase.set(event.name ?? '');
+        // the login is being checked; nothing is known about it yet
+        if (event.name === 'authenticating') this.loginVerified.set(null);
+        // each stage has its own scale, so the bar restarts rather than jumping back
+        this.percent.set(null);
+        this.summary.set('');
+        this.currentTitle.set('');
+        this.currentFiletype.set('');
+        break;
       case 'page':
         if (event.total) this.percent.set(Math.round(((event.page ?? 0) / event.total) * 100));
         this.summary.set(
@@ -246,6 +282,10 @@ export class DownloadDialog implements OnDestroy {
       case 'resumed':
         this.paused.set(null);
         break;
+      case 'authenticated':
+        this.loginVerified.set(true);
+        this.signedInAs.set(event.username ?? '');
+        break;
       case 'message':
         if (event.text) this.append(event.text);
         break;
@@ -259,6 +299,11 @@ export class DownloadDialog implements OnDestroy {
         this.finishUp();
         break;
       case 'failed':
+        // a failure while the login was still being checked is a login failure, and
+        // saying so is more use than a bare error message
+        if (this.loginVerified() === null && this.phase() === 'authenticating') {
+          this.loginVerified.set(false);
+        }
         this.error.set(event.error ?? 'the download failed');
         this.step.set('failed');
         this.finishUp();

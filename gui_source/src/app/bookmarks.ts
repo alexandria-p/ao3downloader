@@ -11,10 +11,20 @@ export interface WorkTags {
   additional: string[];
 }
 
+/** one reading of a bookmark, as stored in the file's history */
+export interface BookmarkIndex {
+  indexed_on: string;
+  [field: string]: unknown;
+}
+
 export interface Bookmark {
   /** provenance, written into every per-work file */
   source?: string;
   retrieved?: string;
+  /** when the fic was last checked, whether or not anything had changed */
+  last_indexed?: string;
+  /** every reading kept for this fic, oldest first */
+  indexes?: BookmarkIndex[];
   /** place in the listing, which is the order ao3 shows the bookmarks in */
   position?: number;
   id: string | null;
@@ -52,6 +62,28 @@ export interface BookmarksExport {
 }
 
 export const AO3_BASE_URL = 'https://archiveofourown.org';
+
+/**
+ * Turn one file's contents into a bookmark to display.
+ *
+ * A file keeps a history of readings, so the newest one is what to show, with the
+ * identity at the root laid over it. Files written before that history existed are flat,
+ * and are used as they are.
+ */
+export function flattenRecord(parsed: unknown): Bookmark | null {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const record = parsed as Record<string, unknown>;
+
+  const history = record['indexes'];
+  if (Array.isArray(history)) {
+    const latest = history[history.length - 1];
+    if (!latest || typeof latest !== 'object') return null;
+    // root last so identity wins: id, link, source and position are not versioned
+    return { ...(latest as object), ...record } as unknown as Bookmark;
+  }
+
+  return record['id'] || record['title'] ? (record as unknown as Bookmark) : null;
+}
 
 export type PageItem = number | 'gap';
 

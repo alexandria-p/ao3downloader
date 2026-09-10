@@ -7,29 +7,28 @@ upload to, and read from, dropbox link (instead of local downloads folder)
 - HTML and JSON are REQUIRED (for the site code to run), all others are optional.
 
 how to handle cancel midway through download (especially for html with images?)
+- this didnt really work when tested.
 
 can we improve 'update incomplete fics' -> to instead search to see if json has changed (eg update date or chapter count) since last pull. I think existing system is outdated and is redownloading ALL incomplete works, but will not catch if complete works add bonus chapters, like jane dutch.
 
-should we force redownload json every time? idk think about versioning .....
-
-do i need .venv ??
-
-
-do /downloads and /logs get created automatically in /powershell_source if run-locally.ps1 is run?
-
-also, remove readme.md(s) from being generated in /build/ao3_download_helper.
 
 is data.json needed in /build/config?
 
-remove SavePassword=false from /build/config/settings.ini
-
-show a spinning in modal while attempting to verify login (in gui)
-
-
-
-change to 20 bookmarks per page.
+if no downloader selected, say one will be created for you if you hit download
 
 
 long term:
 
 filtering in-app
+make html look nice, load images into html fics.
+save collections
+
+
+perfect. okay, now I want to be able to toggle between BOOKMARKS and COLLECTIONS view.
+
+bookmarks page has the Download newly added bookmarks button and the update any bookmarks marked as incomplete button, as well as paginated table of bookmarks as before.
+
+collections page has Index collections button.
+also has a paginated display of collections.
+
+when you click on a collection, then display more data about it based on what we have collected - you decide how best to show this. fics in the collection we have opened should display in a paginated table (identical to bookmarks, reuse components where possible).

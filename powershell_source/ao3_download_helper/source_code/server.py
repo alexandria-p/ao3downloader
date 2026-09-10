@@ -30,6 +30,9 @@ DEFAULT_PORT = 4400
 
 ACTION_BOOKMARKS = 'bookmarks'
 ACTION_UPDATE = 'update'
+ACTION_COLLECTIONS = 'collections'
+
+ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS)
 
 # these two are always produced, so the ui shows them ticked and locked
 FORCED_FILETYPES = [strings.AO3_DOWNLOAD_TYPE_METADATA, 'HTML']
@@ -134,9 +137,15 @@ def run_job(job: Job, password: str) -> None:
                 job.emit({'type': progress.STARTED, 'action': job.action,
                           'folder': fileops.downloadfolder,
                           'filetypes': job.filetypes, 'options': job.options})
+                # announced separately so the ui can show it is waiting, and say whether
+                # the credentials worked before anything else starts
+                progress.report(report, progress.PHASE, name=progress.AUTHENTICATING)
                 repo.login(job.username, password)
+                progress.report(report, progress.AUTHENTICATED, username=job.username)
                 if job.action == ACTION_BOOKMARKS:
                     run_bookmarks(job, fileops, repo, report)
+                elif job.action == ACTION_COLLECTIONS:
+                    run_collections(job, fileops, repo, report)
                 else:
                     run_update(job, fileops, repo, report)
         job.emit({'type': progress.FINISHED, 'cancelled': job.cancel.is_set()})
@@ -165,12 +174,41 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     ao3 = Ao3(repo, fileops, downloadtypes, pages, job.options['series'],
               job.options['images'], progress=report, cancelled=job.cancel.is_set)
 
+    # indexing first: every bookmark gets its json before any work is downloaded, so an
+    # interrupted run still leaves a complete index of what is bookmarked.
     if metadata:
-        print(strings.AO3_INFO_METADATA)
+        progress.report(report, progress.PHASE, name=progress.INDEXING)
+        print(strings.AO3_INFO_INDEXING)
         ao3.get_metadata(link, job.options['workdates'])
+
     if downloadtypes and not job.cancel.is_set():
+        progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
         print(strings.AO3_INFO_DOWNLOADING)
         ao3.download(link, visited)
+
+
+def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """Save a json file for every collection the user has, under downloads/collections.
+
+    Only work ids are recorded for the items in a collection: the works themselves are
+    described by the index, so repeating their metadata here would only go stale.
+    """
+
+    link = f'{strings.AO3_BASE_URL}/users/{job.username}/collections'
+    pages = job.options['pages'] or None
+
+    progress.report(report, progress.PHASE, name=progress.COLLECTIONS)
+    print(strings.AO3_INFO_COLLECTIONS)
+
+    ao3 = Ao3(repo, fileops, [], pages, False, False,
+              progress=report, cancelled=job.cancel.is_set)
+    records = ao3.get_collections(link)
+
+    if records:
+        print(strings.AO3_INFO_COLLECTIONS_DONE.format(
+            len(records), os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)))
+    else:
+        print(strings.AO3_INFO_COLLECTIONS_NONE)
 
 
 def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -184,6 +222,7 @@ def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
     files = shared.get_files_of_type(folder, scan_types)
 
+    progress.report(report, progress.PHASE, name=progress.SCANNING)
     print(strings.UPDATE_INFO_URLS)
     works: dict[str, int] = {}
     for index, item in enumerate(files, start=1):
@@ -205,6 +244,7 @@ def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
 
+    progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
     print(strings.UPDATE_INFO_DOWNLOADING)
     for index, (link, chapters) in enumerate(works.items(), start=1):
         if job.cancel.is_set(): break

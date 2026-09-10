@@ -38,6 +38,10 @@ export interface JobEvent {
   /** which format is being fetched for the work named in `title` */
   filetype?: string;
   phase?: string;
+  /** which stage of the run has just started, on a `phase` event */
+  name?: string;
+  /** who the helper signed in as, on an `authenticated` event */
+  username?: string;
   seconds?: number;
   until?: string;
   error?: string;

@@ -14,6 +14,8 @@ ProgressCallback = Callable[[dict[str, Any]], None]
 
 # event types
 STARTED = 'started'
+PHASE = 'phase'
+AUTHENTICATED = 'authenticated'
 PAGE = 'page'
 WORK = 'work'
 MESSAGE = 'message'
@@ -21,6 +23,14 @@ PAUSED = 'paused'
 RESUMED = 'resumed'
 FINISHED = 'finished'
 FAILED = 'failed'
+
+# phase names, reported alongside PHASE. a run does these in order, and only the ones
+# the chosen file types call for.
+AUTHENTICATING = 'authenticating'
+INDEXING = 'indexing'
+COLLECTIONS = 'collections'
+SCANNING = 'scanning'
+DOWNLOADING = 'downloading'
 
 
 def report(callback: ProgressCallback | None, kind: str, **fields: Any) -> None:

@@ -38,9 +38,16 @@ WEB_FOLDER = 'web'
 
 ANGULAR_OUTPUT = Path('dist') / 'ao3-bookmarks' / 'browser'
 
-# copied beside the package. README.md is not optional: pyproject.toml's readme field
-# points at it, and hatchling refuses to build the package without it.
-PROJECT_FILES = ['pyproject.toml', 'uv.lock', 'README.md']
+# copied beside the package, verbatim. pyproject.toml is not here because it is rewritten
+# on the way - see write_pyproject.
+PROJECT_FILES = ['uv.lock']
+
+# the bundle ships no README beside the package, so the field pointing at one has to go
+# with it: hatchling refuses to build when readme names a file that is not there.
+README_FIELD = 'readme = "README.md"'
+
+# the gui never stores a password, so the bundle should not offer the setting that would
+SAVE_PASSWORD_KEY = 'SavePassword'
 
 # left by older bundle layouts, cleared so a rebuild does not leave two of everything
 STALE = ['download_helper_scripts', 'ao3downloader', 'source_code', 'run-gui.ps1',
@@ -99,11 +106,55 @@ def copy_tree(source: Path, destination: Path) -> None:
     shutil.copytree(source, destination, ignore=IGNORED)
 
 
-def write_config(config_dir: Path, python_home: Path) -> list[str]:
-    """Seed settings.ini and data.json, leaving any that are already there alone.
+def strip_readme_field(content: str) -> str:
+    """Drop pyproject.toml's readme field, since the bundle ships no README beside it.
 
-    A rebuild must not throw away the download folder or the saved username, so these two
-    are only ever created when missing.
+    Raises if a readme field is present in some other form, rather than shipping a
+    pyproject.toml that points at a missing file and fails only at install time.
+    """
+
+    kept = []
+    for line in content.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith('readme'):
+            if stripped != README_FIELD:
+                raise ValueError(
+                    f'expected {README_FIELD!r} in pyproject.toml but found {stripped!r}. '
+                    'Update README_FIELD in build_artifacts.py.')
+            continue
+        kept.append(line)
+    return ''.join(kept)
+
+
+def strip_setting(content: str, key: str) -> str:
+    """Remove one ini setting along with the comment block that documents it."""
+
+    kept: list[str] = []
+    for line in content.splitlines(keepends=True):
+        if line.strip().lower().startswith(key.lower() + '='):
+            # take the explanation with it, and the blank line that separated the pair
+            # from whatever came before
+            while kept and kept[-1].lstrip().startswith('#'):
+                kept.pop()
+            while kept and not kept[-1].strip():
+                kept.pop()
+            continue
+        kept.append(line)
+    return ''.join(kept)
+
+
+def write_pyproject(python_home: Path, helper_dir: Path) -> None:
+    content = (python_home / 'pyproject.toml').read_text(encoding='utf-8')
+    (helper_dir / 'pyproject.toml').write_text(strip_readme_field(content), encoding='utf-8')
+
+
+def write_config(config_dir: Path, python_home: Path) -> list[str]:
+    """Seed settings.ini, leaving one that is already there alone.
+
+    A rebuild must not throw away the download folder, so it is only ever created when
+    missing. data.json is deliberately not seeded: the web ui remembers the username in
+    the browser and never stores a password, and the application creates the file itself
+    on first run if it needs one.
     """
 
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -111,14 +162,16 @@ def write_config(config_dir: Path, python_home: Path) -> list[str]:
 
     settings = config_dir / 'settings.ini'
     if not settings.exists():
-        shutil.copyfile(python_home / PACKAGE_NAME / 'settings' / 'settings.ini', settings)
+        template = (python_home / PACKAGE_NAME / 'settings' / 'settings.ini').read_text(
+            encoding='utf-8')
+        # the web ui logs in each time and never stores a password, so offering the
+        # setting that would only invites confusion
+        settings.write_text(strip_setting(template, SAVE_PASSWORD_KEY), encoding='utf-8')
         created.append(settings.name)
 
-    data = config_dir / 'data.json'
-    if not data.exists():
-        # no BOM: python's json reader rejects one
-        data.write_text('{}', encoding='utf-8')
-        created.append(data.name)
+    # an earlier build seeded this; it is the application's to create, not the build's
+    stale_data = config_dir / 'data.json'
+    if stale_data.is_file(): stale_data.unlink()
 
     return created
 
@@ -151,8 +204,12 @@ def build(root: Path, skip_web: bool = False) -> dict:
     python_home = root / PYTHON_HOME
     helper_dir = build_dir / HELPER_FOLDER
     copy_tree(python_home / PACKAGE_NAME, helper_dir / PACKAGE_NAME)
+    write_pyproject(python_home, helper_dir)
     for name in PROJECT_FILES:
         shutil.copyfile(python_home / name, helper_dir / name)
+    # an earlier build shipped a README here; the bundle no longer has one
+    stale_readme = helper_dir / 'README.md'
+    if stale_readme.is_file(): stale_readme.unlink()
 
     created = write_config(build_dir / CONFIG_FOLDER, python_home)
     write_readme(build_dir)
@@ -176,7 +233,9 @@ overwrites the rest.
 | `web/` | The compiled web app - plain static files. |
 | `ao3_download_helper/` | The python behind the two download buttons. |
 | `config/settings.ini` | Your settings, including where fics are saved. |
-| `config/data.json` | Saved username and file type choices. |
+
+`config/data.json` is not shipped. The web ui remembers your username in the browser and
+never stores a password, so the application creates that file itself if it needs one.
 
 All of it is needed. The site will display bookmarks without `ao3_download_helper/`, but
 both download buttons will fail, because that folder *is* what they call.
@@ -203,6 +262,70 @@ To use a different port: `.\\Start-Application.ps1 -Port 8080`
 
 Whatever `DownloadFolder` in `config/settings.ini` says. A relative path is resolved from
 this folder, so the default `downloads` means `./downloads` here.
+
+Inside it:
+
+| Path | What lands there |
+| --- | --- |
+| `<downloads>/indexing/` | One json file per bookmark - the index. |
+| `<downloads>/` | The works themselves: html, epub, pdf and so on. |
+| `<downloads>/images/` | Images embedded in works, if you asked for them. |
+
+## How files are named, and how they get linked together
+
+Every file - json, html, epub, pdf - is named from the `FileNamePattern` setting in
+`config/settings.ini`. It defaults to:
+
+```
+{worknum} {title} - {author}
+```
+
+...producing names like `34816549 No Paths Are Bound - Cataclysmic_Cal.html`. The name is
+then cut to `FileNameLength` characters (50 by default), which is why longer titles end
+mid-word.
+
+**The work number has to come first.** That is the only part that matters for matching a
+downloaded work to its entry in the index. The rule is exact:
+
+- the digits at the **start** of the file name, and
+- followed by a space, `_`, `.` or `-` (or the name ends there)
+
+So `34816549 No Paths Are Bound.html` links up; `No Paths Are Bound 34816549.html` does
+not, because the number is not first. `99Red Balloons.html` does not either, because
+nothing separates the digits from the title - which is deliberate, so a title that merely
+begins with digits is not mistaken for a work number.
+
+That is the bare minimum for a file you bring in from somewhere else: **start the file
+name with the AO3 work id, then a separator.** Everything after that is free.
+
+If you change `FileNamePattern` so the work number is no longer first, the index still
+builds, but the web page can no longer pair works with it - every title will open on AO3
+instead of your local copy. The page tells you when that is happening: the line under the
+heading reports how many works it found a downloaded copy for.
+
+## What is inside an index file
+
+Each json file keeps a history rather than being overwritten, so you can see how a fic
+changed over time:
+
+```json
+{
+  "id": "34816549",
+  "link": "https://archiveofourown.org/works/34816549",
+  "source": "https://archiveofourown.org/users/you/bookmarks",
+  "position": 4,
+  "last_indexed": "2026-09-10T12:34:56+00:00",
+  "indexes": [
+    { "indexed_on": "2026-09-01T10:00:00+00:00", "title": "...", "kudos": 12 },
+    { "indexed_on": "2026-09-10T12:34:56+00:00", "title": "...", "kudos": 15 }
+  ]
+}
+```
+
+- `last_indexed` is updated every time the fic is indexed, whether or not anything changed
+- a new entry is added to `indexes` only when the reading differs from the one before it
+- `position` is where the fic sat in your bookmarks that run, and is not part of the
+  history - a fic sliding down the list is not a change to the fic
 
 ## A caveat about deploying this to a server
 

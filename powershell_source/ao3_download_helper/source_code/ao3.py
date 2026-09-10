@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from bs4 import BeautifulSoup
 
-from source_code import exceptions, parse_soup, parse_text, progress, strings
+from source_code import exceptions, indexing, parse_soup, parse_text, progress, strings
 from source_code.fileio import FileOps
 from source_code.progress import ProgressCallback
 from source_code.repo import Repository
@@ -29,6 +29,8 @@ class Ao3:
         self.fileops = fileops
         self.progress = progress
         self.cancelled = cancelled
+        # replaced at the start of each indexing run, so every file it touches agrees
+        self.indexed_on = indexing.now()
         self.filetypes = filetypes
         self.pages = pages
         self.series = series
@@ -90,7 +92,9 @@ class Ao3:
             raise exceptions.InvalidLinkException(strings.ERROR_INVALID_LINK)
 
         source = link # the loop below walks `link` on to the next page
-        retrieved = datetime.datetime.now().strftime(strings.TIMESTAMP_FORMAT)
+        # one timestamp for the whole run, so every file this run touches agrees on when
+        # it was indexed, and a second save of the same fic updates rather than appends
+        self.indexed_on = indexing.now()
 
         records: list[dict] = []
         seen: set[str] = set()
@@ -115,7 +119,6 @@ class Ao3:
                     seen.add(key)
                     document = {
                         'source': source,
-                        'retrieved': retrieved,
                         # the listing order, which is the order ao3 shows the bookmarks in
                         'position': len(records) + 1,
                     }
@@ -149,11 +152,152 @@ class Ao3:
         return records
 
 
-    def save_metadata(self, document: dict) -> None:
-        """Write one bookmark to its own json file.
+    def walk_pages(self, link: str):
+        """Yield each page of a paginated ao3 listing, following 'next' until it runs out."""
 
-        Named with the same pattern as a downloaded work, so a fic's metadata sits next
-        to its epub or html under the same name.
+        total_pages = None
+        while True:
+            self.check_cancelled()
+            soup = self.repo.get_soup(link)
+            yield soup
+            if total_pages is None:
+                total_pages = parse_soup.get_total_pages(soup)
+            pagenum = parse_text.get_page_number(link)
+            if not total_pages or pagenum >= total_pages: break
+            link = parse_text.get_next_page(link)
+            if self.pages and parse_text.get_page_number(link) == self.pages + 1: break
+
+
+    def collect_work_ids(self, link: str) -> list[str]:
+        """Every work id on a listing, which is all a collection needs to record.
+
+        The works themselves are described by the index in downloads/indexing, so there
+        is nothing to gain from repeating their metadata here.
+        """
+
+        found: list[str] = []
+        for soup in self.walk_pages(link):
+            for blurb in parse_soup.get_blurbs(soup):
+                work = parse_soup.get_blurb_work_number(blurb)
+                if work and work not in found: found.append(work)
+        return found
+
+
+    def collect_collection_links(self, link: str) -> list[str]:
+        """Every collection linked from a collections listing."""
+
+        found: list[str] = []
+        for soup in self.walk_pages(link):
+            for blurb in parse_soup.get_collection_blurbs(soup):
+                slug = parse_soup.get_collection_slug(blurb)
+                if not slug: continue
+                url = f'{strings.AO3_BASE_URL}/collections/{slug}'
+                if url not in found: found.append(url)
+        return found
+
+
+    def get_collections(self, link: str) -> list[dict]:
+        """Walk a user's collections and save each one to its own file.
+
+        Each collection is written as it is finished, so stopping partway keeps whatever
+        was already saved, the same as indexing bookmarks does.
+        """
+
+        if strings.AO3_BASE_URL not in link:
+            raise exceptions.InvalidLinkException(strings.ERROR_INVALID_LINK)
+
+        source = link
+        self.indexed_on = indexing.now()
+        records: list[dict] = []
+
+        try:
+            for soup in self.walk_pages(link):
+                for blurb in parse_soup.get_collection_blurbs(soup):
+                    slug = parse_soup.get_collection_slug(blurb)
+                    if not slug: continue
+                    document = self.read_collection(blurb, slug, source)
+                    records.append(document)
+                    self.save_collection(document)
+                    progress.report(self.progress, progress.WORK,
+                                    title=document.get('title') or slug,
+                                    phase=progress.COLLECTIONS, done=len(records))
+                    print(strings.AO3_INFO_COLLECTION_SAVED.format(slug))
+        except exceptions.CancelledException:
+            print(strings.INFO_CANCELLED)
+        except Exception as e:
+            print(strings.ERROR_COLLECTIONS)
+            self.log_error({'message': strings.ERROR_COLLECTIONS, 'link': link}, e)
+        except KeyboardInterrupt:
+            print(strings.INFO_LINKS_LIST_CANCELED)
+
+        return records
+
+
+    def read_collection(self, blurb, slug: str, source: str) -> dict:
+        """Everything one collection has to say, across its listing blurb and its pages."""
+
+        document = {'source': source}
+        document.update(parse_soup.get_collection_metadata(blurb))
+
+        base = f'{strings.AO3_BASE_URL}/collections/{slug}'
+        try:
+            document.update(parse_soup.get_collection_profile(
+                self.repo.get_soup(f'{base}/profile')))
+        except exceptions.CancelledException:
+            raise
+        except Exception as e:
+            self.log_error({'message': strings.ERROR_COLLECTION_PROFILE, 'link': base}, e)
+
+        for key, url in (('work_ids', f'{base}/works'),
+                         ('bookmark_ids', f'{base}/bookmarks')):
+            try:
+                document[key] = self.collect_work_ids(url)
+            except exceptions.CancelledException:
+                raise
+            except Exception as e:
+                document[key] = []
+                self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': url}, e)
+
+        # only worth asking for when the sidebar says there are some
+        document['subcollections'] = []
+        if document.get('subcollection_count'):
+            try:
+                document['subcollections'] = self.collect_collection_links(
+                    document.get('subcollections_link') or f'{base}/collections')
+            except exceptions.CancelledException:
+                raise
+            except Exception as e:
+                self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': base}, e)
+
+        return document
+
+
+    def save_collection(self, document: dict) -> None:
+        """Write one collection to its own json file, keeping its history."""
+
+        try:
+            name = document.get('name') or 'collection'
+            maximum = self.fileops.get_ini_value_integer(
+                strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+            filename = parse_text.get_valid_filename([name], maximum) or name
+            path = os.path.join(
+                strings.COLLECTIONS_FOLDER_NAME,
+                filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA))
+
+            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on,
+                                    indexing.COLLECTION_IDENTITY_FIELDS)
+            self.fileops.save_json(path, merged)
+        except Exception as e:
+            self.log_error({'message': strings.ERROR_COLLECTION_SAVE,
+                            'link': document.get('link')}, e)
+
+
+    def save_metadata(self, document: dict) -> None:
+        """Write one bookmark to its own json file, in the indexing subfolder.
+
+        Named with the same pattern as a downloaded work, so a fic's metadata carries the
+        same name as its epub or html - it just sits in indexing/ rather than beside them,
+        which keeps the downloads folder to actual works.
         """
 
         try:
@@ -163,8 +307,14 @@ class Ao3:
             filename = parse_text.get_valid_filename(name, maximum)
             # a pattern can resolve to nothing if every field it uses is empty
             if not filename: filename = str(document.get('id') or document.get('position'))
-            self.fileops.save_json(
-                filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA), document)
+            path = os.path.join(
+                strings.INDEXING_FOLDER_NAME,
+                filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA))
+
+            # keep whatever readings the file already holds, and add this one only if it
+            # says something new
+            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
+            self.fileops.save_json(path, merged)
         except Exception as e:
             # one unwritable file shouldn't end the run
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)

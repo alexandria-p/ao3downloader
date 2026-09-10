@@ -15,7 +15,7 @@ import {
   warningClass,
 } from './bookmarks';
 
-const PER_PAGE = 19;
+const PER_PAGE = 20;
 
 @Component({
   selector: 'app-root',

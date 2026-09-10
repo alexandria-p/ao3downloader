@@ -3,7 +3,7 @@ import re
 import traceback
 from typing import Any
 
-from bs4 import BeautifulSoup, ResultSet, Tag
+from bs4 import BeautifulSoup, Comment, NavigableString, ResultSet, Tag
 
 from source_code import parse_text, strings
 from source_code.exceptions import DownloadException, ProceedException, SeriesLinkException
@@ -377,6 +377,174 @@ def get_work_metadata_from_list(soup: BeautifulSoup, link: str) -> dict:
     except Exception as e: # don't crash the entire download if there is an unhandled exception
         metadata['error'] = ''.join(traceback.TracebackException.from_exception(e).format())
     return metadata
+
+
+def get_collection_blurbs(soup: BeautifulSoup) -> list[Tag]:
+    """Every collection blurb on a collections listing page."""
+
+    blurbs = soup.select('li.collection.blurb')
+    if not blurbs:
+        # a listing that styles its blurbs differently still links to /collections/
+        blurbs = [x for x in soup.select('li.blurb')
+                  if x.select_one('h4.heading a[href*="/collections/"]')]
+    return [x for x in blurbs if isinstance(x, Tag)]
+
+
+def get_collection_slug(blurb: Tag) -> str | None:
+    """The short name a collection's urls are built from, e.g. 'Best_of_Hollanov_MS'."""
+
+    link = blurb.select_one('h4.heading a[href*="/collections/"]')
+    if not link: return None
+    match = re.search(r'/collections/([^/?#]+)', str(link.get('href') or ''))
+    return match.group(1) if match else None
+
+
+def get_collection_flags(blurb: Tag) -> list[str]:
+    """The parenthesised list ao3 shows under a collection, split into its parts.
+
+    Renders as '(Closed, Moderated)', or for a challenge as
+    '(Prompt Meme Challenge, Moderated)'. Kept whole as well as read for known flags, so
+    anything ao3 adds later is still captured.
+    """
+
+    text = get_text_or_empty(blurb, 'p.type').strip()
+    if text.startswith('(') and text.endswith(')'): text = text[1:-1]
+    return [part.strip() for part in text.split(',') if part.strip()]
+
+
+def get_collection_metadata(blurb: Tag) -> dict:
+    """What a collections listing says about one collection.
+
+    Ao3 does not put a collection's tags or fandoms on this page, and multifandom is a
+    search filter rather than something a collection declares, so neither is here.
+    """
+
+    metadata: dict[str, Any] = {}
+    try:
+        slug = get_collection_slug(blurb)
+        metadata['name'] = slug
+        metadata['link'] = f'{strings.AO3_BASE_URL}/collections/{slug}' if slug else None
+        metadata['title'] = get_text_or_empty(blurb, 'h4.heading a')
+        metadata['maintainers'] = [x.get_text().strip() for x in blurb.select('a.owner')]
+
+        summary = blurb.select_one('blockquote.userstuff.summary')
+        metadata['description'] = get_userstuff_text(summary) if summary else ''
+
+        flags = get_collection_flags(blurb)
+        metadata['flags'] = flags
+        metadata['closed'] = 'Closed' in flags
+        metadata['moderated'] = 'Moderated' in flags
+        metadata['unrevealed'] = 'Unrevealed' in flags
+        metadata['anonymous'] = 'Anonymous' in flags
+        # a challenge collection names its type among the flags; anything else has none
+        challenge = next((x for x in flags if x.endswith('Challenge')), None)
+        metadata['challenge_type'] = challenge or 'No Challenge'
+
+        metadata['created'] = get_text_or_empty(blurb, 'p.datetime')
+        metadata['work_count'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.works'))
+        metadata['bookmark_count'] = parse_text.get_count(
+            get_text_or_empty(blurb, 'dd.bookmarks'))
+    except Exception as e: # don't lose the rest of the page over one unparseable blurb
+        metadata['error'] = ''.join(traceback.TracebackException.from_exception(e).format())
+    return metadata
+
+
+def get_collection_sidebar(soup: BeautifulSoup) -> list[tuple[str, str]]:
+    """Every collection link in a collection's dashboard sidebar, as (label, href).
+
+    Ao3 splits that sidebar across several navigation lists rather than one, so they are
+    all gathered - taking only the first misses Fandoms, Works and Bookmarked Items.
+    """
+
+    links = []
+    for nav in soup.select('ul.navigation.actions'):
+        for anchor in nav.find_all('a'):
+            href = str(anchor.get('href') or '')
+            # '/collections/' with the slash excludes the site-wide Collections menu item
+            if '/collections/' not in href: continue
+            links.append((' '.join(anchor.get_text().split()), href))
+    return links
+
+
+def get_sidebar_count(label: str) -> int | None:
+    """The number ao3 puts in a sidebar label, as in 'Fandoms (1193)'."""
+
+    match = re.search(r'\((\d[\d,]*)\)', label)
+    return parse_text.get_count(match.group(1)) if match else None
+
+
+def get_collection_profile(soup: BeautifulSoup) -> dict:
+    """What a collection's profile page adds to what its listing blurb already said.
+
+    The meta list here is malformed - ao3 never closes the first <dt>, so everything
+    after it ends up nested inside. Pairing on document order rather than siblings is
+    what makes this work.
+    """
+
+    profile: dict[str, Any] = {}
+    try:
+        pairs = {}
+        meta = soup.select_one('#main dl.meta')
+        if meta:
+            for term in meta.find_all('dt'):
+                # only the term's own text: its children are the rest of the list.
+                # comments are strings to beautifulsoup, and ao3 puts one inside the
+                # first term on a challenge collection, so they are dropped here.
+                label = ''.join(x for x in term.find_all(string=True, recursive=False)
+                                if isinstance(x, NavigableString) and not isinstance(x, Comment))
+                label = ' '.join(label.split()).rstrip(':').strip().lower()
+                value = term.find_next('dd')
+                if label and value is not None and label not in pairs:
+                    pairs[label] = value
+
+        profile['active_since'] = ' '.join(pairs['active since'].get_text().split()) \
+            if 'active since' in pairs else ''
+        profile['tags'] = [x.get_text().strip()
+                           for x in pairs['collection tags'].select('a.tag')] \
+            if 'collection tags' in pairs else []
+        profile['maintainers'] = [x.get_text().strip()
+                                  for x in soup.select('#main dd.maintainers a')]
+
+        sidebar = get_collection_sidebar(soup)
+        profile['parent_collection'] = next(
+            (full_url(href) for label, href in sidebar if label == 'Parent Collection'), None)
+        profile['subcollections_link'] = next(
+            (full_url(href) for label, href in sidebar
+             if label.startswith('Subcollections')), None)
+
+        counts = {label.split(' (')[0]: get_sidebar_count(label) for label, _ in sidebar}
+        profile['fandom_count'] = counts.get('Fandoms')
+        profile['work_count'] = counts.get('Works')
+        profile['bookmark_count'] = counts.get('Bookmarked Items')
+        profile['subcollection_count'] = counts.get('Subcollections')
+
+        # more than one fandom is what makes a collection multifandom
+        fandoms = profile['fandom_count']
+        profile['multifandom'] = fandoms > 1 if fandoms is not None else None
+
+        profile['challenge_type'] = get_challenge_type(pairs, counts)
+    except Exception as e: # a profile we cannot read should not lose the collection
+        profile['error'] = ''.join(traceback.TracebackException.from_exception(e).format())
+    return profile
+
+
+def get_challenge_type(pairs: dict, counts: dict) -> str:
+    """Which kind of challenge a collection runs, judged by what its profile shows.
+
+    A prompt meme has prompts; a gift exchange has a tag set and assignments. A
+    collection that is not a challenge has neither.
+    """
+
+    if 'Prompts' in counts: return 'Prompt Meme Challenge'
+    if 'tag set' in pairs or 'assignments due' in pairs: return 'Gift Exchange Challenge'
+    return 'No Challenge'
+
+
+def full_url(href: str) -> str:
+    """Make an ao3 link absolute, leaving one that already is alone."""
+
+    if href.startswith('http'): return href
+    return strings.AO3_BASE_URL + href
 
 
 def get_blurbs(soup: BeautifulSoup) -> list[Tag]:

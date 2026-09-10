@@ -278,6 +278,52 @@ def test_run_update_takes_the_least_complete_copy_of_a_work(fake_environment):
     ao3.update.assert_called_once_with('https://archiveofourown.org/works/1', '4')
 
 
+def test_run_bookmarks_indexes_every_bookmark_before_downloading_any(fake_environment):
+    # the whole point of the order: an interrupted run still leaves a complete index
+    job = server.Job(server.ACTION_BOOKMARKS,
+                     [strings.AO3_DOWNLOAD_TYPE_METADATA, 'EPUB'], 'Someone')
+    order = []
+    ao3 = MagicMock()
+    ao3.get_metadata.side_effect = lambda *a: order.append('metadata')
+    ao3.download.side_effect = lambda *a: order.append('download')
+
+    events = []
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'visited', return_value=[]):
+        server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'],
+                             events.append)
+
+    assert order == ['metadata', 'download']
+    phases = [e['name'] for e in events if e['type'] == progress.PHASE]
+    assert phases == [progress.INDEXING, progress.DOWNLOADING]
+
+
+def test_run_bookmarks_reports_only_indexing_when_json_is_the_only_type(fake_environment):
+    job = server.Job(server.ACTION_BOOKMARKS, [strings.AO3_DOWNLOAD_TYPE_METADATA], 'Someone')
+
+    events = []
+    with patch.object(server, 'Ao3', return_value=MagicMock()), \
+         patch.object(server.shared, 'visited', return_value=[]):
+        server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'],
+                             events.append)
+
+    phases = [e['name'] for e in events if e['type'] == progress.PHASE]
+    assert phases == [progress.INDEXING]
+
+
+def test_run_update_reports_scanning_then_downloading(fake_environment):
+    job = server.Job(server.ACTION_UPDATE, ['HTML'], 'Someone')
+
+    events = []
+    with patch.object(server, 'Ao3', return_value=MagicMock()), \
+         patch.object(server.shared, 'get_files_of_type', return_value=[]):
+        server.run_update(job, fake_environment['fileops'], fake_environment['repo'],
+                          events.append)
+
+    phases = [e['name'] for e in events if e['type'] == progress.PHASE]
+    assert phases == [progress.SCANNING, progress.DOWNLOADING]
+
+
 def test_run_bookmarks_passes_the_chosen_options_through(fake_environment):
     job = server.Job(server.ACTION_BOOKMARKS, ['EPUB', 'HTML'], 'Someone',
                      server.resolve_options({'pages': 3, 'series': True, 'images': True}))
