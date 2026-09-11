@@ -245,6 +245,16 @@ def get_title(soup: BeautifulSoup, link: str, pattern: str) -> list[str]:
     return apply_name_pattern(get_work_metadata_from_work(soup, link), pattern)
 
 
+def get_updated_date(soup: BeautifulSoup) -> str:
+    """The date a work page says it was last updated on.
+
+    A single-chapter work has no status line, in which case the publication date is the
+    only date it has and is the one that identifies the version.
+    """
+
+    return get_text_or_empty(soup, 'dd.status') or get_text_or_empty(soup, 'dd.published')
+
+
 def apply_name_pattern(metadata: dict, pattern: str) -> list[str]:
     """Fill the configured file name pattern in from work metadata.
 

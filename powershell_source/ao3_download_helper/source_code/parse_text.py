@@ -20,12 +20,24 @@ def get_pinboard_url(api_token: str, date: datetime.datetime | None) -> str:
         return strings.POSTS_FROM_DATE_URL.format(api_token, timestamp)
 
 
-def get_valid_filename(filename: list[str], maximum: int) -> str:
-    """
-    creates a valid filename path from a list of strings
+def get_valid_filename(filename: list[str], maximum: int, suffix: str = '') -> str:
+    """Create a valid filename path from a list of strings.
+
+    `suffix` is appended to the last segment and is never truncated away: the segment is cut
+    to leave room for it first. That is what keeps the date stamp on the end of every name,
+    however long the title is.
     """
 
-    valid_path = list(filter(lambda x: x, [get_valid_filepath(segment, maximum) for segment in filename]))
+    segments = [get_valid_filepath(segment, maximum) for segment in filename]
+
+    if suffix:
+        # the last segment is the file name itself; anything before it is a folder. cut it
+        # short enough that the suffix fits inside the same limit, then put the suffix back.
+        room = max(1, maximum - len(suffix)) if maximum > 0 else 0
+        last = get_valid_filepath(filename[-1], room) if filename else ''
+        segments = segments[:-1] + [(last + suffix).strip()]
+
+    valid_path = list(filter(lambda x: x, segments))
     if len(valid_path) == 0: return ''
     if len(valid_path) == 1: return valid_path[0]
     return os.path.join(*valid_path)
@@ -50,6 +62,77 @@ def normalize_path_input(folder: str) -> str:
     if len(folder) >= 2 and folder[0] == folder[-1] and folder[0] in ('"', "'"):
         folder = folder[1:-1].strip()
     return folder
+
+
+def get_date_stamp(text: str) -> str:
+    """An ao3 date turned into the YYYY-MM-DD stamp that goes in a file name.
+
+    Ao3 writes dates two ways: a listing blurb says '14 Dec 2024', while a work page's
+    status line is already '2024-12-14'. Anything that parses as neither gives back an
+    empty string, which simply means the file gets no date on it rather than a wrong one.
+    """
+
+    # anything that is not text gets no date rather than an exception: a date is a nicety
+    # on a file name, and must never be the reason a download fails
+    if not isinstance(text, str): return ''
+    value = text.strip()
+    if not value: return ''
+
+    # a status line can be prefixed, e.g. 'Updated: 2024-12-14'
+    if ':' in value: value = value.split(':')[-1].strip()
+
+    for pattern in ('%Y-%m-%d', '%d %b %Y', '%d %B %Y'):
+        try:
+            return datetime.datetime.strptime(value, pattern).strftime(strings.DATE_STAMP_FORMAT)
+        except ValueError:
+            continue
+    return ''
+
+
+def get_date_suffix(text: str) -> str:
+    """The date stamp as it appears on the end of a file name, or nothing."""
+
+    stamp = get_date_stamp(text)
+    return ' ' + stamp if stamp else ''
+
+
+def get_direct_download_link(work_number: str, filetype: str) -> str:
+    """Where ao3 serves a work file, built from the work number alone.
+
+    The usual route reads this link off the work page, which costs a request per work just
+    to learn something the work number already determines. The segment after the number is
+    a slug of the title that ao3 ignores, and the 'updated_at' query ao3 adds is only a
+    cache-buster, so neither is needed.
+    """
+
+    return (f'{strings.AO3_DOWNLOAD_BASE_URL}/downloads/{work_number}/'
+            f'{strings.AO3_DOWNLOAD_SLUG}{get_file_type(filetype)}')
+
+
+def get_work_number_from_filename(name: str) -> str | None:
+    """The ao3 work number a downloaded file's name starts with, or None.
+
+    The same rule the web page uses: digits at the very start, followed by a separator, so
+    a title that merely begins with digits is not mistaken for a work number. Keep this in
+    step with workIdFromFilename in the gui's bookmarks.ts.
+    """
+
+    base = str(name or '').split('/')[-1].split('\\')[-1]
+    match = re.match(r'^(\d+)(?:[\s_.\-]|$)', base)
+    return match.group(1) if match else None
+
+
+def get_date_from_filename(name: str) -> str | None:
+    """The YYYY-MM-DD stamp a downloaded file carries, or None if it has none.
+
+    Older files were saved before names carried a date. They are not out of date - there is
+    simply nothing recorded about which version they are - so they come back as None rather
+    than as an old date, and the caller decides what to do about that.
+    """
+
+    base = os.path.splitext(str(name or '').split('/')[-1].split('\\')[-1])[0]
+    match = re.search(r'(\d{4}-\d{2}-\d{2})$', base.strip())
+    return match.group(1) if match else None
 
 
 def get_file_type(filetype: str) -> str:
@@ -318,6 +401,22 @@ def get_title_dict(logs: list[dict]) -> dict[str, list[str]]:
             title = obj['title']
             if not isinstance(title, list): title = [title]
             dictionary[link] = title
+    return dictionary
+
+
+def get_date_dict(logs: list[dict]) -> dict[str, str]:
+    """The date suffix each logged work was last saved under, keyed by work link.
+
+    Pairs with get_title_dict: together they rebuild the exact name a download was written
+    as, which is what tells an existing file apart from a missing one.
+    """
+
+    dictionary = {}
+    for obj in logs:
+        link = obj.get('link')
+        if not link or link in dictionary: continue
+        if 'title' not in obj: continue
+        dictionary[link] = get_date_suffix(obj.get('updated', ''))
     return dictionary
 
 

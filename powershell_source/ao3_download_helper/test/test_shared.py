@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from source_code import strings
+from source_code import parse_text, strings
 from source_code.actions import shared
 from source_code.fileio import FileOps
 
@@ -332,5 +332,304 @@ def test_visited_returns_empty_when_no_log_and_no_ignorelist(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
 
     assert shared.visited(fo, ['EPUB']) == []
+
+# endregion
+
+
+# region scan_downloaded_works
+
+def make_file(folder, name: str) -> str:
+    path = folder / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b'x')
+    return str(path)
+
+
+def test_scan_finds_works_by_the_number_their_name_starts_with(tmp_path):
+    make_file(tmp_path, '34816549 No Paths - Cal 2024-12-14.html')
+    make_file(tmp_path, '99 Red Balloons 2020-01-02.epub')
+
+    found = shared.scan_downloaded_works(str(tmp_path), ['HTML', 'EPUB'])
+
+    assert sorted(found) == ['34816549', '99']
+    assert found['34816549']['HTML']['date'] == '2024-12-14'
+    assert found['99']['EPUB']['date'] == '2020-01-02'
+
+
+def test_scan_reports_an_undated_file_as_having_no_date(tmp_path):
+    make_file(tmp_path, '34816549 No Paths - Cal.html')
+
+    found = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+
+    assert found['34816549']['HTML']['date'] is None
+
+
+def test_scan_keeps_each_file_type_apart(tmp_path):
+    make_file(tmp_path, '34816549 A 2024-12-14.html')
+    make_file(tmp_path, '34816549 A 2024-12-14.epub')
+
+    found = shared.scan_downloaded_works(str(tmp_path), ['HTML', 'EPUB'])
+
+    assert sorted(found['34816549']) == ['EPUB', 'HTML']
+
+
+def test_scan_prefers_the_newest_when_a_work_has_two_copies_of_a_type(tmp_path):
+    make_file(tmp_path, '34816549 A 2023-01-01.html')
+    make_file(tmp_path, '34816549 A 2024-12-14.html')
+
+    found = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+
+    assert found['34816549']['HTML']['date'] == '2024-12-14'
+
+
+def test_scan_treats_an_undated_copy_as_older_than_a_dated_one(tmp_path):
+    make_file(tmp_path, '34816549 A.html')
+    make_file(tmp_path, '34816549 A 2024-12-14.html')
+
+    found = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+
+    assert found['34816549']['HTML']['date'] == '2024-12-14'
+
+
+def test_scan_ignores_the_metadata_folders(tmp_path):
+    # an index or collection file is not a downloaded work and carries no date by design
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '34816549 A.json'))
+    make_file(tmp_path, os.path.join(strings.COLLECTIONS_FOLDER_NAME, '111 c.json'))
+    make_file(tmp_path, os.path.join(strings.IMAGE_FOLDER_NAME, '34816549 A img000.png'))
+    make_file(tmp_path, '34816549 A 2024-12-14.html')
+
+    found = shared.scan_downloaded_works(str(tmp_path), ['HTML', 'JSON', 'PNG'])
+
+    assert list(found) == ['34816549']
+    assert list(found['34816549']) == ['HTML']
+
+
+def test_scan_ignores_files_that_do_not_start_with_a_work_number(tmp_path):
+    make_file(tmp_path, 'No Paths Are Bound.html')
+    make_file(tmp_path, '99Red Balloons.html')
+
+    assert shared.scan_downloaded_works(str(tmp_path), ['HTML']) == {}
+
+
+def test_scan_of_a_folder_that_is_not_there_is_empty(tmp_path):
+    assert shared.scan_downloaded_works(str(tmp_path / 'nope'), ['HTML']) == {}
+
+# endregion
+
+
+# region stamp_undated_works
+
+def real_fileops():
+    """A FileOps whose renaming is real, with nothing else wired up."""
+    fo = MagicMock()
+    fo.rename_file.side_effect = lambda a, b: FileOps.rename_file(fo, a, b)
+    return fo
+
+
+def test_dating_an_undated_file_renames_it_where_it_sits(tmp_path):
+    make_file(tmp_path, '34816549 No Paths - Cal.html')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+
+    result = shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+
+    assert result == {'renamed': 1, 'skipped': 0}
+    assert (tmp_path / '34816549 No Paths - Cal 2024-06-01.html').exists()
+    assert not (tmp_path / '34816549 No Paths - Cal.html').exists()
+
+
+def test_dating_updates_what_the_caller_holds_so_it_can_plan_straight_after(tmp_path):
+    make_file(tmp_path, '34816549 No Paths - Cal.html')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+
+    shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+
+    entry = existing['34816549']['HTML']
+    assert entry['date'] == '2024-06-01'
+    assert entry['path'].endswith('2024-06-01.html')
+
+
+def test_a_file_that_already_has_a_date_is_left_alone(tmp_path):
+    make_file(tmp_path, '34816549 No Paths - Cal 2020-01-01.html')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+
+    result = shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+
+    assert result == {'renamed': 0, 'skipped': 0}
+    assert (tmp_path / '34816549 No Paths - Cal 2020-01-01.html').exists()
+
+
+def test_dating_never_writes_over_a_file_that_is_already_there(tmp_path):
+    make_file(tmp_path, '34816549 A.html')
+    make_file(tmp_path, '34816549 A 2024-06-01.html')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+    # the undated one is the older of the two, so it is not what the scan kept
+    existing['34816549']['HTML'] = {'path': str(tmp_path / '34816549 A.html'), 'date': None}
+
+    result = shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+
+    assert result == {'renamed': 0, 'skipped': 1}
+    assert (tmp_path / '34816549 A.html').exists()
+    assert (tmp_path / '34816549 A 2024-06-01.html').read_bytes() == b'x'
+
+
+def test_a_long_name_is_cut_to_leave_room_for_the_date(tmp_path):
+    long_name = '34816549 No Paths Are Bound And Nothing Is Simple - Cal.html'
+    make_file(tmp_path, long_name)
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+
+    shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+
+    written = os.path.basename(existing['34816549']['HTML']['path'])
+    assert len(os.path.splitext(written)[0]) == 50
+    assert written.endswith(' 2024-06-01.html')
+    # still matchable and still readable as dated
+    assert parse_text.get_work_number_from_filename(written) == '34816549'
+    assert parse_text.get_date_from_filename(written) == '2024-06-01'
+
+
+def test_dating_keeps_each_file_type_separate(tmp_path):
+    make_file(tmp_path, '34816549 A.html')
+    make_file(tmp_path, '34816549 A.epub')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML', 'EPUB'])
+
+    result = shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+
+    assert result['renamed'] == 2
+    assert (tmp_path / '34816549 A 2024-06-01.html').exists()
+    assert (tmp_path / '34816549 A 2024-06-01.epub').exists()
+
+
+def test_a_rename_that_fails_is_counted_rather_than_raised(tmp_path):
+    make_file(tmp_path, '34816549 A.html')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+    fo = MagicMock()
+    fo.rename_file.return_value = False
+
+    result = shared.stamp_undated_works(fo, existing, '2024-06-01', 50)
+
+    assert result == {'renamed': 0, 'skipped': 1}
+    assert existing['34816549']['HTML']['date'] is None
+
+
+def test_a_dated_file_is_then_judged_by_the_ordinary_rule(tmp_path):
+    # the whole point: once it has a date, staleness needs no special case
+    make_file(tmp_path, '34816549 A.html')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+    shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+
+    records = [{'id': '34816549', 'link': 'https://ao3/works/34816549',
+                'date_updated': '20 Dec 2024'}]
+    plan = shared.plan_downloads(records, existing, ['HTML'])
+
+    assert plan['stale'] == ['https://ao3/works/34816549']
+    assert plan['undated'] == []
+
+
+def test_a_file_dated_later_than_ao3_is_not_fetched_again(tmp_path):
+    make_file(tmp_path, '34816549 A.html')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+    shared.stamp_undated_works(real_fileops(), existing, '2025-01-01', 50)
+
+    records = [{'id': '34816549', 'link': 'https://ao3/works/34816549',
+                'date_updated': '20 Dec 2024'}]
+    plan = shared.plan_downloads(records, existing, ['HTML'])
+
+    assert plan['stale'] == []
+
+# endregion
+
+
+# region plan_downloads
+
+def record(work: str, updated: str) -> dict:
+    return {'id': work, 'link': f'https://archiveofourown.org/works/{work}',
+            'date_updated': updated}
+
+
+def held(date, path='old.html') -> dict:
+    return {'HTML': {'path': path, 'date': date}}
+
+
+def test_a_work_updated_since_it_was_saved_is_fetched_again():
+    plan = shared.plan_downloads(
+        [record('1', '20 Dec 2024')], {'1': held('2024-12-14')}, ['HTML'])
+
+    assert plan['stale'] == ['https://archiveofourown.org/works/1']
+    assert plan['superseded']['https://archiveofourown.org/works/1']['HTML'] == 'old.html'
+
+
+def test_a_work_that_has_not_changed_is_left_alone():
+    plan = shared.plan_downloads(
+        [record('1', '14 Dec 2024')], {'1': held('2024-12-14')}, ['HTML'])
+
+    assert plan['stale'] == []
+    assert plan['superseded'] == {}
+
+
+def test_a_local_copy_newer_than_ao3_is_not_refetched():
+    plan = shared.plan_downloads(
+        [record('1', '01 Jan 2024')], {'1': held('2024-12-14')}, ['HTML'])
+
+    assert plan['stale'] == []
+
+
+def test_a_work_with_no_local_copy_is_not_listed_here():
+    # nothing to replace: it is downloaded by the ordinary 'not done yet' route
+    plan = shared.plan_downloads([record('1', '20 Dec 2024')], {}, ['HTML'])
+
+    assert plan['stale'] == []
+    assert plan['undated'] == []
+
+
+def test_an_undated_copy_is_counted_but_left_alone():
+    plan = shared.plan_downloads(
+        [record('1', '20 Dec 2024')], {'1': held(None)}, ['HTML'])
+
+    assert plan['stale'] == []
+    assert plan['undated'] == ['https://archiveofourown.org/works/1']
+    assert plan['superseded'] == {}
+
+
+def test_an_undated_copy_is_refetched_when_the_run_asks_for_it():
+    plan = shared.plan_downloads(
+        [record('1', '20 Dec 2024')], {'1': held(None)}, ['HTML'], refresh_undated=True)
+
+    assert plan['stale'] == ['https://archiveofourown.org/works/1']
+    assert plan['superseded']['https://archiveofourown.org/works/1']['HTML'] == 'old.html'
+
+
+def test_only_the_file_types_that_are_out_of_date_are_replaced():
+    # re-downloading the html must not mark the epub for removal
+    existing = {'1': {'HTML': {'path': 'old.html', 'date': '2024-01-01'},
+                      'EPUB': {'path': 'new.epub', 'date': '2024-12-20'}}}
+
+    plan = shared.plan_downloads([record('1', '20 Dec 2024')], existing, ['HTML', 'EPUB'])
+
+    replacing = plan['superseded']['https://archiveofourown.org/works/1']
+    assert replacing == {'HTML': 'old.html'}
+
+
+def test_a_file_type_this_run_did_not_ask_for_is_never_touched():
+    existing = {'1': {'HTML': {'path': 'old.html', 'date': '2024-01-01'},
+                      'EPUB': {'path': 'old.epub', 'date': '2024-01-01'}}}
+
+    plan = shared.plan_downloads([record('1', '20 Dec 2024')], existing, ['HTML'])
+
+    assert plan['superseded']['https://archiveofourown.org/works/1'] == {'HTML': 'old.html'}
+
+
+def test_a_work_whose_updated_date_cannot_be_read_is_left_alone():
+    plan = shared.plan_downloads(
+        [record('1', 'sometime')], {'1': held('2024-12-14')}, ['HTML'])
+
+    assert plan['stale'] == []
+
+
+def test_records_without_an_id_or_link_are_skipped():
+    plan = shared.plan_downloads(
+        [{'id': None, 'link': None, 'date_updated': '20 Dec 2024'}],
+        {'1': held('2024-01-01')}, ['HTML'])
+
+    assert plan == {'stale': [], 'undated': [], 'superseded': {}}
 
 # endregion

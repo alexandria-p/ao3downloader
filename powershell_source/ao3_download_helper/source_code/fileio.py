@@ -106,11 +106,60 @@ class FileOps:
             f.write('\n')
 
 
-    def save_bytes(self, filename: str, content: bytes) -> None:
+    def save_bytes(self, filename: str, content: bytes) -> str:
+        """Write a downloaded file, and say where it went.
+
+        The path is returned so a caller replacing an older copy can check the new one
+        really arrived before removing anything.
+        """
+
         file = os.path.join(self.downloadfolder, filename)
         os.makedirs(os.path.dirname(file), exist_ok=True)
         with open(file, 'wb') as f:
             f.write(content)
+        return file
+
+
+    def saved_intact(self, path: str, expected_size: int) -> bool:
+        """Whether a file really is on disk, at the full length it should be.
+
+        Deleting the copy a download replaces is only safe once this says yes. A run that
+        failed, was cut short, or wrote somewhere other than the folder in use must never
+        take the existing copy with it.
+        """
+
+        try:
+            return os.path.isfile(path) and os.path.getsize(path) == expected_size
+        except OSError:
+            return False
+
+
+    def rename_file(self, old: str, new: str) -> bool:
+        """Rename a file, reporting whether it worked.
+
+        Refuses to write over something already at the new name: os.replace would silently
+        destroy it. A file that cannot be renamed - open elsewhere, read only - is left
+        exactly as it is rather than raising.
+        """
+
+        try:
+            if os.path.exists(new): return False
+            os.rename(old, new)
+            return True
+        except OSError:
+            return False
+
+
+    def delete_file(self, path: str) -> bool:
+        """Remove a file, reporting whether it went. A file already gone counts as done."""
+
+        try:
+            os.remove(path)
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
 
 
     def load_json(self, filename: str) -> dict | None:
@@ -196,9 +245,13 @@ class FileOps:
         return logs
 
 
-    def file_exists(self, id: str, titles: dict[str, list[str]], filetypes: list[str], maximum: int) -> bool:
+    def file_exists(self, id: str, titles: dict[str, list[str]], filetypes: list[str],
+                    maximum: int, suffixes: dict[str, str] | None = None) -> bool:
         if id not in titles: return False
-        filename = parse_text.get_valid_filename(titles[id], maximum)
+        # downloaded works carry the date they were updated on, so the name has to be
+        # rebuilt with the same stamp or an existing file would look like a missing one
+        suffix = (suffixes or {}).get(id, '')
+        filename = parse_text.get_valid_filename(titles[id], maximum, suffix)
         files = list(map(lambda x: os.path.join(self.downloadfolder, filename + parse_text.get_file_type(x)), filetypes))
         for file in files:
             if not os.path.exists(file):

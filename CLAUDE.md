@@ -58,7 +58,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 **4 tests in `test/test_ao3.py::test_proceed_*` fail with `UnicodeDecodeError`.** They are
 pre-existing, present on the unmodified upstream code, and caused by fixtures being read
 with the platform default codec (cp1252 on Windows). Do not chase them; do not count them
-as regressions. Current: **680 python passed, 4 failed; 130 gui passed.**
+as regressions. Current: **803 python passed, 4 failed; 155 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -107,16 +107,52 @@ Ao3 limits on **how fast** requests arrive, not the total. The cost model:
 | Work | Requests |
 | --- | --- |
 | Indexing (JSON) | 1 per listing page = 1 per **20 works** |
-| Downloading a work | 1 for the work page, **plus 1 per format** |
+| Downloading a work (from the index) | **1 per format**, nothing else |
+| Downloading a work (the long way round) | 1 for the work page, plus 1 per format |
 | A collection's works | 1 per 20 works in it |
 
-**The work page is already fetched only once per fic.** `try_download` gets the soup, and
-`parse_soup.get_download_link` reads every format's href out of that same soup (`li.download
-a`). The remaining per-format cost is the file transfer itself, and that is irreducible:
-each format is a separate file at its own url, so PDF + HTML + EPUB is three transfers no
-matter what. Don't "optimise" this by re-fetching the page per format - that is the bug,
-not the fix. (An explicit-content work costs one extra page for the interstitial, via
-`proceed`.)
+The per-format transfer is irreducible: each format is a separate file at its own url, so
+PDF + HTML + EPUB is three transfers no matter what. Everything else was removable, and was
+removed - see below.
+
+### The download phase works from the index, not from ao3
+
+`Ao3.download_indexed` is the default path for a bookmarks run. It skips two things the
+crawl used to pay for: walking the listing a second time to rediscover links the index
+already holds, and fetching each work's page to read a download link that the work number
+already determines.
+
+`parse_text.get_direct_download_link` builds
+`https://download.archiveofourown.org/downloads/<id>/fic.<ext>`. Verified against the live
+site: the slug after the work number is ignored by ao3 (`fic` returns byte-identical
+content to the real title slug), the `updated_at` query is only a cache-buster, and the
+links on a work page redirect to this host anyway - so going direct also drops a redirect.
+
+**`repo.download_file` checks the response rather than trusting it.** A built link can
+point at a work that is deleted, restricted, or absent in that format; ao3 answers those
+with a page (verified: 404, `text/html`). Saving that under an `.epub` name would look
+downloaded and be unreadable, so a non-200 raises, and so does html arriving for a
+non-html format. Don't swap this back to plain `get_book`.
+
+`server.can_use_index` is the guard. Embedded images, series links and mark-as-read are all
+discovered *on* the work page, so asking for any of them falls back to `Ao3.download`. The
+other cost of the indexed path is that nothing reads the work page, so locked/deleted/hidden
+works are no longer recognised as such - they fail and are logged.
+
+### A run that leaves gaps says which ones
+
+`Ao3.failures` collects `{id, link, error}` for every work that would not download, from
+both download paths (`record_failure` is called in `download_indexed`'s and
+`download_work`'s except blocks). `run_bookmarks` emits it once at the end as a `failures`
+event, and the ui lists the first few and offers to save the lot as text.
+
+Two things it deliberately does not do: record a work more than once (a work that fails
+usually fails for every format, and a list with the same number five times over is useless
+for feeding back in), and treat a **stop** as a failure - `CancelledException` is re-raised
+before `record_failure`, because a work that was never attempted is not one that failed.
+
+The export is built in the page, not the helper: `failureReport()` returns the text and
+`exportFailures()` does the Blob/anchor work, which is what makes the content testable.
 
 So JSON is essentially free and everything else is not. `ExtraWaitTime` in settings.ini is
 the pacing knob (seconds after every request); `0` trips the limit almost immediately.
@@ -132,6 +168,16 @@ added and another removed; delete the collection's json to force a full crawl.
 `Ao3.start` is the page to begin on; `Ao3.pages` is the page to stop after. Both are
 **absolute** page numbers, so a run can cover a slice in the middle of a listing - which is
 how you pick up after a stopped run without refetching what you already have.
+
+`Ao3.page_progress` reports a page's place **in the slice being fetched**, not in the whole
+listing. A run over pages 42 to 80 is fetching 39 pages, and its first is page 1 of 39;
+reporting 42 of 80 started the progress bar half full and left it at 100% having fetched
+less than half the listing. The stop page counts too - 42 to 60 is 19 pages.
+
+A `page` event carries **both** sets of numbers on purpose: `page`/`total` are the slice
+and drive the bar, while `listingPage`/`listingTotal` are the real page numbers and are
+what the wording shows ("page 42 of 80" is the page you would go and look at). Don't
+collapse them back into one pair - each is wrong in the other's place.
 
 `get_metadata` keeps `source` as the bare listing url rather than the page it began on
 (`source` is an identity field, so a page suffix there would look like a different listing),
@@ -171,6 +217,61 @@ appends to `indexes` only when the snapshot actually changed, and always updates
 `last_indexed`. Two identity sets: `IDENTITY_FIELDS` for works, `COLLECTION_IDENTITY_FIELDS`
 for collections. `position` is identity, not history - a fic sliding down the bookmarks
 list is not a change to the fic.
+
+### Downloaded works carry the version they hold
+
+A downloaded work's name ends in ` YYYY-MM-DD` - **the date ao3 says the work was last
+updated**, not the date it was fetched. That is what lets a later run tell that ao3 has a
+newer version than the file on disk.
+
+**The naming is fixed, not a setting.** `strings.FILE_NAME_PATTERN` is
+`{worknum} {title} - {author}`, with the date appended after it. `FileNamePattern` used to
+be in settings.ini and was removed: the work number has to lead for files to be matched to
+the index, and the date has to trail for the version check to work, so the only freely
+movable parts were the ones that mattered least. `FileNameLength` *is* still a setting - it
+exists to keep names under Windows' path limit. `server.read_settings` reports the rule and
+an example (built through the real truncation) so the ui can show it instead.
+
+`parse_text.get_valid_filename(parts, maximum, suffix)` cuts the *title* short to leave
+room for the stamp, so the date is never the thing that gets truncated. `get_date_stamp`
+parses both forms ao3 writes ('14 Dec 2024' on a listing, '2024-12-14' on a work page) and
+returns `''` for anything else - it must never be the reason a download fails, so it is
+also type-safe against a non-string.
+
+**Json index files are deliberately undated.** An index file *is* the version history for
+its fic; a name that changed whenever the fic did would start a new file and orphan
+everything recorded so far. `save_metadata` passes no suffix - keep it that way.
+
+The log records `updated` alongside `title`, and `shared.visited` rebuilds the stamp
+through `parse_text.get_date_dict` when asking whether a file is already there. Without
+that, every existing file looks missing and the console re-downloads the world.
+
+### Replacing a copy is guarded, on purpose
+
+`Ao3.replace_superseded` deletes the file a download supersedes only when **all** of:
+the same file type is being replaced, the name actually changed, and `fileops.saved_intact`
+confirms the new file is on disk at its full length. Anything else leaves the old file
+alone. The failure mode being designed against is losing a file the user has and we do not,
+so every one of those conditions is load-bearing - `test_ao3.py` has a test per condition
+and two that operate on real files.
+
+`shared.scan_downloaded_works` reads the folder as it is (matching by leading work number,
+skipping `indexing/`, `collections/` and `images/`) rather than trusting the log, and
+`shared.plan_downloads` turns that plus the index into `{stale, undated, superseded}`.
+Undated files are counted but never refetched unless `refreshUndated` is set, which only
+the ui's post-run offer does - it is a full re-download of a library.
+
+The third way out of undated files is `stampUndated`, a `YYYY-MM-DD` the ui offers instead
+of refetching. `shared.stamp_undated_works` renames those files in place to carry it -
+**no requests at all** - and updates the scan dict it was given, so `plan_downloads` runs
+straight afterwards and judges them by the ordinary rule with no special case. It cuts long
+names down exactly as `get_valid_filename` would, and `fileops.rename_file` refuses to
+write over an existing file (`os.replace` would silently destroy it), so collisions are
+counted and skipped rather than losing anything.
+
+`resolve_options` runs the value through `parse_text.get_date_stamp`, so anything that is
+not a real date becomes `''` and nothing is renamed - a library must not be renamed after a
+half-understood date.
 
 ### Pairing downloaded files to metadata
 

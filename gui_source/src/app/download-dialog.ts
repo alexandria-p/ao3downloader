@@ -1,5 +1,6 @@
 import { Component, OnDestroy, computed, inject, input, output, signal } from '@angular/core';
-import { JobAction, JobEvent, Jobs } from './jobs';
+import { DecimalPipe } from '@angular/common';
+import { JobAction, JobEvent, Jobs, WorkFailure } from './jobs';
 
 type Step = 'link' | 'filetypes' | 'options' | 'credentials' | 'running' | 'done' | 'failed';
 
@@ -12,6 +13,7 @@ const MAX_LOG = 200;
 
 @Component({
   selector: 'app-download-dialog',
+  imports: [DecimalPipe],
   templateUrl: './download-dialog.html',
   styleUrl: './download-dialog.css',
 })
@@ -61,6 +63,22 @@ export class DownloadDialog implements OnDestroy {
 
   protected readonly cancelling = signal(false);
   protected readonly wasCancelled = signal(false);
+
+  /** works ao3 has updated since they were saved, which this run is fetching again */
+  protected readonly staleCount = signal(0);
+  /** works saved before file names carried a date, which cannot be judged either way */
+  protected readonly undatedCount = signal(0);
+  /** set when this run was started to refresh those undated works */
+  protected readonly refreshUndated = signal(false);
+  /** existing files this run gave a date to, by renaming them */
+  protected readonly stampedCount = signal(0);
+  /** works this run could not download */
+  protected readonly failures = signal<WorkFailure[]>([]);
+  /** the date to write onto undated files, when that is what was chosen */
+  protected readonly stampUndated = signal('');
+  /** whether the 'give them a date' half of the offer is showing */
+  protected readonly choosingDate = signal(false);
+  protected readonly stampDate = signal(today());
 
   private jobId: string | null = null;
   private stop: (() => void) | null = null;
@@ -277,6 +295,11 @@ export class DownloadDialog implements OnDestroy {
     this.signedInAs.set('');
     this.cancelling.set(false);
     this.wasCancelled.set(false);
+    this.staleCount.set(0);
+    this.undatedCount.set(0);
+    this.stampedCount.set(0);
+    this.choosingDate.set(false);
+    this.failures.set([]);
 
     let jobId: string;
     try {
@@ -289,6 +312,8 @@ export class DownloadDialog implements OnDestroy {
           series: this.series(),
           images: this.images(),
           workdates: this.workdates(),
+          refreshUndated: this.refreshUndated(),
+          stampUndated: this.stampUndated(),
         },
         username: this.username().trim(),
         password: this.password(),
@@ -328,13 +353,18 @@ export class DownloadDialog implements OnDestroy {
         this.currentTitle.set('');
         this.currentFiletype.set('');
         break;
-      case 'page':
+      case 'page': {
+        // the bar measures the slice being fetched, so it runs 1..n and ends full
         if (event.total) this.percent.set(Math.round(((event.page ?? 0) / event.total) * 100));
+        // the words say where that is in the listing itself - the page you would go and look at
+        const where = event.listingPage ?? event.page;
+        const outOf = event.listingTotal ?? event.total;
         this.summary.set(
-          `page ${event.page ?? '?'} of ${event.total}` +
+          `page ${where ?? '?'} of ${outOf ?? '?'}` +
             (event.works !== undefined ? ` - ${event.works} works so far` : ''),
         );
         break;
+      }
       case 'work':
         if (event.total) this.percent.set(Math.round(((event.done ?? 0) / event.total) * 100));
         if (event.title) {
@@ -359,6 +389,14 @@ export class DownloadDialog implements OnDestroy {
       case 'authenticated':
         this.loginVerified.set(true);
         this.signedInAs.set(event.username ?? '');
+        break;
+      case 'refresh':
+        this.staleCount.set(event.stale ?? 0);
+        this.undatedCount.set(event.undated ?? 0);
+        this.stampedCount.set(event.stamped ?? 0);
+        break;
+      case 'failures':
+        this.failures.set(event.failures ?? []);
         break;
       case 'message':
         if (event.text) this.append(event.text);
@@ -434,10 +472,92 @@ export class DownloadDialog implements OnDestroy {
 
   // endregion
 
+  /**
+   * Run again, this time fetching the works whose files carry no date.
+   *
+   * Back to the login rather than straight into it: the password was handed to the helper
+   * and deliberately not kept, so it has to be given again.
+   */
+  protected refreshUndatedWorks(): void {
+    this.refreshUndated.set(true);
+    this.step.set('credentials');
+  }
+
+  protected setStampDate(value: string): void {
+    this.stampDate.set(value);
+  }
+
+  /** whether what has been typed is a date this can actually be run with */
+  protected readonly stampDateIsValid = computed(() => isDate(this.stampDate()));
+
+  /**
+   * Write the chosen date onto the undated files instead of fetching them again.
+   *
+   * Nothing is downloaded to do this - the files are renamed where they sit - but it runs
+   * as part of a bookmarks run so that the ordinary rule can take over immediately: any
+   * work ao3 has updated since that date is fetched on the same pass.
+   */
+  protected dateUndatedWorks(): void {
+    if (!this.stampDateIsValid()) return;
+    this.stampUndated.set(this.stampDate());
+    this.step.set('credentials');
+  }
+
+  /** the failed works as the text that gets saved - kept apart from the saving itself */
+  protected failureReport(): string {
+    const rows = this.failures();
+    const lines = [
+      `# ${rows.length} work${rows.length === 1 ? '' : 's'} that could not be downloaded`,
+      `# ${new Date().toISOString()}`,
+      '# work id, link, reason - tab separated',
+      ...rows.map((row) =>
+        [row.id ?? '', row.link ?? '', (row.error ?? '').replace(/\s+/g, ' ')].join('\t'),
+      ),
+    ];
+    return lines.join('\n') + '\n';
+  }
+
+  /**
+   * Hand the list of failed works over as a text file.
+   *
+   * Done in the page rather than by the helper: it is a few lines the browser can save
+   * directly, so it does not need a round trip or a second thing that writes to disk.
+   */
+  protected exportFailures(): void {
+    if (!this.failures().length) return;
+
+    const blob = new Blob([this.failureReport()], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `failed-downloads-${new Date().toISOString().slice(0, 10)}.txt`;
+    link.click();
+    // the save has its own copy once started, so the handle can go
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
   protected close(): void {
     if (this.step() === 'running') return; // the guard message explains why
     this.closed.emit();
   }
+}
+
+/**
+ * Today in UTC, as YYYY-MM-DD - the default answer to "which version are these?".
+ *
+ * UTC rather than local time so the default does not depend on which side of midnight the
+ * machine's timezone happens to be, and so it matches the stamps written elsewhere. Being
+ * a day out either way only moves the staleness boundary by a day, which is harmless.
+ */
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** a real calendar date written as YYYY-MM-DD, not merely something shaped like one */
+function isDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? '')) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function safeGet(key: string): string {

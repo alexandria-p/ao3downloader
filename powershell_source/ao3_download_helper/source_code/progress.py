@@ -19,6 +19,11 @@ AUTHENTICATED = 'authenticated'
 PAGE = 'page'
 WORK = 'work'
 MESSAGE = 'message'
+# how many downloaded works ao3 has updated since they were saved, and how many were saved
+# before file names carried a date and so cannot be judged either way
+REFRESH = 'refresh'
+# works the run could not download, sent once at the end so the gaps can be named
+FAILURES = 'failures'
 PAUSED = 'paused'
 RESUMED = 'resumed'
 FINISHED = 'finished'

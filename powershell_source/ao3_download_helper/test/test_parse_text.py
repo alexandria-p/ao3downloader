@@ -451,6 +451,110 @@ def test_get_unsuccessful_downloads_empty_list():
 # endregion
 
 
+# region the date stamp on a downloaded file
+
+@pytest.mark.parametrize('text,expected', [
+    ('14 Dec 2024', '2024-12-14'),          # a listing blurb
+    ('2024-12-14', '2024-12-14'),           # a work page's status line
+    ('Updated: 2024-12-14', '2024-12-14'),  # ...sometimes with a label on it
+    ('14 December 2024', '2024-12-14'),
+    ('  14 Dec 2024  ', '2024-12-14'),
+])
+def test_get_date_stamp_reads_the_dates_ao3_writes(text, expected):
+    assert parse_text.get_date_stamp(text) == expected
+
+
+@pytest.mark.parametrize('text', ['', None, 'not a date', 'sometime', '99 Xyz 2024', 42, {}])
+def test_get_date_stamp_gives_nothing_rather_than_a_wrong_date(text):
+    # a date is a nicety on a file name and must never be why a download fails
+    assert parse_text.get_date_stamp(text) == ''
+
+
+def test_get_date_suffix_is_the_stamp_with_its_separator():
+    assert parse_text.get_date_suffix('14 Dec 2024') == ' 2024-12-14'
+    assert parse_text.get_date_suffix('not a date') == ''
+
+
+@pytest.mark.parametrize('name,expected', [
+    ('34816549 No Paths Are Bound - Cal 2024-12-14.html', '2024-12-14'),
+    ('34816549 No Paths Are Bound - Cal 2024-12-14.epub', '2024-12-14'),
+    (r'downloads\sub\34816549 A 2024-12-14.pdf', '2024-12-14'),
+    ('34816549 No Paths Are Bound - Cal.html', None),
+    ('34816549 A Fic About 2024-12-14 Being A Date.html', None),
+    ('', None),
+])
+def test_get_date_from_filename_reads_only_a_trailing_stamp(name, expected):
+    assert parse_text.get_date_from_filename(name) == expected
+
+
+@pytest.mark.parametrize('name,expected', [
+    ('34816549 No Paths - Cal 2024-12-14.html', '34816549'),
+    ('34816549.epub', '34816549'),
+    ('34816549_something.pdf', '34816549'),
+    ('99 Red Balloons.html', '99'),
+    # deliberately not a work number: nothing separates the digits from the title
+    ('99Red Balloons.html', None),
+    ('No Paths 34816549.html', None),
+])
+def test_get_work_number_from_filename_matches_the_documented_rule(name, expected):
+    assert parse_text.get_work_number_from_filename(name) == expected
+
+# endregion
+
+
+# region get_valid_filename with a date on the end
+
+SUFFIX = ' 2024-12-14'
+
+
+def test_the_date_survives_a_title_too_long_to_fit():
+    name = parse_text.get_valid_filename(
+        ['34816549 No Paths Are Bound And Nothing Is Ever Simple - Cataclysmic_Cal'], 50, SUFFIX)
+
+    assert len(name) == 50
+    assert name.endswith(SUFFIX)
+    # the work number still leads, so the file can still be matched to its index entry
+    assert parse_text.get_work_number_from_filename(name) == '34816549'
+
+
+def test_a_short_title_keeps_all_of_itself_and_the_date():
+    assert parse_text.get_valid_filename(['34816549 Short - Cal'], 50, SUFFIX) == \
+        '34816549 Short - Cal 2024-12-14'
+
+
+def test_no_suffix_leaves_names_exactly_as_they_were():
+    assert parse_text.get_valid_filename(['34816549 Short - Cal'], 50) == '34816549 Short - Cal'
+
+
+def test_only_the_file_name_is_dated_not_the_folders_above_it():
+    name = parse_text.get_valid_filename(
+        ['A Fandom', '34816549 Some Very Long Title Indeed Here - Cal'], 50, SUFFIX)
+
+    folder, _, filename = name.rpartition(os.sep)
+    assert folder == 'A Fandom'
+    assert filename.endswith(SUFFIX)
+    assert len(filename) == 50
+
+
+def test_a_title_that_sanitises_away_still_gets_a_dated_name():
+    assert parse_text.get_valid_filename([''], 50, SUFFIX) == '2024-12-14'
+
+
+def test_no_length_limit_means_the_whole_title_and_the_date():
+    name = parse_text.get_valid_filename(['34816549 A Very Long Title Indeed - Cal'], 0, SUFFIX)
+
+    assert name == '34816549 A Very Long Title Indeed - Cal 2024-12-14'
+
+
+def test_the_date_is_never_the_thing_that_gets_cut():
+    # a limit shorter than the stamp itself still keeps the stamp whole
+    name = parse_text.get_valid_filename(['34816549 Something'], 5, SUFFIX)
+
+    assert name.endswith('2024-12-14')
+
+# endregion
+
+
 # region set_page_number
 
 def test_set_page_number_adds_a_querystring_when_there_is_none():
@@ -479,6 +583,33 @@ def test_set_page_number_round_trips_with_get_page_number():
     link = parse_text.set_page_number('https://example.com/foo?a=1', 7)
 
     assert parse_text.get_page_number(link) == 7
+
+# endregion
+
+
+# region get_direct_download_link
+
+def test_a_download_link_is_built_from_the_work_number_alone():
+    assert parse_text.get_direct_download_link('92361536', 'HTML') == \
+        'https://download.archiveofourown.org/downloads/92361536/fic.html'
+
+
+@pytest.mark.parametrize('filetype,extension', [
+    ('AZW3', '.azw3'), ('EPUB', '.epub'), ('MOBI', '.mobi'),
+    ('PDF', '.pdf'), ('HTML', '.html'),
+])
+def test_every_format_hangs_off_the_same_link(filetype, extension):
+    link = parse_text.get_direct_download_link('92361536', filetype)
+
+    assert link.endswith('/92361536/fic' + extension)
+
+
+def test_the_link_goes_to_the_download_host_rather_than_the_site():
+    # the links on a work page point at the site and redirect here; going straight there
+    # saves the redirect
+    link = parse_text.get_direct_download_link('92361536', 'EPUB')
+
+    assert link.startswith('https://download.archiveofourown.org/')
 
 # endregion
 

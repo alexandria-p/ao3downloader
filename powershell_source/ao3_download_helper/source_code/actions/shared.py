@@ -76,9 +76,12 @@ def visited(fileops: FileOps, filetypes: list[str]) -> list[str]:
     if logs:
         print(strings.AO3_INFO_VISITED)
         titles = parse_text.get_title_dict(logs)
+        # a downloaded work's name ends in the date it was updated on, so the stamp has to
+        # be rebuilt too or every existing file would look like one that is missing
+        suffixes = parse_text.get_date_dict(logs)
         maximum = fileops.get_ini_value_integer(strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
-        visited = list({x for x in titles if 
-            fileops.file_exists(x, titles, filetypes, maximum)})
+        visited = list({x for x in titles if
+            fileops.file_exists(x, titles, filetypes, maximum, suffixes)})
     if os.path.exists(strings.IGNORELIST_FILE_NAME):
         with open(strings.IGNORELIST_FILE_NAME, 'r', encoding='utf-8') as f: 
                 visited.extend([x[:x.find('; ')] for x in f.readlines()])
@@ -280,6 +283,141 @@ def get_files_of_type(folder: str, filetypes: list[str]) -> list[dict[str, str]]
                 results.append({'path': path, 'filetype': filetype})
     print(strings.UPDATE_INFO_NUM_RETURNED.format(len(results)))
     return results
+
+
+def scan_downloaded_works(folder: str, filetypes: list[str]) -> dict[str, dict[str, dict]]:
+    """Every downloaded work in the folder, by work number and then file type.
+
+    Files are matched to a work by the number their name starts with - the same rule the
+    web page uses - so this reads the folder as it actually is rather than trusting the log
+    to describe it. The metadata folders are skipped: an index or collection file is not a
+    downloaded work, and its name carries no date by design.
+
+    Each entry is {'path': ..., 'date': 'YYYY-MM-DD' or None}. A date of None means the
+    file was saved before names carried one, so which version it holds is unknown.
+    """
+
+    found: dict[str, dict[str, dict]] = {}
+    if not folder or not os.path.isdir(folder): return found
+
+    skip = {strings.INDEXING_FOLDER_NAME, strings.COLLECTIONS_FOLDER_NAME,
+            strings.IMAGE_FOLDER_NAME}
+    wanted = {x.upper() for x in filetypes}
+
+    for subdir, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if d not in skip]
+        for file in files:
+            filetype = os.path.splitext(file)[1].upper()[1:]
+            if filetype not in wanted: continue
+            work = parse_text.get_work_number_from_filename(file)
+            if not work: continue
+
+            entry = {'path': os.path.join(subdir, file),
+                     'date': parse_text.get_date_from_filename(file)}
+            existing = found.setdefault(work, {}).get(filetype)
+            # more than one copy of the same type means an older one is still lying about;
+            # the newest date is the one that counts, and an undated file is the oldest
+            if existing is None or (entry['date'] or '') > (existing['date'] or ''):
+                found[work][filetype] = entry
+
+    return found
+
+
+def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
+                        stamp: str, maximum: int) -> dict:
+    """Write a date onto the files that have none, by renaming them where they sit.
+
+    This is the middle road between leaving files that predate dated names alone and
+    fetching every one of them again: it says "treat what I have as the version from this
+    date". Nothing is downloaded, nothing leaves the machine, and once the files carry a
+    date the ordinary rule takes over - anything ao3 has updated since then is fetched
+    again on this same run.
+
+    `existing` is updated in place, so the caller can plan from it straight afterwards.
+
+    Two things it will not do: overwrite a file that is already there, and lose characters
+    without saying so. The base name is cut to leave room for the date, exactly as a fresh
+    download would be, so a long name comes out shorter than it went in.
+    """
+
+    suffix = ' ' + stamp
+    renamed = 0
+    skipped = 0
+
+    for work, types in existing.items():
+        for filetype, entry in types.items():
+            if entry['date'] is not None: continue
+
+            old = entry['path']
+            folder, name = os.path.split(old)
+            base, extension = os.path.splitext(name)
+            room = max(1, maximum - len(suffix)) if maximum > 0 else 0
+            trimmed = base[:room].strip() if room else base.strip()
+            new = os.path.join(folder, trimmed + suffix + extension)
+
+            if os.path.exists(new):
+                # something is already called that. renaming would destroy it
+                skipped += 1
+                continue
+            if not fileops.rename_file(old, new):
+                skipped += 1
+                continue
+
+            entry['path'] = new
+            entry['date'] = stamp
+            renamed += 1
+
+    return {'renamed': renamed, 'skipped': skipped}
+
+
+def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
+                   filetypes: list[str], refresh_undated: bool = False) -> dict:
+    """Work out which already-downloaded works this run should fetch again.
+
+    A work is out of date when ao3 says it was updated after the date on the file we hold.
+    Works with no local copy are not listed here - they are downloaded anyway, by the usual
+    'not visited yet' route.
+
+    A file saved before names carried a date cannot be judged either way, so by default it
+    is left alone and only counted. `refresh_undated` treats those as out of date too,
+    which is what the ui's offer to refresh them does.
+
+    Returns the links to re-fetch, the links that are merely undated, and the exact file
+    each download will replace - {link: {FILETYPE: path}} - so nothing is removed on a guess.
+    """
+
+    stale: list[str] = []
+    undated: list[str] = []
+    superseded: dict[str, dict[str, str]] = {}
+
+    for record in records:
+        work = record.get('id')
+        link = record.get('link')
+        if not work or not link: continue
+
+        have = existing.get(str(work))
+        if not have: continue
+
+        current = parse_text.get_date_stamp(record.get('date_updated') or '')
+        replacing: dict[str, str] = {}
+        is_undated = False
+
+        for filetype in filetypes:
+            copy = have.get(filetype.upper())
+            if not copy: continue
+            if copy['date'] is None:
+                is_undated = True
+                if refresh_undated: replacing[filetype] = copy['path']
+            elif current and copy['date'] < current:
+                replacing[filetype] = copy['path']
+
+        if replacing:
+            stale.append(link)
+            superseded[link] = replacing
+        elif is_undated:
+            undated.append(link)
+
+    return {'stale': stale, 'undated': undated, 'superseded': superseded}
 
 
 def get_last_page_downloaded(fileops: FileOps) -> str | None:

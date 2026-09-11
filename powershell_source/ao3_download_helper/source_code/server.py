@@ -99,7 +99,28 @@ def resolve_options(requested) -> dict:
         'series': bool(given.get('series')),
         'images': bool(given.get('images')),
         'workdates': bool(given.get('workdates')),
+        # fetch again the works whose files predate names carrying a date. off by default:
+        # they cannot be judged out of date, and refetching a whole library is expensive.
+        'refreshUndated': bool(given.get('refreshUndated')),
+        # instead of refetching those, write this date onto them and carry on. anything ao3
+        # has updated since it is then fetched by the ordinary rule. '' means don't.
+        'stampUndated': parse_text.get_date_stamp(given.get('stampUndated') or ''),
     }
+
+
+def example_file_name(maximum: int) -> str:
+    """The naming rule shown as an actual name.
+
+    Built through the same truncation a real download goes through, so the example shows
+    what the configured length really does rather than claiming something tidier.
+    """
+
+    worknum, title, author, date = strings.FILE_NAME_EXAMPLE_PARTS
+    name = (strings.FILE_NAME_PATTERN
+            .replace('{worknum}', worknum)
+            .replace('{title}', title)
+            .replace('{author}', author))
+    return parse_text.get_valid_filename([name], maximum, ' ' + date) + '.html'
 
 
 def read_settings(fileops: FileOps) -> dict:
@@ -114,10 +135,14 @@ def read_settings(fileops: FileOps) -> dict:
         'file': os.path.abspath(fileops.inifile),
         'downloadFolder': os.path.abspath(fileops.downloadfolder),
         'extraWaitTime': fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0),
-        'fileNamePattern': fileops.get_ini_value(
-            strings.INI_NAME_PATTERN, strings.INI_DEFAULT_NAME_PATTERN),
+        # not a setting any more, but still worth showing: it is how every file is named,
+        # and the date on the end is what later runs read to spot an outdated copy
+        'fileNamePattern': strings.FILE_NAME_PATTERN + ' ' + strings.DATE_STAMP_PLACEHOLDER,
         'fileNameLength': fileops.get_ini_value_integer(
             strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH),
+        'fileNameExample': example_file_name(
+            fileops.get_ini_value_integer(strings.INI_NAME_LENGTH,
+                                          strings.INI_DEFAULT_NAME_LENGTH)),
         'maxRetries': fileops.get_ini_value_integer(strings.INI_MAX_RETRIES, 0),
         'maxTimeouts': fileops.get_ini_value_integer(strings.INI_MAX_TIMEOUTS, 3),
         'debugLogging': fileops.get_ini_value_boolean(strings.INI_DEBUG_LOGGING, False),
@@ -221,23 +246,97 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
     start = job.options['start']
 
-    visited = shared.visited(fileops, downloadtypes) if downloadtypes else []
     ao3 = Ao3(repo, fileops, downloadtypes, pages, job.options['series'],
               job.options['images'], progress=report, cancelled=job.cancel.is_set,
               start=start)
 
     # indexing first: every bookmark gets its json before any work is downloaded, so an
     # interrupted run still leaves a complete index of what is bookmarked.
+    records: list[dict] = []
     if metadata:
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
-        ao3.get_metadata(link, job.options['workdates'])
+        records = ao3.get_metadata(link, job.options['workdates'])
 
     if downloadtypes and not job.cancel.is_set():
+        visited = shared.visited(fileops, downloadtypes)
+        # the index is what says how recently each work was updated, so this can only be
+        # judged once indexing has run
+        plan = plan_refresh(job, fileops, records, downloadtypes, report)
+        # an out-of-date copy is not 'already downloaded', so it must not be skipped
+        visited = [x for x in visited if x not in set(plan['stale'])]
+        ao3.superseded = plan['superseded']
+
         progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
         print(strings.AO3_INFO_DOWNLOADING)
-        # the download walks the same listing, so it begins on the same page
-        ao3.download(parse_text.set_page_number(link, start), visited)
+
+        if can_use_index(job, records):
+            # the index already knows every work number, so neither the listing nor each
+            # work's page has to be read again
+            ao3.download_indexed(records, visited)
+        else:
+            # the download walks the same listing, so it begins on the same page
+            ao3.download(parse_text.set_page_number(link, start), visited)
+
+        # a run that leaves gaps should say which works they were, rather than leaving it
+        # to be worked out from the log afterwards
+        if ao3.failures:
+            print(strings.AO3_INFO_FAILED_WORKS.format(len(ao3.failures)))
+            progress.report(report, progress.FAILURES, failures=ao3.failures)
+
+
+def can_use_index(job: Job, records: list[dict]) -> bool:
+    """Whether the download phase can work from the index instead of crawling ao3 again.
+
+    It needs an index to work from, and none of the things only a work page can give:
+    embedded images are found on it, marking as read posts from it, and series links are
+    discovered through it. Asking for any of those means going the long way round.
+    """
+
+    if not records: return False
+    if job.options['images']: return False
+    if job.options['series']: return False
+    return True
+
+
+def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
+                 downloadtypes: list[str], report) -> dict:
+    """Which downloaded works ao3 has updated since they were saved.
+
+    Reports both counts to the ui: the works that are out of date and will be fetched
+    again, and the ones saved before file names carried a date, which cannot be judged and
+    so are left alone unless the run was asked to refresh them.
+    """
+
+    if not records:
+        return {'stale': [], 'undated': [], 'superseded': {}}
+
+    existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
+
+    # dating the undated files first means the ordinary rule can judge them from here on,
+    # so nothing below has to treat them as a special case
+    stamped = 0
+    stamp = job.options['stampUndated']
+    if stamp:
+        maximum = fileops.get_ini_value_integer(
+            strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+        result = shared.stamp_undated_works(fileops, existing, stamp, maximum)
+        stamped = result['renamed']
+        print(strings.AO3_INFO_STAMPED.format(stamped, stamp))
+        if result['skipped']:
+            print(strings.AO3_INFO_STAMP_SKIPPED.format(result['skipped']))
+
+    plan = shared.plan_downloads(records, existing, downloadtypes,
+                                 refresh_undated=job.options['refreshUndated'])
+
+    if plan['stale']:
+        print(strings.AO3_INFO_OUT_OF_DATE.format(len(plan['stale'])))
+    if plan['undated']:
+        print(strings.AO3_INFO_UNDATED.format(len(plan['undated'])))
+
+    progress.report(report, progress.REFRESH, stale=len(plan['stale']),
+                    undated=len(plan['undated']), stamped=stamped)
+    return plan
 
 
 def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> None:

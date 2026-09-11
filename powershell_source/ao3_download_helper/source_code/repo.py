@@ -107,6 +107,30 @@ class Repository:
         return response
 
 
+    def download_file(self, url: str, filetype: str) -> bytes:
+        """Fetch a work file from a link built rather than read off the work page.
+
+        Because the link is constructed from the work number, it can point at a work that
+        has been deleted, made restricted, or was never available in that format. Ao3
+        answers those with a page, and saving that page under an .epub name would be worse
+        than failing outright - the file would look downloaded and be unreadable.
+        """
+
+        response = self.my_request('GET', url)
+
+        if response.status_code != codes['ok']:
+            raise exceptions.DownloadException(strings.ERROR_NOT_A_WORK_FILE)
+
+        # html is the one format where a page and a file look alike, so it is judged on the
+        # status alone; for the rest, html coming back means something went wrong
+        if filetype.upper() != 'HTML':
+            content_type = (response.headers.get('Content-Type') or '').lower()
+            if 'text/html' in content_type:
+                raise exceptions.DownloadException(strings.ERROR_NOT_A_WORK_FILE)
+
+        return response.content
+
+
     def my_request(self, method: str, url: str, data: dict[str, str] | None = None) -> requests.Response:
         """Get response from a url."""
 

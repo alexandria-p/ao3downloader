@@ -13,8 +13,9 @@ const CONFIG: ServerConfig = {
     file: 'C:\\app\\config\\settings.ini',
     downloadFolder: 'C:\\app\\my_downloads',
     extraWaitTime: 15,
-    fileNamePattern: '{worknum} {title} - {author}',
+    fileNamePattern: '{worknum} {title} - {author} {date updated}',
     fileNameLength: 50,
+    fileNameExample: '34816549 No Paths Are Bound - Cataclys 2026-08-23.html',
     maxRetries: 0,
     maxTimeouts: 3,
     debugLogging: false,
@@ -201,6 +202,8 @@ describe('DownloadDialog', () => {
       series: true,
       images: true,
       workdates: false,
+      refreshUndated: false,
+      stampUndated: '',
     });
   });
 
@@ -274,6 +277,289 @@ describe('DownloadDialog', () => {
     button('Start download')?.click();
     await fixture.whenStable();
   }
+
+  // endregion
+
+  // region works that would not download
+
+  const FAILURES = [
+    { id: '111', link: 'https://archiveofourown.org/works/111', error: 'deleted' },
+    { id: '222', link: 'https://archiveofourown.org/works/222', error: 'locked' },
+  ];
+
+  async function finishWithFailures(failures = FAILURES): Promise<void> {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'failures', failures });
+    jobs.push!({ type: 'finished', cancelled: false });
+    await fixture.whenStable();
+  }
+
+  it('says which works could not be downloaded', async () => {
+    await finishWithFailures();
+
+    const shown = element.querySelector('.failures')?.textContent ?? '';
+    expect(shown).toContain('2');
+    expect(shown).toContain('111');
+    expect(shown).toContain('222');
+    expect(shown).toContain('deleted');
+  });
+
+  it('makes clear the rest of the run still succeeded', async () => {
+    await finishWithFailures();
+
+    expect(element.querySelector('.failures')?.textContent).toContain(
+      'Everything else was saved',
+    );
+  });
+
+  it('links a failed work so it can be looked up', async () => {
+    await finishWithFailures();
+
+    const link = element.querySelector<HTMLAnchorElement>('.failed-list a')!;
+    expect(link.getAttribute('href')).toBe('https://archiveofourown.org/works/111');
+  });
+
+  it('says nothing about failures when every work came down', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'finished', cancelled: false });
+    await fixture.whenStable();
+
+    expect(element.querySelector('.failures')).toBeNull();
+  });
+
+  it('does not list every one of a long list, but says how many there are', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      id: String(i), link: `https://archiveofourown.org/works/${i}`, error: 'gone',
+    }));
+
+    await finishWithFailures(many);
+
+    expect(element.querySelectorAll('.failed-list li')).toHaveLength(5);
+    expect(element.querySelector('.failures')?.textContent).toContain('7 more');
+  });
+
+  it('offers to export the list', async () => {
+    await finishWithFailures();
+
+    expect(button('Export the list')).toBeTruthy();
+  });
+
+  it('exports the work numbers, links and reasons', async () => {
+    await finishWithFailures();
+
+    const report = (fixture.componentInstance as unknown as {
+      failureReport(): string;
+    }).failureReport();
+
+    const lines = report.trim().split('\n');
+    expect(lines[0]).toContain('2 works');
+    expect(lines.at(-2)).toBe('111\thttps://archiveofourown.org/works/111\tdeleted');
+    expect(lines.at(-1)).toBe('222\thttps://archiveofourown.org/works/222\tlocked');
+  });
+
+  it('keeps an error that spans lines on one line of the export', async () => {
+    // one work per line is the point: it has to stay feedable back in
+    await finishWithFailures([
+      { id: '111', link: 'https://archiveofourown.org/works/111', error: 'went\n  wrong' },
+    ]);
+
+    const report = (fixture.componentInstance as unknown as {
+      failureReport(): string;
+    }).failureReport();
+
+    expect(report.trim().split('\n')).toHaveLength(4);
+    expect(report).toContain('111\thttps://archiveofourown.org/works/111\twent wrong');
+  });
+
+  // endregion
+
+  // region copies already on disk
+
+  it('does not ask to refresh undated files unless offered and accepted', async () => {
+    // it refetches an entire library, so it must never be what an ordinary run does
+    await open('bookmarks');
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.refreshUndated).toBe(false);
+  });
+
+  it('says what it found out about the copies already downloaded', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'refresh', stale: 3, undated: 12 });
+    await fixture.whenStable();
+
+    const said = element.querySelector('.refresh')?.textContent ?? '';
+    expect(said).toContain('3');
+    expect(said).toContain('updated on AO3');
+    expect(said).toContain('12');
+  });
+
+  it('says nothing about copies on disk when there is nothing to say', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'refresh', stale: 0, undated: 0 });
+    await fixture.whenStable();
+
+    expect(element.querySelector('.refresh')).toBeNull();
+  });
+
+  it('offers to fetch the undated works once the run has finished', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'refresh', stale: 0, undated: 12 });
+    jobs.push!({ type: 'finished', cancelled: false });
+    await fixture.whenStable();
+
+    const offer = element.querySelector('.offer')?.textContent ?? '';
+    expect(offer).toContain('12');
+    expect(button('Re-download them')).toBeTruthy();
+  });
+
+  it('makes no such offer when every file already carries a date', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'refresh', stale: 2, undated: 0 });
+    jobs.push!({ type: 'finished', cancelled: false });
+    await fixture.whenStable();
+
+    expect(element.querySelector('.offer')).toBeNull();
+  });
+
+  it('makes no such offer after a run that was stopped', async () => {
+    // the count is only as complete as the run was
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'refresh', stale: 0, undated: 12 });
+    jobs.push!({ type: 'finished', cancelled: true });
+    await fixture.whenStable();
+
+    expect(element.querySelector('.offer')).toBeNull();
+  });
+
+  it('asks for the password again before refreshing them, since it was never kept', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'refresh', stale: 0, undated: 12 });
+    jobs.push!({ type: 'finished', cancelled: false });
+    await fixture.whenStable();
+
+    button('Re-download them')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('input[name="password"]')).toBeTruthy();
+  });
+
+  async function finishWithUndated(count = 12): Promise<void> {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'refresh', stale: 0, undated: count });
+    jobs.push!({ type: 'finished', cancelled: false });
+    await fixture.whenStable();
+  }
+
+  it('offers dating the undated works as well as re-downloading them', async () => {
+    await finishWithUndated();
+
+    expect(button('Give them a date')).toBeTruthy();
+    expect(button('Re-download them')).toBeTruthy();
+  });
+
+  it('says what dating them costs compared with fetching them', async () => {
+    await finishWithUndated();
+
+    const said = element.querySelector('.offer')?.textContent ?? '';
+    expect(said).toContain('downloads nothing');
+  });
+
+  it('defaults the date to today, meaning what I have is current', async () => {
+    await finishWithUndated();
+
+    button('Give them a date')!.click();
+    await fixture.whenStable();
+
+    const box = element.querySelector<HTMLInputElement>('input[name="stampDate"]')!;
+    expect(box.value).toBe(new Date().toISOString().slice(0, 10));
+  });
+
+  it('will not run with something that is not a real date', async () => {
+    await finishWithUndated();
+    button('Give them a date')!.click();
+    await fixture.whenStable();
+
+    const box = element.querySelector<HTMLInputElement>('input[name="stampDate"]')!;
+    box.value = '2024-02-31';
+    box.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    expect(button('Date them and continue')?.disabled).toBe(true);
+  });
+
+  it('sends the chosen date, and does not ask for a re-download', async () => {
+    await finishWithUndated();
+    button('Give them a date')!.click();
+    await fixture.whenStable();
+
+    const box = element.querySelector<HTMLInputElement>('input[name="stampDate"]')!;
+    box.value = '2024-06-01';
+    box.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    button('Date them and continue')!.click();
+    await fixture.whenStable();
+    await startCollections();
+
+    expect(jobs.started).toHaveLength(2);
+    expect(jobs.started[1].options.stampUndated).toBe('2024-06-01');
+    // dating them is instead of refetching them, not as well as
+    expect(jobs.started[1].options.refreshUndated).toBe(false);
+  });
+
+  it('can back out of choosing a date', async () => {
+    await finishWithUndated();
+    button('Give them a date')!.click();
+    await fixture.whenStable();
+
+    button('Back')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('input[name="stampDate"]')).toBeNull();
+    expect(button('Re-download them')).toBeTruthy();
+  });
+
+  it('reports how many files it dated', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'refresh', stale: 1, undated: 0, stamped: 40 });
+    await fixture.whenStable();
+
+    expect(element.querySelector('.refresh')?.textContent).toContain('40');
+  });
+
+  it('asks the helper to refresh the undated works on that second run', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'refresh', stale: 0, undated: 12 });
+    jobs.push!({ type: 'finished', cancelled: false });
+    await fixture.whenStable();
+
+    button('Re-download them')!.click();
+    await fixture.whenStable();
+    await startCollections();
+
+    expect(jobs.started).toHaveLength(2);
+    expect(jobs.started[1].options.refreshUndated).toBe(true);
+  });
 
   // endregion
 
@@ -368,6 +654,24 @@ describe('DownloadDialog', () => {
     expect(shown).toContain('15');
     expect(shown).toContain('{worknum} {title} - {author}');
     expect(shown).toContain('50');
+  });
+
+  it('spells out how files are named, including the date', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    const shown = element.querySelector('.settings')?.textContent ?? '';
+    expect(shown).toContain('{worknum} {title} - {author} {date updated}');
+    expect(shown).toContain('cut to 50 characters');
+  });
+
+  it('shows the naming as a real example, and says it cannot be changed', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    const shown = element.querySelector('.settings')?.textContent ?? '';
+    expect(shown).toContain('34816549 No Paths Are Bound - Cataclys 2026-08-23.html');
+    expect(shown).toContain('Not configurable');
   });
 
   it('names the settings file it read, since which one is in force is not obvious', async () => {

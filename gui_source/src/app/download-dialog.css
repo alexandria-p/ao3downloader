@@ -414,6 +414,100 @@ pre {
 
 /* endregion */
 
+/* region what the run found already on disk */
+
+.refresh {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.refresh strong {
+  color: var(--text-strong);
+}
+
+/* region works that would not download */
+
+.failures {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #6b3a3a;
+  border-radius: 3px;
+  background: #2e2020;
+  font-size: 0.85rem;
+}
+
+.failures-text {
+  margin: 0 0 8px;
+}
+
+.failures strong {
+  color: var(--text-strong);
+}
+
+.failed-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 0.82rem;
+}
+
+.failed-list li {
+  margin-bottom: 3px;
+}
+
+.failed-list .reason {
+  margin-left: 6px;
+  color: var(--text-dim);
+}
+
+.failures .hint {
+  margin-bottom: 0;
+}
+
+/* endregion */
+
+/* what to do about works whose files carry no date */
+.offer {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  font-size: 0.85rem;
+}
+
+.offer-text {
+  margin: 0 0 10px;
+}
+
+.offer strong {
+  color: var(--text-strong);
+}
+
+.offer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.offer .field {
+  margin-bottom: 8px;
+}
+
+.offer .hint {
+  margin-bottom: 0;
+}
+
+/* endregion */
+
 /* region the settings a run is working from */
 
 .settings {
@@ -458,6 +552,18 @@ pre {
 
 .settings .warn {
   color: #d9b45f;
+}
+
+/* the naming rule is shown rather than offered, so it needs room to explain itself */
+.settings .example {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.settings .example.dim {
+  color: var(--text-dim);
+  font-size: 0.95em;
 }
 
 /* endregion */

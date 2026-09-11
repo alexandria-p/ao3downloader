@@ -27,14 +27,29 @@ INI_SECTION_NAME = 'settings'
 INI_WAIT_TIME = 'ExtraWaitTime'
 INI_PASSWORD_SAVE = 'SavePassword'
 INI_NAME_LENGTH = 'FileNameLength'
-INI_NAME_PATTERN = 'FileNamePattern'
 INI_DEBUG_LOGGING = 'EnableDebugLogging'
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
 INI_DOWNLOAD_FOLDER = 'DownloadFolder'
 
 INI_DEFAULT_NAME_LENGTH = 50
-INI_DEFAULT_NAME_PATTERN = '{worknum} {title} - {author}'
+
+# how the date stamp on a downloaded file is written, and how long it is with its space.
+# it goes on the end because the work number has to stay first for files to be matched
+# back to their index entry.
+DATE_STAMP_FORMAT = '%Y-%m-%d'
+DATE_STAMP_LENGTH = 11
+
+# How a downloaded file is named. Fixed rather than configurable: the work number has to
+# come first for a file to be matched back to its index entry, and the date has to come
+# last for the version it holds to be readable, so the parts that could vary are the ones
+# that matter least. The ui shows this back instead of offering it as a setting.
+FILE_NAME_PATTERN = '{worknum} {title} - {author}'
+
+# how the date on the end is described when the naming is shown back to the user, and an
+# example of the whole thing, so the rule can be read rather than deduced
+DATE_STAMP_PLACEHOLDER = '{date updated}'
+FILE_NAME_EXAMPLE_PARTS = ['34816549', 'No Paths Are Bound', 'Cataclysmic_Cal', '2026-08-23']
 
 SETTING_USERNAME = 'username'
 SETTING_PASSWORD = 'password'
@@ -111,6 +126,17 @@ AO3_INFO_COLLECTION_UNCHANGED = 'collection {} still has {} {}, so the saved one
 AO3_INFO_COLLECTIONS_DONE = 'saved {} collections to {}'
 AO3_INFO_COLLECTIONS_NONE = 'no collections found for that user'
 AO3_INFO_COLLECTION_ONE = 'indexing the collection {}'
+
+INFO_REPLACED_OLD_COPY = 'replaced the older copy: {}'
+INFO_KEPT_OLD_COPY = 'kept the older copy, the new file could not be confirmed: {}'
+ERROR_REPLACE_OLD_COPY = 'Problem removing the copy a download replaced. The old file is still there.'
+AO3_INFO_OUT_OF_DATE = '{} downloaded works have been updated on ao3 since you saved them'
+AO3_INFO_UNDATED = '{} downloaded works were saved before file names carried a date'
+AO3_INFO_STAMPED = 'dated {} existing files as {}'
+AO3_INFO_FROM_INDEX = 'downloading {} works straight from the index, without walking the listing again'
+AO3_INFO_FAILED_WORKS = '{} works could not be downloaded'
+ERROR_NOT_A_WORK_FILE = 'Ao3 answered with a page rather than the file. The work may have been deleted, made restricted, or be unavailable in that format.'
+AO3_INFO_STAMP_SKIPPED = '{} files were left as they were - a file of that name already existed'
 
 # how many entries ao3 puts on a page of a listing. only used to work out how many works
 # sit before a run that starts partway through, so its positions carry on from there.
@@ -193,6 +219,13 @@ MESSAGE_LOGIN_RESET = 'login details have been reset; please try again'
 
 AO3_DOMAIN = 'archiveofourown.org'
 AO3_BASE_URL = 'https://' + AO3_DOMAIN
+
+# ao3 serves work files from a host of their own, and the links on a work page redirect
+# there. going straight to it skips that redirect. the segment after the work number is a
+# slug of the title which ao3 ignores, so a fixed one does just as well - verified against
+# the live site: both spellings return byte-identical files.
+AO3_DOWNLOAD_BASE_URL = 'https://download.' + AO3_DOMAIN
+AO3_DOWNLOAD_SLUG = 'fic'
 AO3_LOGIN_URL = AO3_BASE_URL + '/users/login'
 AO3_MARK_READ_URL = AO3_BASE_URL + '/works/{}/mark_as_read'
 

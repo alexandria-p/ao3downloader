@@ -274,16 +274,34 @@ Inside it:
 
 ## How files are named, and how they get linked together
 
-Every file - json, html, epub, pdf - is named from the `FileNamePattern` setting in
-`config/settings.ini`. It defaults to:
+Every file - json, html, epub, pdf - is named the same way, and the naming is **not**
+configurable:
 
 ```
-{worknum} {title} - {author}
+{worknum} {title} - {author} {date updated}
 ```
 
-...producing names like `34816549 No Paths Are Bound - Cataclysmic_Cal.html`. The name is
-then cut to `FileNameLength` characters (50 by default), which is why longer titles end
-mid-word.
+Two parts of that are load-bearing: the work number has to come first for a file to be
+matched back to its index entry, and the date has to come last for the version it holds to
+be readable. Rearranging them broke both, so it stopped being a setting. The web page shows
+the rule back to you under "Settings this run is using".
+
+The name is then cut to `FileNameLength` characters (50 by default), which is why longer
+titles end mid-word.
+
+A downloaded work also ends with the date it was last updated on ao3:
+
+```
+34816549 No Paths Are Bound - Cataclysmic_Cal 2026-08-23.html
+```
+
+That is not when you downloaded it - it is which *version* of the fic the file holds, which
+is how the program can tell later that ao3 has a newer one than you do. The date is never
+what gets cut: the title is shortened first so the date still fits inside `FileNameLength`.
+
+Json index files are deliberately **not** dated. An index file is the version history for
+its fic, so a name that changed whenever the fic did would start a new file and orphan
+everything already recorded.
 
 **The work number has to come first.** That is the only part that matters for matching a
 downloaded work to its entry in the index. The rule is exact:
@@ -299,10 +317,49 @@ begins with digits is not mistaken for a work number.
 That is the bare minimum for a file you bring in from somewhere else: **start the file
 name with the AO3 work id, then a separator.** Everything after that is free.
 
-If you change `FileNamePattern` so the work number is no longer first, the index still
-builds, but the web page can no longer pair works with it - every title will open on AO3
-instead of your local copy. The page tells you when that is happening: the line under the
-heading reports how many works it found a downloaded copy for.
+## Keeping downloads up to date
+
+Because a downloaded work carries the date of the version it holds, the bookmarks run can
+tell when ao3 has a newer version than you do. After indexing - which is where the current
+dates come from - it reads the downloads folder, matches each file to a work by the number
+it starts with, and fetches again anything ao3 has updated since it was saved. Only the
+file types you ticked are considered.
+
+When a fic is re-downloaded its name changes, because the date in it changes. The copy it
+replaces is removed, but only when all of this holds:
+
+- it is the **same file type** - re-downloading the html never removes the epub
+- the new file is really in the downloads folder in use, at its full length
+- the name actually changed; if it did not, the write already replaced it in place
+
+A download that fails or is stopped partway leaves the old file exactly where it is. You
+never lose the copy you have until the one replacing it is confirmed on disk.
+
+A run does not stop because one fic will not come down - it may have been deleted, made
+restricted, or never existed in the format you asked for. Those are skipped, and when the
+run finishes it names them: how many, the first few with the reason, and a link to each.
+An **Export the list** button saves them as plain text - one work per line, with the work
+number, link and reason - so the numbers can be fed back in. A work is listed once however
+many formats failed for it.
+
+Works saved before names carried a date cannot be judged either way, so they are left
+alone and counted. When the run finishes it offers two ways out, and ignoring it is a third.
+
+**Give them a date.** You say which version to treat them as, and the files are renamed
+where they sit to carry that date. Nothing is downloaded to do this - no requests at all -
+and from then on the ordinary rule applies, so anything ao3 has updated since that date is
+fetched on the same run. Today means "what I have is current"; an earlier date means "my
+copies are from around then", so everything touched since is fetched. Long names are cut
+down as a fresh download would cut them, and a file is never renamed over one that already
+exists.
+
+**Re-download them.** Fetches the current version of every one, which is a full download of
+the lot - a choice rather than something automatic.
+
+If a file's name does not start with the work number - one you renamed, or brought in from
+elsewhere - the index still builds, but the web page cannot pair the two, so that title
+opens on AO3 instead of your local copy. The page tells you when that is happening: the
+line under the heading reports how many works it found a downloaded copy for.
 
 ## What is inside an index file
 
@@ -405,10 +462,14 @@ answers a burst with a pause of several minutes. Two settings decide how often y
   request per work on top. Unticking everything but JSON gives a metadata-only run, which
   is roughly a fortieth of the requests.
 
-A fic's page is fetched once however many formats you tick - every format's download link
-is read off that one page - so a second format costs one extra transfer per fic, not a
-second crawl of it. The transfers themselves cannot be merged: each format is its own file
-at its own address.
+No page is read to find a download. A work's download link is decided by its work number,
+which the index already recorded, so the download step goes straight to the file: the
+listing is not walked again to rediscover links, and no fic's page is fetched at all. What
+is left is one request per work per format, and those cannot be merged - each format is its
+own file at its own address.
+
+Asking for embedded images or series links sends the run the long way round instead, since
+both are discovered on the work page, and those runs cost an extra request per fic.
 
 The bookmarks run can also start partway through a listing. Start and stop are both
 positions in the whole listing, so pages 5 to 9 fetches just that slice - useful for

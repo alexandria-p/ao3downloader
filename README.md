@@ -161,7 +161,27 @@ Inside your downloads folder:
 
 ### How files are named
 
-Every file - json, html, epub, pdf - is named from the '<!--CHECK-->FileNamePattern<!--INI_NAME_PATTERN-->' setting in <!--CHECK-->settings.ini<!--INI_FILE_NAME-->, which defaults to `{worknum} {title} - {author}`. That produces names like `34816549 No Paths Are Bound - Cataclysmic_Cal.html`. The result is then cut to the '<!--CHECK-->FileNameLength<!--INI_NAME_LENGTH-->' setting (50 characters by default), which is why longer titles end mid-word.
+Every file - json, html, epub, pdf - is named the same way, and **the naming is not configurable**:
+
+```
+{worknum} {title} - {author} {date updated}
+```
+
+It used to be a `FileNamePattern` setting. It is not any more, because two parts of it are load-bearing: the work number has to come first for a file to be matched back to its index entry, and the date has to come last for the version it holds to be readable. Rearranging those quietly broke both, so the parts that could safely vary were the ones that mattered least. The web page shows the rule back to you under **Settings this run is using** instead.
+
+The result is cut to the '<!--CHECK-->FileNameLength<!--INI_NAME_LENGTH-->' setting (50 characters by default), which is why longer titles end mid-word. That one *is* still configurable, because it exists to keep you under Windows' path length limit.
+
+**A downloaded work also ends with the date it was last updated on AO3**, written as `2026-08-23`:
+
+```
+34816549 No Paths Are Bound - Cataclysmic_Cal 2026-08-23.html
+```
+
+That date is not when you downloaded it - it is which *version* of the fic the file holds. It is what lets the program tell later that AO3 has a newer version than you do; see [keeping downloads up to date](#keeping-downloads-up-to-date) below.
+
+The date is never the part that gets cut. The title is shortened first so the date still fits inside the `FileNameLength` limit, so a very long title loses more of itself than it used to. If you want longer titles back, raise `FileNameLength`.
+
+**Json index files are deliberately not dated.** An index file *is* the version history for its fic, so a name that changed every time the fic did would start a new file and orphan everything already recorded. They keep the plain pattern.
 
 ### The bare minimum for a file to be linked to its index entry
 
@@ -175,6 +195,53 @@ So `34816549 No Paths Are Bound.html` links up. `No Paths Are Bound 34816549.htm
 So for a file you bring in from somewhere else: **start the file name with the AO3 work id, then a separator.** Everything after that is free.
 
 If you change the naming pattern so the work number is no longer first, indexing still works, but the web page can no longer pair works with it - every title opens on AO3 instead of your local copy. The line under the heading tells you when that is happening, by reporting how many works it found a downloaded copy for.
+
+### <span id="keeping-downloads-up-to-date"></span>Keeping downloads up to date
+
+**Download newly added bookmarks** does not only pick up bookmarks that are new to you. Because every downloaded work carries the date of the version it holds, the run can also see when a fic you already have has been updated since you saved it.
+
+After indexing - which is where the current update dates come from - it reads your downloads folder, matches each file to a work by the number it starts with, and compares:
+
+- **AO3's date is newer than the file's** - the fic has been updated since you saved it, so it is downloaded again.
+- **The dates match, or AO3's is older** - you already have the current version. Nothing is fetched.
+- **You have no copy at all** - downloaded as usual, exactly as before.
+
+Only the file types you ticked are considered. If your html is out of date but you did not ask for html on this run, nothing happens to it.
+
+#### The old copy, and when it is removed
+
+When a fic is re-downloaded its name changes, because the date in the name changes. The previous file is removed, but only under all of these conditions:
+
+- it is the **same file type** - re-downloading the html never removes the epub
+- the new file has actually been **written to the downloads folder in use**, at its full length
+- the name really did change - if it did not, the new file simply replaced the old one where it stood, and there is nothing to remove
+
+If a download fails, is cut short, or is stopped partway, the old file stays exactly where it is. The rule is that you never lose the copy you have until the copy that replaces it is confirmed on disk.
+
+#### Works that would not download
+
+A run does not stop because one fic will not come down - a work can have been deleted, made restricted, or never existed in the format you asked for. Those are skipped and the run carries on.
+
+When it finishes, it **names them**: how many there were, the first few with the reason each one failed, and a link to look each up on AO3. Everything else in that run was still saved.
+
+There is an **Export the list** button alongside. It saves a plain text file - one work per line, with the work number, the link and the reason, tab separated - so you can look them over or feed the numbers back in. A work is listed once however many formats failed for it.
+
+#### Files downloaded before this change
+
+Works saved before file names carried a date cannot be judged: there is nothing recorded about which version they are. They are **left alone**, not re-downloaded, and the run tells you how many it found. When it finishes it offers you two ways out, and doing nothing is a third:
+
+**Give them a date.** You say which version to treat them as, and the files are renamed in place to carry that date. **Nothing is downloaded to do this** - no requests at all - and from that point on the ordinary rule applies, so anything AO3 has updated since that date is fetched on the same run.
+
+The date you pick is the whole decision:
+
+- **Today** means "what I have is current". Nothing is fetched now, and you are told when AO3 next updates any of them.
+- **An earlier date** means "my copies are from around then", so everything AO3 has touched since is fetched.
+
+Renaming cuts long names down, the same way a fresh download would, so the date fits inside the `FileNameLength` limit. A file is never renamed over the top of one that already exists - those are left alone and counted.
+
+**Re-download them.** Fetches the current version of every one. That is a full download of the lot, so it is a deliberate choice rather than something that happens to you.
+
+**Or ignore it.** They stay as they are and the offer comes back next time.
 
 ### What is inside an index file
 
@@ -266,17 +333,19 @@ Three things decide how often you meet it, in order of how much they matter:
 
 **1. `<!--CHECK-->ExtraWaitTime<!--INI_WAIT_TIME-->` in <!--CHECK-->settings.ini<!--INI_FILE_NAME-->** - how long to wait after *every* request. `0` means "as fast as the network allows", which trips the limit almost immediately: indexing 700 bookmarks is 35 back-to-back page fetches. The default is 15 seconds. If you are being paused repeatedly, this is the first thing to change, and it is usually the only thing you need to change.
 
-**2. Which file types you tick.** JSON metadata is read off the listing pages - **one request per 20 works** - and is always produced. Every other file type is fetched per work, which is one request for the work page plus one per format:
+**2. Which file types you tick.** JSON metadata is read off the listing pages - **one request per 20 works** - and is always produced. Every other file type is **one request per work, per format**, and nothing more:
 
 | Run over 700 bookmarks | Roughly |
 | --- | --- |
 | JSON only (metadata refresh) | 35 requests |
-| JSON + HTML | 1,435 requests |
-| JSON + HTML + EPUB | 2,135 requests |
+| JSON + HTML | 735 requests |
+| JSON + HTML + EPUB | 1,435 requests |
 
-So a metadata-only run - untick everything but JSON - is about a fortieth of the work. Works you have already downloaded are skipped before any request is made, so only genuinely new ones cost anything.
+So a metadata-only run - untick everything but JSON - is about a twentieth of the work. Works you have already downloaded are skipped before any request is made, so only genuinely new ones cost anything.
 
-The work page itself is only ever fetched **once per fic**, no matter how many formats you tick: every format's download link is read off that single page. The rest is the file transfers, and those cannot be merged - each format is a separate file at its own address on AO3, so three formats means three transfers. Adding a second format to a run therefore costs one extra request per fic, not a second crawl of it.
+**No page is read to find a download.** A work's download link is decided entirely by its work number, which the index already recorded, so the download step goes straight to the file. That means the listing is not walked a second time to rediscover links, and no fic's page is fetched at all. The only thing left is the file transfers themselves, and those cannot be merged - each format is a separate file at its own address - so three formats means three transfers.
+
+This applies whenever the run has an index to work from. Asking for **embedded images** or **series links** sends it the long way round instead, because both are discovered on the work page: those runs cost an extra request per fic.
 
 **3. Indexing collections.** See [re-indexing a collection you already have](#re-indexing-a-collection-you-already-have) - an unchanged collection costs two requests rather than hundreds, but a first run over a large collection is expensive however you cut it.
 
@@ -301,7 +370,7 @@ The 'look up publication dates' option costs one request per work and is not off
 - **You may change certain behaviors of the script** by editing the file <!--CHECK-->settings.ini<!--INI_FILE_NAME-->. Some of the current configurable options are:
   - Whether the script should save your password - if set to 'false', you will need to re-enter your password every time you log in via the script. (Defaults to false.)
   - How many seconds to pause between requests to Ao3 - the default is 0 seconds, which means that pauses will only be initiated when Ao3 requests them. Normally you should not need to adjust this, but it can be useful if you are running into odd behavior related to the rate limit.
-  - The file naming pattern to use. For most people ao3downloader's default file names should work fine, but if you don't like them, you can change that here.
+  - The maximum length of a generated file name. The naming *pattern* itself is no longer a setting - see [how files are named](#how-files-are-named).
   - Where downloads are saved. By default this is a folder called '<!--CHECK-->downloads<!--DOWNLOAD_FOLDER_NAME-->' inside the folder you started the script from, but you can change it to any folder on your computer using a relative (to the folder you started the script from) or absolute path.
 - **The purpose of entering your ao3 login information** is to download archive-locked works or anything else that is not visible when you are not logged in. If you don't care about that, there is no need to enter your login information.
 - **Ao3 limits the number of requests** a single user can make to the site in a given time period. When this limit is reached, the script will pause for the amount of time (usually a few minutes) that Ao3 requests. When this happens, the start time, end time, and length of the pause in seconds will be printed to the console. If you try to access Ao3 from your browser during this period, you will see a "Retry later" message. Don't be alarmed by this - it's normal, and you aren't in trouble. Simply wait for the specified amount of time and then refresh the page. Other than during these required pauses, you can use Ao3 as normal while the script is running.
@@ -310,7 +379,7 @@ The 'look up publication dates' option costs one request per work and is not off
   - Note that this feature does not encode any association between the downloaded images and the fic file aside from the file name.
   - Most file formats will include embedded image files anyway, regardless of whether you choose this option. I have confirmed this for PDF, EPUB, MOBI, and AZW3 file formats. (If you saw me contradict this in an earlier version of this readme... no you didn't)
   - Should an image download fail, the details of the failure will be logged in the log file with the message '<!--CHECK-->Problem getting image<!--ERROR_IMAGE-->' along with the work link and the image link. It's a good idea to check the log file for these messages, since you may still be able to download the image manually or track it down some other way.
-- <span id="json-metadata-export"></span>**If you choose the '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' file type** when using the option '<!--CHECK-->download from ao3 link<!--ACTION_DESCRIPTION_AO3-->', the script does not download any works. Instead it reads through the listing you gave it and writes everything it can see about each work to the downloads folder, as one json file per work. Those files are named using the same '<!--CHECK-->FileNamePattern<!--INI_NAME_PATTERN-->' setting as downloaded works, so a fic's metadata sits next to its epub or html under the same name. This needs a link to a _listing_ of works - bookmarks, search results, an author's works, a series - not a link to a single work.
+- <span id="json-metadata-export"></span>**If you choose the '<!--CHECK-->JSON<!--AO3_DOWNLOAD_TYPE_METADATA-->' file type** when using the option '<!--CHECK-->download from ao3 link<!--ACTION_DESCRIPTION_AO3-->', the script does not download any works. Instead it reads through the listing you gave it and writes everything it can see about each work to the downloads folder, as one json file per work. Those files are named the same way as downloaded works, minus the date, so a fic's metadata carries the same name as its epub or html. This needs a link to a _listing_ of works - bookmarks, search results, an author's works, a series - not a link to a single work.
   - Each file is written as its page is read, rather than everything being saved at the end. A long listing therefore leaves usable output behind even if the run does not finish. If you need to stop early, press ctrl+c rather than closing the window, so the script can finish tidily.
   - Along with the work's own metadata, every file records the listing it came from, when it was retrieved, and the work's position in that listing (so the original bookmark order can be reconstructed).
   - For each work you get: the work id, title, author(s), link, publication and update dates, summary, fandoms, warnings, and tags (rating, categories, relationships, characters, and additional tags), plus word count, chapter counts, comments, kudos, bookmarks, and hits.

@@ -601,6 +601,45 @@ def test_log_error_omits_stacktrace_for_ao3_exception(mock_repo, fake_fileops):
 # endregion
 
 
+# region download_file — a built link can point at something that is not a file
+
+def test_a_work_file_comes_back_as_its_bytes(mock_repo):
+    mock_repo.session.request.return_value = make_response(
+        status_code=200, content_type='application/epub+zip', text='epub bytes')
+
+    assert mock_repo.download_file(AO3_URL, 'EPUB') == b'epub bytes'
+
+
+def test_a_missing_work_is_refused_rather_than_saved(mock_repo):
+    # the link is built from the work number, so it can point at a work that is gone.
+    # saving ao3's 404 page under an .epub name would look downloaded and be unreadable
+    mock_repo.session.request.return_value = make_response(
+        status_code=404, content_type='text/html', text='<html>not found</html>')
+
+    with pytest.raises(exceptions.DownloadException):
+        mock_repo.download_file(AO3_URL, 'EPUB')
+
+
+def test_a_page_returned_instead_of_an_ebook_is_refused(mock_repo):
+    # 200, but html - a login or error page standing in for the file
+    mock_repo.session.request.return_value = make_response(
+        status_code=200, content_type='text/html; charset=utf-8', text='<html>sign in</html>')
+
+    with pytest.raises(exceptions.DownloadException):
+        mock_repo.download_file(AO3_URL, 'EPUB')
+
+
+def test_html_really_is_html_so_it_is_judged_on_the_status_alone(mock_repo):
+    # the one format where the file and an error page look the same
+    mock_repo.session.request.return_value = make_response(
+        status_code=200, content_type='text/html; charset=utf-8', text='<html>the fic</html>')
+
+    assert mock_repo.download_file(AO3_URL, 'HTML') == b'<html>the fic</html>'
+
+
+# endregion
+
+
 # region stopping a run
 
 def stoppable(fake_fileops, monkeypatch, stop_on_sleep: bool):

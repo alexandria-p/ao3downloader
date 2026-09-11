@@ -306,7 +306,18 @@
                 }
               </dd>
               <dt>File names</dt>
-              <dd><code>{{ ini.fileNamePattern }}</code>, cut to {{ ini.fileNameLength }} characters</dd>
+              <dd>
+                <code>{{ ini.fileNamePattern }}</code>, cut to
+                {{ ini.fileNameLength === 0 ? 'any length' : ini.fileNameLength + ' characters' }}
+                @if (ini.fileNameExample) {
+                  <span class="example">e.g. <code>{{ ini.fileNameExample }}</code></span>
+                }
+                <span class="example dim">
+                  Not configurable: the work number has to come first so files match the
+                  index, and the date it was updated on has to come last so a newer version
+                  can be spotted. Only the title and author are shortened to fit.
+                </span>
+              </dd>
               <dt>Retries / timeouts</dt>
               <dd>{{ ini.maxRetries === 0 ? 'unlimited' : ini.maxRetries }} / {{ ini.maxTimeouts }}</dd>
               @if (ini.debugLogging) {
@@ -317,6 +328,36 @@
               <dd><code class="path">{{ ini.file }}</code></dd>
             </dl>
           </details>
+        }
+
+        <!-- what the index found out about the copies already on disk -->
+        @if (staleCount() || undatedCount() || stampedCount()) {
+          <p class="refresh">
+            @if (staleCount()) {
+              <span class="line">
+                <strong>{{ staleCount() | number }}</strong> downloaded
+                {{ staleCount() === 1 ? 'work has' : 'works have' }} been updated on AO3
+                since you saved {{ staleCount() === 1 ? 'it' : 'them' }} - fetching
+                {{ staleCount() === 1 ? 'it' : 'them' }} again.
+              </span>
+            }
+            @if (stampedCount()) {
+              <span class="line">
+                Gave <strong>{{ stampedCount() | number }}</strong> existing
+                {{ stampedCount() === 1 ? 'file' : 'files' }} a date, without downloading
+                anything.
+              </span>
+            }
+            @if (undatedCount()) {
+              <span class="line">
+                <strong>{{ undatedCount() | number }}</strong>
+                {{ undatedCount() === 1 ? 'work was' : 'works were' }} saved before file
+                names carried a date, so whether
+                {{ undatedCount() === 1 ? 'it is' : 'they are' }} current cannot be told.
+                Left alone.
+              </span>
+            }
+          </p>
         }
 
         @if (paused(); as pause) {
@@ -350,6 +391,112 @@
         } @else {
           <p class="success">Finished. Files were saved to <code>{{ folder() }}</code>.</p>
         }
+        @if (staleCount()) {
+          <p class="hint">
+            {{ staleCount() | number }}
+            {{ staleCount() === 1 ? 'work was' : 'works were' }} out of date and
+            {{ staleCount() === 1 ? 'was' : 'were' }} fetched again. The copy each one
+            replaced was removed only after the new file was confirmed saved.
+          </p>
+        }
+
+        @if (failures().length) {
+          <div class="failures">
+            <p class="failures-text">
+              <strong>{{ failures().length | number }}</strong>
+              {{ failures().length === 1 ? 'work' : 'works' }} could not be downloaded.
+              Everything else was saved.
+            </p>
+            <ul class="failed-list">
+              @for (failure of failures().slice(0, 5); track failure.link) {
+                <li>
+                  <a [href]="failure.link" target="_blank" rel="noopener">{{ failure.id || failure.link }}</a>
+                  <span class="reason">{{ failure.error }}</span>
+                </li>
+              }
+            </ul>
+            @if (failures().length > 5) {
+              <p class="hint">and {{ failures().length - 5 | number }} more.</p>
+            }
+            <button type="button" class="button" (click)="exportFailures()">
+              Export the list
+            </button>
+            <p class="hint">
+              Saves a text file of the work numbers, links and reasons - one per line, so
+              you can feed them back in or look them up.
+            </p>
+          </div>
+        }
+
+        @if (stampedCount()) {
+          <p class="hint">
+            {{ stampedCount() | number }} existing
+            {{ stampedCount() === 1 ? 'file was' : 'files were' }} given a date. From now on
+            this page can tell when AO3 has a newer version of
+            {{ stampedCount() === 1 ? 'it' : 'them' }}.
+          </p>
+        }
+
+        @if (undatedCount() && !wasCancelled()) {
+          <div class="offer">
+            <p class="offer-text">
+              <strong>{{ undatedCount() | number }}</strong>
+              {{ undatedCount() === 1 ? 'work was' : 'works were' }} saved before file names
+              carried a date, so there is no way to tell whether
+              {{ undatedCount() === 1 ? 'it is' : 'they are' }} still current.
+            </p>
+
+            @if (!choosingDate()) {
+              <div class="offer-actions">
+                <button type="button" class="button" (click)="choosingDate.set(true)">
+                  Give {{ undatedCount() === 1 ? 'it' : 'them' }} a date
+                </button>
+                <button type="button" class="button subtle" (click)="refreshUndatedWorks()">
+                  Re-download {{ undatedCount() === 1 ? 'it' : 'them' }}
+                </button>
+              </div>
+              <p class="hint">
+                Dating {{ undatedCount() === 1 ? 'it' : 'them' }} downloads nothing - the
+                files are renamed where they are - and from then on anything AO3 has updated
+                since that date is fetched. Re-downloading fetches all
+                {{ undatedCount() | number }} again, which takes a while.
+              </p>
+            } @else {
+              <label class="field">
+                <span>Treat these files as the version from</span>
+                <input
+                  type="date"
+                  name="stampDate"
+                  [value]="stampDate()"
+                  (input)="setStampDate($any($event.target).value)"
+                />
+              </label>
+              <p class="hint">
+                Today means "what I have is current" - nothing is fetched now, and you are
+                told when AO3 next updates any of them. An earlier date means "my copies are
+                from back then", so anything updated since is fetched on the next run.
+              </p>
+              @if (!stampDateIsValid()) {
+                <p class="error">That is not a date this can be run with.</p>
+              }
+              <div class="offer-actions">
+                <button type="button" class="button subtle" (click)="choosingDate.set(false)">
+                  Back
+                </button>
+                <button
+                  type="button"
+                  class="button primary"
+                  [disabled]="!stampDateIsValid()"
+                  (click)="dateUndatedWorks()"
+                >
+                  Date {{ undatedCount() === 1 ? 'it' : 'them' }} and continue
+                </button>
+              </div>
+              <p class="hint">You will be asked to log in again, since the run carries on from there.</p>
+            }
+          </div>
+        }
+
         <p class="hint">
           Point the folder picker at that folder (or reopen it) to see the new bookmarks here.
         </p>

@@ -23,7 +23,7 @@ def make_ao3():
     repo = MagicMock(spec=Repository)
     fileops = MagicMock(spec=FileOps)
     fileops.get_ini_value_boolean.return_value = False
-    fileops.get_ini_value.return_value = strings.INI_DEFAULT_NAME_PATTERN
+    fileops.get_ini_value.return_value = strings.FILE_NAME_PATTERN
     fileops.get_ini_value_integer.return_value = strings.INI_DEFAULT_NAME_LENGTH
     fileops.load_json.return_value = None
     ao3 = Ao3(repo=repo, fileops=fileops, filetypes=[], pages=None, series=False, images=False)

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from bs4 import BeautifulSoup
 
-from source_code import exceptions, indexing, strings
+from source_code import exceptions, indexing, parse_text, strings
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
 from source_code.repo import Repository
@@ -33,7 +33,7 @@ def make_ao3(
     repo = MagicMock(spec=Repository)
     fileops = MagicMock(spec=FileOps)
     fileops.get_ini_value_boolean.return_value = debug
-    fileops.get_ini_value.return_value = strings.INI_DEFAULT_NAME_PATTERN
+    fileops.get_ini_value.return_value = strings.FILE_NAME_PATTERN
     fileops.get_ini_value_integer.return_value = strings.INI_DEFAULT_NAME_LENGTH
     # no index on disk yet, unless a test says otherwise
     fileops.load_json.return_value = None
@@ -53,6 +53,7 @@ def try_download_patches() -> Iterator[None]:
     """Patches proceed() and parse functions for try_download's main flow."""
     with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup), \
          patch('source_code.parse_soup.get_title', return_value=['My Work']), \
+         patch('source_code.parse_soup.get_updated_date', return_value='14 Dec 2024'), \
          patch('source_code.parse_soup.get_download_link', return_value='https://ao3.org/dl/work.epub'), \
          patch('source_code.parse_soup.has_custom_skin', return_value=False), \
          patch('source_code.parse_text.get_valid_filename', return_value='My Work'), \
@@ -884,14 +885,286 @@ def test_get_metadata_only_restamps_a_fic_that_has_not_changed() -> None:
     assert written[indexing.LAST_INDEXED] == ao3.indexed_on
 
 
-def test_get_metadata_names_files_with_the_configured_pattern() -> None:
+def test_get_metadata_names_files_the_one_fixed_way() -> None:
+    # the naming is not a setting any more: the work number has to lead so files can be
+    # matched to their index entry, so an ini value must not be able to move it
     ao3, repo, fileops = make_ao3()
-    fileops.get_ini_value.return_value = '{worknum}'
+    fileops.get_ini_value.return_value = '{title}'
     repo.get_soup.return_value = _listing_soup(['111'])
 
     ao3.get_metadata(LISTING_URL, False)
 
-    assert list(_saved(fileops)) == _indexed('111.json')
+    assert list(_saved(fileops)) == _indexed('111 Work 111 - A.json')
+
+
+# region downloading from the index rather than crawling again
+
+def _record(work: str, title: str = 'A Fic', updated: str = '14 Dec 2024') -> dict:
+    return {'id': work, 'link': f'https://archiveofourown.org/works/{work}',
+            'title': title, 'authors': ['Cal'], 'date_updated': updated}
+
+
+def test_downloading_from_the_index_never_reads_a_listing_or_a_work_page():
+    # this is the whole point: the index already holds every work number, and the download
+    # link is determined by that number, so neither page has to be fetched
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.return_value = b'epub bytes'
+
+    ao3.download_indexed([_record('111'), _record('222')])
+
+    repo.get_soup.assert_not_called()
+    assert repo.download_file.call_count == 2
+
+
+def test_downloading_from_the_index_goes_straight_to_the_download_host():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.return_value = b'epub bytes'
+
+    ao3.download_indexed([_record('111')])
+
+    url = repo.download_file.call_args.args[0]
+    assert url == 'https://download.archiveofourown.org/downloads/111/fic.epub'
+
+
+def test_downloading_from_the_index_names_files_the_usual_way():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.return_value = b'epub bytes'
+
+    ao3.download_indexed([_record('111', title='No Paths Are Bound')])
+
+    written = fileops.save_bytes.call_args.args[0]
+    assert written == '111 No Paths Are Bound - Cal 2024-12-14.epub'
+
+
+def test_downloading_from_the_index_skips_what_is_already_downloaded():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.return_value = b'epub bytes'
+
+    ao3.download_indexed([_record('111'), _record('222')],
+                         visited=['https://archiveofourown.org/works/111'])
+
+    assert repo.download_file.call_count == 1
+    assert repo.download_file.call_args.args[0].endswith('/222/fic.epub')
+
+
+def test_downloading_from_the_index_fetches_each_format_once():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB', 'PDF'])
+    repo.download_file.return_value = b'bytes'
+
+    ao3.download_indexed([_record('111')])
+
+    requested = sorted(call.args[0] for call in repo.download_file.call_args_list)
+    assert requested == [
+        'https://download.archiveofourown.org/downloads/111/fic.epub',
+        'https://download.archiveofourown.org/downloads/111/fic.pdf',
+    ]
+
+
+def test_downloading_from_the_index_records_what_a_later_run_needs():
+    # without the title and the updated date in the log, the next run cannot rebuild this
+    # name and would fetch everything again
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.return_value = b'epub bytes'
+
+    ao3.download_indexed([_record('111')])
+
+    logged = fileops.write_log.call_args.args[0]
+    assert logged['title'] == ['111 A Fic - Cal']
+    assert logged['updated'] == '14 Dec 2024'
+    assert logged['success'] is True
+
+
+def test_downloading_from_the_index_replaces_the_copy_it_supersedes():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.return_value = b'epub bytes'
+    fileops.save_bytes.return_value = r'C:\d\111 A Fic - Cal 2024-12-14.epub'
+    fileops.saved_intact.return_value = True
+    fileops.delete_file.return_value = True
+    ao3.superseded = {'https://archiveofourown.org/works/111':
+                      {'EPUB': r'C:\d\111 A Fic - Cal 2020-01-01.epub'}}
+
+    ao3.download_indexed([_record('111')])
+
+    fileops.delete_file.assert_called_once_with(r'C:\d\111 A Fic - Cal 2020-01-01.epub')
+
+
+def test_one_work_that_will_not_download_does_not_end_the_run():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.side_effect = [
+        exceptions.DownloadException('gone'), b'epub bytes']
+
+    ao3.download_indexed([_record('111'), _record('222')])
+
+    assert fileops.save_bytes.call_count == 1
+    fileops.write_log.assert_called()
+
+
+def test_downloading_from_the_index_stops_when_asked_to():
+    stopped = {'value': False}
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    ao3.cancelled = lambda: stopped['value']
+
+    def fetch(*args):
+        stopped['value'] = True
+        return b'epub bytes'
+
+    repo.download_file.side_effect = fetch
+
+    ao3.download_indexed([_record('111'), _record('222'), _record('333')])
+
+    # the first work finishes, then the stop is noticed rather than working through the rest
+    assert repo.download_file.call_count == 1
+
+
+def test_a_record_with_no_work_number_is_skipped_rather_than_guessed_at():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+
+    ao3.download_indexed([{'id': None, 'link': 'https://archiveofourown.org/works/1'}])
+
+    repo.download_file.assert_not_called()
+
+# endregion
+
+
+# region works that would not download
+
+def test_a_work_that_fails_is_remembered_with_its_number():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.side_effect = exceptions.DownloadException('gone')
+
+    ao3.download_indexed([_record('111')])
+
+    assert ao3.failures == [{'id': '111',
+                             'link': 'https://archiveofourown.org/works/111',
+                             'error': 'gone'}]
+
+
+def test_a_work_is_only_listed_once_however_many_formats_failed():
+    # a work that fails usually fails for every format, and the same number five times
+    # over is worse than useless for feeding back in
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB', 'PDF', 'HTML'])
+    repo.download_file.side_effect = exceptions.DownloadException('gone')
+
+    ao3.download_indexed([_record('111')])
+
+    assert [x['id'] for x in ao3.failures] == ['111']
+
+
+def test_the_works_that_succeeded_are_not_listed():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.side_effect = [
+        exceptions.DownloadException('gone'), b'epub bytes']
+
+    ao3.download_indexed([_record('111'), _record('222')])
+
+    assert [x['id'] for x in ao3.failures] == ['111']
+
+
+def test_a_run_with_nothing_wrong_reports_no_failures():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    repo.download_file.return_value = b'epub bytes'
+
+    ao3.download_indexed([_record('111')])
+
+    assert ao3.failures == []
+
+
+def test_stopping_a_run_is_not_recorded_as_a_failed_work():
+    # the work was never attempted; calling it failed would send you chasing nothing
+    stopped = {'value': False}
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+    ao3.cancelled = lambda: stopped['value']
+
+    def fetch(*args):
+        stopped['value'] = True
+        return b'epub bytes'
+
+    repo.download_file.side_effect = fetch
+
+    ao3.download_indexed([_record('111'), _record('222')])
+
+    assert ao3.failures == []
+
+
+def test_the_long_way_round_records_failures_too():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB'])
+
+    with patch.object(Ao3, 'try_download', side_effect=exceptions.DeletedException('deleted')):
+        ao3.download_work(WORK_URL, {}, None)
+
+    assert [x['id'] for x in ao3.failures] == ['123']
+
+# endregion
+
+
+# region progress over a slice of a listing
+
+def test_progress_counts_the_whole_listing_when_the_run_covers_it() -> None:
+    ao3, _, _ = make_ao3()
+
+    assert ao3.page_progress(1, 80) == (1, 80)
+    assert ao3.page_progress(80, 80) == (80, 80)
+
+
+def test_progress_counts_only_the_pages_a_later_start_will_fetch() -> None:
+    # pages 42 to 80 is 39 pages, and the first of them is the first page of the run -
+    # reporting 42 of 80 would start the bar half full
+    ao3, _, _ = make_ao3(start=42)
+
+    assert ao3.page_progress(42, 80) == (1, 39)
+    assert ao3.page_progress(80, 80) == (39, 39)
+
+
+def test_progress_counts_only_as_far_as_the_stop_page() -> None:
+    # pages 42 to 60 is 19 pages, not 39
+    ao3, _, _ = make_ao3(start=42, pages=60)
+
+    assert ao3.page_progress(42, 80) == (1, 19)
+    assert ao3.page_progress(60, 80) == (19, 19)
+
+
+def test_progress_reaches_the_end_exactly_at_the_last_page() -> None:
+    ao3, _, _ = make_ao3(start=5, pages=9)
+
+    done, of = ao3.page_progress(9, 80)
+
+    assert done == of  # 100%, not more and not less
+
+
+def test_progress_says_how_far_along_even_with_no_total_to_go_on() -> None:
+    ao3, _, _ = make_ao3(start=3)
+
+    assert ao3.page_progress(4, None) == (2, None)
+
+
+def test_get_metadata_reports_progress_within_the_slice_it_is_fetching() -> None:
+    events: list[dict] = []
+    ao3, repo, _ = make_ao3(start=3)
+    ao3.progress = events.append
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=10)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    pages = [e for e in events if e['type'] == 'page']
+    assert pages[0]['page'] == 1
+    assert pages[0]['total'] == 8  # pages 3 to 10
+
+
+def test_get_metadata_also_reports_the_real_page_number_for_the_wording() -> None:
+    # the bar measures the slice, but 'page 3 of 10' is the page you would go and look at,
+    # so both sets of numbers are sent
+    events: list[dict] = []
+    ao3, repo, _ = make_ao3(start=3)
+    ao3.progress = events.append
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=10)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    page = [e for e in events if e['type'] == 'page'][0]
+    assert (page['listingPage'], page['listingTotal']) == (3, 10)
+    assert (page['page'], page['total']) == (1, 8)
+
+# endregion
 
 
 def test_get_metadata_begins_on_the_requested_page() -> None:
@@ -965,14 +1238,20 @@ def test_get_metadata_keeps_the_files_written_before_a_page_failed() -> None:
     assert list(_saved(fileops)) == _indexed('111 Work 111 - A.json')
 
 
-def test_get_metadata_falls_back_to_the_work_id_when_the_pattern_is_empty() -> None:
+def test_get_metadata_still_names_a_work_with_no_title_or_author() -> None:
+    # whatever else is missing, the work number has to survive, or the file cannot be
+    # matched back to anything
     ao3, repo, fileops = make_ao3()
-    fileops.get_ini_value.return_value = '{language}'  # never present on a listing
-    repo.get_soup.return_value = _listing_soup(['111'])
+    repo.get_soup.return_value = BeautifulSoup(
+        '<ol class="bookmark index group">'
+        '<li id="bookmark_1" class="bookmark blurb group work-111 user-1">'
+        '<div class="header module"><h4 class="heading">'
+        '<a href="/works/111"></a></h4></div></li></ol>', 'html.parser')
 
     ao3.get_metadata(LISTING_URL, False)
 
-    assert list(_saved(fileops)) == _indexed('111.json')
+    written = list(_saved(fileops))[0]
+    assert parse_text.get_work_number_from_filename(os.path.basename(written)) == '111'
 
 
 def test_get_metadata_survives_an_unwritable_file() -> None:
@@ -1194,5 +1473,144 @@ def test_init_reads_debug_from_ini() -> None:
     ao3, _, fileops = make_ao3(debug=True)
     assert ao3.debug is True
     fileops.get_ini_value_boolean.assert_called_once_with(strings.INI_DEBUG_LOGGING, False)
+
+# endregion
+
+
+# region replacing the copy a download supersedes
+#
+# The risk here is losing a file the user has and we do not. Every one of these is about
+# refusing to delete, so they matter more than the one case that does.
+
+WORK = 'https://archiveofourown.org/works/123'
+
+
+def superseding(old: str = r'C:\downloads\123 A 2024-01-01.html'):
+    ao3, repo, fileops = make_ao3()
+    ao3.superseded = {WORK: {'HTML': old}}
+    fileops.saved_intact.return_value = True
+    fileops.delete_file.return_value = True
+    return ao3, fileops
+
+
+def test_the_old_copy_goes_once_the_new_one_is_confirmed():
+    ao3, fileops = superseding()
+
+    ao3.replace_superseded(WORK, 'HTML', r'C:\downloads\123 A 2024-12-14.html', 2048)
+
+    fileops.saved_intact.assert_called_once_with(r'C:\downloads\123 A 2024-12-14.html', 2048)
+    fileops.delete_file.assert_called_once_with(r'C:\downloads\123 A 2024-01-01.html')
+
+
+def test_nothing_is_deleted_when_the_new_file_cannot_be_confirmed():
+    # a download that failed, was cut short, or landed elsewhere must not take the old one
+    ao3, fileops = superseding()
+    fileops.saved_intact.return_value = False
+
+    ao3.replace_superseded(WORK, 'HTML', r'C:\downloads\123 A 2024-12-14.html', 2048)
+
+    fileops.delete_file.assert_not_called()
+
+
+def test_nothing_is_deleted_when_there_was_no_older_copy():
+    ao3, repo, fileops = make_ao3()
+
+    ao3.replace_superseded(WORK, 'HTML', r'C:\downloads\123 A 2024-12-14.html', 10)
+
+    fileops.delete_file.assert_not_called()
+
+
+def test_a_different_file_type_is_never_the_one_removed():
+    # the epub is out of date too, but this download was the html
+    ao3, repo, fileops = make_ao3()
+    ao3.superseded = {WORK: {'EPUB': r'C:\downloads\123 A 2024-01-01.epub'}}
+    fileops.saved_intact.return_value = True
+
+    ao3.replace_superseded(WORK, 'HTML', r'C:\downloads\123 A 2024-12-14.html', 10)
+
+    fileops.delete_file.assert_not_called()
+
+
+def test_a_download_that_kept_its_name_deletes_nothing():
+    # the write already replaced it in place; deleting would remove what was just saved
+    same = r'C:\downloads\123 A 2024-01-01.html'
+    ao3, fileops = superseding(same)
+
+    ao3.replace_superseded(WORK, 'HTML', same, 10)
+
+    fileops.delete_file.assert_not_called()
+
+
+def test_the_same_file_reached_by_a_different_path_is_still_not_deleted():
+    ao3, fileops = superseding(r'C:\downloads\sub\..\123 A 2024-01-01.html')
+
+    ao3.replace_superseded(WORK, 'HTML', r'C:\downloads\123 A 2024-01-01.html', 10)
+
+    fileops.delete_file.assert_not_called()
+
+
+def test_another_works_copy_is_never_touched():
+    ao3, repo, fileops = make_ao3()
+    ao3.superseded = {'https://archiveofourown.org/works/999':
+                      {'HTML': r'C:\downloads\999 B 2024-01-01.html'}}
+    fileops.saved_intact.return_value = True
+
+    ao3.replace_superseded(WORK, 'HTML', r'C:\downloads\123 A 2024-12-14.html', 10)
+
+    fileops.delete_file.assert_not_called()
+
+
+def test_a_download_still_counts_as_done_when_the_old_file_will_not_go():
+    ao3, fileops = superseding()
+    fileops.delete_file.return_value = False
+
+    # the point is that this does not raise: the new file is saved either way
+    ao3.replace_superseded(WORK, 'HTML', r'C:\downloads\123 A 2024-12-14.html', 10)
+
+
+def test_a_failure_while_tidying_up_never_breaks_the_download():
+    ao3, fileops = superseding()
+    fileops.saved_intact.side_effect = OSError('disk went away')
+
+    ao3.replace_superseded(WORK, 'HTML', r'C:\downloads\123 A 2024-12-14.html', 10)
+
+    fileops.write_log.assert_called()
+
+
+def test_the_replacement_really_removes_the_file_on_disk(tmp_path):
+    # the checks above are about refusing; this one proves the real thing works end to end
+    ao3, repo, fileops = make_ao3()
+    # the real disk checks, with logging still mocked
+    fileops.saved_intact.side_effect = lambda p, n: FileOps.saved_intact(fileops, p, n)
+    fileops.delete_file.side_effect = lambda p: FileOps.delete_file(fileops, p)
+
+    old = tmp_path / '123 A 2024-01-01.html'
+    new = tmp_path / '123 A 2024-12-14.html'
+    old.write_bytes(b'old copy')
+    new.write_bytes(b'the new copy')
+    ao3.superseded = {WORK: {'HTML': str(old)}}
+
+    ao3.replace_superseded(WORK, 'HTML', str(new), len(b'the new copy'))
+
+    assert not old.exists()
+    assert new.exists()
+
+
+def test_a_truncated_new_file_leaves_the_old_one_where_it_is(tmp_path):
+    ao3, repo, fileops = make_ao3()
+    # the real disk checks, with logging still mocked
+    fileops.saved_intact.side_effect = lambda p, n: FileOps.saved_intact(fileops, p, n)
+    fileops.delete_file.side_effect = lambda p: FileOps.delete_file(fileops, p)
+
+    old = tmp_path / '123 A 2024-01-01.html'
+    new = tmp_path / '123 A 2024-12-14.html'
+    old.write_bytes(b'old copy')
+    new.write_bytes(b'half')
+    ao3.superseded = {WORK: {'HTML': str(old)}}
+
+    # says it should be 2048 bytes, but only 4 arrived
+    ao3.replace_superseded(WORK, 'HTML', str(new), 2048)
+
+    assert old.exists()
 
 # endregion

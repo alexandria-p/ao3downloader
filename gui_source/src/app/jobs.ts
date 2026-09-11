@@ -16,8 +16,11 @@ export interface ServerSettings {
   file: string;
   downloadFolder: string;
   extraWaitTime: number;
+  /** how every downloaded file is named. fixed, not a setting - shown so it can be read */
   fileNamePattern: string;
   fileNameLength: number;
+  /** the naming rule as an actual name, built through the same truncation */
+  fileNameExample: string;
   maxRetries: number;
   maxTimeouts: number;
   debugLogging: boolean;
@@ -43,13 +46,37 @@ export interface JobOptions {
   series: boolean;
   images: boolean;
   workdates: boolean;
+  /**
+   * Fetch again the works whose files were saved before names carried a date. Off by
+   * default - those cannot be judged out of date, and refetching a whole library is
+   * expensive - so it is only ever set by the offer made after a run.
+   */
+  refreshUndated: boolean;
+  /**
+   * Instead of refetching those, write this date (YYYY-MM-DD) onto them and carry on.
+   * Nothing is downloaded to do it - the files are renamed where they sit - and from then
+   * on the ordinary rule applies. Empty means don't.
+   */
+  stampUndated: string;
+}
+
+/** a work the run could not download */
+export interface WorkFailure {
+  /** the ao3 work number, when the link had one in it */
+  id: string | null;
+  link: string;
+  error: string;
 }
 
 export interface JobEvent {
   type: string;
   text?: string;
+  /** on a `page` event: position within the slice being fetched, which drives the bar */
   page?: number;
   total?: number;
+  /** on a `page` event: the same page's actual number in the listing, for the wording */
+  listingPage?: number;
+  listingTotal?: number;
   works?: number;
   done?: number;
   title?: string;
@@ -60,6 +87,14 @@ export interface JobEvent {
   name?: string;
   /** who the helper signed in as, on an `authenticated` event */
   username?: string;
+  /** on a `refresh` event: works ao3 has updated since they were saved */
+  stale?: number;
+  /** on a `refresh` event: works saved before file names carried a date */
+  undated?: number;
+  /** on a `refresh` event: existing files this run gave a date to, by renaming them */
+  stamped?: number;
+  /** on a `failures` event: the works that would not download */
+  failures?: WorkFailure[];
   seconds?: number;
   until?: string;
   error?: string;

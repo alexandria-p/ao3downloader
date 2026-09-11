@@ -37,6 +37,13 @@ class Ao3:
         # which page of a listing to begin at. 'pages' is where to stop, and both are
         # absolute page numbers, so a run can cover a slice in the middle of a listing.
         self.start = start if start and start > 1 else 1
+        # {work link: {FILETYPE: path of the copy this run is replacing}}. filled in by the
+        # caller when it has worked out which downloads are out of date.
+        self.superseded: dict[str, dict[str, str]] = {}
+        # works this run could not download, in the order they were attempted. the log
+        # records them too, but a run that leaves gaps should be able to say which ones
+        # without anyone having to read a log file to find out.
+        self.failures: list[dict] = []
         self.series = series
         self.images = images
         self.mark = mark
@@ -136,9 +143,14 @@ class Ao3:
                     document.update(parse_soup.get_blurb_metadata(blurb))
                     records.append(document)
                     self.save_metadata(document)
-                progress.report(self.progress, progress.PAGE,
-                                page=parse_text.get_page_number(link),
-                                total=total_pages, works=len(records))
+                current = parse_text.get_page_number(link)
+                done, of = self.page_progress(current, total_pages)
+                # two sets of numbers on purpose: the bar measures the slice being fetched,
+                # so it runs 1..n and ends full, while the words say where that actually is
+                # in the listing - 'page 42 of 80' is what you would go and look at
+                progress.report(self.progress, progress.PAGE, page=done, total=of,
+                                listingPage=current, listingTotal=total_pages,
+                                works=len(records))
                 pagenum = parse_text.get_page_number(link)
                 if not total_pages or pagenum >= total_pages:
                     break
@@ -161,6 +173,90 @@ class Ao3:
         if workdates and records: self.add_work_dates(records)
 
         return records
+
+
+    def download_indexed(self, records: list[dict], visited: list[str] | None = None) -> None:
+        """Download the works the index lists, without reading ao3's listing again.
+
+        The index already holds every work number and everything needed to name a file, so
+        this skips two things the long way round pays for: walking the listing pages a
+        second time to rediscover links we already have, and fetching each work's page to
+        read a download link that the work number already determines.
+
+        The trade-off is that nothing looks at the work page, so a work that is locked,
+        deleted or hidden is not recognised as such - it just fails to download and is
+        logged. Anything that genuinely needs the page (embedded images, marking as read,
+        following series links) goes the long way round instead; see server.can_use_index.
+        """
+
+        visited = visited or []
+        maximum = self.fileops.get_ini_value_integer(
+            strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+        skip = set(visited)
+        pending = [x for x in records
+                   if x.get('id') and x.get('link') and x['link'] not in skip]
+
+        print(strings.AO3_INFO_FROM_INDEX.format(len(pending)))
+
+        for done, record in enumerate(pending, start=1):
+            log: dict = {'link': record['link']}
+            try:
+                self.check_cancelled()
+                self.download_one_indexed(record, maximum, log, done, len(pending))
+            except exceptions.CancelledException:
+                print(strings.INFO_CANCELLED)
+                return
+            except Exception as e:
+                # one work that will not come down should not end the run
+                self.record_failure(record['link'], e)
+                self.log_error(log, e)
+
+
+    def download_one_indexed(self, record: dict, maximum: int, log: dict,
+                             done: int, total: int) -> None:
+        """Fetch one work's files straight from its work number."""
+
+        work = str(record['id'])
+        title = parse_soup.apply_name_pattern(
+            parse_soup.get_name_metadata_from_blurb(record), strings.FILE_NAME_PATTERN)
+        updated = record.get('date_updated') or ''
+        filename = parse_text.get_valid_filename(
+            title, maximum, parse_text.get_date_suffix(updated)) or work
+
+        log['title'] = title
+        # the same two fields the long way round records, so the 'already downloaded' check
+        # can rebuild this exact name next time
+        log['updated'] = updated
+
+        display = ' / '.join(x for x in title if x)
+        for filetype in self.filetypes:
+            self.check_cancelled()
+            progress.report(self.progress, progress.WORK, title=display,
+                            link=record['link'], filetype=filetype,
+                            phase=progress.DOWNLOADING, done=done, total=total)
+            content = self.repo.download_file(
+                parse_text.get_direct_download_link(work, filetype), filetype)
+            saved = self.fileops.save_bytes(
+                filename + parse_text.get_file_type(filetype), content)
+            self.replace_superseded(record['link'], filetype, saved, len(content))
+
+        log['success'] = True
+        self.fileops.write_log(log)
+
+
+    def page_progress(self, current: int, total_pages: int | None) -> tuple[int, int | None]:
+        """Where a page sits in the slice being fetched, rather than in the whole listing.
+
+        A run over pages 42 to 80 is fetching 39 pages, and the first of them is page 1 of
+        39. Reporting it as 42 of 80 would start the bar at half full and leave it at 100%
+        having fetched less than half the listing. The stop page counts too: pages 42 to 60
+        is 19 pages, not 39.
+        """
+
+        done = current - self.start + 1
+        if not total_pages: return done, None
+        last = min(total_pages, self.pages) if self.pages else total_pages
+        return done, max(1, last - self.start + 1)
 
 
     def walk_pages(self, link: str):
@@ -432,7 +528,7 @@ class Ao3:
         """
 
         try:
-            pattern = self.fileops.get_ini_value(strings.INI_NAME_PATTERN, strings.INI_DEFAULT_NAME_PATTERN)
+            pattern = strings.FILE_NAME_PATTERN
             maximum = self.fileops.get_ini_value_integer(strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
             name = parse_soup.apply_name_pattern(parse_soup.get_name_metadata_from_blurb(document), pattern)
             filename = parse_text.get_valid_filename(name, maximum)
@@ -595,7 +691,9 @@ class Ao3:
                         if self.debug: self.fileops.write_log({'link': link, 'message': strings.INFO_PAGE_LIMIT_REACHED, 'level': 'debug'})
                         break
                     print(strings.INFO_FINISHED_PAGE.format(str(pagenum - 1), str(pagenum), str(total_pages)))
-                    progress.report(self.progress, progress.PAGE, page=pagenum - 1, total=total_pages)
+                    done, of = self.page_progress(pagenum - 1, total_pages)
+                    progress.report(self.progress, progress.PAGE, page=done, total=of,
+                                    listingPage=pagenum - 1, listingTotal=total_pages)
                 else:
                     total_pages = parse_soup.get_total_pages(thesoup)
                     if not total_pages or total_pages <= 1:
@@ -639,6 +737,7 @@ class Ao3:
         except exceptions.CancelledException:
             raise # a stop is not a failed download, and must not be logged as one
         except Exception as e:
+            self.record_failure(link, e)
             self.log_error(log, e)
         else:
             log['success'] = True
@@ -657,11 +756,16 @@ class Ao3:
             if int(currentchapters) <= int(chapters):
                 return False
         
-        pattern = self.fileops.get_ini_value(strings.INI_NAME_PATTERN, strings.INI_DEFAULT_NAME_PATTERN)
         maximum = self.fileops.get_ini_value_integer(strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
-        title = parse_soup.get_title(thesoup, work_url, pattern)
-        filename = parse_text.get_valid_filename(title, maximum)
+        title = parse_soup.get_title(thesoup, work_url, strings.FILE_NAME_PATTERN)
+        # the name ends in the date the work was last updated, so a file says which version
+        # of a fic it holds. the title is cut short to leave room for it rather than the
+        # other way round.
+        updated = parse_soup.get_updated_date(thesoup)
+        filename = parse_text.get_valid_filename(title, maximum, parse_text.get_date_suffix(updated))
         log['title'] = title
+        # recorded so the same name can be rebuilt when checking what is already downloaded
+        log['updated'] = updated
         log['workskin'] = parse_soup.has_custom_skin(thesoup)
 
         # what is being fetched right now, so the ui can name the fic and the format
@@ -675,8 +779,9 @@ class Ao3:
                             filetype=filetype, phase='downloading')
             link = parse_soup.get_download_link(thesoup, filetype)
             response = self.repo.get_book(link)
-            filetype = parse_text.get_file_type(filetype)
-            self.fileops.save_bytes(filename + filetype, response)
+            saved = self.fileops.save_bytes(
+                filename + parse_text.get_file_type(filetype), response)
+            self.replace_superseded(work_url, filetype, saved, len(response))
 
         if self.images:
             counter = 0
@@ -699,6 +804,44 @@ class Ao3:
             self.repo.mark_work_as_read(thesoup, work_url)
 
         return True
+
+
+    def replace_superseded(self, work_url: str, filetype: str,
+                           saved_path: str, size: int) -> None:
+        """Remove the copy a download has just replaced, once it is safe to.
+
+        Deliberately cautious, because the alternative is losing a file the user still has
+        and we no longer have. Four things all have to hold:
+
+          - there was an older copy recorded for this work
+          - it is the *same* file type. re-downloading the html must never remove the epub
+          - the new file is not the old one under a different name - if the name did not
+            change there is nothing to remove, the write already replaced it
+          - the new file is on disk, in the folder in use, at its full length
+
+        Anything short of that leaves the old file exactly where it is.
+        """
+
+        old = self.superseded.get(work_url, {}).get(filetype)
+        if not old: return
+
+        try:
+            if os.path.abspath(old) == os.path.abspath(saved_path): return
+            if not self.fileops.saved_intact(saved_path, size):
+                self.fileops.write_log({
+                    'link': work_url, 'message': strings.INFO_KEPT_OLD_COPY.format(old),
+                    'level': 'debug'})
+                return
+            if self.fileops.delete_file(old):
+                print(strings.INFO_REPLACED_OLD_COPY.format(os.path.basename(old)))
+                self.fileops.write_log({
+                    'link': work_url, 'message': strings.INFO_REPLACED_OLD_COPY.format(old),
+                    'level': 'debug'})
+            else:
+                print(strings.INFO_KEPT_OLD_COPY.format(os.path.basename(old)))
+        except Exception as e:
+            # never let tidying up an old file break a download that succeeded
+            self.log_error({'message': strings.ERROR_REPLACE_OLD_COPY, 'link': work_url}, e)
 
 
     def proceed(self, thesoup: BeautifulSoup) -> BeautifulSoup:
@@ -725,6 +868,19 @@ class Ao3:
 
         if self.cancelled is not None and self.cancelled():
             raise exceptions.CancelledException(strings.INFO_CANCELLED)
+
+
+    def record_failure(self, link: str, exception: Exception) -> None:
+        """Remember a work that would not come down, so the run can say so at the end.
+
+        Recorded once per work rather than once per file type: a work that fails usually
+        fails for every format, and a list with the same number in it five times is worse
+        than useless for feeding back in.
+        """
+
+        work = parse_text.get_work_number(link or '')
+        if any(x['link'] == link for x in self.failures): return
+        self.failures.append({'id': work, 'link': link, 'error': str(exception)})
 
 
     def log_error(self, log: dict, exception: Exception):

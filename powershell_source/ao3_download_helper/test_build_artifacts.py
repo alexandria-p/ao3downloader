@@ -280,10 +280,21 @@ def test_build_documents_the_file_layout_and_naming_every_time(fake_root):
     for folder in (strings.INDEXING_FOLDER_NAME, strings.IMAGE_FOLDER_NAME,
                    strings.COLLECTIONS_FOLDER_NAME):
         assert f'<downloads>/{folder}/' in readme, folder
-    assert strings.INI_NAME_PATTERN in readme
+    # the naming is fixed rather than a setting, so the readme has to state it outright
+    assert strings.FILE_NAME_PATTERN in readme
+    assert strings.DATE_STAMP_PLACEHOLDER in readme
     assert strings.INI_NAME_LENGTH in readme
     assert 'work number has to come first' in readme
     assert '"work_ids"' in readme
+
+
+def test_build_does_not_offer_a_file_name_pattern_setting(fake_root):
+    # it was removed: the work number has to lead and the date has to trail, so letting it
+    # be rearranged only breaks the matching and the version check
+    build_artifacts.build(fake_root, skip_web=True)
+
+    readme = (bundle(fake_root) / 'README.md').read_text(encoding='utf-8')
+    assert 'FileNamePattern' not in readme
 
 
 def test_build_replaces_a_stale_package_copy(fake_root):

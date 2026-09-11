@@ -72,15 +72,34 @@ def test_html_is_offered_by_default_but_can_be_turned_off():
 def test_resolve_options_defaults_match_the_console_defaults():
     assert server.resolve_options(None) == {
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
+        'refreshUndated': False, 'stampUndated': '',
     }
 
 
 def test_resolve_options_reads_what_was_asked_for():
     result = server.resolve_options(
-        {'start': '5', 'pages': '8', 'series': True, 'images': True, 'workdates': True})
+        {'start': '5', 'pages': '8', 'series': True, 'images': True, 'workdates': True,
+         'refreshUndated': True, 'stampUndated': '2024-06-01'})
 
-    assert result == {'start': 5, 'pages': 8, 'series': True,
-                      'images': True, 'workdates': True}
+    assert result == {'start': 5, 'pages': 8, 'series': True, 'images': True,
+                      'workdates': True, 'refreshUndated': True,
+                      'stampUndated': '2024-06-01'}
+
+
+def test_refreshing_undated_files_is_off_unless_asked_for():
+    # it refetches an entire library, so it must never be what happens by default
+    assert server.resolve_options({})['refreshUndated'] is False
+
+
+def test_dating_undated_files_is_off_unless_asked_for():
+    # it renames files the user already has, so it is never a default either
+    assert server.resolve_options({})['stampUndated'] == ''
+
+
+@pytest.mark.parametrize('given', ['not a date', '2024-13-45', 'today', 42, None, ''])
+def test_a_date_to_stamp_that_cannot_be_read_is_ignored(given):
+    # renaming a library after a half-understood date would be worse than doing nothing
+    assert server.resolve_options({'stampUndated': given})['stampUndated'] == ''
 
 
 @pytest.mark.parametrize('start', ['abc', None, '', {}, -5, 0])
@@ -326,6 +345,108 @@ def test_collections_is_an_accepted_action():
     assert server.ACTION_COLLECTIONS in server.ACTIONS
 
 
+# region downloading from the index instead of crawling again
+
+def _job_with(**options) -> server.Job:
+    return server.Job(server.ACTION_BOOKMARKS, ['JSON', 'HTML'], 'Someone',
+                      server.resolve_options(options))
+
+
+RECORDS = [{'id': '111', 'link': 'https://archiveofourown.org/works/111'}]
+
+
+def test_the_index_is_used_when_nothing_needs_the_work_page():
+    assert server.can_use_index(_job_with(), RECORDS) is True
+
+
+def test_there_is_nothing_to_work_from_without_an_index():
+    # a run with json unticked has no record of the work numbers
+    assert server.can_use_index(_job_with(), []) is False
+
+
+def test_embedded_images_need_the_work_page():
+    # the image links are on it, and nothing else lists them
+    assert server.can_use_index(_job_with(images=True), RECORDS) is False
+
+
+def test_following_series_links_needs_the_work_page():
+    # a series is discovered through the work, not through the bookmarks index
+    assert server.can_use_index(_job_with(series=True), RECORDS) is False
+
+
+def test_run_bookmarks_downloads_from_the_index_when_it_can(fake_environment):
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON', 'HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = RECORDS
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'visited', return_value=[]), \
+         patch.object(server, 'plan_refresh',
+                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+        server.run_bookmarks(job, fake_environment['fileops'],
+                             fake_environment['repo'], MagicMock())
+
+    ao3.download_indexed.assert_called_once()
+    ao3.download.assert_not_called()
+
+
+def test_run_bookmarks_reports_the_works_that_would_not_download(fake_environment):
+    # a run that leaves gaps should name them, not leave it to be found in the log
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON', 'HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = RECORDS
+    ao3.failures = [{'id': '111', 'link': 'https://archiveofourown.org/works/111',
+                     'error': 'deleted'}]
+    reported: list[dict] = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'visited', return_value=[]), \
+         patch.object(server, 'plan_refresh',
+                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+        server.run_bookmarks(job, fake_environment['fileops'],
+                             fake_environment['repo'], reported.append)
+
+    failures = [e for e in reported if e['type'] == progress.FAILURES]
+    assert len(failures) == 1
+    assert failures[0]['failures'][0]['id'] == '111'
+
+
+def test_run_bookmarks_says_nothing_when_every_work_came_down(fake_environment):
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON', 'HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = RECORDS
+    ao3.failures = []
+    reported: list[dict] = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'visited', return_value=[]), \
+         patch.object(server, 'plan_refresh',
+                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+        server.run_bookmarks(job, fake_environment['fileops'],
+                             fake_environment['repo'], reported.append)
+
+    assert not [e for e in reported if e['type'] == progress.FAILURES]
+
+
+def test_run_bookmarks_walks_the_listing_when_images_were_asked_for(fake_environment):
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({'images': True}))
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = RECORDS
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'visited', return_value=[]), \
+         patch.object(server, 'plan_refresh',
+                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+        server.run_bookmarks(job, fake_environment['fileops'],
+                             fake_environment['repo'], MagicMock())
+
+    ao3.download.assert_called_once()
+    ao3.download_indexed.assert_not_called()
+
+# endregion
+
+
 # region the settings a run will use
 
 def test_read_settings_reports_what_the_run_will_actually_use(tmp_path):
@@ -335,14 +456,46 @@ def test_read_settings_reports_what_the_run_will_actually_use(tmp_path):
     fileops.get_ini_value_integer.side_effect = lambda key, default: {
         strings.INI_WAIT_TIME: 15, strings.INI_NAME_LENGTH: 50,
         strings.INI_MAX_RETRIES: 0, strings.INI_MAX_TIMEOUTS: 3}[key]
-    fileops.get_ini_value.return_value = strings.INI_DEFAULT_NAME_PATTERN
+    fileops.get_ini_value.return_value = strings.FILE_NAME_PATTERN
     fileops.get_ini_value_boolean.return_value = False
 
     result = server.read_settings(fileops)
 
     assert result['extraWaitTime'] == 15
-    assert result['fileNamePattern'] == strings.INI_DEFAULT_NAME_PATTERN
     assert result['fileNameLength'] == 50
+    # the whole breakdown, date included, since that is what a file actually looks like
+    assert result['fileNamePattern'] == \
+        '{worknum} {title} - {author} ' + strings.DATE_STAMP_PLACEHOLDER
+
+
+def test_read_settings_shows_the_naming_as_a_real_example(tmp_path):
+    fileops = MagicMock()
+    fileops.inifile = str(tmp_path / 'settings.ini')
+    fileops.downloadfolder = 'downloads'
+    fileops.get_ini_value_integer.side_effect = lambda key, default: (
+        50 if key == strings.INI_NAME_LENGTH else 0)
+    fileops.get_ini_value_boolean.return_value = False
+
+    example = server.read_settings(fileops)['fileNameExample']
+
+    assert parse_text.get_work_number_from_filename(example) == '34816549'
+    assert parse_text.get_date_from_filename(example) == '2026-08-23'
+
+
+def test_the_example_obeys_the_length_that_is_configured(tmp_path):
+    # it is built through the real truncation, so a short limit shows a short name
+    fileops = MagicMock()
+    fileops.inifile = str(tmp_path / 'settings.ini')
+    fileops.downloadfolder = 'downloads'
+    fileops.get_ini_value_integer.side_effect = lambda key, default: (
+        30 if key == strings.INI_NAME_LENGTH else 0)
+    fileops.get_ini_value_boolean.return_value = False
+
+    example = server.read_settings(fileops)['fileNameExample']
+
+    assert len(os.path.splitext(example)[0]) == 30
+    # and the date is still the part that survives
+    assert parse_text.get_date_from_filename(example) == '2026-08-23'
 
 
 def test_read_settings_says_which_settings_file_is_in_force(tmp_path):
