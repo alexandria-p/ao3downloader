@@ -6,6 +6,7 @@ in producing the bundle belongs together.
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,14 @@ DownloadFolder=downloads
 """
 
 
+def write_module(package: Path, relative: str, imports: list[str]) -> None:
+    """A stand-in module that imports the ones named, so the walk has something to follow."""
+
+    path = package / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('\n'.join(imports) + '\n', encoding='utf-8')
+
+
 @pytest.fixture
 def fake_root(tmp_path) -> Path:
     """A working copy with just enough in it to build a bundle."""
@@ -67,8 +76,31 @@ def fake_root(tmp_path) -> Path:
 
     package = python_home / build_artifacts.PACKAGE_NAME
     (package / 'settings').mkdir(parents=True)
+    (package / 'actions').mkdir(parents=True)
+    (package / 'html').mkdir(parents=True)
     (package / '__init__.py').write_text('', encoding='utf-8')
+    (package / 'actions' / '__init__.py').write_text('', encoding='utf-8')
     (package / 'settings' / 'settings.ini').write_text(SETTINGS_TEMPLATE, encoding='utf-8')
+    # only the console's log visualisation reads this, so the bundle has no use for it
+    (package / 'html' / 'template.html').write_text('<html></html>', encoding='utf-8')
+
+    # a package shaped like the real one: the helper at the top of a chain of imports, and
+    # the console menu off to one side where nothing the helper does can reach it
+    write_module(package, 'server.py', [
+        'from source_code import strings',
+        'from source_code.ao3 import Ao3',
+        'from source_code.actions import shared',
+    ])
+    write_module(package, 'ao3.py', ['from source_code import parse_text, strings'])
+    write_module(package, 'parse_text.py', [])
+    write_module(package, 'strings.py', [])
+    write_module(package, os.path.join('actions', 'shared.py'), ['from source_code import strings'])
+    # reachable only from the console menu
+    write_module(package, 'main.py', ['from source_code.actions import updatefics'])
+    write_module(package, os.path.join('actions', 'updatefics.py'), ['from source_code import update'])
+    write_module(package, 'update.py', ['from source_code import parse_pdf'])
+    write_module(package, 'parse_pdf.py', [])
+
     # should not be copied into the bundle
     (package / '__pycache__').mkdir()
     (package / '__pycache__' / 'junk.pyc').write_text('x', encoding='utf-8')
@@ -330,5 +362,96 @@ def test_build_leaves_the_web_folder_alone_when_skipping_it(fake_root):
     build_artifacts.build(fake_root, skip_web=True)
 
     assert (web / 'index.html').exists()
+
+# endregion
+
+
+# region shipping only what the helper imports
+
+def shipped(root: Path) -> set[str]:
+    """Every file under the bundled package, as posix-style relative paths."""
+
+    package = helper_dir(root) / build_artifacts.PACKAGE_NAME
+    return {p.relative_to(package).as_posix() for p in package.rglob('*') if p.is_file()}
+
+
+def test_the_bundle_ships_what_the_helper_imports(fake_root):
+    build_artifacts.build(fake_root, skip_web=True)
+
+    files = shipped(fake_root)
+    for name in ('server.py', 'ao3.py', 'parse_text.py', 'strings.py', 'actions/shared.py'):
+        assert name in files, name
+
+
+def test_the_bundle_leaves_behind_what_only_the_console_reaches(fake_root):
+    # the console menu, and the ebook parsing only it uses, are not invokable from the ui
+    build_artifacts.build(fake_root, skip_web=True)
+
+    files = shipped(fake_root)
+    for name in ('main.py', 'update.py', 'parse_pdf.py', 'actions/updatefics.py'):
+        assert name not in files, name
+
+
+def test_a_package_that_is_kept_still_gets_its_init(fake_root):
+    build_artifacts.build(fake_root, skip_web=True)
+
+    files = shipped(fake_root)
+    assert '__init__.py' in files
+    assert 'actions/__init__.py' in files
+
+
+def test_the_settings_template_is_shipped_even_though_nothing_imports_it(fake_root):
+    # fileio reads it through importlib.resources, which no import graph can see
+    build_artifacts.build(fake_root, skip_web=True)
+
+    assert 'settings/settings.ini' in shipped(fake_root)
+
+
+def test_data_only_the_console_reads_is_left_behind(fake_root):
+    # the log visualisation template is the console's, not the helper's
+    build_artifacts.build(fake_root, skip_web=True)
+
+    assert 'html/template.html' not in shipped(fake_root)
+
+
+def test_the_build_says_what_it_left_behind(fake_root):
+    # a module quietly dropping out of the bundle should be visible at build time
+    result = build_artifacts.build(fake_root, skip_web=True)
+
+    assert 'source_code.main' in result['left_behind']
+    assert 'source_code.server' not in result['left_behind']
+
+
+def test_a_module_the_helper_starts_importing_is_shipped_without_being_listed(fake_root):
+    # the whole reason this follows imports rather than keeping a list
+    package = fake_root / build_artifacts.PYTHON_HOME / build_artifacts.PACKAGE_NAME
+    write_module(package, 'newly_needed.py', [])
+    (package / 'server.py').write_text(
+        'from source_code import strings\nfrom source_code import newly_needed\n',
+        encoding='utf-8')
+
+    build_artifacts.build(fake_root, skip_web=True)
+
+    assert 'newly_needed.py' in shipped(fake_root)
+
+
+def test_nothing_is_shipped_from_a_package_with_no_helper_in_it(fake_root):
+    package = fake_root / build_artifacts.PYTHON_HOME / build_artifacts.PACKAGE_NAME
+    (package / 'server.py').unlink()
+
+    with pytest.raises(FileNotFoundError, match=build_artifacts.HELPER_ENTRY):
+        build_artifacts.build(fake_root, skip_web=True)
+
+
+def test_a_rebuild_drops_a_module_that_is_no_longer_reached(fake_root):
+    build_artifacts.build(fake_root, skip_web=True)
+    assert 'actions/shared.py' in shipped(fake_root)
+
+    package = fake_root / build_artifacts.PYTHON_HOME / build_artifacts.PACKAGE_NAME
+    (package / 'server.py').write_text('from source_code import strings\n', encoding='utf-8')
+
+    build_artifacts.build(fake_root, skip_web=True)
+
+    assert 'actions/shared.py' not in shipped(fake_root)
 
 # endregion

@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from source_code import parse_text, progress, strings, update
+from source_code import exceptions, parse_text, progress, strings
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -35,6 +35,23 @@ ACTION_UPDATE = 'update'
 ACTION_COLLECTIONS = 'collections'
 
 ACTION_COLLECTION = 'collection'
+
+# how long a run waits between checks for an answer to a question it has asked. short
+# enough that a stop is noticed quickly, long enough not to spin.
+ANSWER_POLL_SECONDS = 0.25
+
+# how long a question waits altogether before giving up and taking its default. a browser
+# tab closed without stopping the run would otherwise leave this thread waiting for an
+# answer that can never arrive. Long enough that nobody who stepped away loses their place.
+ANSWER_TIMEOUT_SECONDS = 30 * 60
+
+# what to do about downloaded files that carry no date. asked before anything is fetched,
+# because the answer decides which works count as outdated.
+UNDATED_QUESTION = 'undated'
+UNDATED_STAMP = 'stamp'
+UNDATED_REFRESH = 'refresh'
+UNDATED_SKIP = 'skip'
+UNDATED_CHOICES = (UNDATED_STAMP, UNDATED_REFRESH, UNDATED_SKIP)
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION)
 
@@ -99,12 +116,6 @@ def resolve_options(requested) -> dict:
         'series': bool(given.get('series')),
         'images': bool(given.get('images')),
         'workdates': bool(given.get('workdates')),
-        # fetch again the works whose files predate names carrying a date. off by default:
-        # they cannot be judged out of date, and refetching a whole library is expensive.
-        'refreshUndated': bool(given.get('refreshUndated')),
-        # instead of refetching those, write this date onto them and carry on. anything ao3
-        # has updated since it is then fetched by the ordinary rule. '' means don't.
-        'stampUndated': parse_text.get_date_stamp(given.get('stampUndated') or ''),
     }
 
 
@@ -164,6 +175,12 @@ class Job:
         self.events: queue.Queue = queue.Queue()
         self.done = threading.Event()
         self.cancel = threading.Event()
+        # set while the user has the run paused. it is only ever read at the one safe
+        # point in the request loop, so setting it here cannot interrupt anything.
+        self.held = threading.Event()
+        # a run can stop and put a question to the ui; these carry the reply back
+        self.answered = threading.Event()
+        self.answer: dict = {}
         self.history: list[dict] = []
         self.lock = threading.Lock()
 
@@ -171,6 +188,37 @@ class Job:
         with self.lock:
             self.history.append(event)
         self.events.put(event)
+
+    def ask(self, question: dict, default: dict) -> dict:
+        """Put a question to the ui and wait for the answer.
+
+        The wait is in slices rather than one long block so that a stop releases it: a run
+        paused on a question the user has walked away from must still be stoppable, and a
+        closed tab must not leave a thread waiting for an answer that can never come. A
+        stop, or an answer that says nothing, both give back the default - which is always
+        the option that changes nothing.
+        """
+
+        self.answer = {}
+        self.answered.clear()
+        self.emit({'type': progress.QUESTION, **question})
+
+        waited = 0.0
+        while not self.answered.is_set():
+            if self.cancel.is_set(): return default
+            if waited >= ANSWER_TIMEOUT_SECONDS: return default
+            self.answered.wait(timeout=ANSWER_POLL_SECONDS)
+            waited += ANSWER_POLL_SECONDS
+
+        return self.answer or default
+
+
+    def reply(self, answer: dict) -> None:
+        """Hand an answer back to whatever asked."""
+
+        self.answer = answer or {}
+        self.answered.set()
+
 
     def finish(self) -> None:
         self.done.set()
@@ -205,14 +253,17 @@ def run_job(job: Job, password: str) -> None:
         fileops = FileOps()
         fileops.initialize()
         with contextlib.redirect_stdout(stream):
-            with Repository(fileops, progress=report, cancelled=job.cancel.is_set) as repo:
+            with Repository(fileops, progress=report, cancelled=job.cancel.is_set,
+                            held=job.held.is_set) as repo:
                 job.emit({'type': progress.STARTED, 'action': job.action,
                           'folder': fileops.downloadfolder,
                           'filetypes': job.filetypes, 'options': job.options})
                 # announced separately so the ui can show it is waiting, and say whether
                 # the credentials worked before anything else starts
                 progress.report(report, progress.PHASE, name=progress.AUTHENTICATING)
+                print(strings.AO3_INFO_LOGGING_IN.format(job.username))
                 repo.login(job.username, password)
+                print(strings.AO3_INFO_LOGGED_IN)
                 progress.report(report, progress.AUTHENTICATED, username=job.username)
                 if job.action == ACTION_BOOKMARKS:
                     run_bookmarks(job, fileops, repo, report)
@@ -280,9 +331,7 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
         # a run that leaves gaps should say which works they were, rather than leaving it
         # to be worked out from the log afterwards
-        if ao3.failures:
-            print(strings.AO3_INFO_FAILED_WORKS.format(len(ao3.failures)))
-            progress.report(report, progress.FAILURES, failures=ao3.failures)
+        report_failures(ao3, report)
 
 
 def can_use_index(job: Job, records: list[dict]) -> bool:
@@ -299,40 +348,83 @@ def can_use_index(job: Job, records: list[dict]) -> bool:
     return True
 
 
+def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: dict,
+                   filetypes: list[str]) -> tuple[bool, int]:
+    """Ask what to do about downloaded files that carry no date, before anything is fetched.
+
+    An undated file cannot be judged against ao3's version - there is nothing to compare it
+    with - so the run stops and asks rather than guessing. It is asked here, and not after
+    the downloads, because the answer decides which works count as out of date and there is
+    no acting on it once they have been fetched.
+
+    `existing` is updated in place when the files are dated, so the caller can plan from it
+    straight afterwards. Returns whether undated works should now count as out of date, and
+    how many files were given a date.
+    """
+
+    undated = shared.plan_downloads(records, existing, filetypes)['undated']
+    if not undated: return False, 0
+
+    print(strings.AO3_INFO_UNDATED.format(len(undated)))
+    print(strings.AO3_INFO_UNDATED_WAITING)
+
+    answer = job.ask(
+        {'name': UNDATED_QUESTION, 'count': len(undated), 'choices': list(UNDATED_CHOICES)},
+        # a stop, or a closed tab, leaves them exactly as they are
+        {'choice': UNDATED_SKIP, 'date': ''})
+    choice = answer.get('choice')
+
+    if choice == UNDATED_STAMP and answer.get('date'):
+        maximum = fileops.get_ini_value_integer(
+            strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+        # exactly the works the question was asked about, and no others. `existing` is the
+        # whole downloads folder; `undated` is the handful of it this run is dealing with
+        links = set(undated)
+        works = {str(x['id']) for x in records
+                 if x.get('id') and x.get('link') in links}
+        result = shared.stamp_undated_works(fileops, existing, works, answer['date'],
+                                            maximum)
+        print(strings.AO3_INFO_STAMPED.format(result['renamed'], answer['date']))
+        if result['skipped']:
+            print(strings.AO3_INFO_STAMP_SKIPPED.format(result['skipped']))
+        # they carry a date now, so the ordinary rule judges them from here on
+        return False, result['renamed']
+
+    if choice == UNDATED_REFRESH:
+        print(strings.AO3_INFO_UNDATED_REFRESH.format(len(undated)))
+        return True, 0
+
+    print(strings.AO3_INFO_UNDATED_SKIPPED.format(len(undated)))
+    return False, 0
+
+
 def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
                  downloadtypes: list[str], report) -> dict:
-    """Which downloaded works ao3 has updated since they were saved.
+    """What the downloads folder already holds, and which of it ao3 has moved past.
 
-    Reports both counts to the ui: the works that are out of date and will be fetched
-    again, and the ones saved before file names carried a date, which cannot be judged and
-    so are left alone unless the run was asked to refresh them.
+    Says what it is doing at each step, because from the outside 'checking what you have'
+    and 'checking what is out of date' look the same as a stall.
     """
 
     if not records:
-        return {'stale': [], 'undated': [], 'superseded': {}}
+        return {'stale': [], 'undated': [], 'superseded': {}, 'existing': {}}
 
+    progress.report(report, progress.PHASE, name=progress.CHECKING_FILES)
+    print(strings.AO3_INFO_CHECKING_FILES)
     existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
 
-    # dating the undated files first means the ordinary rule can judge them from here on,
-    # so nothing below has to treat them as a special case
-    stamped = 0
-    stamp = job.options['stampUndated']
-    if stamp:
-        maximum = fileops.get_ini_value_integer(
-            strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
-        result = shared.stamp_undated_works(fileops, existing, stamp, maximum)
-        stamped = result['renamed']
-        print(strings.AO3_INFO_STAMPED.format(stamped, stamp))
-        if result['skipped']:
-            print(strings.AO3_INFO_STAMP_SKIPPED.format(result['skipped']))
+    refresh_undated, stamped = settle_undated(job, fileops, records, existing, downloadtypes)
 
+    progress.report(report, progress.PHASE, name=progress.CHECKING_VERSIONS)
+    print(strings.AO3_INFO_CHECKING_VERSIONS)
     plan = shared.plan_downloads(records, existing, downloadtypes,
-                                 refresh_undated=job.options['refreshUndated'])
+                                 refresh_undated=refresh_undated)
+    plan['existing'] = existing
 
     if plan['stale']:
         print(strings.AO3_INFO_OUT_OF_DATE.format(len(plan['stale'])))
-    if plan['undated']:
-        print(strings.AO3_INFO_UNDATED.format(len(plan['undated'])))
+    else:
+        print(strings.AO3_INFO_UP_TO_DATE)
 
     progress.report(report, progress.REFRESH, stale=len(plan['stale']),
                     undated=len(plan['undated']), stamped=stamped)
@@ -382,45 +474,139 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
 
 
 def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
-    """The 'download latest version of incomplete fics' action."""
+    """The 'update bookmarks marked as incomplete' action.
 
-    folder = fileops.downloadfolder
-    # only ebook formats can be parsed for a chapter count; JSON is metadata, not a work
-    scan_types = [x for x in job.filetypes if x in strings.UPDATE_ACCEPTABLE_FILE_TYPES]
-    if not scan_types: scan_types = ['HTML']
+    Driven by the index rather than by the files on disk. The index already records which
+    works were unfinished when they were last read and holds a link to each, so nothing has
+    to be parsed out of an ebook to find a chapter count, and no listing has to be walked to
+    rediscover where the works are.
+
+    The limitation that carries is stated in the ui, and has to be acknowledged before the
+    run starts: a fic that had already finished when it was last indexed is not in this
+    list, however much has been added to it since.
+
+    Unlike a bookmarks run, this does **not** index everything before downloading anything.
+    It cannot: a bookmarks run reads the whole listing in a handful of requests and so knows
+    every work's current state up front, while here each fic has to be opened individually
+    before there is anything new to say about it. So it works one fic at a time - re-read
+    it, write its entry, fetch it if the copy is behind - which also means a run stopped
+    partway has finished every fic it touched rather than half-finishing all of them.
+    """
+
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
 
-    files = shared.get_files_of_type(folder, scan_types)
-
+    # 1. the index, off disk. no requests at all.
     progress.report(report, progress.PHASE, name=progress.SCANNING)
-    print(strings.UPDATE_INFO_URLS)
-    works: dict[str, int] = {}
-    for index, item in enumerate(files, start=1):
-        if job.cancel.is_set(): break
-        try:
-            work = update.process_file(item['path'], item['filetype'])
-            if work:
-                link = work['link']
-                # the same work can be on disk in several formats; keep the least complete
-                if link not in works or work['chapters'] < works[link]:
-                    works[link] = work['chapters']
-        except Exception as e:
-            fileops.write_log({'message': strings.ERROR_INCOMPLETE_FIC, 'path': item['path'],
-                               'error': str(e), 'stacktrace': traceback.format_exc()})
-        report({'type': progress.WORK, 'done': index, 'total': len(files),
-                'phase': 'scanning'})
-    print(strings.UPDATE_INFO_URLS_DONE)
+    print(strings.AO3_INFO_READING_INDEX)
+    incomplete = shared.incomplete_works(shared.read_index(fileops))
+
+    if not incomplete:
+        print(strings.AO3_INFO_INCOMPLETE_NONE)
+        return
+
+    print(strings.AO3_INFO_INCOMPLETE_FOUND.format(len(incomplete)))
 
     ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
 
-    progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
-    print(strings.UPDATE_INFO_DOWNLOADING)
-    for index, (link, chapters) in enumerate(works.items(), start=1):
+    # 2 and 3. what is already downloaded for those works, and what to do about any of it
+    # that carries no date. asked now, before a single request, because the answer decides
+    # which copies count as behind.
+    existing: dict = {}
+    refresh_undated = False
+    if downloadtypes:
+        progress.report(report, progress.PHASE, name=progress.CHECKING_FILES)
+        print(strings.AO3_INFO_CHECKING_FILES)
+        existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
+        refresh_undated, stamped = settle_undated(
+            job, fileops, incomplete, existing, downloadtypes)
+        if stamped:
+            progress.report(report, progress.REFRESH, stale=0, undated=0, stamped=stamped)
+
+    # 4. one fic at a time: re-read it, then fetch it if the copy is behind
+    progress.report(report, progress.PHASE, name=progress.UPDATING)
+    maximum = fileops.get_ini_value_integer(
+        strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+
+    checked = 0
+    fetched = 0
+    for record in incomplete:
         if job.cancel.is_set(): break
-        ao3.update(link, str(chapters))
-        report({'type': progress.WORK, 'done': index, 'total': len(works),
-                'phase': 'downloading'})
+        checked += 1
+        try:
+            fetched += update_one_work(ao3, record, existing, downloadtypes, maximum,
+                                       refresh_undated, checked, len(incomplete), report)
+        except exceptions.CancelledException:
+            # a stop is not a failed run; what has been written so far stays written
+            break
+
+    print(strings.AO3_INFO_UPDATE_DONE.format(checked, fetched))
+    report_failures(ao3, report)
+
+
+def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str],
+                    maximum: int, refresh_undated: bool, done: int, total: int,
+                    report) -> int:
+    """Bring one fic's entry up to date, and fetch it again if the copy is behind.
+
+    Says what it is doing at each step rather than only at the end, because this is the
+    slow part of the run and a line per fic is the only sign it is still moving.
+
+    Returns 1 if the fic was downloaded, 0 if only its entry changed. A fic that cannot be
+    read is recorded as a failure and skipped - it keeps the entry it already had.
+    """
+
+    link = record.get('link') or ''
+    log: dict = {'link': link}
+
+    try:
+        ao3.check_cancelled()
+        title = record.get('title') or link
+        print(strings.AO3_INFO_UPDATE_WORK.format(done, total, title))
+        progress.report(ao3.progress, progress.WORK, title=title, link=link,
+                        done=done, total=total, phase=progress.UPDATING)
+
+        print(strings.AO3_INFO_UPDATE_READING)
+        fresh = ao3.refresh_one(record)
+        print(strings.AO3_INFO_UPDATE_INDEXED)
+
+        if not filetypes:
+            print(strings.AO3_INFO_UPDATE_NOTHING)
+            return 0
+
+        # the same rule a bookmarks run uses, asked about one work rather than all of them
+        plan = shared.plan_downloads([fresh], existing, filetypes,
+                                     refresh_undated=refresh_undated)
+        have = existing.get(str(fresh.get('id') or ''), {})
+        missing = [x for x in filetypes if x.upper() not in have]
+
+        if missing:
+            print(strings.AO3_INFO_UPDATE_MISSING)
+        elif plan['stale']:
+            print(strings.AO3_INFO_UPDATE_BEHIND)
+        else:
+            print(strings.AO3_INFO_UPDATE_CURRENT)
+            return 0
+
+        ao3.superseded = plan['superseded']
+        ao3.download_one_indexed(fresh, maximum, log, done, total)
+        return 1
+
+    except exceptions.CancelledException:
+        print(strings.INFO_CANCELLED)
+        raise
+    except Exception as e:
+        ao3.record_failure(link, e)
+        ao3.log_error(log, e)
+        return 0
+
+
+def report_failures(ao3: Ao3, report) -> None:
+    """Name the works a run could not fetch, rather than leaving them to the log."""
+
+    if not ao3.failures: return
+    print(strings.AO3_INFO_FAILED_WORKS.format(len(ao3.failures)))
+    progress.report(report, progress.FAILURES, failures=ao3.failures)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -489,6 +675,18 @@ class Handler(BaseHTTPRequestHandler):
             self.cancel_job(self.path.split('/')[3])
             return
 
+        if self.path.startswith('/api/jobs/') and self.path.endswith('/answer'):
+            self.answer_job(self.path.split('/')[3])
+            return
+
+        if self.path.startswith('/api/jobs/') and self.path.endswith('/pause'):
+            self.hold_job(self.path.split('/')[3], True)
+            return
+
+        if self.path.startswith('/api/jobs/') and self.path.endswith('/resume'):
+            self.hold_job(self.path.split('/')[3], False)
+            return
+
         if self.path != '/api/jobs':
             self.send_json(404, {'error': 'not found'})
             return
@@ -545,6 +743,55 @@ class Handler(BaseHTTPRequestHandler):
         # the run notices at its next checkpoint and unwinds, keeping what it has saved
         job.cancel.set()
         self.send_json(202, {'cancelling': True})
+
+    def hold_job(self, job_id: str, hold: bool) -> None:
+        """Pause or resume a run.
+
+        Setting the flag is all this does; the run itself decides when to act on it, at the
+        one point where stopping is safe. So this answers immediately and a run midway
+        through a file keeps going until that file is written.
+
+        A stop is never blocked by a pause, and resuming a run nobody paused does nothing,
+        so the two buttons cannot be used to wedge each other.
+        """
+
+        with Handler.jobs_lock:
+            job = Handler.jobs.get(job_id)
+        if not job:
+            self.send_json(404, {'error': 'no such job'})
+            return
+
+        if hold:
+            job.held.set()
+        else:
+            job.held.clear()
+        self.send_json(202, {'paused': hold})
+
+    def answer_job(self, job_id: str) -> None:
+        """Hand a run the answer to the question it is waiting on."""
+
+        with Handler.jobs_lock:
+            job = Handler.jobs.get(job_id)
+        if not job:
+            self.send_json(404, {'error': 'no such job'})
+            return
+
+        try:
+            body = self.read_json()
+        except Exception:
+            self.send_json(400, {'error': 'invalid json'})
+            return
+
+        choice = body.get('choice')
+        if choice not in UNDATED_CHOICES:
+            # a run waiting on an answer must not be sent something it cannot act on
+            self.send_json(400, {'error':
+                f"'{choice}' is not one of {', '.join(UNDATED_CHOICES)}"})
+            return
+
+        job.reply({'choice': choice, 'date': parse_text.get_date_stamp(body.get('date') or '')})
+        self.send_json(202, {'answered': True})
+
 
     def stream_events(self, job_id: str) -> None:
         with Handler.jobs_lock:

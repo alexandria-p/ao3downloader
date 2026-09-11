@@ -5,6 +5,7 @@ menu runs, which is covered by the other suites. What matters here is the plumbi
 it - what gets requested, what gets reported, and what never leaves the machine.
 """
 
+import contextlib
 import os
 import socket
 import threading
@@ -72,34 +73,21 @@ def test_html_is_offered_by_default_but_can_be_turned_off():
 def test_resolve_options_defaults_match_the_console_defaults():
     assert server.resolve_options(None) == {
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
-        'refreshUndated': False, 'stampUndated': '',
     }
 
 
 def test_resolve_options_reads_what_was_asked_for():
     result = server.resolve_options(
-        {'start': '5', 'pages': '8', 'series': True, 'images': True, 'workdates': True,
-         'refreshUndated': True, 'stampUndated': '2024-06-01'})
+        {'start': '5', 'pages': '8', 'series': True, 'images': True, 'workdates': True})
 
     assert result == {'start': 5, 'pages': 8, 'series': True, 'images': True,
-                      'workdates': True, 'refreshUndated': True,
-                      'stampUndated': '2024-06-01'}
+                      'workdates': True}
 
 
-def test_refreshing_undated_files_is_off_unless_asked_for():
-    # it refetches an entire library, so it must never be what happens by default
-    assert server.resolve_options({})['refreshUndated'] is False
-
-
-def test_dating_undated_files_is_off_unless_asked_for():
-    # it renames files the user already has, so it is never a default either
-    assert server.resolve_options({})['stampUndated'] == ''
-
-
-@pytest.mark.parametrize('given', ['not a date', '2024-13-45', 'today', 42, None, ''])
-def test_a_date_to_stamp_that_cannot_be_read_is_ignored(given):
-    # renaming a library after a half-understood date would be worse than doing nothing
-    assert server.resolve_options({'stampUndated': given})['stampUndated'] == ''
+def test_what_to_do_about_undated_files_is_not_a_setting():
+    # it is asked during the run, once the count is known, rather than guessed at up front
+    assert 'refreshUndated' not in server.resolve_options({})
+    assert 'stampUndated' not in server.resolve_options({})
 
 
 @pytest.mark.parametrize('start', ['abc', None, '', {}, -5, 0])
@@ -257,6 +245,29 @@ def test_run_job_turns_printed_output_into_messages(fake_environment):
 
     messages = [e['text'] for e in job.history if e['type'] == progress.MESSAGE]
     assert 'getting metadata' in messages
+
+
+def test_run_job_says_it_is_logging_in_before_it_tries(fake_environment):
+    # logging in is the first thing a run does, and it is slow. without these lines the
+    # modal opens on an empty log and looks like it has hung
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON'], 'someone')
+
+    with patch.object(server, 'run_bookmarks'):
+        server.run_job(job, 'a-password')
+
+    messages = [e['text'] for e in job.history if e['type'] == progress.MESSAGE]
+    assert messages[:2] == ['logging in as someone', 'successfully logged in']
+
+
+def test_run_job_does_not_say_it_logged_in_when_it_did_not(fake_environment):
+    fake_environment['repo'].login.side_effect = Exception('invalid username or password')
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON'], 'someone')
+
+    server.run_job(job, 'a-password')
+
+    messages = [e['text'] for e in job.history if e['type'] == progress.MESSAGE]
+    assert 'logging in as someone' in messages
+    assert 'successfully logged in' not in messages
 
 # endregion
 
@@ -447,6 +458,289 @@ def test_run_bookmarks_walks_the_listing_when_images_were_asked_for(fake_environ
 # endregion
 
 
+# region stopping mid-run to ask a question
+
+QUESTION = {'name': 'undated', 'count': 12, 'choices': list(server.UNDATED_CHOICES)}
+DEFAULT = {'choice': server.UNDATED_SKIP, 'date': ''}
+
+
+def a_job() -> server.Job:
+    return server.Job(server.ACTION_BOOKMARKS, ['JSON'], 'Someone')
+
+
+def test_a_question_gets_the_answer_that_comes_back():
+    job = a_job()
+    threading.Timer(
+        0.05, lambda: job.reply({'choice': server.UNDATED_REFRESH, 'date': ''})).start()
+
+    answer = job.ask(QUESTION, DEFAULT)
+
+    assert answer['choice'] == server.UNDATED_REFRESH
+
+
+def test_asking_tells_the_ui_what_is_being_asked():
+    job = a_job()
+    job.cancel.set()  # so the wait ends at once
+
+    job.ask(QUESTION, DEFAULT)
+
+    asked = [e for e in job.history if e['type'] == progress.QUESTION]
+    assert asked[0]['count'] == 12
+    assert asked[0]['choices'] == list(server.UNDATED_CHOICES)
+
+
+def test_a_stop_releases_a_run_waiting_on_a_question():
+    # a run paused on a question the user walked away from still has to be stoppable
+    job = a_job()
+    job.cancel.set()
+
+    assert job.ask(QUESTION, DEFAULT) == DEFAULT
+
+
+def test_a_question_nobody_answers_gives_up_rather_than_waiting_for_ever(monkeypatch):
+    # a tab closed without stopping the run must not leave this thread waiting on an
+    # answer that can never arrive
+    monkeypatch.setattr(server, 'ANSWER_TIMEOUT_SECONDS', 0)
+
+    assert a_job().ask(QUESTION, DEFAULT) == DEFAULT
+
+
+def test_the_default_is_always_the_option_that_changes_nothing():
+    # whatever goes wrong, a run must not rename or refetch a library on its own
+    assert DEFAULT['choice'] == server.UNDATED_SKIP
+
+
+def answering(job_id, body) -> dict:
+    sent: dict = {}
+    handler = MagicMock()
+    handler.read_json.return_value = body
+    handler.send_json.side_effect = lambda status, b: sent.update(status=status, body=b)
+    server.Handler.answer_job(handler, job_id)
+    return sent
+
+
+@contextlib.contextmanager
+def registered(job: server.Job):
+    with server.Handler.jobs_lock:
+        server.Handler.jobs[job.id] = job
+    try:
+        yield job
+    finally:
+        with server.Handler.jobs_lock:
+            server.Handler.jobs.pop(job.id, None)
+
+
+def holding(job_id, hold: bool) -> dict:
+    sent: dict = {}
+    handler = MagicMock()
+    handler.send_json.side_effect = lambda status, b: sent.update(status=status, body=b)
+    server.Handler.hold_job(handler, job_id, hold)
+    return sent
+
+
+def test_pausing_a_run_only_sets_the_flag_the_run_reads():
+    # the endpoint must answer at once rather than waiting for the run to reach a safe
+    # point, or the browser would sit on a pending request for the length of a download
+    with registered(a_job()) as job:
+        sent = holding(job.id, True)
+
+        assert sent['status'] == 202
+        assert sent['body'] == {'paused': True}
+        assert job.held.is_set()
+
+
+def test_resuming_clears_it_again():
+    with registered(a_job()) as job:
+        holding(job.id, True)
+        holding(job.id, False)
+
+        assert not job.held.is_set()
+
+
+def test_a_paused_run_can_still_be_stopped():
+    # the two buttons must not be able to wedge each other: a run nobody resumes has to
+    # still be stoppable, and the run itself notices the stop while it waits
+    with registered(a_job()) as job:
+        holding(job.id, True)
+        job.cancel.set()
+
+        assert job.cancel.is_set()
+        assert job.held.is_set()
+
+
+def test_resuming_a_run_nobody_paused_does_nothing_at_all():
+    with registered(a_job()) as job:
+        sent = holding(job.id, False)
+
+        assert sent['status'] == 202
+        assert not job.held.is_set()
+
+
+def test_pausing_a_job_that_is_not_there_says_so():
+    sent = holding('no-such-job', True)
+
+    assert sent['status'] == 404
+
+
+def test_a_new_run_does_not_start_out_paused():
+    assert not a_job().held.is_set()
+
+
+def test_an_answer_reaches_the_run_that_asked():
+    with registered(a_job()) as job:
+        sent = answering(job.id, {'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
+
+        assert sent['status'] == 202
+        assert job.answer == {'choice': server.UNDATED_STAMP, 'date': '2024-06-01'}
+
+
+@pytest.mark.parametrize('choice', ['', None, 'delete everything', 'Stamp'])
+def test_an_answer_that_is_not_one_of_the_choices_is_refused(choice):
+    # a run waiting on an answer must not be handed something it cannot act on
+    with registered(a_job()) as job:
+        sent = answering(job.id, {'choice': choice})
+
+        assert sent['status'] == 400
+        assert not job.answered.is_set()
+
+
+@pytest.mark.parametrize('given', ['not a date', '2024-13-45', 'today', None, ''])
+def test_a_date_that_cannot_be_read_does_not_reach_the_run(given):
+    # renaming a library after a half-understood date would be worse than doing nothing
+    with registered(a_job()) as job:
+        answering(job.id, {'choice': server.UNDATED_STAMP, 'date': given})
+
+        assert job.answer['date'] == ''
+
+
+def test_answering_a_job_that_is_gone_says_so():
+    assert answering('no-such-job', {'choice': server.UNDATED_SKIP})['status'] == 404
+
+# endregion
+
+
+# region what to do about files with no date
+
+def asked_job(answer: dict) -> MagicMock:
+    job = MagicMock()
+    job.ask.return_value = answer
+    return job
+
+
+def undated_plan(links):
+    return {'stale': [], 'undated': list(links), 'superseded': {}}
+
+
+def test_nothing_is_asked_when_every_file_already_has_a_date(fake_environment):
+    job = asked_job(DEFAULT)
+
+    with patch.object(server.shared, 'plan_downloads', return_value=undated_plan([])):
+        refresh, stamped = server.settle_undated(
+            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
+
+    job.ask.assert_not_called()
+    assert (refresh, stamped) == (False, 0)
+
+
+def test_choosing_to_skip_leaves_them_exactly_as_they_are(fake_environment):
+    job = asked_job({'choice': server.UNDATED_SKIP, 'date': ''})
+
+    with patch.object(server.shared, 'plan_downloads', return_value=undated_plan(['a'])), \
+         patch.object(server.shared, 'stamp_undated_works') as stamp:
+        refresh, stamped = server.settle_undated(
+            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
+
+    stamp.assert_not_called()
+    assert (refresh, stamped) == (False, 0)
+
+
+def test_choosing_to_refetch_makes_them_count_as_out_of_date(fake_environment):
+    job = asked_job({'choice': server.UNDATED_REFRESH, 'date': ''})
+
+    with patch.object(server.shared, 'plan_downloads', return_value=undated_plan(['a'])), \
+         patch.object(server.shared, 'stamp_undated_works') as stamp:
+        refresh, stamped = server.settle_undated(
+            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
+
+    stamp.assert_not_called()
+    assert refresh is True
+
+
+def test_choosing_to_date_them_renames_them_and_asks_for_no_downloads(fake_environment):
+    job = asked_job({'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
+
+    with patch.object(server.shared, 'plan_downloads',
+                      return_value=undated_plan([RECORDS[0]['link']])), \
+         patch.object(server.shared, 'stamp_undated_works',
+                      return_value={'renamed': 7, 'skipped': 0}) as stamp:
+        refresh, stamped = server.settle_undated(
+            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
+
+    assert stamp.call_args.args[3] == '2024-06-01'
+    assert (refresh, stamped) == (False, 7)
+
+
+def test_only_the_works_that_were_asked_about_are_dated(fake_environment):
+    # what is handed over to be renamed is the works the question named, not the whole
+    # folder scan it was planned from - which holds every download, not just this run's
+    job = asked_job({'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
+    whole_folder = {'111': {'HTML': {'path': 'a.html', 'date': None}},
+                    '999': {'HTML': {'path': 'b.html', 'date': None}}}
+
+    with patch.object(server.shared, 'plan_downloads',
+                      return_value=undated_plan([RECORDS[0]['link']])), \
+         patch.object(server.shared, 'stamp_undated_works',
+                      return_value={'renamed': 1, 'skipped': 0}) as stamp:
+        server.settle_undated(
+            job, fake_environment['fileops'], RECORDS, whole_folder, ['HTML'])
+
+    assert stamp.call_args.args[2] == {'111'}
+
+
+def test_a_work_the_run_is_refetching_anyway_is_not_dated(fake_environment):
+    # a work behind in one format and undated in another counts as stale, not undated, so
+    # it is not in the count the user was shown and must not be renamed under their answer
+    job = asked_job({'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
+    records = RECORDS + [{'id': '222', 'link': 'https://archiveofourown.org/works/222'}]
+
+    with patch.object(server.shared, 'plan_downloads',
+                      return_value={'stale': [records[1]['link']],
+                                    'undated': [records[0]['link']], 'superseded': {}}), \
+         patch.object(server.shared, 'stamp_undated_works',
+                      return_value={'renamed': 1, 'skipped': 0}) as stamp:
+        server.settle_undated(job, fake_environment['fileops'], records, {}, ['HTML'])
+
+    assert stamp.call_args.args[2] == {'111'}
+
+
+def test_choosing_to_date_them_without_a_usable_date_changes_nothing(fake_environment):
+    job = asked_job({'choice': server.UNDATED_STAMP, 'date': ''})
+
+    with patch.object(server.shared, 'plan_downloads', return_value=undated_plan(['a'])), \
+         patch.object(server.shared, 'stamp_undated_works') as stamp:
+        refresh, stamped = server.settle_undated(
+            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
+
+    stamp.assert_not_called()
+    assert (refresh, stamped) == (False, 0)
+
+
+def test_the_question_is_asked_before_anything_is_downloaded(fake_environment):
+    # asking afterwards would be too late to act on
+    order: list[str] = []
+    job = MagicMock()
+    job.ask.side_effect = lambda q, d: order.append('asked') or DEFAULT
+
+    with patch.object(server.shared, 'scan_downloaded_works', return_value={}), \
+         patch.object(server.shared, 'plan_downloads',
+                      side_effect=lambda *a, **k: order.append('planned') or undated_plan(['a'])):
+        server.plan_refresh(job, fake_environment['fileops'], RECORDS, ['HTML'], MagicMock())
+
+    assert order.index('asked') < order.index('planned', order.index('asked'))
+
+# endregion
+
+
 # region the settings a run will use
 
 def test_read_settings_reports_what_the_run_will_actually_use(tmp_path):
@@ -583,33 +877,178 @@ def test_a_collection_link_deeper_than_the_dashboard_is_accepted():
 # endregion
 
 
-def test_run_update_scans_only_formats_that_can_be_parsed(fake_environment):
-    job = server.Job(server.ACTION_UPDATE,
-                     [strings.AO3_DOWNLOAD_TYPE_METADATA, 'HTML', 'EPUB'], 'Someone')
-
-    with patch.object(server, 'Ao3'), \
-         patch.object(server.shared, 'get_files_of_type', return_value=[]) as get_files:
-        server.run_update(job, fake_environment['fileops'], fake_environment['repo'], MagicMock())
-
-    scanned = get_files.call_args.args[1]
-    assert strings.AO3_DOWNLOAD_TYPE_METADATA not in scanned
-    assert sorted(scanned) == ['EPUB', 'HTML']
+INCOMPLETE = {'id': '111', 'link': 'https://archiveofourown.org/works/111',
+              'title': 'A Fic', 'chapters_published': 3, 'chapters_total': None}
+FINISHED = {'id': '222', 'link': 'https://archiveofourown.org/works/222',
+            'title': 'Done', 'chapters_published': 5, 'chapters_total': 5}
 
 
-def test_run_update_takes_the_least_complete_copy_of_a_work(fake_environment):
-    # the same work can be on disk in several formats, at different chapter counts
-    job = server.Job(server.ACTION_UPDATE, ['HTML'], 'Someone')
+SKIP_UNDATED = {'choice': server.UNDATED_SKIP, 'date': ''}
+
+
+def updating(ao3, index, **patches):
+    """Run the update action with the index stubbed out, and nothing touching disk."""
+
+    return [
+        patch.object(server, 'Ao3', return_value=ao3),
+        patch.object(server.shared, 'read_index', return_value=index),
+        patch.object(server.shared, 'scan_downloaded_works',
+                     return_value=patches.get('existing', {})),
+        patch.object(server.shared, 'plan_downloads',
+                     return_value=patches.get('plan',
+                                              {'stale': [], 'undated': [], 'superseded': {}})),
+        # a run asking about undated files waits for a reply, which would hang a test that
+        # is not about the question. the ones that are drive Job.ask directly.
+        patch.object(server.Job, 'ask', return_value=patches.get('answer', SKIP_UNDATED)),
+    ]
+
+
+def run_update_with(fake_environment, ao3, index, report=None, job=None, **patches):
+    job = job or server.Job(server.ACTION_UPDATE, ['HTML'], 'Someone')
+    with contextlib.ExitStack() as stack:
+        for item in updating(ao3, index, **patches):
+            stack.enter_context(item)
+        server.run_update(job, fake_environment['fileops'], fake_environment['repo'],
+                          report or MagicMock())
+
+
+def test_run_update_works_from_the_index_not_from_the_files_on_disk(fake_environment):
+    # nothing is parsed out of an ebook any more, and no listing is walked to find works
     ao3 = MagicMock()
-    files = [{'path': 'a.html', 'filetype': 'HTML'}, {'path': 'b.html', 'filetype': 'HTML'}]
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
 
-    with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'get_files_of_type', return_value=files), \
-         patch.object(server.update, 'process_file', side_effect=[
-             {'link': 'https://archiveofourown.org/works/1', 'chapters': 9},
-             {'link': 'https://archiveofourown.org/works/1', 'chapters': 4}]):
-        server.run_update(job, fake_environment['fileops'], fake_environment['repo'], MagicMock())
+    with patch.object(server.shared, 'get_files_of_type') as get_files:
+        run_update_with(fake_environment, ao3, [INCOMPLETE])
 
-    ao3.update.assert_called_once_with('https://archiveofourown.org/works/1', '4')
+    get_files.assert_not_called()
+    ao3.download.assert_not_called()
+
+
+def test_run_update_only_re_reads_the_works_the_index_calls_unfinished(fake_environment):
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
+
+    run_update_with(fake_environment, ao3, [INCOMPLETE, FINISHED])
+
+    asked = [call.args[0]['id'] for call in ao3.refresh_one.call_args_list]
+    assert asked == ['111']
+
+
+def test_run_update_asks_ao3_for_nothing_when_the_index_lists_nothing_unfinished(
+        fake_environment):
+    ao3 = MagicMock()
+    ao3.failures = []
+
+    run_update_with(fake_environment, ao3, [FINISHED])
+
+    ao3.refresh_one.assert_not_called()
+    ao3.download_one_indexed.assert_not_called()
+
+
+def test_run_update_downloads_an_undated_copy_when_that_is_what_was_asked_for(
+        fake_environment):
+    # an undated file has no date to compare against, so nothing can judge it. the answer
+    # to the question decides, and 'refresh' means treat every one of them as behind
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
+
+    run_update_with(
+        fake_environment, ao3, [INCOMPLETE],
+        existing={'111': {'HTML': {'path': 'a.html', 'date': None}}},
+        answer={'choice': server.UNDATED_REFRESH, 'date': ''},
+        plan={'stale': ['https://archiveofourown.org/works/111'], 'undated': [],
+              'superseded': {}})
+
+    fetched = ao3.download_one_indexed.call_args.args[0]
+    assert fetched['id'] == '111'
+
+
+def test_run_update_leaves_an_undated_copy_alone_when_that_is_what_was_asked_for(
+        fake_environment):
+    # 'skip' is the default and the safe answer: an undated copy is left exactly as it is
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
+
+    run_update_with(
+        fake_environment, ao3, [INCOMPLETE],
+        existing={'111': {'HTML': {'path': 'a.html', 'date': None}}},
+        plan={'stale': [], 'undated': ['https://archiveofourown.org/works/111'],
+              'superseded': {}})
+
+    ao3.download_one_indexed.assert_not_called()
+
+
+def test_run_update_re_reads_the_index_even_for_works_it_will_not_download(
+        fake_environment):
+    # the index entry is rewritten for every unfinished fic; only the download is conditional
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
+
+    run_update_with(fake_environment, ao3, [INCOMPLETE],
+                    existing={'111': {'HTML': {'path': 'a.html', 'date': '2024-12-14'}}})
+
+    ao3.refresh_one.assert_called_once()
+    ao3.download_one_indexed.assert_not_called()
+
+
+def test_run_update_leaves_a_work_alone_when_nothing_about_it_moved(fake_environment):
+    # a repeat run should cost the re-reads and nothing else
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
+
+    run_update_with(fake_environment, ao3, [INCOMPLETE],
+                    existing={'111': {'HTML': {'path': 'a.html', 'date': '2024-12-14'}}})
+
+    ao3.download_one_indexed.assert_not_called()
+
+
+def test_run_update_downloads_a_work_it_has_no_copy_of(fake_environment):
+    # unchanged, but missing from the folder entirely
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
+
+    run_update_with(fake_environment, ao3, [INCOMPLETE], existing={})
+
+    fetched = ao3.download_one_indexed.call_args.args[0]
+    assert fetched['id'] == '111'
+
+
+def test_run_update_finishes_one_fic_before_starting_the_next(fake_environment):
+    # the whole point of the order here: a stopped run has completely finished every fic it
+    # touched, rather than having half-finished all of them
+    ao3 = MagicMock()
+    order: list[str] = []
+    ao3.refresh_one.side_effect = lambda record: (order.append('read ' + record['id'])
+                                                  or record)
+    ao3.download_one_indexed.side_effect = (
+        lambda record, *a: order.append('fetch ' + record['id']))
+    ao3.failures = []
+
+    run_update_with(fake_environment, ao3,
+                    [INCOMPLETE, {**INCOMPLETE, 'id': '333',
+                                  'link': 'https://archiveofourown.org/works/333'}],
+                    existing={})
+
+    assert order == ['read 111', 'fetch 111', 'read 333', 'fetch 333']
+
+
+def test_run_update_names_the_works_it_could_not_re_read(fake_environment):
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = [{'id': '111', 'link': 'https://archiveofourown.org/works/111',
+                     'error': 'deleted'}]
+    events: list[dict] = []
+
+    run_update_with(fake_environment, ao3, [INCOMPLETE], report=events.append)
+
+    assert [e for e in events if e['type'] == progress.FAILURES]
 
 
 def test_run_bookmarks_indexes_every_bookmark_before_downloading_any(fake_environment):
@@ -645,17 +1084,52 @@ def test_run_bookmarks_reports_only_indexing_when_json_is_the_only_type(fake_env
     assert phases == [progress.INDEXING]
 
 
-def test_run_update_reports_scanning_then_downloading(fake_environment):
-    job = server.Job(server.ACTION_UPDATE, ['HTML'], 'Someone')
+def test_run_update_says_what_it_is_doing_at_each_step(fake_environment):
+    # from the outside, 'reading the index' and 'checking what you have' look the same as a
+    # stall, so each one says so before the per-fic work begins
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
+    events: list[dict] = []
 
-    events = []
-    with patch.object(server, 'Ao3', return_value=MagicMock()), \
-         patch.object(server.shared, 'get_files_of_type', return_value=[]):
-        server.run_update(job, fake_environment['fileops'], fake_environment['repo'],
-                          events.append)
+    run_update_with(fake_environment, ao3, [INCOMPLETE], report=events.append,
+                    plan={'stale': ['https://archiveofourown.org/works/111'],
+                          'undated': [], 'superseded': {}})
 
     phases = [e['name'] for e in events if e['type'] == progress.PHASE]
-    assert phases == [progress.SCANNING, progress.DOWNLOADING]
+    assert phases == [progress.SCANNING, progress.CHECKING_FILES, progress.UPDATING]
+
+
+def test_run_update_says_it_is_reading_a_fic_before_it_goes_and_reads_it(
+        fake_environment, capsys):
+    # opening the fic page is the slow part, so the line has to come before the request,
+    # not after it - otherwise the run looks stalled on the fic it has only just named
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
+
+    run_update_with(fake_environment, ao3, [INCOMPLETE],
+                    existing={'111': {'HTML': {'path': 'a.html', 'date': '2024-12-14'}}})
+
+    said = [x.strip() for x in capsys.readouterr().out.splitlines() if x.strip()]
+    assert said.index('reading latest index') == said.index('index updated') - 1
+    assert said.index('[1 of 1] A Fic') == said.index('reading latest index') - 1
+
+
+def test_run_update_names_each_fic_as_it_reaches_it(fake_environment):
+    # one work event per fic, so the modal reads as a running account rather than a bar
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
+    events: list[dict] = []
+    # the per-fic events go out through the Ao3 the run builds, not the run's own reporter
+    ao3.progress = events.append
+
+    run_update_with(fake_environment, ao3, [INCOMPLETE], report=events.append)
+
+    works = [e for e in events if e['type'] == progress.WORK]
+    assert [(e['title'], e['done'], e['total']) for e in works] == [('A Fic', 1, 1)]
+    assert works[0]['phase'] == progress.UPDATING
 
 
 def test_run_bookmarks_passes_the_chosen_options_through(fake_environment):
@@ -710,17 +1184,17 @@ def test_run_bookmarks_skips_the_download_phase_once_cancelled(fake_environment)
     ao3.download.assert_not_called()
 
 
-def test_run_update_stops_scanning_when_cancelled(fake_environment):
+def test_run_update_does_not_download_once_cancelled(fake_environment):
     job = server.Job(server.ACTION_UPDATE, ['HTML'], 'Someone')
     job.cancel.set()
-    files = [{'path': 'a.html', 'filetype': 'HTML'}]
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
 
-    with patch.object(server, 'Ao3'), \
-         patch.object(server.shared, 'get_files_of_type', return_value=files), \
-         patch.object(server.update, 'process_file') as process:
-        server.run_update(job, fake_environment['fileops'], fake_environment['repo'], MagicMock())
+    run_update_with(fake_environment, ao3, [INCOMPLETE], job=job)
 
-    process.assert_not_called()
+    ao3.refresh_one.assert_not_called()
+    ao3.download_one_indexed.assert_not_called()
 
 
 def test_run_job_reports_a_cancelled_finish_rather_than_a_failure(fake_environment):
@@ -749,20 +1223,23 @@ def test_run_job_announces_the_chosen_filetypes_and_options(fake_environment):
     assert started['options']['images'] is True
 
 
-def test_run_update_survives_a_file_it_cannot_parse(fake_environment):
-    job = server.Job(server.ACTION_UPDATE, ['HTML'], 'Someone')
+def test_run_update_downloads_a_copy_the_version_check_calls_out_of_date(fake_environment):
+    # the copy is there in the format asked for, but ao3 now reports a later update than
+    # the date the file carries
     ao3 = MagicMock()
-    files = [{'path': 'bad.html', 'filetype': 'HTML'}, {'path': 'good.html', 'filetype': 'HTML'}]
+    ao3.refresh_one.side_effect = lambda record: record
+    ao3.failures = []
 
-    with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'get_files_of_type', return_value=files), \
-         patch.object(server.update, 'process_file', side_effect=[
-             ValueError('not an ebook'),
-             {'link': 'https://archiveofourown.org/works/2', 'chapters': 3}]):
-        server.run_update(job, fake_environment['fileops'], fake_environment['repo'], MagicMock())
+    run_update_with(
+        fake_environment, ao3, [INCOMPLETE],
+        existing={'111': {'HTML': {'path': 'a.html', 'date': '2020-01-01'}}},
+        plan={'stale': ['https://archiveofourown.org/works/111'], 'undated': [],
+              'superseded': {'https://archiveofourown.org/works/111': {'HTML': 'a.html'}}})
 
-    ao3.update.assert_called_once_with('https://archiveofourown.org/works/2', '3')
-    fake_environment['fileops'].write_log.assert_called()
+    fetched = ao3.download_one_indexed.call_args.args[0]
+    assert fetched['id'] == '111'
+    # and the old file is handed over to be replaced only after the new one lands
+    assert ao3.superseded == {'https://archiveofourown.org/works/111': {'HTML': 'a.html'}}
 
 # endregion
 

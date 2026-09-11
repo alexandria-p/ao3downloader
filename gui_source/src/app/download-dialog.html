@@ -165,6 +165,50 @@
       </footer>
     }
 
+    <!-- step 2a: what an update pass cannot see, read before logging in for one -->
+    @if (step() === 'acknowledge') {
+      <section class="body">
+        <p>
+          This checks the fics your index <strong>last saw unfinished</strong>. It reads the
+          index for those, opens each one on AO3, brings its entry up to date, and
+          re-downloads the ones that have grown.
+        </p>
+
+        <p class="warning">
+          <strong>It will not find a fic that was already finished.</strong> If a work was
+          marked complete and then updated afterwards - an epilogue added, chapters edited,
+          typos fixed - the index records it as complete, so this pass skips it entirely.
+        </p>
+
+        <p class="hint">
+          To pick those up, run <strong>Download newly added bookmarks</strong> instead. That
+          re-reads the whole listing, so it sees any fic AO3 now reports as updated more
+          recently than your copy - finished or not.
+        </p>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            name="acknowledge"
+            [checked]="acknowledged()"
+            (change)="acknowledged.set($any($event.target).checked)"
+          />
+          <span>I understand that fics completed before their last update will be skipped</span>
+        </label>
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
+        <button
+          type="button"
+          class="button primary"
+          [disabled]="!acknowledged()"
+          (click)="fromAcknowledgement()"
+        >
+          Continue
+        </button>
+      </footer>
+    }
+
     <!-- step 2: who you are -->
     @if (step() === 'credentials') {
       <form class="body" (submit)="submit($event)">
@@ -211,7 +255,9 @@
       </form>
       <footer>
         <!-- indexing your own collections has no earlier step to go back to -->
-        @if (picksFiletypes()) {
+        @if (needsAcknowledgement()) {
+          <button type="button" class="button subtle" (click)="step.set('acknowledge')">Back</button>
+        } @else if (picksFiletypes()) {
           <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
         } @else if (needsLink()) {
           <button type="button" class="button subtle" (click)="step.set('link')">Back</button>
@@ -248,6 +294,91 @@
           </p>
         }
 
+        <!--
+          what is being fetched right now. it sits under the step because that is what it
+          qualifies - the step says what part of the run this is, this says which fic. when
+          nothing is being fetched it goes away rather than standing empty or, worse, still
+          naming the fic it finished with
+        -->
+        @if (currentTitle()) {
+          <div class="current">
+            <span class="label">{{ phase() === 'updating' ? 'Updating' : 'Downloading' }}</span>
+            <span class="fic">{{ currentTitle() }}</span>
+            @if (currentFiletype()) {
+              <span class="format">{{ currentFiletype() }}</span>
+            }
+          </div>
+        }
+
+        <!-- the run is stopped here until this is answered, so it comes before progress -->
+        @if (asking(); as count) {
+          <div class="question">
+            <p class="question-text">
+              <strong>{{ count | number }}</strong>
+              {{ count === 1 ? 'work you have downloaded was' : 'works you have downloaded were' }}
+              saved before file names carried a date. There is no way to tell whether
+              {{ count === 1 ? 'it is' : 'they are' }} still current, so the run has stopped
+              to ask what to do with {{ count === 1 ? 'it' : 'them' }}.
+            </p>
+
+            @if (!choosingDate()) {
+              <div class="question-actions">
+                <button type="button" class="button" [disabled]="answering()"
+                        (click)="choosingDate.set(true)">
+                  Give {{ count === 1 ? 'it' : 'them' }} a date
+                </button>
+                <button type="button" class="button" [disabled]="answering()"
+                        (click)="refreshUndatedWorks()">
+                  Re-download {{ count === 1 ? 'it' : 'them' }}
+                </button>
+                <button type="button" class="button" [disabled]="answering()"
+                        (click)="skipUndatedWorks()">
+                  Ignore and skip {{ count === 1 ? 'it' : 'them' }}
+                </button>
+              </div>
+              <p class="hint">
+                <strong>Give a date</strong> renames the files where they are - no downloads
+                at all - and the run then treats anything AO3 has updated since that date as
+                out of date. <strong>Re-download</strong> fetches all
+                {{ count | number }} again and removes the old copies.
+                <strong>Ignore</strong> leaves them alone and downloads nothing for them.
+              </p>
+            } @else {
+              <label class="field">
+                <span>Treat these files as the version from</span>
+                <input
+                  type="date"
+                  name="stampDate"
+                  [value]="stampDate()"
+                  (input)="setStampDate($any($event.target).value)"
+                />
+              </label>
+              <p class="hint">
+                Today means "what I have is current" - nothing is fetched for them now, and
+                you are told when AO3 next updates any of them. An earlier date means "my
+                copies are from back then", so anything updated since is fetched on this run.
+              </p>
+              @if (!stampDateIsValid()) {
+                <p class="error">That is not a date this can be run with.</p>
+              }
+              <div class="question-actions">
+                <button type="button" class="button subtle" [disabled]="answering()"
+                        (click)="choosingDate.set(false)">
+                  Back
+                </button>
+                <button
+                  type="button"
+                  class="button primary"
+                  [disabled]="!stampDateIsValid() || answering()"
+                  (click)="dateUndatedWorks()"
+                >
+                  Date {{ count === 1 ? 'it' : 'them' }} and continue
+                </button>
+              </div>
+            }
+          </div>
+        }
+
         <div
           class="bar"
           role="progressbar"
@@ -267,19 +398,6 @@
           }
           <span>{{ summary() || 'working...' }}</span>
         </p>
-
-        <!-- what is being fetched right now -->
-        <div class="current">
-          @if (currentTitle()) {
-            <span class="label">Downloading</span>
-            <span class="fic">{{ currentTitle() }}</span>
-            @if (currentFiletype()) {
-              <span class="format">{{ currentFiletype() }}</span>
-            }
-          } @else {
-            <span class="label">Reading the bookmarks listing</span>
-          }
-        </div>
 
         <!-- what this run was asked to do -->
         <dl class="chosen">
@@ -313,9 +431,8 @@
                   <span class="example">e.g. <code>{{ ini.fileNameExample }}</code></span>
                 }
                 <span class="example dim">
-                  Not configurable: the work number has to come first so files match the
-                  index, and the date it was updated on has to come last so a newer version
-                  can be spotted. Only the title and author are shortened to fit.
+                  If the filename is too long, then the fic title and author may be
+                  shortened to fit.
                 </span>
               </dd>
               <dt>Retries / timeouts</dt>
@@ -330,41 +447,23 @@
           </details>
         }
 
-        <!-- what the index found out about the copies already on disk -->
-        @if (staleCount() || undatedCount() || stampedCount()) {
-          <p class="refresh">
-            @if (staleCount()) {
-              <span class="line">
-                <strong>{{ staleCount() | number }}</strong> downloaded
-                {{ staleCount() === 1 ? 'work has' : 'works have' }} been updated on AO3
-                since you saved {{ staleCount() === 1 ? 'it' : 'them' }} - fetching
-                {{ staleCount() === 1 ? 'it' : 'them' }} again.
-              </span>
-            }
-            @if (stampedCount()) {
-              <span class="line">
-                Gave <strong>{{ stampedCount() | number }}</strong> existing
-                {{ stampedCount() === 1 ? 'file' : 'files' }} a date, without downloading
-                anything.
-              </span>
-            }
-            @if (undatedCount()) {
-              <span class="line">
-                <strong>{{ undatedCount() | number }}</strong>
-                {{ undatedCount() === 1 ? 'work was' : 'works were' }} saved before file
-                names carried a date, so whether
-                {{ undatedCount() === 1 ? 'it is' : 'they are' }} current cannot be told.
-                Left alone.
-              </span>
-            }
-          </p>
-        }
-
         @if (paused(); as pause) {
           <p class="warning pause">
             AO3 has asked us to slow down, so the download is paused for
             {{ pause.seconds }} seconds@if (pause.until) { , resuming around {{ pause.until }}}.
             This is normal - nothing has gone wrong, and it will carry on by itself.
+          </p>
+        }
+
+        <!--
+          kept separate from AO3's own pause above, which looks the same and is nothing
+          alike: that one ends by itself, this one ends only when you say so
+        -->
+        @if (held()) {
+          <p class="warning held">
+            <strong>Paused.</strong> Whatever was being fetched when you pressed pause was
+            allowed to finish, so nothing is half-written, and nothing new will be started
+            until you press Resume. You can still stop the run from here.
           </p>
         }
 
@@ -374,6 +473,24 @@
         }
       </section>
       <footer>
+        <!--
+          pausing is not offered while a question is up: the run is already stopped dead
+          waiting for that answer, so a pause would claim to do something it cannot
+        -->
+        @if (!asking()) {
+          <button
+            type="button"
+            class="button"
+            [disabled]="holdPending() || cancelling()"
+            (click)="togglePause()"
+          >
+            @if (holdPending()) {
+              {{ held() ? 'Resuming...' : 'Pausing...' }}
+            } @else {
+              {{ held() ? 'Resume' : 'Pause' }}
+            }
+          </button>
+        }
         <button type="button" class="button danger" [disabled]="cancelling()" (click)="requestStop()">
           {{ cancelling() ? 'Stopping...' : 'Stop' }}
         </button>
@@ -435,66 +552,6 @@
             this page can tell when AO3 has a newer version of
             {{ stampedCount() === 1 ? 'it' : 'them' }}.
           </p>
-        }
-
-        @if (undatedCount() && !wasCancelled()) {
-          <div class="offer">
-            <p class="offer-text">
-              <strong>{{ undatedCount() | number }}</strong>
-              {{ undatedCount() === 1 ? 'work was' : 'works were' }} saved before file names
-              carried a date, so there is no way to tell whether
-              {{ undatedCount() === 1 ? 'it is' : 'they are' }} still current.
-            </p>
-
-            @if (!choosingDate()) {
-              <div class="offer-actions">
-                <button type="button" class="button" (click)="choosingDate.set(true)">
-                  Give {{ undatedCount() === 1 ? 'it' : 'them' }} a date
-                </button>
-                <button type="button" class="button subtle" (click)="refreshUndatedWorks()">
-                  Re-download {{ undatedCount() === 1 ? 'it' : 'them' }}
-                </button>
-              </div>
-              <p class="hint">
-                Dating {{ undatedCount() === 1 ? 'it' : 'them' }} downloads nothing - the
-                files are renamed where they are - and from then on anything AO3 has updated
-                since that date is fetched. Re-downloading fetches all
-                {{ undatedCount() | number }} again, which takes a while.
-              </p>
-            } @else {
-              <label class="field">
-                <span>Treat these files as the version from</span>
-                <input
-                  type="date"
-                  name="stampDate"
-                  [value]="stampDate()"
-                  (input)="setStampDate($any($event.target).value)"
-                />
-              </label>
-              <p class="hint">
-                Today means "what I have is current" - nothing is fetched now, and you are
-                told when AO3 next updates any of them. An earlier date means "my copies are
-                from back then", so anything updated since is fetched on the next run.
-              </p>
-              @if (!stampDateIsValid()) {
-                <p class="error">That is not a date this can be run with.</p>
-              }
-              <div class="offer-actions">
-                <button type="button" class="button subtle" (click)="choosingDate.set(false)">
-                  Back
-                </button>
-                <button
-                  type="button"
-                  class="button primary"
-                  [disabled]="!stampDateIsValid()"
-                  (click)="dateUndatedWorks()"
-                >
-                  Date {{ undatedCount() === 1 ? 'it' : 'them' }} and continue
-                </button>
-              </div>
-              <p class="hint">You will be asked to log in again, since the run carries on from there.</p>
-            }
-          </div>
         }
 
         <p class="hint">

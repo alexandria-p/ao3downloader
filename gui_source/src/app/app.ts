@@ -1,7 +1,8 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { CollectionsView } from './collections-view';
 import { DownloadDialog } from './download-dialog';
+import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { JobAction } from './jobs';
 import { Library } from './library';
 import { WorkList } from './work-list';
@@ -12,7 +13,7 @@ export type View = 'bookmarks' | 'collections';
 
 @Component({
   selector: 'app-root',
-  imports: [DecimalPipe, DownloadDialog, WorkList, CollectionsView],
+  imports: [DecimalPipe, DownloadDialog, FolderWarning, WorkList, CollectionsView],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })
@@ -22,6 +23,11 @@ export class App {
   protected readonly view = signal<View>('bookmarks');
   /** which download dialog is open, if any */
   protected readonly dialogAction = signal<JobAction | null>(null);
+  /** whether the naming note is up, waiting to be read before the picker opens */
+  protected readonly warning = signal(false);
+
+  /** the fallback picker, for browsers with no directory picker of their own */
+  private readonly folderInput = viewChild<ElementRef<HTMLInputElement>>('folderInput');
 
   protected readonly data = this.library.data;
   protected readonly collections = this.library.collections;
@@ -59,8 +65,39 @@ export class App {
     input.value = '';
   }
 
-  protected async pickFolder(): Promise<void> {
-    await this.library.pickFolder();
+  /**
+   * The naming rule, said once before the folder is chosen.
+   *
+   * Both ways of choosing go through here - the directory picker where the browser has one,
+   * and the hidden file input where it does not - because the rule applies to the folder,
+   * not to how it was opened. Dismissing the note is remembered, so a return visit goes
+   * straight to the picker.
+   */
+  protected askBeforePicking(): void {
+    if (folderWarningDismissed()) {
+      this.openPicker();
+      return;
+    }
+    this.warning.set(true);
+  }
+
+  protected warningAccepted(): void {
+    this.warning.set(false);
+    this.openPicker();
+  }
+
+  protected warningCancelled(): void {
+    this.warning.set(false);
+  }
+
+  private openPicker(): void {
+    if (this.canPickFolder) {
+      void this.library.pickFolder();
+      return;
+    }
+    // no directory picker here, so the folder comes from a file input. clicking it from
+    // inside the confirm handler keeps this within the user gesture the browser requires
+    this.folderInput()?.nativeElement.click();
   }
 
   protected async reconnect(): Promise<void> {

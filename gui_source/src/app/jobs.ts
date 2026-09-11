@@ -46,19 +46,10 @@ export interface JobOptions {
   series: boolean;
   images: boolean;
   workdates: boolean;
-  /**
-   * Fetch again the works whose files were saved before names carried a date. Off by
-   * default - those cannot be judged out of date, and refetching a whole library is
-   * expensive - so it is only ever set by the offer made after a run.
-   */
-  refreshUndated: boolean;
-  /**
-   * Instead of refetching those, write this date (YYYY-MM-DD) onto them and carry on.
-   * Nothing is downloaded to do it - the files are renamed where they sit - and from then
-   * on the ordinary rule applies. Empty means don't.
-   */
-  stampUndated: string;
 }
+
+/** what to do about downloaded files that carry no date, asked part way through a run */
+export type UndatedChoice = 'stamp' | 'refresh' | 'skip';
 
 /** a work the run could not download */
 export interface WorkFailure {
@@ -95,6 +86,9 @@ export interface JobEvent {
   stamped?: number;
   /** on a `failures` event: the works that would not download */
   failures?: WorkFailure[];
+  /** on a `question` event: which question is being asked, and how many works it concerns */
+  count?: number;
+  choices?: string[];
   seconds?: number;
   until?: string;
   error?: string;
@@ -149,6 +143,25 @@ export class Jobs {
   }
 
   /**
+   * Answer a question the run has stopped to ask.
+   *
+   * The run is blocked waiting for this, so a failure here matters: it is surfaced rather
+   * than swallowed, and the helper gives up on its own after a while so nothing hangs for
+   * ever if this never arrives.
+   */
+  async answer(jobId: string, choice: UndatedChoice, date = ''): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/jobs/${jobId}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ choice, date }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.error ?? `could not answer (${response.status})`);
+    }
+  }
+
+  /**
    * Ask the helper to stop. The run unwinds at its next checkpoint, keeping whatever it
    * has already written, so this is safe rather than destructive.
    */
@@ -158,6 +171,22 @@ export class Jobs {
     } catch {
       // the helper may already have stopped; the stream closing will tell us
     }
+  }
+
+  /**
+   * Pause or resume a run.
+   *
+   * The helper only sets a flag, so this returns straight away - the run acts on it at its
+   * next safe point, which is before its next request. Throwing on a failure matters here:
+   * a pause that silently did not happen would leave the page saying the run is paused
+   * while it carries on downloading.
+   */
+  async setPaused(jobId: string, paused: boolean): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/api/jobs/${jobId}/${paused ? 'pause' : 'resume'}`,
+      { method: 'POST' },
+    );
+    if (!response.ok) throw new Error(`could not ${paused ? 'pause' : 'resume'} the run`);
   }
 
   /**

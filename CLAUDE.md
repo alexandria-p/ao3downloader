@@ -58,7 +58,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 **4 tests in `test/test_ao3.py::test_proceed_*` fail with `UnicodeDecodeError`.** They are
 pre-existing, present on the unmodified upstream code, and caused by fixtures being read
 with the platform default codec (cp1252 on Windows). Do not chase them; do not count them
-as regressions. Current: **803 python passed, 4 failed; 155 gui passed.**
+as regressions. Current: **885 python passed, 4 failed; 183 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -68,8 +68,8 @@ On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
 Ao3 sends no CORS headers, so a browser page cannot read it - this was verified with a live
 `fetch`, which fails with `TypeError: Failed to fetch`. A page also cannot hold an ao3
-login session or read ebook files off disk for the update scan. So the page talks to a
-python helper on `127.0.0.1:4400`, which calls exactly the same code the console menu calls.
+login session, and cannot read or write the downloads folder. So the page talks to a python
+helper on `127.0.0.1:4400`.
 
 The user's constraint was originally "client-side only"; the helper was accepted only once
 CORS was demonstrated to make that impossible. Don't reintroduce a hosted API - the design
@@ -138,6 +138,82 @@ non-html format. Don't swap this back to plain `get_book`.
 discovered *on* the work page, so asking for any of them falls back to `Ao3.download`. The
 other cost of the indexed path is that nothing reads the work page, so locked/deleted/hidden
 works are no longer recognised as such - they fail and are logged.
+
+### The bundle ships only what the helper imports
+
+`copy_helper_package` walks imports out from `source_code/server.py` (`HELPER_ENTRY`) with
+`ast` and copies only what it reaches. The console menu, its actions, and the ebook parsing
+only they use never enter the bundle - 14 files instead of 28. `build()` returns
+`left_behind` and the build prints it, so a module silently dropping out is visible.
+
+It follows imports rather than keeping a list on purpose: a list goes stale the moment a
+module gains an import, and the failure shows up as an ImportError in a shipped bundle
+rather than at build time. There is a test for exactly that - add an import to the fake
+`server.py` and the new module gets shipped without anyone listing it.
+
+`HELPER_DATA` is the escape hatch for what no import graph can see: `settings/settings.ini`
+is read through `importlib.resources`, so it is named explicitly. `html/template.html` is
+**not** listed because only the console's log visualisation reads it. If you add another
+resource read that way, add it to `HELPER_DATA` or it will be missing from the bundle only.
+
+### The update action is driven by the index
+
+`run_update` was rewritten to work from `downloads/indexing/` rather than from the ebooks on
+disk. **Do not reintroduce `update.process_file` here** - parsing a chapter count back out
+of an epub was the old way, and `update.py` now only serves the console actions
+(`updatefics`, `updateseries`, `redownload`).
+
+The flow, in the order the ui narrates it:
+
+1. `shared.read_index` → `shared.incomplete_works`, off disk, no requests at all
+   (`scanning`)
+2. `shared.scan_downloaded_works` - what is already in the folder for those works
+   (`checking_files`)
+3. `settle_undated` - the question about files with no date in the name, asked **here**,
+   before a single request, because the answer decides which copies count as behind
+4. then one fic at a time (`updating`), through `update_one_work`: `Ao3.refresh_one`
+   re-reads it and rewrites its entry, `shared.plan_downloads` judges that one work, and
+   `Ao3.download_one_indexed` fetches it only if it has to
+
+**This is deliberately not the bookmarks order.** `run_bookmarks` indexes everything before
+downloading anything, and can, because one listing request describes twenty works. Here
+each fic has to be opened individually before there is anything new to say about it, so
+batching the re-reads would buy nothing and would mean a stopped run had half-finished every
+fic instead of wholly finishing the ones it reached. Don't "make it consistent" with the
+bookmarks run.
+
+**The re-read is unconditional; only the download is not.** Every unfinished fic gets
+re-read and its entry rewritten, so the index ends up current whether or not anything was
+fetched. There are exactly two reasons to download: no copy of a requested format, or a copy
+`plan_downloads` calls stale. Don't add a third - an earlier version had a
+`works_worth_fetching`/`gained_chapters` pair that also fired on chapter growth. That is
+redundant for a dated file (gaining a chapter moves ao3's `date_updated`, so the file is
+already `stale`) and only ever mattered for undated ones, which are now settled by asking
+the user outright. Both functions were deleted; guessing from a chapter count is not a
+substitute for the answer.
+
+Each step prints a line and emits an event, so the modal reads as a running account rather
+than a bar that sits still: `AO3_INFO_UPDATE_WORK` names the fic, `_READING` says it is
+about to open the fic page, then `_INDEXED` and one of `_MISSING`, `_BEHIND`, `_CURRENT` or
+`_NOTHING` say what was decided about it. `_READING` goes **before** the request, not after:
+that request is the slow part, and a line printed afterwards leaves the run looking stalled
+on the fic it has only just named.
+
+`parse_soup.get_work_stats` is **deliberately a subset**. A work page and a listing blurb
+describe a fic differently, and writing the whole of one into a record shaped by the other
+would make every field look changed and fill the history with schema noise. Only chapters,
+words, comments, kudos, bookmarks, hits and the updated date are rewritten; tags, summary
+and the bookmark's own fields stay as the listing left them.
+
+`parse_text.get_listing_date` exists for one reason: a work page writes `2024-12-14` and a
+listing writes `14 Dec 2024` for the same date. The index keeps one field for it, so without
+normalising, an update pass and a bookmarks pass would rewrite each other forever, each one
+looking like a change. It is idempotent - normalising twice changes nothing.
+
+**The limitation is inherent, not a bug.** `indexing.is_incomplete` reads what the index
+last recorded, so a fic that had finished by then is invisible however much was added after.
+The ui has an `acknowledge` step that must be ticked before the login for exactly this, and
+points at the bookmarks run instead, which re-reads the listing and catches those.
 
 ### A run that leaves gaps says which ones
 
@@ -261,17 +337,86 @@ skipping `indexing/`, `collections/` and `images/`) rather than trusting the log
 Undated files are counted but never refetched unless `refreshUndated` is set, which only
 the ui's post-run offer does - it is a full re-download of a library.
 
-The third way out of undated files is `stampUndated`, a `YYYY-MM-DD` the ui offers instead
-of refetching. `shared.stamp_undated_works` renames those files in place to carry it -
-**no requests at all** - and updates the scan dict it was given, so `plan_downloads` runs
-straight afterwards and judges them by the ordinary rule with no special case. It cuts long
-names down exactly as `get_valid_filename` would, and `fileops.rename_file` refuses to
-write over an existing file (`os.replace` would silently destroy it), so collisions are
-counted and skipped rather than losing anything.
+### A run can stop and ask a question
 
-`resolve_options` runs the value through `parse_text.get_date_stamp`, so anything that is
-not a real date becomes `''` and nothing is renamed - a library must not be renamed after a
-half-understood date.
+Undated files are the one thing a run cannot decide for itself, so it **stops and asks**.
+`server.settle_undated` is called from `plan_refresh`, which both `run_bookmarks` and
+`run_update` go through, and it runs *before* planning - the answer decides which works
+count as out of date, and asking afterwards would be too late to act on.
+
+`Job.ask` emits a `question` event and blocks; the ui replies through
+`POST /api/jobs/<id>/answer`, which `Job.reply` hands back. Three things keep that from
+hanging, and all three matter:
+
+- the wait is in `ANSWER_POLL_SECONDS` slices, checking `job.cancel` each time, so a stop
+  releases a run nobody is answering
+- `ANSWER_TIMEOUT_SECONDS` gives up after 30 minutes, so a closed tab cannot leave a thread
+  waiting for an answer that can never arrive
+- **the default is always `skip`** - the option that changes nothing. Whatever goes wrong,
+  a run must not rename or refetch a library on its own
+
+`answer_job` rejects a choice outside `UNDATED_CHOICES` and runs the date through
+`parse_text.get_date_stamp`, so a run waiting on an answer is never handed something it
+cannot act on, and a library is never renamed after a half-understood date.
+
+**The answer applies to the works the question was asked about, and nothing else.**
+`stamp_undated_works` takes a required `works` set for this reason. `existing` is the whole
+downloads folder - `scan_downloaded_works` reads all of it, because a work's copy has to be
+found wherever it sits - while `plan_downloads(records, ...)` narrows that to the run's own
+records. Handing the folder scan straight to the renamer was a real bug, hit for real: an
+update run reported a few hundred undated works and then dated 1,690 files across the whole
+library. The scope is the works in `undated`, not in `records` - a work that is stale in one
+format and undated in another counts as stale, so it is not in the number the user was shown
+and is about to be refetched anyway. The file types are already narrowed, by the scan.
+
+This was `refreshUndated` / `stampUndated` job options, decided up front and acted on after
+the downloads. Don't put it back: the count is not known until the folder has been read, and
+by the time the downloads are done there is nothing left to act on.
+
+A test that drives `run_bookmarks` or `run_update` for real **must** stub `Job.ask` or the
+suite hangs - that is what `updating()` in `test_server.py` does.
+
+### A run can be paused, and there is exactly one place it may pause
+
+`Repository.hold_if_asked` is the whole feature. It sits at the top of the `my_request`
+loop, **immediately before a request goes out**, and that position is the entire safety
+argument: at that moment nothing is in flight, no response is open, nothing is part-written,
+and whatever was last started has finished.
+
+**Do not add a second gate**, and do not move this one inside a download, a page loop or a
+per-work loop. A pause that can fire anywhere is a pause that can fire halfway through
+writing an epub, and the result - a truncated file whose name says it is complete - is the
+exact failure `saved_intact` and `replace_superseded` exist to prevent. The cost of one gate
+is that pausing during a transfer takes effect when that file lands rather than instantly,
+which is a fraction of a second and is the desired behaviour anyway.
+
+It is deliberately **not** folded into `check_cancelled`, even though the two look alike.
+`check_cancelled` is called from inside `wait`, so a hold there would stretch an ao3 rate
+limit break and then return to a request ao3 had just told us to wait longer for.
+
+Three things keep a pause from becoming a hang:
+
+- the wait is in `pause_slice` slices, each checking `cancelled`, so **stop works through a
+  pause**. The ui never disables Stop while paused, and there is a test per side of that
+- a stop taken during a hold unwinds without emitting `released`, so the log never claims a
+  run resumed when it actually stopped
+- `hold_job` only sets a flag and answers 202 at once. It must not wait for the run to
+  reach the gate, or the browser would hang for the length of a download
+
+There is **no timeout**, unlike `Job.ask`. A question nobody answers has a safe default
+(`skip`, which changes nothing); a pause has no safe default, because auto-resuming would
+send an unattended run back at ao3. A paused run stays paused. The cost is that a long pause
+holds an ao3 session that may expire - that surfaces as ordinary download failures on
+resume, and the fix is to stop and start again.
+
+**`held`/`released` are separate events from `paused`/`resumed` on purpose.** Those are
+ao3's own rate limit break, which nobody chose and which ends by itself. They read almost
+the same on screen and have nothing else in common, and collapsing them would leave the ui
+unable to tell "wait, this will clear up" from "you stopped this, press Resume".
+
+The ui tracks `held` and `holdPending` separately for the same reason the helper answers
+immediately: the button says `Pausing...` until the run itself sends `held`, because saying
+`Paused` on the button press would claim the run had stopped while it was still downloading.
 
 ### Pairing downloaded files to metadata
 

@@ -22,10 +22,18 @@ MESSAGE = 'message'
 # how many downloaded works ao3 has updated since they were saved, and how many were saved
 # before file names carried a date and so cannot be judged either way
 REFRESH = 'refresh'
+# a run stops here and waits for an answer before going on. the ui replies through
+# /api/jobs/<id>/answer; a cancel releases the wait so nothing can hang on it.
+QUESTION = 'question'
 # works the run could not download, sent once at the end so the gaps can be named
 FAILURES = 'failures'
+# ao3 has asked for a break. nobody chose this and it ends by itself.
 PAUSED = 'paused'
 RESUMED = 'resumed'
+# the user asked for a break. this one ends only when they say so, and is kept separate
+# from ao3's on purpose - they read the same on screen but nothing else about them is alike
+HELD = 'held'
+RELEASED = 'released'
 FINISHED = 'finished'
 FAILED = 'failed'
 
@@ -35,6 +43,14 @@ AUTHENTICATING = 'authenticating'
 INDEXING = 'indexing'
 COLLECTIONS = 'collections'
 SCANNING = 'scanning'
+# reading the downloads folder to see what is already there
+CHECKING_FILES = 'checking_files'
+# comparing what is there against what ao3 now reports, to find the outdated copies
+CHECKING_VERSIONS = 'checking_versions'
+# working through unfinished fics one at a time: re-read, then fetch if the copy is behind.
+# a bookmarks run indexes everything before downloading anything; an update run does not,
+# because each fic has to be read from ao3 before there is anything new to say about it.
+UPDATING = 'updating'
 DOWNLOADING = 'downloading'
 
 

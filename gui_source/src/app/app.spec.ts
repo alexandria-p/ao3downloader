@@ -108,6 +108,8 @@ async function showCollections(
 describe('App', () => {
   beforeEach(async () => {
     vi.stubGlobal('scrollTo', vi.fn());
+    // the naming note remembers being dismissed, and that would carry between tests
+    localStorage.clear();
     await TestBed.configureTestingModule({ imports: [App] }).compileComponents();
     TestBed.inject(Library).data.set(null);
     TestBed.inject(Library).collections.set([]);
@@ -246,4 +248,101 @@ describe('App', () => {
     expect(element.querySelector('.heading a.title')?.classList.contains('local')).toBe(true);
     expect(element.querySelector('.meta-line.linked')?.textContent).toContain('1 of 1 works');
   });
+
+  // region the naming note shown before the folder picker
+
+  function folderButton(element: HTMLElement): HTMLButtonElement {
+    return Array.from(element.querySelectorAll<HTMLButtonElement>('.picker button')).find((b) =>
+      b.textContent?.includes('folder'),
+    )!;
+  }
+
+  function warningButton(element: HTMLElement, text: string): HTMLButtonElement | undefined {
+    return Array.from(
+      element.querySelectorAll<HTMLButtonElement>('app-folder-warning button'),
+    ).find((b) => b.textContent?.trim() === text);
+  }
+
+  /** the picker this browser actually uses - jsdom has no directory picker, so the input */
+  function watchPicker(element: HTMLElement) {
+    const input = element.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const opened = vi.fn();
+    input.click = opened;
+    return opened;
+  }
+
+  async function clickFolder(fixture: ComponentFixture<App>, element: HTMLElement) {
+    const opened = watchPicker(element);
+    folderButton(element).click();
+    await fixture.whenStable();
+    return opened;
+  }
+
+  it('says how files have to be named before opening the picker', async () => {
+    // the rule cannot be discovered afterwards: files named wrongly still load, they just
+    // never match the index. so it is said at the one moment it can be acted on
+    const { fixture, element } = await render(0);
+
+    const opened = await clickFolder(fixture, element);
+
+    expect(element.querySelector('app-folder-warning')).toBeTruthy();
+    expect(element.querySelector('app-folder-warning')?.textContent).toContain('work ID at the start');
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it('opens the picker once the note has been read', async () => {
+    const { fixture, element } = await render(0);
+    const opened = await clickFolder(fixture, element);
+
+    warningButton(element, 'Choose folder')!.click();
+    await fixture.whenStable();
+
+    expect(opened).toHaveBeenCalled();
+    expect(element.querySelector('app-folder-warning')).toBeNull();
+  });
+
+  it('opens no picker when the note is backed out of', async () => {
+    const { fixture, element } = await render(0);
+    const opened = await clickFolder(fixture, element);
+
+    warningButton(element, 'Cancel')!.click();
+    await fixture.whenStable();
+
+    expect(opened).not.toHaveBeenCalled();
+    expect(element.querySelector('app-folder-warning')).toBeNull();
+  });
+
+  it('does not show the note again once it has been turned off', async () => {
+    const { fixture, element } = await render(0);
+    await clickFolder(fixture, element);
+
+    const box = element.querySelector<HTMLInputElement>('input[name="dontAskAgain"]')!;
+    box.click();
+    await fixture.whenStable();
+    warningButton(element, 'Choose folder')!.click();
+    await fixture.whenStable();
+
+    const opened = await clickFolder(fixture, element);
+
+    expect(element.querySelector('app-folder-warning')).toBeNull();
+    expect(opened).toHaveBeenCalled();
+  });
+
+  it('keeps asking when the note is turned off but then backed out of', async () => {
+    // ticking the box is not the decision; going through with it is. otherwise a change of
+    // mind at the last moment silences a warning the user never actually accepted
+    const { fixture, element } = await render(0);
+    await clickFolder(fixture, element);
+
+    element.querySelector<HTMLInputElement>('input[name="dontAskAgain"]')!.click();
+    await fixture.whenStable();
+    warningButton(element, 'Cancel')!.click();
+    await fixture.whenStable();
+
+    await clickFolder(fixture, element);
+
+    expect(element.querySelector('app-folder-warning')).toBeTruthy();
+  });
+
+  // endregion
 });

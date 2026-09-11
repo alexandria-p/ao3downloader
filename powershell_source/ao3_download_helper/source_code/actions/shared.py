@@ -2,7 +2,7 @@ import datetime
 import os
 import traceback
 
-from source_code import exceptions, parse_text, strings
+from source_code import exceptions, indexing, parse_text, strings
 from source_code.fileio import FileOps
 from source_code.repo import Repository
 
@@ -285,6 +285,33 @@ def get_files_of_type(folder: str, filetypes: list[str]) -> list[dict[str, str]]
     return results
 
 
+def read_index(fileops: FileOps) -> list[dict]:
+    """Every work the index describes, as the record it currently stands at.
+
+    Reads downloads/indexing rather than the listing on ao3, so it costs no requests at
+    all. A file that cannot be read is skipped rather than ending the run - one damaged
+    json should not hide the rest of the library.
+    """
+
+    folder = os.path.join(fileops.downloadfolder, strings.INDEXING_FOLDER_NAME)
+    records: list[dict] = []
+    if not os.path.isdir(folder): return records
+
+    for name in sorted(os.listdir(folder)):
+        if not name.lower().endswith('.json'): continue
+        document = fileops.load_json(os.path.join(strings.INDEXING_FOLDER_NAME, name))
+        record = indexing.flatten(document)
+        if record and record.get('link'): records.append(record)
+
+    return records
+
+
+def incomplete_works(records: list[dict]) -> list[dict]:
+    """The works the index last saw unfinished."""
+
+    return [x for x in records if indexing.is_incomplete(x)]
+
+
 def scan_downloaded_works(folder: str, filetypes: list[str]) -> dict[str, dict[str, dict]]:
     """Every downloaded work in the folder, by work number and then file type.
 
@@ -324,7 +351,7 @@ def scan_downloaded_works(folder: str, filetypes: list[str]) -> dict[str, dict[s
 
 
 def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
-                        stamp: str, maximum: int) -> dict:
+                        works: set[str], stamp: str, maximum: int) -> dict:
     """Write a date onto the files that have none, by renaming them where they sit.
 
     This is the middle road between leaving files that predate dated names alone and
@@ -332,6 +359,13 @@ def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
     date". Nothing is downloaded, nothing leaves the machine, and once the files carry a
     date the ordinary rule takes over - anything ao3 has updated since then is fetched
     again on this same run.
+
+    `works` is the work numbers to touch, and is **not** optional. `existing` is the whole
+    downloads folder, which is far more than any one run asked about - an update run asks
+    about the couple of hundred fics the index calls unfinished, not the thousands of files
+    sitting next to them. Renaming the lot was a real bug: the run reported a few hundred
+    undated works and then dated every file in the library. Only what the caller asked
+    about, and only in the types it scanned for, may be renamed here.
 
     `existing` is updated in place, so the caller can plan from it straight afterwards.
 
@@ -345,6 +379,7 @@ def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
     skipped = 0
 
     for work, types in existing.items():
+        if work not in works: continue
         for filetype, entry in types.items():
             if entry['date'] is not None: continue
 

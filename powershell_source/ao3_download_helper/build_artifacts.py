@@ -13,6 +13,8 @@ Run it through generate_build_artifacts.ps1 in the repository root, or directly:
 """
 
 import argparse
+import ast
+import os
 import shutil
 import subprocess
 import sys
@@ -26,6 +28,18 @@ DOT_SOURCE = """$envScript = Join-Path $PSScriptRoot 'powershell_source\\ao3_dow
 # the python project, relative to the repository root
 PYTHON_HOME = Path('powershell_source') / 'ao3_download_helper'
 PACKAGE_NAME = 'source_code'
+
+# The bundle runs the helper and nothing else, so it ships what the helper imports and
+# stops there - the console menu, its actions, and the ebook parsing only they use are all
+# left behind. Worked out by following imports rather than by keeping a list, because a
+# list goes stale the moment a module gains an import and nobody notices until it breaks.
+HELPER_ENTRY = 'server'
+
+# read at run time through importlib.resources, so no import graph can see them
+HELPER_DATA = ['settings']
+
+# never walked into when working out what to keep
+IGNORED_DIRS = {'__pycache__', '.pytest_cache', '.venv'}
 
 # the launcher: one file in the working copy, one in the bundle, nothing in between
 LAUNCHER_SOURCE = 'run_development_build.ps1'
@@ -104,6 +118,99 @@ def compile_web(root: Path) -> Path:
 def copy_tree(source: Path, destination: Path) -> None:
     if destination.exists(): shutil.rmtree(destination)
     shutil.copytree(source, destination, ignore=IGNORED)
+
+
+def package_imports(path: Path) -> set[str]:
+    """The package's own modules that one file imports, as dotted names.
+
+    Both halves of `from source_code.ao3 import Ao3` are returned - the module and the
+    name below it - because only one of them is a file and which one is settled by looking.
+    """
+
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    found: set[str] = set()
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if not node.module or not node.module.startswith(PACKAGE_NAME): continue
+            found.add(node.module)
+            found.update(f'{node.module}.{alias.name}' for alias in node.names)
+        elif isinstance(node, ast.Import):
+            found.update(a.name for a in node.names if a.name.startswith(PACKAGE_NAME))
+
+    return found
+
+
+def module_file(package: Path, dotted: str) -> Path | None:
+    """The file a dotted module name refers to, or None when it names something else."""
+
+    if not dotted.startswith(PACKAGE_NAME + '.'): return None
+    relative = dotted[len(PACKAGE_NAME) + 1:].replace('.', os.sep)
+    candidate = package / (relative + '.py')
+    return candidate if candidate.is_file() else None
+
+
+def helper_modules(package: Path) -> set[str]:
+    """Every module the helper reaches, following imports out from its entry point."""
+
+    entry = f'{PACKAGE_NAME}.{HELPER_ENTRY}'
+    if not module_file(package, entry):
+        raise FileNotFoundError(
+            f'{HELPER_ENTRY}.py is not in {package}. Update HELPER_ENTRY in build_artifacts.py.')
+
+    seen: set[str] = set()
+    pending = [entry]
+    while pending:
+        name = pending.pop()
+        if name in seen: continue
+        path = module_file(package, name)
+        if not path: continue
+        seen.add(name)
+        pending.extend(package_imports(path))
+
+    return seen
+
+
+def copy_helper_package(package: Path, destination: Path) -> list[str]:
+    """Copy the package minus everything the helper never reaches.
+
+    Returns the modules left behind, so a build can say what it dropped rather than
+    quietly shipping less than last time.
+    """
+
+    keep = helper_modules(package)
+    if destination.exists(): shutil.rmtree(destination)
+
+    left_behind: list[str] = []
+    kept_folders: set[Path] = set()
+
+    for source in sorted(package.rglob('*.py')):
+        relative = source.relative_to(package)
+        if any(part in IGNORED_DIRS for part in relative.parts): continue
+        if source.name == '__init__.py': continue
+
+        dotted = PACKAGE_NAME + '.' + str(relative.with_suffix('')).replace(os.sep, '.')
+        if dotted not in keep:
+            left_behind.append(dotted)
+            continue
+
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        kept_folders.add(relative.parent)
+
+    # a package needs its __init__.py, but only the ones that still have something in them
+    for folder in kept_folders:
+        marker = package / folder / '__init__.py'
+        if marker.is_file():
+            shutil.copyfile(marker, destination / folder / '__init__.py')
+
+    for name in HELPER_DATA:
+        folder = package / name
+        if folder.is_dir():
+            shutil.copytree(folder, destination / name, ignore=IGNORED)
+
+    return sorted(left_behind)
 
 
 def strip_readme_field(content: str) -> str:
@@ -203,7 +310,7 @@ def build(root: Path, skip_web: bool = False) -> dict:
 
     python_home = root / PYTHON_HOME
     helper_dir = build_dir / HELPER_FOLDER
-    copy_tree(python_home / PACKAGE_NAME, helper_dir / PACKAGE_NAME)
+    left_behind = copy_helper_package(python_home / PACKAGE_NAME, helper_dir / PACKAGE_NAME)
     write_pyproject(python_home, helper_dir)
     for name in PROJECT_FILES:
         shutil.copyfile(python_home / name, helper_dir / name)
@@ -214,7 +321,8 @@ def build(root: Path, skip_web: bool = False) -> dict:
     created = write_config(build_dir / CONFIG_FOLDER, python_home)
     write_readme(build_dir)
 
-    return {'build_dir': build_dir, 'launcher': launcher, 'config_created': created}
+    return {'build_dir': build_dir, 'launcher': launcher, 'config_created': created,
+            'left_behind': left_behind}
 
 
 README = """# ao3downloader - deployable bundle
@@ -233,6 +341,11 @@ overwrites the rest.
 | `web/` | The compiled web app - plain static files. |
 | `ao3_download_helper/` | The python behind the download buttons. |
 | `config/settings.ini` | Your settings, including where fics are saved. |
+
+`ao3_download_helper/` holds **only what the web ui can actually invoke**. The console
+menu, its actions, and the ebook parsing that only those use are left out of the bundle:
+the build follows the helper's imports and ships what it reaches, so nothing arrives here
+that nothing here can run. It prints the list of what it left behind each time it builds.
 
 `config/data.json` is not shipped. The web ui remembers your username in the browser and
 never stores a password, so the application creates that file itself if it needs one.
@@ -257,6 +370,40 @@ The first run creates the python environment, which takes a minute. Then open
 <http://localhost:4200>. Ctrl+C in that window stops everything.
 
 To use a different port: `.\\Start-Application.ps1 -Port 8080`
+
+## What the buttons do
+
+The page has two tabs, **Bookmarks** and **Collections**, each carrying the buttons that
+fill it. All four ask you to log in to ao3 before they start, and none of them store your
+password - it is sent to ao3 and forgotten. Only your username is remembered, in the
+browser, and only if you tick the box.
+
+### Bookmarks
+
+**Download newly added bookmarks** reads `/users/<you>/bookmarks`, writes a json index entry
+for every work on it, then downloads the works themselves. Anything already downloaded and
+still current is skipped, so a second run only picks up what is new or has changed since.
+You choose the file types and which pages of the listing to cover.
+
+**Update any bookmarks marked as incomplete** takes the fics your index last recorded as
+unfinished, opens each one on ao3, and brings its index entry up to date. It downloads a fic
+only if you have no copy of it or the copy you have is behind - see
+[Updating unfinished fics](#updating-unfinished-fics), which also covers the one thing it
+cannot find. You have to acknowledge that before it will let you log in.
+
+### Collections
+
+**Index my collections** reads `/users/<you>/collections` and writes a json file describing
+each collection you own - its metadata, and the work numbers it holds. No works are
+downloaded.
+
+**Index collection by URL** does the same for any one collection on ao3, yours or not. Paste
+a link to it; any page of the collection will do. The file it writes sits alongside your own
+and has the same shape.
+
+Clicking a collection opens what was recorded about it, along with the works in it, in the
+same listing the Bookmarks tab uses. Works it holds that are not in your index are still
+listed, by work number, with a link to ao3.
 
 ## Where downloads go
 
@@ -317,6 +464,50 @@ begins with digits is not mistaken for a work number.
 That is the bare minimum for a file you bring in from somewhere else: **start the file
 name with the AO3 work id, then a separator.** Everything after that is free.
 
+## Updating unfinished fics
+
+**Update any bookmarks marked as incomplete** works from the index, not from the files on
+disk. Nothing is parsed out of an epub to find a chapter count, and no listing is walked to
+find the works:
+
+1. It reads `<downloads>/indexing/` for every fic the index last recorded as unfinished -
+   a chapter count of `12/?`, or one short of its own total. That costs no requests, and
+   the modal says how many it found.
+2. It looks through the downloads folder for the files belonging to those fics, matching
+   each one by the work number it starts with.
+3. If any of those files were saved before names carried a date, it stops and asks what to
+   do about them before going any further. It has to ask now, because the answer decides
+   which copies count as out of date.
+4. Then it works through the fics **one at a time**. For each one it opens the fic on ao3
+   using the link already in its json file (one request), writes what it found back into
+   the index, and downloads it only if it has to. Each of those is announced in the modal
+   as it happens.
+
+A fic is downloaded **only** if one of two things is true: you have no copy of a format you
+asked for, or the copy you have is behind the version ao3 now reports. The old copy is
+replaced under the usual safeguards.
+
+The re-read happens for every unfinished fic whether or not anything comes of it, so the
+index ends up current even where nothing needed downloading. Only the download is
+conditional, which is why a fic that has not moved costs one request and nothing else.
+
+This is a different order from **Download newly added bookmarks**, which indexes the whole
+listing first and downloads afterwards. It can, because one listing request describes twenty
+fics at once. Here every fic has to be opened on its own, so there is nothing to gain by
+doing all the reading first - and going fic by fic means a run you stop partway has
+completely finished every fic it got to.
+
+Only the fields a work's own page can speak to are rewritten. Tags, the summary and your
+own bookmark notes come from the listing, so they are left alone and refreshed by a
+**Download newly added bookmarks** run instead.
+
+**What it will not catch:** a fic that had already finished when it was last indexed. If a
+work was marked complete and then updated afterwards - an epilogue added, chapters edited -
+the index records it as complete, so this pass skips it. The web ui makes you acknowledge
+that before it will let you log in. Use **Download newly added bookmarks** for those: it
+re-reads the whole listing and sees anything ao3 reports as updated more recently than your
+copy, finished or not.
+
 ## Keeping downloads up to date
 
 Because a downloaded work carries the date of the version it holds, the bookmarks run can
@@ -342,19 +533,25 @@ An **Export the list** button saves them as plain text - one work per line, with
 number, link and reason - so the numbers can be fed back in. A work is listed once however
 many formats failed for it.
 
-Works saved before names carried a date cannot be judged either way, so they are left
-alone and counted. When the run finishes it offers two ways out, and ignoring it is a third.
+Works saved before names carried a date cannot be judged: nothing records which version
+they are. **The run stops and asks what to do about them before it downloads anything** -
+it has to ask then rather than afterwards, because the answer decides which works count as
+out of date. Both the bookmarks run and the update run ask, right after working out what
+you already have. There are three choices:
 
 **Give them a date.** You say which version to treat them as, and the files are renamed
-where they sit to carry that date. Nothing is downloaded to do this - no requests at all -
-and from then on the ordinary rule applies, so anything ao3 has updated since that date is
-fetched on the same run. Today means "what I have is current"; an earlier date means "my
-copies are from around then", so everything touched since is fetched. Long names are cut
-down as a fresh download would cut them, and a file is never renamed over one that already
-exists.
+where they sit. Nothing is downloaded to do this - no requests at all - and the run carries
+straight on, so anything ao3 has updated since that date is fetched on the same pass. Today
+means "what I have is current"; an earlier date means "my copies are from around then", so
+everything touched since is fetched. Long names are cut down as a fresh download would cut
+them, and a file is never renamed over one that already exists.
 
-**Re-download them.** Fetches the current version of every one, which is a full download of
-the lot - a choice rather than something automatic.
+**Re-download them.** Every one counts as out of date from then on. The run carries on in
+its usual order and, as it reaches each of them, fetches the current version and removes the
+old copy under the usual safeguards. That is a full download of the lot.
+
+**Ignore and skip them.** They stay as they are, nothing is downloaded for them, and the
+run continues with everything else. Stopping the run while it is asking does the same.
 
 If a file's name does not start with the work number - one you renamed, or brought in from
 elsewhere - the index still builds, but the web page cannot pair the two, so that title
@@ -478,6 +675,27 @@ carrying on after a stopped run without refetching what you already have.
 Nothing is lost when you are paused - the run waits and carries on by itself, and the
 **Stop** button keeps everything already written.
 
+## Pausing a run
+
+Next to **Stop** there is a **Pause**. A run can only pause at one moment - just before it
+asks ao3 for the next thing - so whatever was being fetched when you pressed it finishes
+first and nothing is ever left half-written. A pause pressed during a transfer therefore
+takes effect when that file lands rather than instantly, and the button says *Pausing...*
+until the run confirms it has stopped.
+
+While paused, no requests go out and nothing new is started. It stays paused until you press
+**Resume**: it will not start again by itself, because an unattended run going back at ao3
+without you is not something that should happen on a timer. **Stop still works while
+paused**, so a pause can never leave a run stuck.
+
+This is a different thing from the break ao3 asks for when you go too fast, which the page
+also calls a pause. That one nobody chose and it clears up by itself; this one is yours and
+ends when you say.
+
+One caveat: an ao3 login does not last forever. A run left paused a long time may find its
+session gone when you resume, which shows up as works failing to download. Stop it and start
+a new run if that happens.
+
 ## A caveat about deploying this to a server
 
 The web app is static and will serve from anywhere. The download buttons will not.
@@ -509,6 +727,11 @@ def main() -> int:
     print(f'\nbundle written to {result["build_dir"]}')
     if result['config_created']:
         print(f'created: {", ".join(result["config_created"])}')
+    if result['left_behind']:
+        # said out loud so a module dropping out of the bundle is noticed at build time
+        print(f'left behind ({len(result["left_behind"])} modules the helper never imports):')
+        for name in result['left_behind']:
+            print(f'    {name}')
     print(f'run it with: powershell.exe -ExecutionPolicy Bypass -File '
           f'.\\build\\{LAUNCHER_OUTPUT}')
     return 0

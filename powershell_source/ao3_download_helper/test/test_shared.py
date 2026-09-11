@@ -1,11 +1,12 @@
 """Tests for ao3downloader.actions.shared — folder input and file discovery."""
 
+import json
 import os
 from unittest.mock import MagicMock
 
 import pytest
 
-from source_code import parse_text, strings
+from source_code import indexing, parse_text, strings
 from source_code.actions import shared
 from source_code.fileio import FileOps
 
@@ -336,6 +337,79 @@ def test_visited_returns_empty_when_no_log_and_no_ignorelist(tmp_path, monkeypat
 # endregion
 
 
+# region read_index
+
+def index_fileops(tmp_path):
+    """A FileOps whose downloads folder is real and whose json reading is the real thing."""
+    fo = MagicMock()
+    fo.downloadfolder = str(tmp_path)
+    fo.load_json.side_effect = lambda name: FileOps.load_json(fo, name)
+    return fo
+
+
+def write_index(tmp_path, name: str, document: dict) -> None:
+    folder = tmp_path / strings.INDEXING_FOLDER_NAME
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_text(json.dumps(document), encoding='utf-8')
+
+
+def indexed(work: str, published, total) -> dict:
+    return {
+        'id': work, 'link': f'https://archiveofourown.org/works/{work}',
+        indexing.LAST_INDEXED: '2026-09-01T10:00:00+00:00',
+        indexing.INDEXES: [{
+            indexing.INDEXED_ON: '2026-09-01T10:00:00+00:00', 'title': f'Work {work}',
+            'chapters_published': published, 'chapters_total': total,
+        }],
+    }
+
+
+def test_the_index_is_read_off_disk_rather_than_from_ao3(tmp_path):
+    write_index(tmp_path, '111.json', indexed('111', 3, None))
+    write_index(tmp_path, '222.json', indexed('222', 5, 5))
+
+    records = shared.read_index(index_fileops(tmp_path))
+
+    assert [x['id'] for x in records] == ['111', '222']
+    assert records[0]['title'] == 'Work 111'
+
+
+def test_reading_the_index_where_there_is_none_finds_nothing(tmp_path):
+    assert shared.read_index(index_fileops(tmp_path)) == []
+
+
+def test_one_damaged_file_does_not_hide_the_rest_of_the_index(tmp_path):
+    write_index(tmp_path, '111.json', indexed('111', 3, None))
+    folder = tmp_path / strings.INDEXING_FOLDER_NAME
+    (folder / 'broken.json').write_text('not json at all', encoding='utf-8')
+
+    records = shared.read_index(index_fileops(tmp_path))
+
+    assert [x['id'] for x in records] == ['111']
+
+
+def test_only_records_with_a_link_are_kept(tmp_path):
+    # the link is how the work is re-read; without one there is nothing to go to
+    write_index(tmp_path, '111.json', indexed('111', 3, None))
+    write_index(tmp_path, 'nolink.json', {'id': '999', 'title': 'No link'})
+
+    records = shared.read_index(index_fileops(tmp_path))
+
+    assert [x['id'] for x in records] == ['111']
+
+
+def test_incomplete_works_picks_out_only_the_unfinished(tmp_path):
+    records = [
+        {'id': '111', 'chapters_published': 3, 'chapters_total': None},
+        {'id': '222', 'chapters_published': 5, 'chapters_total': 5},
+        {'id': '333', 'chapters_published': 2, 'chapters_total': 7},
+    ]
+
+    assert [x['id'] for x in shared.incomplete_works(records)] == ['111', '333']
+
+# endregion
+
+
 # region scan_downloaded_works
 
 def make_file(folder, name: str) -> str:
@@ -419,6 +493,11 @@ def test_scan_of_a_folder_that_is_not_there_is_empty(tmp_path):
 
 # region stamp_undated_works
 
+# the one work these tests are about. dating is scoped to the works the caller names, so
+# every call has to say which - see the test below for why that is not optional
+WORKS = {'34816549'}
+
+
 def real_fileops():
     """A FileOps whose renaming is real, with nothing else wired up."""
     fo = MagicMock()
@@ -430,7 +509,7 @@ def test_dating_an_undated_file_renames_it_where_it_sits(tmp_path):
     make_file(tmp_path, '34816549 No Paths - Cal.html')
     existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
 
-    result = shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+    result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
     assert result == {'renamed': 1, 'skipped': 0}
     assert (tmp_path / '34816549 No Paths - Cal 2024-06-01.html').exists()
@@ -441,18 +520,35 @@ def test_dating_updates_what_the_caller_holds_so_it_can_plan_straight_after(tmp_
     make_file(tmp_path, '34816549 No Paths - Cal.html')
     existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
 
-    shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+    shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
     entry = existing['34816549']['HTML']
     assert entry['date'] == '2024-06-01'
     assert entry['path'].endswith('2024-06-01.html')
 
 
+def test_only_the_works_the_caller_named_are_dated(tmp_path):
+    # the bug this is here for: an update run asks about the fics its index calls
+    # unfinished, but the folder scan it plans from holds the whole library. dating every
+    # undated file in it renamed thousands of files nobody had been asked about
+    make_file(tmp_path, '34816549 Asked About - Cal.html')
+    make_file(tmp_path, '11111111 Not Asked About - Cal.html')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
+
+    result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
+
+    assert result == {'renamed': 1, 'skipped': 0}
+    assert (tmp_path / '34816549 Asked About - Cal 2024-06-01.html').exists()
+    # left exactly as it was, and not counted as skipped either - it was never in scope
+    assert (tmp_path / '11111111 Not Asked About - Cal.html').exists()
+    assert existing['11111111']['HTML']['date'] is None
+
+
 def test_a_file_that_already_has_a_date_is_left_alone(tmp_path):
     make_file(tmp_path, '34816549 No Paths - Cal 2020-01-01.html')
     existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
 
-    result = shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+    result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
     assert result == {'renamed': 0, 'skipped': 0}
     assert (tmp_path / '34816549 No Paths - Cal 2020-01-01.html').exists()
@@ -465,7 +561,7 @@ def test_dating_never_writes_over_a_file_that_is_already_there(tmp_path):
     # the undated one is the older of the two, so it is not what the scan kept
     existing['34816549']['HTML'] = {'path': str(tmp_path / '34816549 A.html'), 'date': None}
 
-    result = shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+    result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
     assert result == {'renamed': 0, 'skipped': 1}
     assert (tmp_path / '34816549 A.html').exists()
@@ -477,7 +573,7 @@ def test_a_long_name_is_cut_to_leave_room_for_the_date(tmp_path):
     make_file(tmp_path, long_name)
     existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
 
-    shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+    shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
     written = os.path.basename(existing['34816549']['HTML']['path'])
     assert len(os.path.splitext(written)[0]) == 50
@@ -492,7 +588,7 @@ def test_dating_keeps_each_file_type_separate(tmp_path):
     make_file(tmp_path, '34816549 A.epub')
     existing = shared.scan_downloaded_works(str(tmp_path), ['HTML', 'EPUB'])
 
-    result = shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+    result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
     assert result['renamed'] == 2
     assert (tmp_path / '34816549 A 2024-06-01.html').exists()
@@ -505,7 +601,7 @@ def test_a_rename_that_fails_is_counted_rather_than_raised(tmp_path):
     fo = MagicMock()
     fo.rename_file.return_value = False
 
-    result = shared.stamp_undated_works(fo, existing, '2024-06-01', 50)
+    result = shared.stamp_undated_works(fo, existing, WORKS, '2024-06-01', 50)
 
     assert result == {'renamed': 0, 'skipped': 1}
     assert existing['34816549']['HTML']['date'] is None
@@ -515,7 +611,7 @@ def test_a_dated_file_is_then_judged_by_the_ordinary_rule(tmp_path):
     # the whole point: once it has a date, staleness needs no special case
     make_file(tmp_path, '34816549 A.html')
     existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
-    shared.stamp_undated_works(real_fileops(), existing, '2024-06-01', 50)
+    shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
     records = [{'id': '34816549', 'link': 'https://ao3/works/34816549',
                 'date_updated': '20 Dec 2024'}]
@@ -528,7 +624,7 @@ def test_a_dated_file_is_then_judged_by_the_ordinary_rule(tmp_path):
 def test_a_file_dated_later_than_ao3_is_not_fetched_again(tmp_path):
     make_file(tmp_path, '34816549 A.html')
     existing = shared.scan_downloaded_works(str(tmp_path), ['HTML'])
-    shared.stamp_undated_works(real_fileops(), existing, '2025-01-01', 50)
+    shared.stamp_undated_works(real_fileops(), existing, WORKS, '2025-01-01', 50)
 
     records = [{'id': '34816549', 'link': 'https://ao3/works/34816549',
                 'date_updated': '20 Dec 2024'}]

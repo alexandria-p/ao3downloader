@@ -1,8 +1,17 @@
 import { Component, OnDestroy, computed, inject, input, output, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
-import { JobAction, JobEvent, Jobs, WorkFailure } from './jobs';
+import { JobAction, JobEvent, Jobs, UndatedChoice, WorkFailure } from './jobs';
+import { safeGet, safeRemove, safeSet } from './storage';
 
-type Step = 'link' | 'filetypes' | 'options' | 'credentials' | 'running' | 'done' | 'failed';
+type Step =
+  | 'link'
+  | 'filetypes'
+  | 'options'
+  | 'acknowledge'
+  | 'credentials'
+  | 'running'
+  | 'done'
+  | 'failed';
 
 /** any page of a collection will do, so this only asks that a name follows /collections/ */
 const COLLECTION_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/collections\/([^/?#]+)/i;
@@ -43,6 +52,9 @@ export class DownloadDialog implements OnDestroy {
   /** the collection to index, for the action that works from a link */
   protected readonly collectionUrl = signal('');
 
+  /** ticked once the limitation of an update pass has been read and accepted */
+  protected readonly acknowledged = signal(false);
+
   protected readonly log = signal<string[]>([]);
   protected readonly percent = signal<number | null>(null);
   protected readonly paused = signal<{ seconds: number; until: string } | null>(null);
@@ -64,21 +76,42 @@ export class DownloadDialog implements OnDestroy {
   protected readonly cancelling = signal(false);
   protected readonly wasCancelled = signal(false);
 
+  /**
+   * Whether the run is paused, and whether a pause has been asked for but not taken effect.
+   *
+   * These are two different things on purpose. The helper sets a flag and answers straight
+   * away; the run itself only stops at its next safe point, which can be a whole file
+   * later. Showing 'Paused' the instant the button is pressed would claim the run had
+   * stopped while it was still downloading, so the button says 'Pausing...' until the run
+   * itself confirms it by sending a `held` event.
+   */
+  protected readonly held = signal(false);
+  protected readonly holdPending = signal(false);
+
+  // these two are for the summary shown once the run has finished. while it is running the
+  // log says all of this as it happens, a line at a time, so there is nothing for a
+  // standing panel to add. the `refresh` event still carries an undated count and nothing
+  // reads it - the log covers that too.
   /** works ao3 has updated since they were saved, which this run is fetching again */
   protected readonly staleCount = signal(0);
-  /** works saved before file names carried a date, which cannot be judged either way */
-  protected readonly undatedCount = signal(0);
-  /** set when this run was started to refresh those undated works */
-  protected readonly refreshUndated = signal(false);
   /** existing files this run gave a date to, by renaming them */
   protected readonly stampedCount = signal(0);
   /** works this run could not download */
   protected readonly failures = signal<WorkFailure[]>([]);
-  /** the date to write onto undated files, when that is what was chosen */
-  protected readonly stampUndated = signal('');
-  /** whether the 'give them a date' half of the offer is showing */
+
+  /**
+   * How many undated files the run has stopped to ask about, or 0 when it is not asking.
+   *
+   * The run is genuinely blocked while this is set - it cannot decide what counts as out
+   * of date until it knows the answer - so the dialog shows the question in place of the
+   * usual progress.
+   */
+  protected readonly asking = signal(0);
+  /** whether the 'give them a date' half of the question is showing */
   protected readonly choosingDate = signal(false);
   protected readonly stampDate = signal(today());
+  /** set once an answer has gone back, so it cannot be sent twice */
+  protected readonly answering = signal(false);
 
   private jobId: string | null = null;
   private stop: (() => void) | null = null;
@@ -106,7 +139,7 @@ export class DownloadDialog implements OnDestroy {
       case 'collection':
         return 'Indexes any one collection on AO3, whether or not it is yours. Saved alongside your own collections, in the same shape.';
       default:
-        return 'Scans your downloads folder for works that were incomplete, and re-downloads any that have new chapters.';
+        return 'Reads your index for fics it last saw unfinished, checks each one on AO3, brings its index entry up to date, and re-downloads any that have grown.';
     }
   });
 
@@ -125,6 +158,13 @@ export class DownloadDialog implements OnDestroy {
     () => this.action() !== 'collections' && this.action() !== 'collection',
   );
   protected readonly needsLink = computed(() => this.action() === 'collection');
+
+  /**
+   * An update pass only re-reads what the index last saw unfinished, so a fic that had
+   * finished by then is invisible to it however much was added afterwards. That is worth
+   * reading before logging in for a run that will not find it.
+   */
+  protected readonly needsAcknowledgement = computed(() => this.action() === 'update');
   protected readonly firstStep = computed<Step>(() => {
     if (this.needsLink()) return 'link';
     return this.picksFiletypes() ? 'filetypes' : 'credentials';
@@ -143,7 +183,15 @@ export class DownloadDialog implements OnDestroy {
       case 'indexing':
         return 'Indexing - saving a json file for every bookmark';
       case 'scanning':
-        return 'Scanning your downloads folder for incomplete works';
+        return 'Reading your index for fics it last saw unfinished';
+      case 'checking_files':
+        return 'Checking which of these you have already downloaded';
+      case 'checking_versions':
+        return 'Checking which of your downloads AO3 has a newer version of';
+      case 'updating':
+        // an update run does one fic at a time: re-read it, then fetch it if the copy is
+        // behind. so there is no separate 'downloading' stage to move on to
+        return 'Re-reading each unfinished fic and replacing the copies that are behind';
       case 'downloading':
         return 'Downloading works';
       case 'collections':
@@ -223,6 +271,13 @@ export class DownloadDialog implements OnDestroy {
   }
 
   protected toCredentials(): void {
+    // an update pass has a limitation worth reading before anyone logs in for it
+    this.step.set(this.needsAcknowledgement() ? 'acknowledge' : 'credentials');
+  }
+
+  /** from the acknowledgement: only on once it has actually been accepted */
+  protected fromAcknowledgement(): void {
+    if (!this.acknowledged()) return;
     this.step.set('credentials');
   }
 
@@ -296,9 +351,10 @@ export class DownloadDialog implements OnDestroy {
     this.cancelling.set(false);
     this.wasCancelled.set(false);
     this.staleCount.set(0);
-    this.undatedCount.set(0);
     this.stampedCount.set(0);
     this.choosingDate.set(false);
+    this.asking.set(0);
+    this.answering.set(false);
     this.failures.set([]);
 
     let jobId: string;
@@ -312,8 +368,6 @@ export class DownloadDialog implements OnDestroy {
           series: this.series(),
           images: this.images(),
           workdates: this.workdates(),
-          refreshUndated: this.refreshUndated(),
-          stampUndated: this.stampUndated(),
         },
         username: this.username().trim(),
         password: this.password(),
@@ -386,17 +440,32 @@ export class DownloadDialog implements OnDestroy {
       case 'resumed':
         this.paused.set(null);
         break;
+      // the run itself confirming it has reached a safe point and stopped there. this is
+      // what turns 'Pausing...' into 'Paused' - not the button press, which only asked
+      case 'held':
+        this.held.set(true);
+        this.holdPending.set(false);
+        break;
+      case 'released':
+        this.held.set(false);
+        this.holdPending.set(false);
+        break;
       case 'authenticated':
         this.loginVerified.set(true);
         this.signedInAs.set(event.username ?? '');
         break;
       case 'refresh':
         this.staleCount.set(event.stale ?? 0);
-        this.undatedCount.set(event.undated ?? 0);
         this.stampedCount.set(event.stamped ?? 0);
         break;
       case 'failures':
         this.failures.set(event.failures ?? []);
+        break;
+      case 'question':
+        // the run is blocked until this is answered, so it takes over from the progress
+        this.asking.set(event.count ?? 0);
+        this.choosingDate.set(false);
+        this.answering.set(false);
         break;
       case 'message':
         if (event.text) this.append(event.text);
@@ -441,8 +510,32 @@ export class DownloadDialog implements OnDestroy {
     await this.jobs.cancel(this.jobId);
   }
 
+  /**
+   * Pause the run, or let it go again.
+   *
+   * Stopping is deliberately not blocked while paused, so this never has to be undone
+   * first. If the helper refuses, the page says so rather than showing a pause that is
+   * not really in force.
+   */
+  protected async togglePause(): Promise<void> {
+    if (!this.jobId || this.holdPending() || this.cancelling()) return;
+
+    const wanted = !this.held();
+    this.holdPending.set(true);
+    try {
+      await this.jobs.setPaused(this.jobId, wanted);
+      this.append(wanted ? 'pausing after the work in progress...' : 'resuming...');
+    } catch {
+      this.holdPending.set(false);
+      this.append(wanted ? 'could not pause the run' : 'could not resume the run');
+    }
+  }
+
   private finishUp(): void {
     this.paused.set(null);
+    // a finished run is not a paused one, whatever it was when it reached the end
+    this.held.set(false);
+    this.holdPending.set(false);
     this.cancelling.set(false);
     this.jobId = null;
     this.stop?.();
@@ -473,14 +566,33 @@ export class DownloadDialog implements OnDestroy {
   // endregion
 
   /**
-   * Run again, this time fetching the works whose files carry no date.
+   * Answer the question the run has stopped on, and let it carry on.
    *
-   * Back to the login rather than straight into it: the password was handed to the helper
-   * and deliberately not kept, so it has to be given again.
+   * The run is waiting on this, so the answer goes straight back rather than being kept
+   * for a second run: everything after this point - which works count as out of date, and
+   * therefore what gets downloaded - depends on it.
    */
+  private async answerUndated(choice: UndatedChoice, date = ''): Promise<void> {
+    if (!this.jobId || this.answering()) return;
+    this.answering.set(true);
+    try {
+      await this.jobs.answer(this.jobId, choice, date);
+      this.asking.set(0);
+    } catch (e) {
+      // the run is still blocked, so this has to be said rather than swallowed
+      this.answering.set(false);
+      this.append(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** fetch them all again, replacing whatever is there */
   protected refreshUndatedWorks(): void {
-    this.refreshUndated.set(true);
-    this.step.set('credentials');
+    void this.answerUndated('refresh');
+  }
+
+  /** leave them exactly as they are */
+  protected skipUndatedWorks(): void {
+    void this.answerUndated('skip');
   }
 
   protected setStampDate(value: string): void {
@@ -491,16 +603,15 @@ export class DownloadDialog implements OnDestroy {
   protected readonly stampDateIsValid = computed(() => isDate(this.stampDate()));
 
   /**
-   * Write the chosen date onto the undated files instead of fetching them again.
+   * Write the chosen date onto them instead of fetching them again.
    *
-   * Nothing is downloaded to do this - the files are renamed where they sit - but it runs
-   * as part of a bookmarks run so that the ordinary rule can take over immediately: any
-   * work ao3 has updated since that date is fetched on the same pass.
+   * Nothing is downloaded to do this - the files are renamed where they sit - and the run
+   * carries straight on, so anything ao3 has updated since that date is fetched on this
+   * same pass rather than a later one.
    */
   protected dateUndatedWorks(): void {
     if (!this.stampDateIsValid()) return;
-    this.stampUndated.set(this.stampDate());
-    this.step.set('credentials');
+    void this.answerUndated('stamp', this.stampDate());
   }
 
   /** the failed works as the text that gets saved - kept apart from the saving itself */
@@ -558,28 +669,4 @@ function isDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? '')) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function safeGet(key: string): string {
-  try {
-    return localStorage.getItem(key) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function safeSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // private window or blocked site data
-  }
-}
-
-function safeRemove(key: string): void {
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // nothing to clean up
-  }
 }

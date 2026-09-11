@@ -52,6 +52,43 @@ def changed(previous: dict, snapshot: dict) -> bool:
     return {k: v for k, v in previous.items() if k != INDEXED_ON} != snapshot
 
 
+def flatten(document: dict | None) -> dict | None:
+    """One file's contents as the record it currently describes.
+
+    The newest reading with the identity at the root laid over it - identity wins, because
+    it is not versioned. Files written before the history existed are flat already and are
+    returned as they are. Keep this in step with flattenRecord in the gui's bookmarks.ts.
+    """
+
+    if not isinstance(document, dict): return None
+
+    entries = document.get(INDEXES)
+    if isinstance(entries, list):
+        if not entries: return None
+        latest = entries[-1]
+        if not isinstance(latest, dict): return None
+        return {**latest, **document}
+
+    return document if document.get('id') or document.get('title') else None
+
+
+def is_incomplete(record: dict) -> bool:
+    """Whether the index says a fic was still being written when it was last read.
+
+    Ao3 shows a work in progress as '12/?', which is recorded as a chapter total of None.
+    A work with a total it has not reached yet counts too.
+
+    This is what it looked like when it was last indexed, which is the whole limitation of
+    an update pass: a fic that had finished by then is not in this list, however much has
+    been added to it since.
+    """
+
+    total = record.get('chapters_total')
+    if total is None: return True
+    published = record.get('chapters_published')
+    return published is None or published < total
+
+
 def merge(existing: dict | None, document: dict, indexed_on: str,
           identity_fields: tuple[str, ...] = IDENTITY_FIELDS) -> dict:
     """Fold a fresh reading into whatever is already on disk.

@@ -115,6 +115,10 @@ AO3_PROMPT_METADATA = 'do you want to include work metadata? ({}/{})'.format(PRO
 AO3_PROMPT_FILE_INPUT = 'please enter complete file path (including file extension) to file containing links to download (must be a text file with one link on each line)'
 AO3_PROMPT_METADATA_WORK_DATES = 'do you want to look up the original publication date of every work? this is the only\nfield that is not on the listing page, so it requires loading each work separately\nand is a lot slower. ({}/{})'.format(PROMPT_YES, PROMPT_NO)
 AO3_INFO_LOGIN = 'logging in'
+# the web ui shows the console output as the run's log, and logging in is the first thing
+# it does. without a line here the modal opens on an empty log and looks like it hung
+AO3_INFO_LOGGING_IN = 'logging in as {}'
+AO3_INFO_LOGGED_IN = 'successfully logged in'
 AO3_INFO_DOWNLOADING = 'downloading works'
 AO3_INFO_FILE_TYPE = 'added {} to list of download types'
 AO3_INFO_VISITED = 'generating list of work links that are already in the downloads folder (will be skipped)'
@@ -132,9 +136,32 @@ INFO_KEPT_OLD_COPY = 'kept the older copy, the new file could not be confirmed: 
 ERROR_REPLACE_OLD_COPY = 'Problem removing the copy a download replaced. The old file is still there.'
 AO3_INFO_OUT_OF_DATE = '{} downloaded works have been updated on ao3 since you saved them'
 AO3_INFO_UNDATED = '{} downloaded works were saved before file names carried a date'
+AO3_INFO_CHECKING_FILES = 'checking which of these you have already downloaded'
+AO3_INFO_CHECKING_VERSIONS = 'checking which of your downloads ao3 has a newer version of'
+AO3_INFO_UNDATED_WAITING = 'waiting for you to say what to do about them'
+AO3_INFO_UNDATED_REFRESH = 'treating all {} as out of date, so they will be downloaded again'
+AO3_INFO_UNDATED_SKIPPED = 'leaving all {} as they are'
+AO3_INFO_UP_TO_DATE = 'everything else you have is already the current version'
 AO3_INFO_STAMPED = 'dated {} existing files as {}'
 AO3_INFO_FROM_INDEX = 'downloading {} works straight from the index, without walking the listing again'
 AO3_INFO_FAILED_WORKS = '{} works could not be downloaded'
+AO3_INFO_READING_INDEX = 'reading your index for fics it last saw unfinished'
+AO3_INFO_INCOMPLETE_FOUND = 'the index lists {} works as unfinished'
+# said per fic, so the log reads as a running account of what is happening to each one
+AO3_INFO_UPDATE_WORK = '[{} of {}] {}'
+# said before the request, not after: opening the fic page is the slow part, so without a
+# line first the run looks stalled on the fic it has only just named
+AO3_INFO_UPDATE_READING = '    reading latest index'
+AO3_INFO_UPDATE_INDEXED = '    index updated'
+AO3_INFO_UPDATE_CURRENT = '    you already have the current version - nothing to download'
+AO3_INFO_UPDATE_BEHIND = '    your copy is behind, downloading the new version'
+AO3_INFO_UPDATE_MISSING = '    you have no copy of this one, downloading it'
+AO3_INFO_UPDATE_NOTHING = '    nothing to download, only the index was updated'
+AO3_INFO_UPDATE_DONE = 'checked {} works and downloaded {}'
+AO3_INFO_INCOMPLETE_NONE = 'the index lists no unfinished works. nothing to check.'
+AO3_INFO_INCOMPLETE_GREW = '{} of them need downloading again'
+AO3_INFO_INCOMPLETE_UNCHANGED = 'none of them have changed since you last downloaded them'
+ERROR_WORK_STATS = 'Could not read the stats from that work page'
 ERROR_NOT_A_WORK_FILE = 'Ao3 answered with a page rather than the file. The work may have been deleted, made restricted, or be unavailable in that format.'
 AO3_INFO_STAMP_SKIPPED = '{} files were left as they were - a file of that name already existed'
 
@@ -143,7 +170,16 @@ AO3_INFO_STAMP_SKIPPED = '{} files were left as they were - a file of that name 
 AO3_LISTING_PAGE_SIZE = 20
 AO3_INFO_METADATA_WORK_DATES = 'looking up publication dates for {} works'
 AO3_INFO_METADATA_PROGRESS = 'finished {} of {} works'
+# said before the request, not after it. fetching a listing page is the slow part, and a
+# log that only reports finished pages sits unchanged for the whole of every wait - which
+# reads as a hang rather than as work in progress. the total is not known until the first
+# page comes back, so the first one has nothing to count towards.
+AO3_INFO_METADATA_FETCHING = 'fetching page {} of {}'
+AO3_INFO_METADATA_FETCHING_FIRST = 'fetching page {}'
 AO3_INFO_METADATA_PAGE = 'finished page {} of {}. {} works so far'
+# a listing of one page carries no pagination for the total to be read from, so there is
+# genuinely nothing to count towards - saying 'of None' would be worse than saying nothing
+AO3_INFO_METADATA_PAGE_ONLY = 'finished page {}. {} works so far'
 AO3_INFO_METADATA_SKIPPED = 'skipped {} bookmarks that are not works (series, external works, or deleted works)'
 AO3_INFO_METADATA_WRITTEN = 'wrote metadata for {} works to {}'
 AO3_INFO_METADATA_INCREMENTAL = 'saving one json file per work as each page is read. if you need to stop\nearly, press ctrl+c rather than closing the window'
@@ -196,6 +232,10 @@ INFO_PAGE_LIMIT_REACHED = 'ending scrape because page limit was reached'
 
 MESSAGE_TOO_MANY_REQUESTS = 'ao3 has requested a {} second break\npaused at: {}\nresuming at: {}'
 MESSAGE_RESUMING = 'resuming execution'
+# a break the user asked for, as opposed to one ao3 demanded. it says where the run got to
+# because that is the whole reassurance being offered: nothing was left half done
+MESSAGE_HELD = 'paused. the work in progress has finished and nothing new will be started'
+MESSAGE_RELEASED = 'resuming'
 MESSAGE_INCOMPLETE_FIC = 'found incomplete fic'
 MESSAGE_FIC_FILE = 'found fic file'
 MESSAGE_SERIES_FILE = 'found work in series'

@@ -152,3 +152,64 @@ def test_changed_notices_a_field_appearing_or_disappearing():
     assert indexing.changed(previous, {}) is True
 
 # endregion
+
+
+# region flatten
+
+def test_flatten_reads_the_newest_reading_with_the_identity_over_it():
+    document = {
+        'id': '111', 'link': 'https://ao3/works/111', 'position': 4,
+        indexing.LAST_INDEXED: SECOND,
+        indexing.INDEXES: [
+            {indexing.INDEXED_ON: FIRST, 'title': 'Old', 'kudos': 12},
+            {indexing.INDEXED_ON: SECOND, 'title': 'New', 'kudos': 20},
+        ],
+    }
+
+    record = indexing.flatten(document)
+
+    assert record['title'] == 'New'
+    assert record['kudos'] == 20
+    # identity is not versioned, so the root wins
+    assert record['id'] == '111'
+    assert record['position'] == 4
+
+
+def test_flatten_reads_a_flat_file_written_before_the_history_existed():
+    record = indexing.flatten({'id': '111', 'title': 'A Fic', 'kudos': 3})
+
+    assert record['title'] == 'A Fic'
+
+
+def test_flatten_gives_nothing_for_what_it_cannot_read():
+    assert indexing.flatten(None) is None
+    assert indexing.flatten('not a record') is None
+    assert indexing.flatten({}) is None
+    assert indexing.flatten({indexing.INDEXES: []}) is None
+    assert indexing.flatten({indexing.INDEXES: ['not a reading']}) is None
+
+# endregion
+
+
+# region is_incomplete
+
+def test_a_work_in_progress_has_no_chapter_total():
+    # ao3 shows '12/?' for a work still being written
+    assert indexing.is_incomplete({'chapters_published': 12, 'chapters_total': None}) is True
+
+
+def test_a_work_short_of_its_own_total_is_unfinished():
+    assert indexing.is_incomplete({'chapters_published': 3, 'chapters_total': 10}) is True
+
+
+def test_a_work_that_reached_its_total_is_finished():
+    assert indexing.is_incomplete({'chapters_published': 10, 'chapters_total': 10}) is False
+    assert indexing.is_incomplete({'chapters_published': 1, 'chapters_total': 1}) is False
+
+
+def test_a_record_with_no_counts_at_all_is_treated_as_unfinished():
+    # better to re-read one that did not need it than to miss one that did
+    assert indexing.is_incomplete({}) is True
+    assert indexing.is_incomplete({'chapters_published': None, 'chapters_total': None}) is True
+
+# endregion

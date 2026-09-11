@@ -23,15 +23,20 @@ class Repository:
     retry_statuses = frozenset([500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530])
     # how long a cancellable pause waits before checking whether it has been stopped
     pause_slice = 1
+    # how much of a response body to take at a time. small enough that a pause is noticed
+    # promptly on a slow line, large enough not to spin through a fast one.
+    chunk_size = 64 * 1024
     retry_initial_delay = 0.1
     retry_max_delay = 30
 
 
     def __init__(self, fileops: FileOps, progress: ProgressCallback | None = None,
-                 cancelled: Callable[[], bool] | None = None) -> None:
+                 cancelled: Callable[[], bool] | None = None,
+                 held: Callable[[], bool] | None = None) -> None:
         self.fileops = fileops
         self.progress = progress
         self.cancelled = cancelled
+        self.held = held
         self.session = requests.Session()
         self.debug = fileops.get_ini_value_boolean(strings.INI_DEBUG_LOGGING, False)
         self.extra_wait = fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0)
@@ -82,6 +87,82 @@ class Repository:
         """Wait out an ao3 rate limit break. Raises if stopped partway through."""
 
         self.wait(seconds)
+
+
+    def read_body(self, response, method: str) -> None:
+        """Pull a response body down in pieces, so a pause or a stop lands during it.
+
+        Without this the whole body arrives inside one call and nothing can interrupt it -
+        a large pdf on a slow line would leave the pause button looking broken for as long
+        as the transfer took.
+
+        Abandoning a body costs nothing. The bytes are held in memory and are only written
+        once the caller has them all and has judged them, so there is no part-written file
+        to clean up and the retry starts from nothing.
+
+        **Only GETs are abandoned.** A GET can be asked for again; a POST cannot. Re-sending
+        a login form or a mark-as-read is not the same thing as asking for a page twice, so
+        those are read to the end whatever has been pressed.
+        """
+
+        chunks = []
+        try:
+            for chunk in response.iter_content(self.chunk_size):
+                chunks.append(chunk)
+                self.check_cancelled()
+                if method.upper() == 'GET' and self.held is not None and self.held():
+                    raise exceptions.PausedException()
+        except BaseException:
+            # the connection is no use half-read, and leaving it open holds a pool slot
+            response.close()
+            raise
+
+        # requests sets these itself for a body it read in one go. filling them in here is
+        # what lets everything downstream - .content, .text, .json() - carry on unchanged,
+        # so streaming stays an implementation detail of this method.
+        response._content = b''.join(chunks)
+        response._content_consumed = True
+
+
+    def hold_if_asked(self) -> None:
+        """Wait here for as long as the user has the run paused.
+
+        A run waits in exactly two places, and both are inside the request path:
+
+        - here, before a request goes out, which is where a run with nothing in flight sits
+        - and again after `read_body` abandons a part-read body, which is how a pause
+          pressed during a long transfer takes effect at once rather than when it finishes
+
+        **Neither is anywhere near the writing.** Bytes are held in memory until the caller
+        has the whole body and has judged it, so at both points nothing on disk is open,
+        part-written or renamed.
+
+        Do not add a third gate inside a download or a save loop. A gate that can fire
+        anywhere is a gate that can fire halfway through writing an epub, and the failure it
+        causes - a truncated file with a name that says it is complete - is exactly the one
+        `saved_intact` and the replace guards exist to prevent.
+
+        It is not folded into `check_cancelled` either, because that is called from inside
+        `wait`: holding there would stretch an ao3 rate limit break, and the run would go
+        back to a request it had already been told to wait longer for.
+
+        A stop still works while held - the wait is in slices and each one checks - so a
+        paused run is never a stuck one. A stop taken here unwinds without ever claiming
+        to have resumed.
+        """
+
+        if self.held is None or not self.held(): return
+
+        print(strings.MESSAGE_HELD)
+        progress.report(self.progress, progress.HELD)
+
+        while self.held():
+            self.check_cancelled()
+            sleep(self.pause_slice)
+        self.check_cancelled()
+
+        print(strings.MESSAGE_RELEASED)
+        progress.report(self.progress, progress.RELEASED)
 
 
     def get_xml(self, url: str) -> ET.Element:
@@ -145,14 +226,25 @@ class Repository:
         while True:
             # a stop asked for while this was retrying or waiting must not start it again
             self.check_cancelled()
+            # and a pause holds here, before the request, rather than anywhere it could
+            # catch a transfer in progress
+            self.hold_if_asked()
             should_retry = strings.AO3_DOMAIN in url.lower() and (self.max_retries == 0 or attempt < self.max_retries)
             retry_delay = self.get_delay(attempt)
 
             try:
                 try:
-                    response = self.session.request(method, url, data, headers=self.headers, timeout=self.timeout)
+                    response = self.session.request(method, url, data, headers=self.headers,
+                                                    timeout=self.timeout, stream=True)
+                    self.read_body(response, method)
                 except requests.exceptions.Timeout as e: # raw timeout exceptions are way too verbose
                     raise exceptions.TimeoutException(strings.ERROR_TIMEOUT.format(self.timeout)) from e
+            except exceptions.PausedException:
+                # the body was abandoned partway through. wait for the resume, then ask for
+                # the whole thing again - nothing was kept, so this starts clean. it does
+                # not count as an attempt: the user pausing is not the server failing
+                self.hold_if_asked()
+                continue
             except Exception as e:
                 # a page that times out repeatedly is unlikely to recover, so give up after (consecutive) 
                 # timeouts reach the configured limit to avoid wasting a lot of time on a dead page.

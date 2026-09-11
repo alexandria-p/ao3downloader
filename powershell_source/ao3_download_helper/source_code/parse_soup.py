@@ -245,6 +245,38 @@ def get_title(soup: BeautifulSoup, link: str, pattern: str) -> list[str]:
     return apply_name_pattern(get_work_metadata_from_work(soup, link), pattern)
 
 
+def get_work_stats(soup: BeautifulSoup) -> dict:
+    """What a work's own page can say about a fic that its index entry already records.
+
+    Deliberately a subset. A work page and a listing blurb describe a fic differently, and
+    writing the whole of one into a record shaped by the other would make every field look
+    changed and fill the history with schema noise. These are the fields that actually move
+    when a fic is updated, and they are read with the same helpers the blurb parser uses,
+    so they come out in the same shape.
+
+    Tags, summary, warnings and the bookmark's own fields are not here: the listing is
+    where those come from, and a bookmarks pass is what refreshes them.
+    """
+
+    stats: dict[str, Any] = {}
+    try:
+        published, total = parse_text.get_chapter_counts(
+            get_text_or_empty(soup, 'dd.chapters'))
+        stats['chapters_published'] = published
+        stats['chapters_total'] = total # None for a work in progress, shown by ao3 as '?'
+        stats['words'] = parse_text.get_count(get_text_or_empty(soup, 'dd.words'))
+        # ao3 leaves a stat out entirely when it is zero, so these stay None rather than 0
+        stats['comments'] = parse_text.get_count(get_text_or_empty(soup, 'dd.comments'))
+        stats['kudos'] = parse_text.get_count(get_text_or_empty(soup, 'dd.kudos'))
+        stats['bookmarks'] = parse_text.get_count(get_text_or_empty(soup, 'dd.bookmarks'))
+        stats['hits'] = parse_text.get_count(get_text_or_empty(soup, 'dd.hits'))
+        # written the way a listing writes it, or the two passes would rewrite each other
+        stats['date_updated'] = parse_text.get_listing_date(get_updated_date(soup))
+    except Exception as e:
+        stats['error'] = ''.join(traceback.TracebackException.from_exception(e).format())
+    return stats
+
+
 def get_updated_date(soup: BeautifulSoup) -> str:
     """The date a work page says it was last updated on.
 

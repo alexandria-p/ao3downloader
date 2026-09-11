@@ -57,3 +57,12 @@ class CancelledException(Ao3DownloaderException):
     """Raised when a caller asks for a run to stop. Unwinds to the nearest handler,
     which keeps whatever was already written rather than discarding it."""
     pass
+
+
+class PausedException(Ao3DownloaderException):
+    """Raised when a pause arrives while a response body is still coming down.
+
+    Control flow, not an error. It never leaves `Repository.my_request`: the part-read body
+    is thrown away, the run waits, and then the *same* request is made again from the start.
+    Nothing has reached disk at that point, so there is nothing to undo."""
+    pass

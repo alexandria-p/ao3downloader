@@ -89,6 +89,23 @@ def get_date_stamp(text: str) -> str:
     return ''
 
 
+def get_listing_date(text: str) -> str:
+    """An ao3 date written the way a listing blurb writes it, e.g. '14 Dec 2024'.
+
+    A work page says '2024-12-14' for the same date. The index records one field for it,
+    and two passes writing it in two formats would disagree forever - every update pass
+    would rewrite what the last bookmarks pass wrote, and vice versa, each one looking like
+    a change. Normalising here is what stops that.
+
+    Text that parses as no date at all is handed back untouched rather than blanked: it is
+    better to keep whatever ao3 said than to lose it.
+    """
+
+    stamp = get_date_stamp(text)
+    if not stamp: return text if isinstance(text, str) else ''
+    return datetime.datetime.strptime(stamp, strings.DATE_STAMP_FORMAT).strftime('%d %b %Y')
+
+
 def get_date_suffix(text: str) -> str:
     """The date stamp as it appears on the end of a file name, or nothing."""
 

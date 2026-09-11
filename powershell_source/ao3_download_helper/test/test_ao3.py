@@ -1026,6 +1026,103 @@ def test_a_record_with_no_work_number_is_skipped_rather_than_guessed_at():
 # endregion
 
 
+# region re-reading one unfinished fic
+
+def _unfinished(work: str = '111', published: int = 3) -> dict:
+    return {'id': work, 'link': f'https://archiveofourown.org/works/{work}',
+            'title': 'A Fic', 'authors': ['Cal'], 'summary': 'unchanged',
+            'chapters_published': published, 'chapters_total': None,
+            'date_updated': '01 Jan 2020', 'kudos': 10}
+
+
+def _work_page(chapters: str = '9/?', updated: str = '2024-12-14') -> BeautifulSoup:
+    return BeautifulSoup(
+        f'<dl class="stats"><dd class="chapters">{chapters}</dd>'
+        f'<dd class="words">5,688</dd><dd class="kudos">671</dd>'
+        f'<dd class="status">{updated}</dd></dl>', 'html.parser')
+
+
+def test_a_fic_is_re_read_from_its_own_link():
+    # the index is the list; no listing is walked to find it
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _work_page()
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        ao3.refresh_one(_unfinished('111'))
+
+    repo.get_soup.assert_called_once_with('https://archiveofourown.org/works/111')
+
+
+def test_re_reading_brings_the_chapter_count_up_to_date():
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _work_page(chapters='9/?')
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        fresh = ao3.refresh_one(_unfinished(published=3))
+
+    assert fresh['chapters_published'] == 9
+    assert fresh['chapters_total'] is None
+
+
+def test_re_reading_writes_the_updated_date_the_way_a_listing_would():
+    # otherwise a bookmarks pass and an update pass rewrite each other forever
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _work_page(updated='2024-12-14')
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        fresh = ao3.refresh_one(_unfinished())
+
+    assert fresh['date_updated'] == '14 Dec 2024'
+
+
+def test_re_reading_leaves_alone_the_fields_a_work_page_says_differently():
+    # tags, summary and the bookmark's own fields come from the listing; half-overwriting
+    # them from a work page would fill the history with schema noise
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _work_page()
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        fresh = ao3.refresh_one(_unfinished())
+
+    assert fresh['summary'] == 'unchanged'
+    assert fresh['authors'] == ['Cal']
+
+
+def test_re_reading_saves_the_entry_back_to_the_index():
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _work_page()
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        ao3.refresh_one(_unfinished())
+
+    fileops.save_json.assert_called_once()
+    written = fileops.save_json.call_args.args[1]
+    assert written[indexing.INDEXES][-1]['chapters_published'] == 9
+
+
+def test_a_page_that_cannot_be_read_raises_rather_than_writing_a_half_entry():
+    # the caller turns this into a recorded failure; the entry it already had stays put
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = BeautifulSoup('<div></div>', 'html.parser')
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup), \
+         patch('source_code.parse_soup.get_work_stats', return_value={'error': 'broken'}):
+        with pytest.raises(exceptions.Ao3DownloaderException):
+            ao3.refresh_one(_unfinished())
+
+    fileops.save_json.assert_not_called()
+
+
+def test_a_work_that_is_gone_raises_out_of_the_re_read():
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.side_effect = exceptions.DeletedException('deleted')
+
+    with pytest.raises(exceptions.DeletedException):
+        ao3.refresh_one(_unfinished())
+
+# endregion
+
+
 # region works that would not download
 
 def test_a_work_that_fails_is_remembered_with_its_number():
@@ -1163,6 +1260,70 @@ def test_get_metadata_also_reports_the_real_page_number_for_the_wording() -> Non
     page = [e for e in events if e['type'] == 'page'][0]
     assert (page['listingPage'], page['listingTotal']) == (3, 10)
     assert (page['page'], page['total']) == (1, 8)
+
+
+def test_a_page_says_it_is_being_fetched_before_the_request_goes_out(capsys) -> None:
+    # fetching a page is the slow part, and a rate-limit break can add minutes to it. a log
+    # that only reports finished pages sits unchanged through all of that, which reads as a
+    # hang rather than as work in progress
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=3)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    said = [x.strip() for x in capsys.readouterr().out.splitlines() if x.strip()]
+    assert said[0] == 'fetching page 1'
+    assert said[1].startswith('finished page 1 of 3')
+    assert said[2] == 'fetching page 2 of 3'
+
+
+def test_the_first_page_counts_towards_no_total_because_there_is_not_one_yet(capsys) -> None:
+    # how many pages the listing has is only known once the first has come back, so that
+    # line says 'fetching page 1' rather than inventing a total to count towards
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=1)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    assert 'fetching page 1\n' in capsys.readouterr().out
+
+
+def test_the_page_a_run_ends_on_still_says_it_finished(capsys) -> None:
+    # this line used to sit after the checks that end the loop, so the last page of a
+    # listing was fetched, parsed and saved without ever reporting that it was done
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222'], total_pages=3)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    # the same stub page comes back each time and dedupes, so the count stays put; what
+    # matters here is that page 3 - the one the run ends on - reports at all
+    assert 'finished page 3 of 3. 2 works so far' in capsys.readouterr().out
+
+
+def test_a_one_page_listing_is_not_said_to_be_one_of_none(capsys) -> None:
+    # a single page carries no pagination, so there is no total to count towards. it used
+    # not to matter because this line was never reached on a last page at all
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=1)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    said = capsys.readouterr().out
+    assert 'finished page 1. 1 works so far' in said
+    assert 'None' not in said
+
+
+def test_the_page_a_stop_limit_ends_on_still_says_it_finished(capsys) -> None:
+    ao3, repo, _ = make_ao3(pages=2)
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=9)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    said = capsys.readouterr().out
+    assert 'finished page 2 of 9' in said
+    # and it stopped there rather than carrying on
+    assert 'fetching page 3 of 9' not in said
 
 # endregion
 

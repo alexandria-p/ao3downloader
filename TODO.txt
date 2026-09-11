@@ -1,19 +1,15 @@
-- a button at the top of the page - one to DOWNLOAD NEW BOOKMARKS, one to UPDATE EXISTING DOWNLOADED WORKS
-- eventually, combine these into a single button press
-- eventually, host this somewhere simple (github pages?)
-
 upload to, and read from, dropbox link (instead of local downloads folder)
 -checkbox for which types to download
 - HTML and JSON are REQUIRED (for the site code to run), all others are optional.
 
-how to handle cancel midway through download (especially for html with images?)
-- this didnt really work when tested.
-
-can we improve 'update incomplete fics' -> to instead search to see if json has changed (eg update date or chapter count) since last pull. I think existing system is outdated and is redownloading ALL incomplete works, but will not catch if complete works add bonus chapters, like jane dutch.
-
-
 is data.json needed in /build/config?
 
+Doco:
+- import existing from another location (modal & ID)
+- what each button in the app does
+- what if you import undated? show what happens during download/update modal
+- 'skipped 2 bookmarks that are not works (series, external works, or deleted works)' -> ensures an exportable list is available at end, with the reason for each
+- what is indexing
 
 
 long term:
@@ -32,16 +28,52 @@ ask claude to help with how to configure this for github pages, and that for eve
 data.json is still being built in build/config when i run the app. i told you not to build it anymore since we dont need it.
 
 
+
+
+update readme 
+- if you make dev changes to website, you can just hot-reload.
+- if you make dev changes to downloader process, you will need to restart the worker (by exiting uv.exe and rerunning start-application.ps1
+
+
+Cosmetic improvements:
+
+- reword the declaration in Update incomplete fics 
+- add recommendation to please click 'download and update all' in this scenario to refresh everything.
+- rename buttons to be more descriptive (eg update indexed bookmarks that are marked incomplete)
+  - download new bookmarks (stops trawling once it hits an index it already has) --> ensure /bookmarks are always ordered by bookmarked_at in order for this to work. have a warning describing that, and that there will be issues if indexing files are missing or corrupted in later pages as they wont be picked up by this workflow.
+
+  - re-index all
+  - update all (bundle in a single button instead of 2?)
+
+skipped 2 bookmarks that are not works (series, external works, or deleted works)
+- ensure an exportable list is available at end, with the reason for each - series external work (if known) or 'may have been deleted' if unknown.(i believe this is already a thing, but confirm and confirm for both buttons)
+-----------
+
+starting
+indexing: saving a json file for every bookmark before downloading any works
+finished page 1 of 80. 20 works so far
+finished page 2 of 80. 40 works so far
+skipped 2 bookmarks that are not works (series, external works, or deleted works)
+generating list of work links that are already in the downloads folder (will be skipped)
+checking which of these you have already downloaded
+checking which of your downloads ao3 has a newer version of
+9 downloaded works have been updated on ao3 since you saved them
+downloading works
+downloading 58 works straight from the index, without walking the listing again
+stopping at your request...
+stopped at your request. anything already saved has been kept.
+
+
+is this because 9 existing need updating, and 49 are new and arent downloaded at all??
+let's fix the output wording here. cause it is confusing AF
+
+
+
 stop trawl once you catch up to where you were (optional, starts as ticked).
 
-'update bookmarks marked as incomplete' - eh still buggy, can we do better?
+- options to skip indexing ? or only index between certain dates or pages? idk too tired to think.
 
-only update indexed fics that are incomplete
--> skim through downloaded indexed json for incomplete fics
--> direct to that fic's page, using the link in the json file
--> update the json index (if any details have changed about the fic)
--> download or replace existing fic
+can we improve 'update incomplete fics' -> to instead search to see if json has changed (eg update date or chapter count) since last pull. I think existing system is outdated and is redownloading ALL incomplete works, but will not catch if complete works add bonus chapters, like jane dutch.
 
-include a note in the modal that you must 'acknowledge' here to continue - that if a work was completed, then updated after being marked as completed (e.g. additional epilogue chapters being added, or edits/fixes being made to the completed fic), then it will not be picked up.
 
-please click 'download and update all' in this scenario to refresh everything.
+what happens when stopped or exited mid-download?

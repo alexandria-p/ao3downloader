@@ -122,6 +122,10 @@ class Ao3:
         try:
             while True:
                 self.check_cancelled()
+                current = parse_text.get_page_number(link)
+                print(strings.AO3_INFO_METADATA_FETCHING.format(str(current), str(total_pages))
+                      if total_pages else
+                      strings.AO3_INFO_METADATA_FETCHING_FIRST.format(str(current)))
                 self.fileops.write_log({'link': link, 'message': strings.INFO_STARTING_PAGE, 'level': 'debug'})
                 thesoup = self.repo.get_soup(link)
                 if total_pages is None:
@@ -143,7 +147,6 @@ class Ao3:
                     document.update(parse_soup.get_blurb_metadata(blurb))
                     records.append(document)
                     self.save_metadata(document)
-                current = parse_text.get_page_number(link)
                 done, of = self.page_progress(current, total_pages)
                 # two sets of numbers on purpose: the bar measures the slice being fetched,
                 # so it runs 1..n and ends full, while the words say where that actually is
@@ -151,15 +154,21 @@ class Ao3:
                 progress.report(self.progress, progress.PAGE, page=done, total=of,
                                 listingPage=current, listingTotal=total_pages,
                                 works=len(records))
-                pagenum = parse_text.get_page_number(link)
-                if not total_pages or pagenum >= total_pages:
+                # said as soon as the page is in, and before any decision to stop: this used
+                # to sit after the break checks, so the page a run ended on - the last one
+                # of the listing, or the one the page limit stopped at - never reported
+                # finishing at all
+                print(strings.AO3_INFO_METADATA_PAGE.format(
+                          str(current), str(total_pages), str(len(records)))
+                      if total_pages else
+                      strings.AO3_INFO_METADATA_PAGE_ONLY.format(
+                          str(current), str(len(records))))
+                if not total_pages or current >= total_pages:
                     break
                 link = parse_text.get_next_page(link)
-                pagenum = parse_text.get_page_number(link)
-                if self.pages and pagenum == self.pages + 1:
+                if self.pages and parse_text.get_page_number(link) == self.pages + 1:
                     if self.debug: self.fileops.write_log({'link': link, 'message': strings.INFO_PAGE_LIMIT_REACHED, 'level': 'debug'})
                     break
-                print(strings.AO3_INFO_METADATA_PAGE.format(str(pagenum - 1), str(total_pages), str(len(records))))
         except exceptions.CancelledException:
             # everything written so far stays on disk; this is not an error
             print(strings.INFO_CANCELLED)
@@ -173,6 +182,31 @@ class Ao3:
         if workdates and records: self.add_work_dates(records)
 
         return records
+
+
+    def refresh_one(self, record: dict) -> dict:
+        """Re-read one fic from its own page and bring its index entry up to date.
+
+        One request, going straight to the link the index already holds - no listing is
+        walked to find it, because the index is the list.
+
+        Only the fields a work page can speak to are written (see parse_soup.get_work_stats);
+        the entry keeps the shape a bookmarks pass gave it, so tags and the bookmark's own
+        fields are left as they were rather than half-overwritten from a page that says
+        them differently.
+
+        Returns the record as it now stands. Raises if the work cannot be read, which the
+        caller turns into a recorded failure - the entry it already had stays as it was.
+        """
+
+        soup = self.proceed(self.repo.get_soup(record.get('link') or ''))
+        stats = parse_soup.get_work_stats(soup)
+        if 'error' in stats:
+            raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
+
+        fresh = {**record, **stats}
+        self.save_metadata(fresh)
+        return fresh
 
 
     def download_indexed(self, records: list[dict], visited: list[str] | None = None) -> None:

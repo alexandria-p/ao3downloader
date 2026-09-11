@@ -116,14 +116,14 @@ That launches two things and then opens at <http://localhost:4200>:
 - **the Angular app**, which reads your downloads folder in the browser and lists your bookmarks
 - **the local helper** (`ao3downloader.server`), which performs the actual downloads
 
-The helper exists because a web page cannot do this work itself. Ao3 sends no CORS headers, so a page cannot read it; a page cannot hold an ao3 login session; and the update scan has to read the ebook files on your disk. The helper listens on `127.0.0.1` only - nothing outside your machine can reach it - and it calls exactly the same code the console menu calls.
+The helper exists because a web page cannot do this work itself. Ao3 sends no CORS headers, so a page cannot read it; a page cannot hold an ao3 login session; and downloads have to be written to your disk. The helper listens on `127.0.0.1` only - nothing outside your machine can reach it.
 
 The page has two tabs, **Bookmarks** and **Collections**, each carrying the buttons that fill it.
 
 The **Bookmarks** tab lists your indexed bookmarks and has:
 
 - **Download newly added bookmarks** - the same as the console option 'download from ao3 link', pointed at `https://archiveofourown.org/users/<your username>/bookmarks`. Works already in your downloads folder are skipped, so a second run only picks up bookmarks added since the last one.
-- **Update any bookmarks marked as incomplete** - the same as the console option 'download latest version of incomplete fics'. It scans your downloads folder for works that were incomplete and re-downloads any with new chapters.
+- **Update any bookmarks marked as incomplete** - reads your index for fics it last saw unfinished, checks each one on AO3, and brings its index entry up to date. It only downloads a fic if you have no copy of it, or the copy you have is behind. See [updating unfinished fics](#updating-unfinished-fics) for what it does and does not catch.
 
 The **Collections** tab lists your indexed collections and has:
 
@@ -132,13 +132,19 @@ The **Collections** tab lists your indexed collections and has:
 
 Clicking a collection opens what was recorded about it - maintainers, tags, challenge type, counts, the collection it belongs to and any subcollections - along with the works in it, in the same listing the Bookmarks tab uses. A collection records only the *work numbers* it holds, so a work that is in your bookmarks index is shown in full. A collection can also hold works you have never bookmarked: those are still listed, in the collection's own order, but by work number alone with a link to the work on AO3 - because the number really is all that is known about them. A line above the table says how many of them there are. A parent or subcollection that has been indexed too opens in the page; one that has not links out to AO3.
 
-The two bookmark buttons ask which file types you want. JSON is always produced and cannot be unticked - it is the index this page reads, and it costs nothing extra, being read off the listing pages that have to be fetched anyway. Everything else is optional: HTML starts ticked because most people want it, but **unticking it leaves a metadata-only run**, which is far lighter on ao3's rate limit. Indexing reads one page per 20 works; every other file type costs a request per work on top of that, so a full re-download of 700 bookmarks is roughly 1,500 requests where indexing alone is about 40. It then asks the same questions the console menu does - which page to start on and which to stop after (0 for all of them), whether to follow series links, whether to save embedded images, and whether to look up publication dates - leaving out any that do not apply to the action you picked. Finally it asks you to log in to ao3. **Index my collections** has nothing to choose, so it goes straight to the login; **Index collection by URL** asks for the link first.
+The two bookmark buttons ask which file types you want. JSON is always produced and cannot be unticked - it is the index this page reads, and it costs nothing extra, being read off the listing pages that have to be fetched anyway. Everything else is optional: HTML starts ticked because most people want it, but **unticking it leaves a metadata-only run**, which is far lighter on ao3's rate limit. Indexing reads one page per 20 works; every other file type costs one request per work, so a full download of 700 bookmarks is roughly 735 requests where indexing alone is about 35. It then asks the same questions the console menu does - which page to start on and which to stop after (0 for all of them), whether to follow series links, whether to save embedded images, and whether to look up publication dates - leaving out any that do not apply to the action you picked. Finally it asks you to log in to ao3. **Index my collections** has nothing to choose, so it goes straight to the login; **Index collection by URL** asks for the link first.
 
 Start and stop are both positions in the whole listing, so you can fetch a slice out of the middle of it - pages 5 to 9, or page 12 onwards. That is mostly useful for picking up where a stopped run left off without refetching what you already have. Works keep the position they hold in the full listing either way, so a partial run does not renumber them.
 
 While a run is in progress the dialog shows a progress bar, the file types and options you chose, the folder being written to, and the name of the fic being fetched right now along with the format it is being fetched in. A message appears if ao3 asks the script to slow down. **Leave the tab open while a download runs** - refreshing or closing it interrupts the run.
 
 There is a **Stop** button throughout. Stopping is safe: the run finishes what it is writing and unwinds, so everything already saved is kept. It is not a rollback.
+
+There is also a **Pause** button. A run can only pause at one moment - just before it asks AO3 for the next thing - so whatever was being fetched when you pressed it is allowed to finish first. Nothing is ever left half-written. That means a pause pressed during a file transfer takes effect when that file lands rather than instantly, and the button says *Pausing...* until the run confirms it has actually stopped.
+
+While paused, nothing new is started and no requests go out. It stays paused until you press **Resume** - it will not start again on its own, because an unattended run quietly resuming and going back at AO3 is not something that should happen without you. **Stop still works while paused**, so a pause can never leave a run stuck.
+
+One caveat: AO3 logins do not last forever. A run left paused for a long time may find its session has expired when you resume, which shows up as works failing to download. If that happens, stop the run and start a new one.
 
 If a work has already been downloaded it is skipped rather than fetched again, which is what makes the first button 'newly added'. A work counts as already downloaded when it appears in <!--CHECK-->log.jsonl<!--LOG_FILE_NAME--> *and* a file exists for every file type you selected. If either is untrue - the log was deleted, or you asked for a format you did not download last time - it is fetched again and the file is overwritten in place. JSON metadata is the exception: it is always rewritten, so the metadata stays current even for works that are skipped.
 
@@ -196,6 +202,31 @@ So for a file you bring in from somewhere else: **start the file name with the A
 
 If you change the naming pattern so the work number is no longer first, indexing still works, but the web page can no longer pair works with it - every title opens on AO3 instead of your local copy. The line under the heading tells you when that is happening, by reporting how many works it found a downloaded copy for.
 
+### <span id="updating-unfinished-fics"></span>Updating unfinished fics
+
+**Update any bookmarks marked as incomplete** works from your index, not from the files on your disk. Nothing is parsed out of an epub to find a chapter count, and no listing is walked to find the works:
+
+1. It reads `<!--CHECK-->indexing<!--INDEXING_FOLDER_NAME-->/` for every fic the index last recorded as unfinished - a chapter count of `12/?`, or one short of its own total. That costs no requests at all, and the modal tells you how many it found.
+2. It looks through your downloads folder for the files belonging to those fics, matching each one by the work number it starts with.
+3. If any of those files were saved before names carried a date, it stops and asks what to do about them before going any further - see [Files downloaded before this change](#files-downloaded-before-this-change). It has to ask now, because the answer is what decides which copies count as out of date.
+4. Then it works through the fics **one at a time**. For each one it opens the fic on AO3 using the link already in its json file (one request), writes what it found back into the index, and then downloads it only if it has to. Each of those is announced in the modal as it happens, so you can see which fic it is on and what it decided.
+
+A fic is downloaded **only** if one of two things is true: you have no copy of a format you asked for, or the copy you have is behind the version AO3 now reports. The old copy is replaced under the [usual safeguards](#the-old-copy-and-when-it-is-removed).
+
+The re-read happens for every unfinished fic whether or not anything comes of it - so your index ends up current even where nothing needed downloading. Only the download is conditional. A fic that has not moved costs exactly one request and nothing else, which is what makes running this repeatedly cheap.
+
+This is a different order from **Download newly added bookmarks**, which indexes the whole listing first and only then downloads anything. It can do that because one listing request describes twenty fics at once. Here every fic has to be opened on its own, so there is nothing to gain by doing all the reading first - and doing it fic by fic means a run you stop partway has completely finished every fic it got to.
+
+Only the fields a work's own page can speak to are rewritten - chapters, words, comments, kudos, bookmarks, hits and the updated date. Tags, the summary and your own bookmark notes come from the bookmarks listing, so those are left exactly as they were and are refreshed by a **Download newly added bookmarks** run instead.
+
+#### What this will not catch
+
+**A fic that had already finished when it was last indexed is invisible to this pass.** If a work was marked complete and then updated afterwards - an epilogue added, chapters edited, typos fixed - your index records it as complete, so it is not in the list this reads.
+
+The web UI makes you acknowledge this before it will let you log in, because it is the one thing an update pass cannot do.
+
+To pick those up, run **Download newly added bookmarks** instead. That re-reads the whole listing, so it sees any fic AO3 now reports as updated more recently than your copy, finished or not.
+
 ### <span id="keeping-downloads-up-to-date"></span>Keeping downloads up to date
 
 **Download newly added bookmarks** does not only pick up bookmarks that are new to you. Because every downloaded work carries the date of the version it holds, the run can also see when a fic you already have has been updated since you saved it.
@@ -228,20 +259,26 @@ There is an **Export the list** button alongside. It saves a plain text file - o
 
 #### Files downloaded before this change
 
-Works saved before file names carried a date cannot be judged: there is nothing recorded about which version they are. They are **left alone**, not re-downloaded, and the run tells you how many it found. When it finishes it offers you two ways out, and doing nothing is a third:
+Works saved before file names carried a date cannot be judged: there is nothing recorded about which version they are.
 
-**Give them a date.** You say which version to treat them as, and the files are renamed in place to carry that date. **Nothing is downloaded to do this** - no requests at all - and from that point on the ordinary rule applies, so anything AO3 has updated since that date is fetched on the same run.
+**The run stops and asks you what to do about them**, before it downloads anything. It has to ask at that point rather than afterwards, because the answer decides which works count as out of date - and once the downloads have happened there is nothing left to act on. Both **Download newly added bookmarks** and **Update any bookmarks marked as incomplete** ask, right after they work out what you already have.
+
+You get three choices:
+
+**Give them a date.** You say which version to treat them as, and the files are renamed where they sit. **Nothing is downloaded to do this** - no requests at all - and the run then carries straight on, so anything AO3 has updated since that date is fetched on the same pass.
 
 The date you pick is the whole decision:
 
-- **Today** means "what I have is current". Nothing is fetched now, and you are told when AO3 next updates any of them.
+- **Today** means "what I have is current". Nothing is fetched for them now, and you are told when AO3 next updates any of them.
 - **An earlier date** means "my copies are from around then", so everything AO3 has touched since is fetched.
 
 Renaming cuts long names down, the same way a fresh download would, so the date fits inside the `FileNameLength` limit. A file is never renamed over the top of one that already exists - those are left alone and counted.
 
-**Re-download them.** Fetches the current version of every one. That is a full download of the lot, so it is a deliberate choice rather than something that happens to you.
+**Re-download them.** Every one is treated as out of date from that point on. The run carries on in its usual order, and as it reaches each of them it fetches the current version and removes the old copy, under the [usual safeguards](#the-old-copy-and-when-it-is-removed). That is a full download of the lot, so it is a deliberate choice rather than something that happens to you.
 
-**Or ignore it.** They stay as they are and the offer comes back next time.
+**Ignore and skip them.** They stay exactly as they are and nothing is downloaded for them. The run continues with everything else, and asks again next time.
+
+If you stop the run while it is asking, or close the tab, it takes the last option and changes nothing.
 
 ### What is inside an index file
 

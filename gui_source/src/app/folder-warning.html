@@ -1,0 +1,46 @@
+<div class="backdrop" (click)="cancel()"></div>
+
+<div class="dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+  <header>
+    <h2>Before you choose a folder</h2>
+    <button type="button" class="icon" (click)="cancel()" aria-label="Close">&times;</button>
+  </header>
+
+  <section class="body">
+    <p>
+      A downloaded file is paired with its AO3 work by the <strong>work ID at the start of
+      its file name</strong>, followed by a space, <code>_</code>, <code>.</code> or
+      <code>-</code>. Anything after that is free.
+    </p>
+
+    <p class="example">
+      <span class="yes">&#10003;</span> <code>34816549 No Paths Are Bound - Cal.html</code><br />
+      <span class="no">&times;</span> <code>No Paths Are Bound 34816549.html</code>
+      &mdash; the number is not first<br />
+      <span class="no">&times;</span> <code>34816549No Paths Are Bound.html</code>
+      &mdash; nothing separates the number from the title
+    </p>
+
+    <p class="hint">
+      Files named any other way still load, and nothing will look broken - but they cannot be
+      matched to your index, so every title opens on AO3 instead of your own copy. The line
+      under the listing tells you how many works were matched, which is where you would
+      notice.
+    </p>
+
+    <label class="check">
+      <input
+        type="checkbox"
+        name="dontAskAgain"
+        [checked]="dontAskAgain()"
+        (change)="dontAskAgain.set($any($event.target).checked)"
+      />
+      <span>Don't show this again</span>
+    </label>
+  </section>
+
+  <footer>
+    <button type="button" class="button subtle" (click)="cancel()">Cancel</button>
+    <button type="button" class="button primary" (click)="proceed()">Choose folder</button>
+  </footer>
+</div>

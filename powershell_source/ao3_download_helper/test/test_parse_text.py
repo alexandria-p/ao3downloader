@@ -470,6 +470,28 @@ def test_get_date_stamp_gives_nothing_rather_than_a_wrong_date(text):
     assert parse_text.get_date_stamp(text) == ''
 
 
+def test_a_work_page_date_is_rewritten_the_way_a_listing_writes_it():
+    # the index keeps one field for this. two passes writing it two ways would rewrite
+    # each other forever, each looking like a change
+    assert parse_text.get_listing_date('2024-12-14') == '14 Dec 2024'
+
+
+def test_normalising_a_listing_date_leaves_it_exactly_as_it_was():
+    assert parse_text.get_listing_date('14 Dec 2024') == '14 Dec 2024'
+
+
+def test_normalising_a_date_twice_changes_nothing_the_second_time():
+    once = parse_text.get_listing_date('2024-12-14')
+
+    assert parse_text.get_listing_date(once) == once
+
+
+@pytest.mark.parametrize('text', ['', 'sometime', 'not a date'])
+def test_something_that_is_not_a_date_is_kept_rather_than_blanked(text):
+    # better to keep whatever ao3 said than to lose it
+    assert parse_text.get_listing_date(text) == text
+
+
 def test_get_date_suffix_is_the_stamp_with_its_separator():
     assert parse_text.get_date_suffix('14 Dec 2024') == ' 2024-12-14'
     assert parse_text.get_date_suffix('not a date') == ''

@@ -377,6 +377,16 @@ legend {
   background: #2f2618;
 }
 
+/* a pause the user chose, told apart from ao3's by colour as well as by wording */
+.warning.held {
+  border-color: #5a7f9a;
+  background: #22303a;
+}
+
+.warning.held strong {
+  color: var(--text-strong);
+}
+
 .error {
   margin: 0 0 12px;
   padding: 9px 11px;
@@ -413,25 +423,6 @@ pre {
 }
 
 /* endregion */
-
-/* region what the run found already on disk */
-
-.refresh {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 10px 0 0;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--surface-2);
-  color: var(--text-dim);
-  font-size: 0.82rem;
-}
-
-.refresh strong {
-  color: var(--text-strong);
-}
 
 /* region works that would not download */
 
@@ -473,36 +464,36 @@ pre {
 
 /* endregion */
 
-/* what to do about works whose files carry no date */
-.offer {
+/* the run has stopped here and is waiting on an answer, so it is given some weight */
+.question {
   margin: 0 0 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-strong);
+  padding: 11px 13px;
+  border: 1px solid #7a6a3a;
   border-radius: 3px;
-  background: var(--surface-2);
+  background: #2b2619;
   font-size: 0.85rem;
 }
 
-.offer-text {
+.question-text {
   margin: 0 0 10px;
 }
 
-.offer strong {
+.question strong {
   color: var(--text-strong);
 }
 
-.offer-actions {
+.question-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
 }
 
-.offer .field {
+.question .field {
   margin-bottom: 8px;
 }
 
-.offer .hint {
+.question .hint {
   margin-bottom: 0;
 }
 

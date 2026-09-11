@@ -13,20 +13,25 @@
     }
 
     @if (canPickFolder) {
-      <button type="button" class="button" (click)="pickFolder()">
+      <button type="button" class="button" (click)="askBeforePicking()">
         {{ folderName() ? 'Change folder' : 'Choose downloads folder' }}
       </button>
       @if (folderName()) {
         <button type="button" class="button subtle" (click)="forget()">Forget</button>
       }
     } @else {
-      <label class="button">
+      <!-- a button rather than a label, so the note can come first; it clicks the input -->
+      <button type="button" class="button" (click)="askBeforePicking()">
         {{ data() ? 'Change folder' : 'Choose downloads folder' }}
-        <input type="file" webkitdirectory multiple (change)="choose($event)" hidden />
-      </label>
+      </button>
+      <input #folderInput type="file" webkitdirectory multiple (change)="choose($event)" hidden />
     }
   </div>
 </header>
+
+@if (warning()) {
+  <app-folder-warning (confirmed)="warningAccepted()" (cancelled)="warningCancelled()" />
+}
 
 <nav class="views" aria-label="What to show">
   <button

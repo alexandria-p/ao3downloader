@@ -1,5 +1,6 @@
 """Tests for ao3downloader.repo — cloudflare detection, retry logic, login, marking."""
 
+import io
 import json
 import os
 import xml.etree.ElementTree as ET
@@ -7,9 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 
-from source_code import exceptions, strings
+from source_code import exceptions, progress, strings
 from source_code.repo import Repository
 
 from test.conftest import ebook_fixtures
@@ -723,5 +725,229 @@ def test_a_break_is_one_sleep_when_there_is_nothing_that_could_stop_it(
     repo.pause(600)
 
     assert sleeps == [600]
+
+# endregion
+
+
+# region pausing a run
+
+def pausable(fake_fileops, monkeypatch, release_after: int):
+    """A repository the user has paused, released after that many checks of the pause."""
+
+    state = {'held': True, 'sleeps': 0, 'stopped': False}
+
+    def fake_sleep(_seconds):
+        state['sleeps'] += 1
+        if state['sleeps'] >= release_after: state['held'] = False
+
+    monkeypatch.setattr('source_code.repo.sleep', fake_sleep)
+    repo = Repository(fake_fileops, cancelled=lambda: state['stopped'],
+                      held=lambda: state['held'])
+    repo.session = MagicMock()
+    return repo, state
+
+
+def test_a_run_nobody_paused_waits_for_nothing(fake_fileops, monkeypatch):
+    # the gate is on the path every single request takes, so it has to cost nothing at all
+    # when it is not in use
+    sleeps = []
+    monkeypatch.setattr('source_code.repo.sleep', lambda s: sleeps.append(s))
+    events: list[dict] = []
+    repo = Repository(fake_fileops, progress=events.append, held=lambda: False)
+    repo.session = MagicMock()
+    repo.session.request.return_value = make_response(status_code=200, text='ok')
+
+    repo.my_request('GET', AO3_URL)
+
+    assert sleeps == []
+    assert not [e for e in events if e['type'] == progress.HELD]
+
+
+def test_a_paused_run_asks_ao3_for_nothing_until_it_is_resumed(fake_fileops, monkeypatch):
+    repo, state = pausable(fake_fileops, monkeypatch, release_after=3)
+    repo.session.request.return_value = make_response(status_code=200, text='ok')
+
+    repo.my_request('GET', AO3_URL)
+
+    # it waited instead of asking, and went exactly once, after being let go
+    assert state['sleeps'] == 3
+    assert repo.session.request.call_count == 1
+
+
+def test_a_pause_arriving_mid_request_lets_that_request_finish(fake_fileops, monkeypatch):
+    # the safety property the whole design rests on. the gate sits *before* a request, so a
+    # pause pressed while one is in flight cannot cut it short - which is what would leave
+    # a part-written file carrying a name that says it is complete
+    state = {'held': False}
+    monkeypatch.setattr('source_code.repo.sleep', lambda s: None)
+    repo = Repository(fake_fileops, held=lambda: state['held'])
+    repo.session = MagicMock()
+
+    def respond(*args, **kwargs):
+        state['held'] = True  # the user hits pause while this one is being fetched
+        return make_response(status_code=200, text='ok')
+
+    repo.session.request.side_effect = respond
+
+    response = repo.my_request('GET', AO3_URL)
+
+    assert response.text == 'ok'  # finished and handed back, not abandoned partway
+
+
+def test_a_stop_while_paused_unwinds_rather_than_waiting_to_be_resumed(
+        fake_fileops, monkeypatch):
+    # a pause must never be able to trap a run. nobody is coming to resume it, and the
+    # stop button has to work straight through a pause
+    repo, state = pausable(fake_fileops, monkeypatch, release_after=999)
+    monkeypatch.setattr('source_code.repo.sleep',
+                        lambda _s: state.__setitem__('stopped', True))
+    repo.session.request.return_value = make_response(status_code=200, text='ok')
+
+    with pytest.raises(exceptions.CancelledException):
+        repo.my_request('GET', AO3_URL)
+
+    repo.session.request.assert_not_called()
+
+
+def test_a_stop_while_paused_never_claims_the_run_resumed(fake_fileops, monkeypatch):
+    events: list[dict] = []
+    repo, state = pausable(fake_fileops, monkeypatch, release_after=999)
+    repo.progress = events.append
+    monkeypatch.setattr('source_code.repo.sleep',
+                        lambda _s: state.__setitem__('stopped', True))
+    repo.session.request.return_value = make_response(status_code=200, text='ok')
+
+    with pytest.raises(exceptions.CancelledException):
+        repo.my_request('GET', AO3_URL)
+
+    assert [e['type'] for e in events if e['type'] in (progress.HELD, progress.RELEASED)] \
+        == [progress.HELD]
+
+
+def test_a_pause_says_so_once_and_says_when_it_is_over(fake_fileops, monkeypatch):
+    events: list[dict] = []
+    repo, _ = pausable(fake_fileops, monkeypatch, release_after=2)
+    repo.progress = events.append
+    repo.session.request.return_value = make_response(status_code=200, text='ok')
+
+    repo.my_request('GET', AO3_URL)
+
+    assert [e['type'] for e in events if e['type'] in (progress.HELD, progress.RELEASED)] \
+        == [progress.HELD, progress.RELEASED]
+
+
+def real_response(body: bytes, status_code: int = 200, content_type: str = 'text/html'):
+    """A genuine requests.Response over a real stream.
+
+    The MagicMock responses used elsewhere in this file cannot exercise `read_body` at all:
+    iter_content on a mock yields nothing and .text keeps whatever it was handed, so the
+    streaming would look right while doing nothing whatsoever. These tests build the real
+    object because what is being checked is that a body arrives complete through it.
+    """
+
+    raw = urllib3.HTTPResponse(body=io.BytesIO(body), status=status_code,
+                               headers={'Content-Type': content_type},
+                               preload_content=False)
+    response = requests.Response()
+    response.raw = raw
+    response.status_code = status_code
+    response.headers.update({'Content-Type': content_type})
+    response.url = AO3_URL
+    return response
+
+
+def test_a_streamed_body_arrives_whole(fake_fileops):
+    # the body comes down in pieces now so a pause can land between them; everything
+    # downstream still has to see one complete response
+    repo = Repository(fake_fileops)
+    repo.chunk_size = 4
+    repo.session = MagicMock()
+    repo.session.request.return_value = real_response(b'a page of html, in pieces')
+
+    response = repo.my_request('GET', AO3_URL)
+
+    assert response.content == b'a page of html, in pieces'
+    assert response.text == 'a page of html, in pieces'
+
+
+def test_a_pause_partway_through_a_body_fetches_the_whole_thing_again(fake_fileops,
+                                                                     monkeypatch):
+    # what the pause button is for during a large download: drop what has arrived, wait,
+    # then ask for the file again from the beginning rather than finishing it first
+    state = {'held': False}
+    monkeypatch.setattr('source_code.repo.sleep', lambda _s: state.__setitem__('held', False))
+    repo = Repository(fake_fileops, held=lambda: state['held'])
+    repo.chunk_size = 4
+    repo.session = MagicMock()
+
+    def respond(*args, **kwargs):
+        # the user hits pause while the first copy is coming down
+        if repo.session.request.call_count == 1: state['held'] = True
+        return real_response(b'the whole pdf, eventually')
+
+    repo.session.request.side_effect = respond
+
+    response = repo.my_request('GET', AO3_URL)
+
+    assert repo.session.request.call_count == 2   # asked again, from the start
+    assert response.content == b'the whole pdf, eventually'   # and got all of it
+
+
+def test_a_pause_partway_through_a_body_does_not_count_as_a_failed_attempt(fake_fileops,
+                                                                          monkeypatch):
+    # pausing is not the server failing, so it must not eat into the retry budget
+    state = {'held': False}
+    monkeypatch.setattr('source_code.repo.sleep', lambda _s: state.__setitem__('held', False))
+    repo = Repository(fake_fileops, held=lambda: state['held'])
+    repo.chunk_size = 4
+    repo.max_retries = 1
+    repo.session = MagicMock()
+
+    def respond(*args, **kwargs):
+        if repo.session.request.call_count == 1: state['held'] = True
+        return real_response(b'still comes down in the end')
+
+    repo.session.request.side_effect = respond
+
+    assert repo.my_request('GET', AO3_URL).content == b'still comes down in the end'
+
+
+def test_a_post_is_never_abandoned_partway(fake_fileops, monkeypatch):
+    # a GET can simply be asked for again. re-sending a login form or a mark-as-read is a
+    # different thing entirely, so those are read to the end whatever has been pressed
+    monkeypatch.setattr('source_code.repo.sleep', lambda _s: None)
+    repo = Repository(fake_fileops, held=lambda: True)
+    repo.chunk_size = 4
+    repo.session = MagicMock()
+    repo.session.request.return_value = real_response(b'the form went through')
+
+    response = repo.my_request('POST', AO3_URL, {'user': 'someone'})
+
+    assert repo.session.request.call_count == 1
+    assert response.content == b'the form went through'
+
+
+def test_a_stop_partway_through_a_body_unwinds(fake_fileops):
+    repo = Repository(fake_fileops, cancelled=lambda: True)
+    repo.chunk_size = 4
+    repo.session = MagicMock()
+    repo.session.request.return_value = real_response(b'abandoned halfway down')
+
+    with pytest.raises(exceptions.CancelledException):
+        repo.my_request('GET', AO3_URL)
+
+
+def test_a_pause_is_kept_apart_from_a_break_ao3_demanded(fake_fileops, monkeypatch):
+    # they look alike on screen and are nothing alike underneath: one ends by itself, the
+    # other ends only when the user says so. sharing an event would make them
+    # indistinguishable to the ui
+    events: list[dict] = []
+    repo, _ = pausable(fake_fileops, monkeypatch, release_after=1)
+    repo.progress = events.append
+    repo.session.request.return_value = make_response(status_code=200, text='ok')
+
+    repo.my_request('GET', AO3_URL)
+
+    assert not [e for e in events if e['type'] == progress.PAUSED]
 
 # endregion
