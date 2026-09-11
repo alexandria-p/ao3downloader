@@ -58,7 +58,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 **4 tests in `test/test_ao3.py::test_proceed_*` fail with `UnicodeDecodeError`.** They are
 pre-existing, present on the unmodified upstream code, and caused by fixtures being read
 with the platform default codec (cp1252 on Windows). Do not chase them; do not count them
-as regressions. Current: **885 python passed, 4 failed; 183 gui passed.**
+as regressions. Current: **891 python passed, 4 failed; 184 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -86,8 +86,18 @@ answers a request is undefined.
 
 The symptom is vicious and was hit for real: an old helper from an earlier session answers
 the new page, using *its* settings.ini and *its* code, which looks exactly like the new
-build ignoring its own config. **If you see "unknown action", or settings that seem not to
-apply, suspect a stale helper on 4400 first** - `netstat -ano | findstr :4400`.
+build ignoring its own config. **If you see "unknown action", settings that seem not to
+apply, or an endpoint 404ing that plainly exists in the source, suspect a stale helper on
+4400 first** - `netstat -ano | findstr :4400`, then compare
+`Get-Process -Id <pid> | Select StartTime` against the build's write time.
+
+This has been hit for real more than once, and the newest form is the nastiest: refreshing
+the browser reloads the **page** from `build/`, but the **helper** is a long-running process
+that keeps the code it started with. An app left running across a rebuild therefore serves a
+new page from an old helper, and a feature added to both looks half-broken - the new log
+messages appear (they come from the page) while a new endpoint 404s. `Jobs.setPaused` says
+so in as many words when a pause 404s, because the fix is to restart the app and nothing
+about the symptom suggests that.
 
 Turning `SO_REUSEADDR` off was tried and rejected: it also makes the port unbindable for
 minutes after a normal shutdown while closed connections sit in `TIME_WAIT`, so stopping
@@ -376,19 +386,40 @@ by the time the downloads are done there is nothing left to act on.
 A test that drives `run_bookmarks` or `run_update` for real **must** stub `Job.ask` or the
 suite hangs - that is what `updating()` in `test_server.py` does.
 
-### A run can be paused, and there is exactly one place it may pause
+### A run can be paused, and there are exactly two places it may pause
 
-`Repository.hold_if_asked` is the whole feature. It sits at the top of the `my_request`
-loop, **immediately before a request goes out**, and that position is the entire safety
-argument: at that moment nothing is in flight, no response is open, nothing is part-written,
-and whatever was last started has finished.
+Both are inside the request path, and both are before anything reaches disk:
 
-**Do not add a second gate**, and do not move this one inside a download, a page loop or a
-per-work loop. A pause that can fire anywhere is a pause that can fire halfway through
-writing an epub, and the result - a truncated file whose name says it is complete - is the
-exact failure `saved_intact` and `replace_superseded` exist to prevent. The cost of one gate
-is that pausing during a transfer takes effect when that file lands rather than instantly,
-which is a fraction of a second and is the desired behaviour anyway.
+1. `Repository.hold_if_asked`, at the top of the `my_request` loop, **before a request goes
+   out**. This is where a run with nothing in flight waits.
+2. `Repository.read_body`, which pulls a response body down in `chunk_size` pieces and
+   raises `PausedException` between them. `my_request` catches it, waits at
+   `hold_if_asked`, then **re-issues the same request from the start**.
+
+The second exists because bodies used to arrive inside a single `session.request` call, so
+pausing during a large pdf did nothing until the transfer finished - the button looked
+broken. Requests are now made with `stream=True` and `read_body` fills in `_content` /
+`_content_consumed` itself, which is what keeps streaming an implementation detail: every
+caller still uses `.content` and `.text` unchanged.
+
+**Abandoning a body is free, and that is the point.** Bytes are held in memory until the
+caller has all of them and has judged them (`download_file` checks status and content type
+before anything is written), so there is no part-written file to clean up and the retry
+starts from nothing. **Only GETs are abandoned** - a GET can be asked for again, while
+re-sending a login form or a mark-as-read is not the same as asking for a page twice.
+
+A pause-retry does **not** increment `attempt`: the user pausing is not the server failing,
+and it must not eat the retry budget.
+
+**Do not add a third gate** inside a download or a save loop. A gate that can fire anywhere
+can fire halfway through writing an epub, and the result - a truncated file whose name says
+it is complete - is the exact failure `saved_intact` and `replace_superseded` exist to
+prevent.
+
+For the same reason `get_metadata` buffers a page's records and saves them only once the
+whole page has been parsed. A page is one unit of work - fetched, parsed, then written - so
+a page abandoned partway leaves no half-built entries and is simply asked for again. Saving
+as each blurb was parsed made a part-read page a part-written index by definition.
 
 It is deliberately **not** folded into `check_cancelled`, even though the two look alike.
 `check_cancelled` is called from inside `wait`, so a hold there would stretch an ao3 rate

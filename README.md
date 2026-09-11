@@ -140,7 +140,9 @@ While a run is in progress the dialog shows a progress bar, the file types and o
 
 There is a **Stop** button throughout. Stopping is safe: the run finishes what it is writing and unwinds, so everything already saved is kept. It is not a rollback.
 
-There is also a **Pause** button. A run can only pause at one moment - just before it asks AO3 for the next thing - so whatever was being fetched when you pressed it is allowed to finish first. Nothing is ever left half-written. That means a pause pressed during a file transfer takes effect when that file lands rather than instantly, and the button says *Pausing...* until the run confirms it has actually stopped.
+There is also a **Pause** button, and it takes effect straight away. If a file is coming down when you press it - a large PDF, say - that transfer is abandoned where it is, and when you press **Resume** the file is fetched again from the beginning. The same goes for a page of the index: the page is dropped and read again on resume.
+
+Nothing is ever left half-written by this. A downloaded file is only saved once all of it has arrived and has been checked, and a page of the index is only written once the whole page has been read, so there is nothing on disk to half-finish. What you lose by pausing is the part of a transfer already downloaded, which is fetched again - nothing more.
 
 While paused, nothing new is started and no requests go out. It stays paused until you press **Resume** - it will not start again on its own, because an unattended run quietly resuming and going back at AO3 is not something that should happen without you. **Stop still works while paused**, so a pause can never leave a run stuck.
 

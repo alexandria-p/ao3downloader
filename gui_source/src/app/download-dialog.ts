@@ -525,9 +525,13 @@ export class DownloadDialog implements OnDestroy {
     try {
       await this.jobs.setPaused(this.jobId, wanted);
       this.append(wanted ? 'pausing after the work in progress...' : 'resuming...');
-    } catch {
+    } catch (error) {
       this.holdPending.set(false);
-      this.append(wanted ? 'could not pause the run' : 'could not resume the run');
+      // the helper's own words - it can tell a missing job from a helper too old to know
+      // what a pause is, and which one it was is the whole of what to do about it
+      this.append(
+        error instanceof Error ? error.message : `could not ${wanted ? 'pause' : 'resume'} the run`,
+      );
     }
   }
 

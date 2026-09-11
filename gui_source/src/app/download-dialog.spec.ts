@@ -1054,7 +1054,7 @@ describe('DownloadDialog', () => {
 
   it('does not claim a pause that the helper refused', async () => {
     // saying 'Paused' over a run that is still downloading is the worst of both
-    jobs.pauseFails = 'no such job';
+    jobs.pauseFails = 'could not pause the run';
     await running();
 
     await press('Pause');
@@ -1062,6 +1062,19 @@ describe('DownloadDialog', () => {
     expect(button('Pause')).toBeTruthy();
     expect(element.querySelector('.warning.held')).toBeNull();
     expect(element.querySelector('.log')?.textContent).toContain('could not pause');
+  });
+
+  it('passes on why the pause was refused rather than a generic line', async () => {
+    // a pause refused because the helper is older than the page is fixed by restarting the
+    // app, and a flat 'could not pause' gives nobody a way to work that out
+    jobs.pauseFails =
+      'could not pause the run - the helper may be an older version that does not ' +
+      'support pausing. Restart the app to update it.';
+    await running();
+
+    await press('Pause');
+
+    expect(element.querySelector('.log')?.textContent).toContain('Restart the app');
   });
 
   it('offers no pause while the run is stopped waiting on a question', async () => {

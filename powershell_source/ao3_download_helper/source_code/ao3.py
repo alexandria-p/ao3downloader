@@ -130,6 +130,7 @@ class Ao3:
                 thesoup = self.repo.get_soup(link)
                 if total_pages is None:
                     total_pages = parse_soup.get_total_pages(thesoup)
+                page_records = []
                 for blurb in parse_soup.get_blurbs(thesoup):
                     if not parse_soup.get_blurb_work_number(blurb):
                         skipped += 1
@@ -146,6 +147,12 @@ class Ao3:
                     }
                     document.update(parse_soup.get_blurb_metadata(blurb))
                     records.append(document)
+                    page_records.append(document)
+                # nothing is written until the whole page has been read. a page is one unit
+                # of work: it is fetched, parsed and only then saved, so a page abandoned
+                # partway leaves no half-built entries and simply gets asked for again.
+                # saving as each blurb was parsed made the page half-written by definition
+                for document in page_records:
                     self.save_metadata(document)
                 done, of = self.page_progress(current, total_pages)
                 # two sets of numbers on purpose: the bar measures the slice being fetched,

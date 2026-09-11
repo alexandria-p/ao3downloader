@@ -915,11 +915,17 @@ def test_a_pause_partway_through_a_body_does_not_count_as_a_failed_attempt(fake_
 def test_a_post_is_never_abandoned_partway(fake_fileops, monkeypatch):
     # a GET can simply be asked for again. re-sending a login form or a mark-as-read is a
     # different thing entirely, so those are read to the end whatever has been pressed
+    state = {'held': False}
     monkeypatch.setattr('source_code.repo.sleep', lambda _s: None)
-    repo = Repository(fake_fileops, held=lambda: True)
+    repo = Repository(fake_fileops, held=lambda: state['held'])
     repo.chunk_size = 4
     repo.session = MagicMock()
-    repo.session.request.return_value = real_response(b'the form went through')
+
+    def respond(*args, **kwargs):
+        state['held'] = True  # the user hits pause while the form is going up
+        return real_response(b'the form went through')
+
+    repo.session.request.side_effect = respond
 
     response = repo.my_request('POST', AO3_URL, {'user': 'someone'})
 

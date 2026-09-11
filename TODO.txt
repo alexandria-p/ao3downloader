@@ -77,3 +77,7 @@ can we improve 'update incomplete fics' -> to instead search to see if json has 
 
 
 what happens when stopped or exited mid-download?
+
+-- -Index writes are now per page, as you asked. get_metadata buffers a page's records and saves them only once the whole page is parsed — previously it saved after each blurb, which made a part-read page a part-written index by definition. --> should i change this?????
+
+-- One caveat: AO3 logins do not last forever. A run left paused for a long time may find its session has expired when you resume, which shows up as works failing to download. If that happens, stop the run and start a new one. -> detect & handle this gracefully.

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from bs4 import BeautifulSoup
 
-from source_code import exceptions, indexing, parse_text, strings
+from source_code import exceptions, indexing, parse_soup, parse_text, strings
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
 from source_code.repo import Repository
@@ -1260,6 +1260,23 @@ def test_get_metadata_also_reports_the_real_page_number_for_the_wording() -> Non
     page = [e for e in events if e['type'] == 'page'][0]
     assert (page['listingPage'], page['listingTotal']) == (3, 10)
     assert (page['page'], page['total']) == (1, 8)
+
+
+def test_a_page_is_written_only_once_all_of_it_has_been_read() -> None:
+    # a page is one unit of work: fetched, parsed, then saved. saving as each blurb was
+    # parsed made a page half-written by definition, so a page abandoned partway - by a
+    # pause, or anything else - left entries behind for a page that was never finished
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222', '333'])
+    order: list[str] = []
+
+    real_metadata = parse_soup.get_blurb_metadata
+    with patch('source_code.parse_soup.get_blurb_metadata',
+               side_effect=lambda b: (order.append('parsed'), real_metadata(b))[1]), \
+         patch.object(Ao3, 'save_metadata', side_effect=lambda d: order.append('saved')):
+        ao3.get_metadata(LISTING_URL, False)
+
+    assert order == ['parsed', 'parsed', 'parsed', 'saved', 'saved', 'saved']
 
 
 def test_a_page_says_it_is_being_fetched_before_the_request_goes_out(capsys) -> None:

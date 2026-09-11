@@ -677,11 +677,15 @@ Nothing is lost when you are paused - the run waits and carries on by itself, an
 
 ## Pausing a run
 
-Next to **Stop** there is a **Pause**. A run can only pause at one moment - just before it
-asks ao3 for the next thing - so whatever was being fetched when you pressed it finishes
-first and nothing is ever left half-written. A pause pressed during a transfer therefore
-takes effect when that file lands rather than instantly, and the button says *Pausing...*
-until the run confirms it has stopped.
+Next to **Stop** there is a **Pause**, and it takes effect straight away. If a file is
+coming down when you press it - a large pdf, say - that transfer is abandoned where it is,
+and **Resume** fetches the file again from the beginning. A page of the index behaves the
+same way: it is dropped, and read again on resume.
+
+Nothing is ever left half-written by this. A file is only saved once all of it has arrived
+and been checked, and a page of the index is only written once the whole page has been read,
+so there is nothing on disk to half-finish. All a pause costs is the part of a transfer
+already fetched, which is fetched again.
 
 While paused, no requests go out and nothing new is started. It stays paused until you press
 **Resume**: it will not start again by itself, because an unattended run going back at ao3

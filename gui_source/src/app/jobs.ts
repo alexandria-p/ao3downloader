@@ -182,11 +182,21 @@ export class Jobs {
    * while it carries on downloading.
    */
   async setPaused(jobId: string, paused: boolean): Promise<void> {
-    const response = await fetch(
-      `${API_BASE}/api/jobs/${jobId}/${paused ? 'pause' : 'resume'}`,
-      { method: 'POST' },
-    );
-    if (!response.ok) throw new Error(`could not ${paused ? 'pause' : 'resume'} the run`);
+    const what = paused ? 'pause' : 'resume';
+    const response = await fetch(`${API_BASE}/api/jobs/${jobId}/${what}`, { method: 'POST' });
+    if (response.ok) return;
+
+    // a 404 here is nearly always a helper older than this page rather than a missing job.
+    // the page is reloaded from disk on every refresh; the helper is a long-running process
+    // that keeps whatever code it started with, so an app left running across an update
+    // serves the new page from the old helper - which has no pause route at all
+    if (response.status === 404) {
+      throw new Error(
+        `could not ${what} the run - the helper may be an older version that does not ` +
+          'support pausing. Restart the app to update it.',
+      );
+    }
+    throw new Error(`could not ${what} the run`);
   }
 
   /**
