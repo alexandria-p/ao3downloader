@@ -419,6 +419,57 @@ def make_file(folder, name: str) -> str:
     return str(path)
 
 
+def with_folder(tmp_path):
+    fileops = MagicMock()
+    fileops.downloadfolder = str(tmp_path)
+    return fileops
+
+
+def test_the_works_already_indexed_are_read_from_the_index_file_names(tmp_path):
+    indexing_folder = os.path.join(strings.INDEXING_FOLDER_NAME, '34816549 No Paths - Cal.json')
+    make_file(tmp_path, indexing_folder)
+
+    assert shared.indexed_work_ids(with_folder(tmp_path)) == {'34816549'}
+
+
+def test_a_downloaded_fic_is_not_an_index_entry(tmp_path):
+    # 'have we indexed this?' is not 'have we downloaded this?'. a fic with an html file and
+    # no index entry is exactly what a new-bookmarks run has to keep walking past, and
+    # counting it here would stop the walk on a fic it has never actually recorded
+    make_file(tmp_path, '111 Downloaded But Not Indexed 2024-12-14.html')
+    make_file(tmp_path, '222 Also Downloaded 2024-12-14.pdf')
+    make_file(tmp_path, '333 And This One.epub')
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '444 Indexed - Cal.json'))
+
+    assert shared.indexed_work_ids(with_folder(tmp_path)) == {'444'}
+
+
+def test_a_collection_file_is_not_an_index_entry_either(tmp_path):
+    # collections live in their own folder and are named by collection, not by work
+    make_file(tmp_path, os.path.join(strings.COLLECTIONS_FOLDER_NAME, '111 a collection.json'))
+
+    assert shared.indexed_work_ids(with_folder(tmp_path)) == set()
+
+
+def test_a_file_in_the_index_folder_that_is_not_json_is_ignored(tmp_path):
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '111 stray.html'))
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '222 real - Cal.json'))
+
+    assert shared.indexed_work_ids(with_folder(tmp_path)) == {'222'}
+
+
+def test_an_index_file_not_named_for_a_work_is_ignored(tmp_path):
+    # the same rule that pairs a download to its entry: digits, then a separator
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, 'notes.json'))
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '99Red Balloons.json'))
+
+    assert shared.indexed_work_ids(with_folder(tmp_path)) == set()
+
+
+def test_nothing_indexed_yet_is_not_an_error(tmp_path):
+    assert shared.indexed_work_ids(with_folder(tmp_path)) == set()
+
+
 def test_scan_finds_works_by_the_number_their_name_starts_with(tmp_path):
     make_file(tmp_path, '34816549 No Paths - Cal 2024-12-14.html')
     make_file(tmp_path, '99 Red Balloons 2020-01-02.epub')

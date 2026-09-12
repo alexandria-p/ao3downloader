@@ -2,8 +2,6 @@ upload to, and read from, dropbox link (instead of local downloads folder)
 -checkbox for which types to download
 - HTML and JSON are REQUIRED (for the site code to run), all others are optional.
 
-is data.json needed in /build/config?
-
 Doco:
 - import existing from another location (modal & ID)
 - what each button in the app does
@@ -27,7 +25,7 @@ ask claude to help with how to configure this for github pages, and that for eve
 
 data.json is still being built in build/config when i run the app. i told you not to build it anymore since we dont need it.
 
-
+option to backdate individual (undated) files - instead of only in bulk?
 
 
 update readme 
@@ -37,16 +35,7 @@ update readme
 
 Cosmetic improvements:
 
-- reword the declaration in Update incomplete fics 
-- add recommendation to please click 'download and update all' in this scenario to refresh everything.
-- rename buttons to be more descriptive (eg update indexed bookmarks that are marked incomplete)
-  - download new bookmarks (stops trawling once it hits an index it already has) --> ensure /bookmarks are always ordered by bookmarked_at in order for this to work. have a warning describing that, and that there will be issues if indexing files are missing or corrupted in later pages as they wont be picked up by this workflow.
 
-  - re-index all
-  - update all (bundle in a single button instead of 2?)
-
-skipped 2 bookmarks that are not works (series, external works, or deleted works)
-- ensure an exportable list is available at end, with the reason for each - series external work (if known) or 'may have been deleted' if unknown.(i believe this is already a thing, but confirm and confirm for both buttons)
 -----------
 
 starting
@@ -69,15 +58,15 @@ let's fix the output wording here. cause it is confusing AF
 
 
 
-stop trawl once you catch up to where you were (optional, starts as ticked).
-
-- options to skip indexing ? or only index between certain dates or pages? idk too tired to think.
-
-can we improve 'update incomplete fics' -> to instead search to see if json has changed (eg update date or chapter count) since last pull. I think existing system is outdated and is redownloading ALL incomplete works, but will not catch if complete works add bonus chapters, like jane dutch.
-
-
 what happens when stopped or exited mid-download?
 
 -- -Index writes are now per page, as you asked. get_metadata buffers a page's records and saves them only once the whole page is parsed — previously it saved after each blurb, which made a part-read page a part-written index by definition. --> should i change this?????
 
 -- One caveat: AO3 logins do not last forever. A run left paused for a long time may find its session has expired when you resume, which shows up as works failing to download. If that happens, stop the run and start a new one. -> detect & handle this gracefully.
+
+
+Get works from all encountered series links
+If a bookmarked work belongs to a series, download the whole series too. This can take a great deal longer. Series you bookmarked directly are always downloaded either way. why cant i choose this for all download types?
+
+how to download a bookmarked series?
+

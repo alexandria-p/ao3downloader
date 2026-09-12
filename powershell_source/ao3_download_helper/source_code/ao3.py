@@ -44,6 +44,13 @@ class Ao3:
         # records them too, but a run that leaves gaps should be able to say which ones
         # without anyone having to read a log file to find out.
         self.failures: list[dict] = []
+        # bookmarks that are not works at all, so could never be indexed or downloaded.
+        # kept as a list rather than a count so the run can name each one at the end
+        self.skipped_works: list[dict] = []
+        # work numbers seen on this run's listing that ao3 will not serve a file for yet,
+        # because the work is in a collection that has not been revealed. they index fine;
+        # it is only the download that is impossible, so they are held back from it.
+        self.unrevealed: set[str] = set()
         self.series = series
         self.images = images
         self.mark = mark
@@ -86,14 +93,27 @@ class Ao3:
             self.log_error(log, e)
 
 
-    def get_metadata(self, link: str, workdates: bool) -> list[dict]:
+    def get_metadata(self, link: str, workdates: bool,
+                     known: set[str] | None = None) -> list[dict]:
         """Walk a listing and save metadata for every work on it, one file per bookmark.
 
         One request per page rather than per work, so a bookmarks list of any size is
-        cheap. Each file is written as its page is parsed, so a long run leaves usable
-        output behind even if it is interrupted partway. Bookmarks of series, external
-        works, and deleted works have none of the fields we're collecting, so they're
-        counted and skipped rather than exported.
+        cheap. Each page is written once it has been read in full, so a long run leaves
+        usable output behind even if it is interrupted partway. Bookmarks of series,
+        external works, and deleted works have none of the fields we're collecting, so
+        they're counted and skipped rather than exported.
+
+        `known` turns this into a **new bookmarks only** pass: walking stops at the first
+        work already in that set, and only the works ahead of it are returned. Ao3 lists
+        bookmarks newest first, so everything before the first familiar one is new and
+        everything after it has been seen - which is what makes one stop enough, and what
+        turns a run over a whole library into a request or two.
+
+        That assumption is the catch, and it is why this is not the default. Re-bookmarking
+        an old fic moves it to the front; a bookmark deleted and remade does the same. The
+        run stops correctly either way, but a fic bookmarked *before* the stopping point
+        and never indexed - because an earlier run was interrupted, say - stays unseen. A
+        full walk is the answer to that, and the ui says so.
         """
 
         if parse_text.is_work(link):
@@ -131,13 +151,34 @@ class Ao3:
                 if total_pages is None:
                     total_pages = parse_soup.get_total_pages(thesoup)
                 page_records = []
+                reached_known = False
                 for blurb in parse_soup.get_blurbs(thesoup):
-                    if not parse_soup.get_blurb_work_number(blurb):
+                    worknum = parse_soup.get_blurb_work_number(blurb)
+                    if not worknum:
                         skipped += 1
+                        # why, not just how many - a count leaves no way to tell which
+                        # bookmark was passed over or to go and look at it
+                        self.skipped_works.append(parse_soup.get_blurb_skip_reason(blurb))
                         continue
+                    if parse_soup.is_unrevealed_blurb(blurb):
+                        # it still gets indexed below - it has a number and a place in the
+                        # listing - but asking ao3 for the file would fail by definition
+                        self.unrevealed.add(str(worknum))
+                        self.skipped_works.append(
+                            {'id': str(worknum),
+                             'link': parse_soup.get_full_work_url('/works/' + str(worknum)) or '',
+                             'title': parse_soup.get_text_or_empty(blurb, 'h4.heading'),
+                             'error': strings.SKIPPED_UNREVEALED})
+
+                    if known is not None and str(worknum) in known:
+                        # the first fic we already hold. everything past it on this page,
+                        # and every page after it, has been seen before
+                        print(strings.AO3_INFO_REACHED_KNOWN)
+                        reached_known = True
+                        break
                     # a work can be bookmarked more than once, and can shift between pages
                     # while we're paging through, so dedupe on the bookmark rather than the work
-                    key = parse_soup.get_blurb_id(blurb) or str(parse_soup.get_blurb_work_number(blurb))
+                    key = parse_soup.get_blurb_id(blurb) or str(worknum)
                     if key in seen: continue
                     seen.add(key)
                     document = {
@@ -154,6 +195,9 @@ class Ao3:
                 # saving as each blurb was parsed made the page half-written by definition
                 for document in page_records:
                     self.save_metadata(document)
+                # the works ahead of the familiar one are still new, so they are kept and
+                # written; it is only the walking that stops here
+                if reached_known: break
                 done, of = self.page_progress(current, total_pages)
                 # two sets of numbers on purpose: the bar measures the slice being fetched,
                 # so it runs 1..n and ends full, while the words say where that actually is
@@ -189,6 +233,93 @@ class Ao3:
         if workdates and records: self.add_work_dates(records)
 
         return records
+
+
+    def save_images(self, soup, filename: list[str] | str, work_url: str,
+                    title: str) -> int:
+        """Save the images embedded in a work's page as files of their own.
+
+        These are `<img>` tags in the work's rendered html, usually pointing at somewhere
+        else entirely. The downloaded work normally carries them inside it already - this
+        writes a second, separate copy of each, for when the pictures themselves are what
+        is wanted.
+
+        One image that will not come down never ends the run: ao3 has no say over hosts it
+        does not own, and a dead image link is the single most ordinary failure here. Each
+        is logged and the rest carry on. Returns how many were saved.
+        """
+
+        counter = 0
+        for img in parse_soup.get_image_links(soup):
+            # a site-relative src is ao3's own furniture, not part of the work
+            if str.startswith(img, '/'): continue
+            try:
+                ext = os.path.splitext(img)[1]
+                if '?' in ext: ext = ext[:ext.index('?')]
+                response = self.repo.get_book(img)
+                imagefile = filename + ' img' + str(counter).zfill(3) + ext
+                self.fileops.save_bytes(
+                    os.path.join(strings.IMAGE_FOLDER_NAME, imagefile), response)
+                counter += 1
+            except Exception as e:
+                self.fileops.write_log({
+                    'message': strings.ERROR_IMAGE, 'link': work_url, 'title': title,
+                    'img': img, 'error': str(e), 'stacktrace': traceback.format_exc()})
+        return counter
+
+
+    def save_images_for(self, record: dict, maximum: int) -> int:
+        """Fetch one indexed work's page purely to save the images embedded in it.
+
+        The indexed download path never reads a work page - that is the whole of what makes
+        it cheap - so there is nothing for `get_image_links` to read. This fetches the page
+        separately, *after* the files themselves are safely down, which costs one extra
+        request per work and is why nothing does it unless asked.
+
+        The url is built from the work number rather than taken from the record, for the
+        same reason the download links are: the number is the only part that matters.
+        """
+
+        link = f'{strings.AO3_BASE_URL}/works/{record["id"]}'
+        soup = self.proceed(self.repo.get_soup(link))
+        title = parse_soup.apply_name_pattern(
+            parse_soup.get_name_metadata_from_blurb(record), strings.FILE_NAME_PATTERN)
+        filename = parse_text.get_valid_filename(
+            title, maximum, parse_text.get_date_suffix(record.get('date_updated') or '')) \
+            or str(record['id'])
+
+        return self.save_images(soup, filename, link, ' / '.join(x for x in title if x))
+
+
+    def index_one_work(self, link: str, existing: dict | None = None) -> dict:
+        """Index a single fic from its own page, seen before or not.
+
+        A work page and a bookmarks listing describe a fic differently, and the index is
+        shaped by the listing. So an entry created here fills in only what a work page can
+        honestly answer for - the title, the author, and the stats that get versioned - and
+        leaves tags, the summary and the bookmark's own fields empty rather than inventing
+        a second schema for them. A later bookmarks run fills those in, and `merge` treats
+        it as the same document because the identity fields match.
+
+        A fic already in the index keeps everything it has; only the stats are rewritten,
+        exactly as `refresh_one` does.
+        """
+
+        soup = self.proceed(self.repo.get_soup(link))
+        stats = parse_soup.get_work_stats(soup)
+        if 'error' in stats:
+            raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
+
+        record = dict(existing or {})
+        if not record:
+            page = parse_soup.get_work_metadata_from_work(soup, link)
+            authors = [x.strip() for x in (page.get('author') or '').split(',') if x.strip()]
+            record = {'id': parse_text.get_work_number(link), 'link': link,
+                      'title': page.get('title') or '', 'authors': authors}
+
+        fresh = {**record, **stats}
+        self.save_metadata(fresh)
+        return fresh
 
 
     def refresh_one(self, record: dict) -> dict:
@@ -234,8 +365,12 @@ class Ao3:
         maximum = self.fileops.get_ini_value_integer(
             strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
         skip = set(visited)
+        # an unrevealed work is held back rather than attempted: ao3 answers with a page
+        # instead of a file, so the request is spent for certain and the run would report
+        # it as a failure when nothing has actually gone wrong
         pending = [x for x in records
-                   if x.get('id') and x.get('link') and x['link'] not in skip]
+                   if x.get('id') and x.get('link') and x['link'] not in skip
+                   and str(x['id']) not in self.unrevealed]
 
         print(strings.AO3_INFO_FROM_INDEX.format(len(pending)))
 
@@ -825,21 +960,7 @@ class Ao3:
             self.replace_superseded(work_url, filetype, saved, len(response))
 
         if self.images:
-            counter = 0
-            imagelinks = parse_soup.get_image_links(thesoup)
-            for img in imagelinks:
-                if str.startswith(img, '/'): continue
-                try:
-                    ext = os.path.splitext(img)[1]
-                    if '?' in ext: ext = ext[:ext.index('?')]
-                    response = self.repo.get_book(img)
-                    imagefile = filename + ' img' + str(counter).zfill(3) + ext
-                    self.fileops.save_bytes(os.path.join(strings.IMAGE_FOLDER_NAME, imagefile), response)
-                    counter += 1
-                except Exception as e:
-                    self.fileops.write_log({
-                        'message': strings.ERROR_IMAGE, 'link': work_url, 'title': title, 
-                        'img': img, 'error': str(e), 'stacktrace': traceback.format_exc()})
+            self.save_images(thesoup, filename, work_url, title)
 
         if self.mark:
             self.repo.mark_work_as_read(thesoup, work_url)

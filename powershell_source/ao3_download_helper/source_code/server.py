@@ -30,11 +30,23 @@ from source_code.repo import Repository
 HOST = '127.0.0.1'
 DEFAULT_PORT = 4400
 
+# a full walk of the whole bookmarks listing. thorough and slow.
 ACTION_BOOKMARKS = 'bookmarks'
 ACTION_UPDATE = 'update'
 ACTION_COLLECTIONS = 'collections'
 
 ACTION_COLLECTION = 'collection'
+
+# stops indexing at the first bookmark it already holds, so a routine run costs a request
+# or two rather than a walk of the whole library
+ACTION_NEW = 'new'
+# the one to reach for: new bookmarks, then the unfinished ones, then the formats missing
+# from everything else
+ACTION_SYNC = 'sync'
+# one fic, by link or work number
+ACTION_WORK = 'work'
+# the full scan with its parts made optional
+ACTION_CUSTOM = 'custom'
 
 # how long a run waits between checks for an answer to a question it has asked. short
 # enough that a stop is noticed quickly, long enough not to spin.
@@ -53,10 +65,11 @@ UNDATED_REFRESH = 'refresh'
 UNDATED_SKIP = 'skip'
 UNDATED_CHOICES = (UNDATED_STAMP, UNDATED_REFRESH, UNDATED_SKIP)
 
-ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION)
+ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
+           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_CUSTOM)
 
 # actions that need a link from the caller rather than working it out from the username
-ACTIONS_NEEDING_URL = (ACTION_COLLECTION,)
+ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK)
 
 # json is always produced, so the ui shows it ticked and locked. it is what the web page
 # reads, and it costs nothing extra: the metadata comes off the listing page that has to be
@@ -69,11 +82,15 @@ FORCED_FILETYPES = [strings.AO3_DOWNLOAD_TYPE_METADATA]
 DEFAULT_FILETYPES = [strings.AO3_DOWNLOAD_TYPE_METADATA, 'HTML']
 
 
-def resolve_filetypes(requested) -> list[str]:
+def resolve_filetypes(requested, force: bool = True) -> list[str]:
     """Keep the recognised types the caller asked for, and add the ones we always produce.
 
     The ui shows the forced types ticked and locked, but a request is not to be trusted to
     have honoured that, so they are re-added here.
+
+    `force` is the one exception: a run that is not going to index cannot produce json,
+    because json *is* the index. Adding it back there would report a file type the run
+    never writes, which is worse than not offering it.
     """
 
     filetypes: list[str] = []
@@ -82,8 +99,9 @@ def resolve_filetypes(requested) -> list[str]:
         if filetype in strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES_WITH_METADATA \
                 and filetype not in filetypes:
             filetypes.append(filetype)
-    for forced in FORCED_FILETYPES:
-        if forced not in filetypes: filetypes.append(forced)
+    if force:
+        for forced in FORCED_FILETYPES:
+            if forced not in filetypes: filetypes.append(forced)
     return filetypes
 
 
@@ -116,6 +134,10 @@ def resolve_options(requested) -> dict:
         'series': bool(given.get('series')),
         'images': bool(given.get('images')),
         'workdates': bool(given.get('workdates')),
+        # a custom run can work from what is already indexed rather than reading ao3's
+        # listing again. it defaults to indexing, because a run that quietly skipped it
+        # would judge everything against however stale the index happened to be.
+        'reindex': given.get('reindex') is not False,
     }
 
 
@@ -265,14 +287,7 @@ def run_job(job: Job, password: str) -> None:
                 repo.login(job.username, password)
                 print(strings.AO3_INFO_LOGGED_IN)
                 progress.report(report, progress.AUTHENTICATED, username=job.username)
-                if job.action == ACTION_BOOKMARKS:
-                    run_bookmarks(job, fileops, repo, report)
-                elif job.action == ACTION_COLLECTIONS:
-                    run_collections(job, fileops, repo, report)
-                elif job.action == ACTION_COLLECTION:
-                    run_collection(job, fileops, repo, report)
-                else:
-                    run_update(job, fileops, repo, report)
+                runners()[job.action](job, fileops, repo, report)
         job.emit({'type': progress.FINISHED, 'cancelled': job.cancel.is_set()})
     except Exception as e:
         job.emit({'type': progress.FAILED, 'error': str(e),
@@ -329,9 +344,10 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             # the download walks the same listing, so it begins on the same page
             ao3.download(parse_text.set_page_number(link, start), visited)
 
-        # a run that leaves gaps should say which works they were, rather than leaving it
-        # to be worked out from the log afterwards
-        report_failures(ao3, report)
+    # a run that leaves gaps should say which works they were, rather than leaving it to be
+    # worked out from the log afterwards. outside the download block on purpose: a
+    # metadata-only run downloads nothing and can still skip bookmarks that are not works
+    report_failures(ao3, report)
 
 
 def can_use_index(job: Job, records: list[dict]) -> bool:
@@ -346,6 +362,286 @@ def can_use_index(job: Job, records: list[dict]) -> bool:
     if job.options['images']: return False
     if job.options['series']: return False
     return True
+
+
+def bookmarks_link(job: Job) -> str:
+    return f'{strings.AO3_BASE_URL}/users/{job.username}/bookmarks'
+
+
+def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[dict]:
+    """Index from the newest bookmark until one already held, and return what was new."""
+
+    progress.report(report, progress.PHASE, name=progress.INDEXING)
+    print(strings.AO3_INFO_INDEXING_NEW)
+
+    known = shared.indexed_work_ids(fileops)
+    records = ao3.get_metadata(bookmarks_link(job), job.options['workdates'], known=known)
+
+    print(strings.AO3_INFO_NEW_FOUND.format(len(records)) if records
+          else strings.AO3_INFO_NEW_NONE)
+    return records
+
+
+def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
+                     downloadtypes: list[str], report) -> None:
+    """Settle anything undated among these works, then download them.
+
+    The same rule a full run downloads by, applied to whichever slice of the index the
+    caller has in hand rather than to the whole listing.
+    """
+
+    if not records or not downloadtypes or job.cancel.is_set(): return
+
+    plan = plan_refresh(job, fileops, records, downloadtypes, report)
+    # an out-of-date copy is not 'already downloaded', so it must not be skipped
+    visited = [x for x in shared.visited(fileops, downloadtypes)
+               if x not in set(plan['stale'])]
+    ao3.superseded = plan['superseded']
+
+    progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
+    print(strings.AO3_INFO_DOWNLOADING)
+    ao3.download_indexed(records, visited)
+
+
+def fill_missing_formats(job: Job, fileops: FileOps, ao3: Ao3, skip: set[str],
+                         downloadtypes: list[str], report) -> None:
+    """Finished works, already indexed, simply missing a format this run asked for.
+
+    The case the other two passes leave behind: not new, so the newest-first walk never
+    reached it, and not unfinished, so the update pass ignored it. A fic indexed and saved
+    as html long ago, on a run that now asks for pdf as well, is only findable this way.
+
+    A fic that needs fetching is **re-read first**, exactly as the update pass does, so the
+    file about to be written is named for the version ao3 has now rather than for whatever
+    the index last recorded. Getting that wrong would write a new file carrying an old date,
+    which is the one thing every later run's idea of 'outdated' depends on.
+
+    Only the missing formats are fetched, never the whole set. A work that has html and
+    wants pdf costs its re-read plus one transfer here, not two transfers - rate limit is
+    the scarce thing, and re-fetching a file already on disk spends it for nothing.
+    """
+
+    if not downloadtypes or job.cancel.is_set(): return
+
+    progress.report(report, progress.PHASE, name=progress.CHECKING_FILES)
+    print(strings.AO3_INFO_CHECKING_GAPS)
+
+    index = shared.read_index(fileops)
+    unfinished = {str(x.get('id') or '') for x in shared.incomplete_works(index)}
+    existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
+
+    gaps: list[tuple[dict, list[str]]] = []
+    for record in index:
+        work = str(record.get('id') or '')
+        if not work or not record.get('link'): continue
+        if work in skip or work in unfinished: continue
+        have = existing.get(work, {})
+        missing = [x for x in downloadtypes if x.upper() not in have]
+        if missing: gaps.append((record, missing))
+
+    if not gaps:
+        print(strings.AO3_INFO_GAPS_NONE)
+        return
+
+    print(strings.AO3_INFO_GAPS_FOUND.format(len(gaps)))
+    progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
+
+    maximum = fileops.get_ini_value_integer(
+        strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+    wanted = ao3.filetypes
+    try:
+        for done, (record, missing) in enumerate(gaps, start=1):
+            if job.cancel.is_set(): break
+            log: dict = {'link': record['link']}
+            try:
+                ao3.check_cancelled()
+                print(strings.AO3_INFO_GAP_WORK.format(
+                    done, len(gaps), record.get('title') or record['link'],
+                    ', '.join(missing)))
+                progress.report(ao3.progress, progress.WORK,
+                                title=record.get('title') or '', link=record['link'],
+                                done=done, total=len(gaps), phase=progress.DOWNLOADING)
+                # the entry first, then the file - so the name carries the version ao3 has
+                # now rather than the one the index happened to be holding
+                fresh = ao3.refresh_one(record)
+                print(strings.AO3_INFO_GAP_INDEXED)
+                ao3.filetypes = missing
+                ao3.download_one_indexed(fresh, maximum, log, done, len(gaps))
+            except exceptions.CancelledException:
+                break
+            except Exception as e:
+                ao3.record_failure(record['link'], e)
+                ao3.log_error(log, e)
+    finally:
+        # the caller's Ao3 is borrowed, not ours to leave reconfigured
+        ao3.filetypes = wanted
+
+
+def save_images(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict], report) -> None:
+    """Fetch each work's page, purely for the images embedded in it.
+
+    Runs **after** the files themselves are down, never instead of them. The indexed path
+    reads no work page, so this has to fetch one per fic - an extra request each, which is
+    why only a custom run offers it and why it says so plainly before you start.
+
+    A work page that will not load costs its images and nothing else. This is the last thing
+    a run does, and losing a second copy of some pictures is not worth ending it over.
+    """
+
+    if not records or job.cancel.is_set(): return
+
+    progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
+    print(strings.AO3_INFO_IMAGES_START)
+
+    maximum = fileops.get_ini_value_integer(
+        strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+    saved = 0
+    done = 0
+
+    for record in records:
+        if job.cancel.is_set(): break
+        if not record.get('id'): continue
+        done += 1
+        try:
+            ao3.check_cancelled()
+            progress.report(ao3.progress, progress.WORK, title=record.get('title') or '',
+                            link=record.get('link') or '', done=done, total=len(records),
+                            phase=progress.DOWNLOADING)
+            count = ao3.save_images_for(record, maximum)
+            saved += count
+            print(strings.AO3_INFO_IMAGE_WORK.format(
+                done, len(records), record.get('title') or record.get('id'), count))
+        except exceptions.CancelledException:
+            break
+        except Exception as e:
+            ao3.record_failure(record.get('link') or '', e)
+            ao3.log_error({'link': record.get('link') or ''}, e)
+
+    print(strings.AO3_INFO_IMAGES_DONE.format(saved, done))
+
+
+def run_new(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """Index only the bookmarks added since last time, then download them."""
+
+    downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
+              progress=report, cancelled=job.cancel.is_set)
+
+    records = index_new_bookmarks(job, fileops, ao3, report)
+    download_planned(job, fileops, ao3, records, downloadtypes, report)
+    report_failures(ao3, report)
+
+
+def run_sync(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """New bookmarks, then the unfinished ones, then whatever formats are still missing.
+
+    Three passes, each covering what the one before it cannot, and none of them walking the
+    whole listing - which is what makes this the one to run routinely. What it gives up is
+    stated in the ui and has to be acknowledged: a fic the index already calls finished is
+    never re-read, so chapters added to it afterwards are not noticed, and a gap left in the
+    index by an interrupted run stays a gap because the walk stops at the first fic it
+    recognises. A full scan is the answer to both.
+    """
+
+    downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    # one Ao3 for all three passes, so every failure lands in the same list and the run
+    # names them once at the end rather than three times over
+    ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
+              progress=report, cancelled=job.cancel.is_set)
+
+    records = index_new_bookmarks(job, fileops, ao3, report)
+    download_planned(job, fileops, ao3, records, downloadtypes, report)
+
+    if not job.cancel.is_set():
+        update_incomplete(job, fileops, ao3, downloadtypes, report)
+
+    if not job.cancel.is_set():
+        # the works the first two passes already dealt with are not gaps
+        handled = {str(x.get('id') or '') for x in records}
+        fill_missing_formats(job, fileops, ao3, handled, downloadtypes, report)
+
+    report_failures(ao3, report)
+
+
+def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """Index one fic and download it, from a link or a bare work number."""
+
+    downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    link = work_link(job.url)
+    if not link:
+        raise exceptions.InvalidLinkException(strings.ERROR_INVALID_LINK)
+
+    ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
+              progress=report, cancelled=job.cancel.is_set)
+
+    work = parse_text.get_work_number(link) or ''
+    progress.report(report, progress.PHASE, name=progress.INDEXING)
+    print(strings.AO3_INFO_ONE_WORK.format(work))
+
+    # an entry it already has keeps everything the listing gave it; only the stats change
+    existing = next((x for x in shared.read_index(fileops)
+                     if str(x.get('id') or '') == work), None)
+    record = ao3.index_one_work(link, existing)
+    print(strings.AO3_INFO_ONE_WORK_INDEXED)
+
+    download_planned(job, fileops, ao3, [record], downloadtypes, report)
+    print(strings.AO3_INFO_ONE_WORK_DONE.format(work))
+    report_failures(ao3, report)
+
+
+def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """A full scan with its parts made optional.
+
+    Indexing can be skipped, in which case the run works from whatever the index already
+    holds - no listing is read at all, and every judgement about what is out of date is
+    made against however old that index is. That is the point of the option and also its
+    whole risk, which is why it is off by default.
+    """
+
+    downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
+    pages = job.options['pages'] or None
+    start = job.options['start']
+
+    ao3 = Ao3(repo, fileops, downloadtypes, pages, job.options['series'],
+              job.options['images'], progress=report, cancelled=job.cancel.is_set,
+              start=start)
+
+    if job.options['reindex'] and metadata:
+        progress.report(report, progress.PHASE, name=progress.INDEXING)
+        print(strings.AO3_INFO_INDEXING)
+        records = ao3.get_metadata(bookmarks_link(job), job.options['workdates'])
+    else:
+        print(strings.AO3_INFO_USING_LAST_INDEX)
+        records = shared.read_index(fileops)
+        print(strings.AO3_INFO_INDEXED_COUNT.format(len(records)))
+
+    download_planned(job, fileops, ao3, records, downloadtypes, report)
+
+    # last, and only when asked: it costs a work page per fic, which is exactly what the
+    # rest of this run is built to avoid
+    if job.options['images']:
+        save_images(job, fileops, ao3, records, report)
+
+    report_failures(ao3, report)
+
+
+def work_link(value: str) -> str | None:
+    """A work link from either a link or a bare work number.
+
+    Pasting the number off the address bar is as natural as pasting the whole url, and both
+    say the same thing. Anything else - a series, a collection, a listing, a typo - comes
+    back as None so the caller refuses it before a run starts rather than after.
+    """
+
+    text = (value or '').strip()
+    if not text: return None
+    if text.isdigit(): return f'{strings.AO3_BASE_URL}/works/{text}'
+
+    work = parse_text.get_work_number(text)
+    if not work: return None
+    if strings.AO3_DOMAIN not in text.lower(): return None
+    return f'{strings.AO3_BASE_URL}/works/{work}'
 
 
 def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: dict,
@@ -454,6 +750,9 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
     else:
         print(strings.AO3_INFO_COLLECTIONS_NONE)
 
+    # a collection crawl can leave gaps too, and used not to say so at all
+    report_failures(ao3, report)
+
 
 def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     """Index one collection from a link, which need not be one of the user's own.
@@ -471,6 +770,8 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
     if records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
             len(records), os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)))
+
+    report_failures(ao3, report)
 
 
 def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -494,6 +795,20 @@ def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     """
 
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
+              progress=report, cancelled=job.cancel.is_set)
+
+    update_incomplete(job, fileops, ao3, downloadtypes, report)
+    report_failures(ao3, report)
+
+
+def update_incomplete(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[str],
+                      report) -> None:
+    """The unfinished-fics pass, on an Ao3 the caller owns.
+
+    Split out from `run_update` so a combined run can put it after its own indexing pass
+    and still report every failure from both together, on the one Ao3 that collected them.
+    """
 
     # 1. the index, off disk. no requests at all.
     progress.report(report, progress.PHASE, name=progress.SCANNING)
@@ -505,9 +820,6 @@ def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         return
 
     print(strings.AO3_INFO_INCOMPLETE_FOUND.format(len(incomplete)))
-
-    ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
-              progress=report, cancelled=job.cancel.is_set)
 
     # 2 and 3. what is already downloaded for those works, and what to do about any of it
     # that carries no date. asked now, before a single request, because the answer decides
@@ -541,7 +853,6 @@ def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             break
 
     print(strings.AO3_INFO_UPDATE_DONE.format(checked, fetched))
-    report_failures(ao3, report)
 
 
 def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str],
@@ -602,11 +913,49 @@ def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str]
 
 
 def report_failures(ao3: Ao3, report) -> None:
-    """Name the works a run could not fetch, rather than leaving them to the log."""
+    """Name the works a run could not fetch, and the bookmarks that were never works.
+
+    Both at the end, both as lists rather than counts, because either one leaves a gap
+    between what was bookmarked and what is on disk - and a number alone gives nobody a way
+    to find out which ones, or to go and look at them.
+
+    They stay two separate lists on purpose. A failure is something that went wrong and
+    might not next time; a skipped bookmark is a series, or a work hosted somewhere else,
+    or one that has been deleted - nothing went wrong and no amount of retrying would
+    change it. Putting them together would make the first look routine.
+    """
+
+    if ao3.skipped_works:
+        print(strings.AO3_INFO_SKIPPED_WORKS.format(len(ao3.skipped_works)))
+        progress.report(report, progress.SKIPPED, skipped=ao3.skipped_works)
 
     if not ao3.failures: return
     print(strings.AO3_INFO_FAILED_WORKS.format(len(ao3.failures)))
     progress.report(report, progress.FAILURES, failures=ao3.failures)
+
+
+def runners() -> dict:
+    """What each action actually runs.
+
+    A table rather than a chain of elifs: that chain ended in a bare `else`, which quietly
+    turned every unrecognised action into an update run, and `ACTIONS` is already the guard
+    over which names are allowed.
+
+    Built per call rather than held at module level on purpose - a module-level dict would
+    capture these functions at import, so replacing one afterwards (which every test of the
+    dispatch does) would change the name and not the table.
+    """
+
+    return {
+        ACTION_BOOKMARKS: run_bookmarks,
+        ACTION_UPDATE: run_update,
+        ACTION_COLLECTIONS: run_collections,
+        ACTION_COLLECTION: run_collection,
+        ACTION_NEW: run_new,
+        ACTION_SYNC: run_sync,
+        ACTION_WORK: run_work,
+        ACTION_CUSTOM: run_custom,
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -713,13 +1062,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {'error': 'username and password are required'})
             return
 
-        filetypes = resolve_filetypes(body.get('filetypes'))
         options = resolve_options(body.get('options'))
+        # a custom run told to skip indexing writes no json, because json is the index
+        indexing_run = options['reindex'] or action != ACTION_CUSTOM
+        filetypes = resolve_filetypes(body.get('filetypes'), force=indexing_run)
 
         url = (body.get('url') or '').strip()
-        if action in ACTIONS_NEEDING_URL:
-            # checked here rather than on the thread, so a bad link is a straight answer to
-            # the request instead of a job that starts and immediately fails
+        # checked here rather than on the thread, so a bad link is a straight answer to the
+        # request instead of a job that starts and immediately fails
+        if action == ACTION_WORK:
+            link = work_link(url)
+            if not link:
+                self.send_json(400, {'error': strings.ERROR_NOT_A_WORK_LINK})
+                return
+            # normalised now, so the run is handed a link rather than whatever was pasted
+            url = link
+        elif action in ACTIONS_NEEDING_URL:
             if strings.AO3_BASE_URL not in url or not parse_text.get_collection_name(url):
                 self.send_json(400, {'error': strings.ERROR_NOT_A_COLLECTION})
                 return

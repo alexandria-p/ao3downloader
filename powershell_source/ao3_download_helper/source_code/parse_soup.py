@@ -654,6 +654,65 @@ def get_blurb_work_number(blurb: Tag) -> str | None:
     return None
 
 
+def get_blurb_skip_reason(blurb: Tag) -> dict:
+    """Why a bookmark has no work number, as far as the listing is willing to say.
+
+    A bookmarks listing holds more than works: bookmarks of series, of works hosted
+    somewhere else entirely, and of works that have since been deleted or hidden. None of
+    those has a work number, so none can be indexed or downloaded - and a count on its own
+    leaves no way to tell which bookmark was passed over or to go and look at it.
+
+    Returns the same `{id, link, error}` shape a failed download does, so both lists render
+    and export the same way. The reason is what the page shows, not a guess dressed up as
+    one: when the listing does not say, it says that it does not say.
+    """
+
+    heading = blurb.select_one('h4.heading a')
+    href = str(heading.get('href') or '') if heading else ''
+    title = get_text_or_empty(blurb, 'h4.heading a') or get_text_or_empty(blurb, 'h4.heading')
+
+    series = parse_text.get_series_number(href)
+    if series:
+        return {'id': series, 'link': full_url(href), 'title': title,
+                'error': strings.SKIPPED_SERIES}
+
+    if href.startswith('http') and strings.AO3_DOMAIN not in href.lower():
+        return {'id': None, 'link': href, 'title': title, 'error': strings.SKIPPED_EXTERNAL}
+
+    # when ao3 will say why, it says so in a `p.message` where the work would have been, and
+    # the blurb is otherwise empty - no heading, no link, nothing. checked against a real
+    # listing: a deleted work renders exactly this way and nothing else does.
+    message = get_text_or_empty(blurb, 'p.message').strip()
+    if message:
+        lowered = message.lower()
+        if 'deleted' in lowered: reason = strings.SKIPPED_DELETED
+        elif 'private' in lowered: reason = strings.SKIPPED_PRIVATE
+        # ao3's own words beat anything invented here, for a message not seen before
+        else: reason = message
+        return {'id': None, 'link': '', 'title': title, 'error': reason}
+
+    return {'id': None, 'link': full_url(href) if href else '', 'title': title,
+            'error': strings.SKIPPED_UNKNOWN}
+
+
+def is_unrevealed_blurb(blurb: Tag) -> bool:
+    """Whether a blurb is a work that exists but cannot be read yet.
+
+    A work in an unrevealed collection shows as 'Mystery Work' with **no link on its
+    title** - ao3 will not say which work it is until the collection opens. The catch is
+    that the blurb still carries the `work-<id>` class, so it has a work number and is
+    indexed like any other; only the download is impossible.
+
+    Checked against a real listing and against the bookmarks fixture: every ordinary work
+    blurb carries both a work number and a title link, and the only blurbs with a number
+    but no link are these. So the absence of the link is the test - not the words 'Mystery
+    Work', which are ao3's wording of the day rather than a structure.
+    """
+
+    if not get_blurb_work_number(blurb): return False
+    return blurb.select_one('h4.heading a[href*="/works/"]') is None
+
+
 def get_blurb_metadata(blurb: Tag) -> dict:
     """Get work metadata, and the bookmarker's own data where it exists, from a single blurb.
 

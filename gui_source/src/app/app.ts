@@ -2,18 +2,19 @@ import { Component, ElementRef, computed, inject, signal, viewChild } from '@ang
 import { DecimalPipe } from '@angular/common';
 import { CollectionsView } from './collections-view';
 import { DownloadDialog } from './download-dialog';
+import { Faq } from './faq';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { JobAction } from './jobs';
 import { Library } from './library';
 import { WorkList } from './work-list';
 import { Bookmark, ownerFromSource } from './bookmarks';
 
-/** the two things this folder holds, and the two pages that show them */
-export type View = 'bookmarks' | 'collections';
+/** the two things this folder holds, the two pages that show them, and the help page */
+export type View = 'bookmarks' | 'collections' | 'faq';
 
 @Component({
   selector: 'app-root',
-  imports: [DecimalPipe, DownloadDialog, FolderWarning, WorkList, CollectionsView],
+  imports: [DecimalPipe, DownloadDialog, Faq, FolderWarning, WorkList, CollectionsView],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })

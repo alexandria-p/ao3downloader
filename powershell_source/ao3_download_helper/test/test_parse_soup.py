@@ -485,6 +485,117 @@ def test_get_blurb_work_number_skips_non_work_bookmarks(fixture_soup):
     assert '34816549' in numbers
 
 
+# region why a bookmark was skipped
+
+def test_a_skipped_series_says_so_and_keeps_its_number():
+    html = ('<li class="bookmark blurb group"><h4 class="heading">'
+            '<a href="/series/12345">A Series</a></h4></li>')
+
+    reason = parse_soup.get_blurb_skip_reason(_blurb(html))
+
+    assert reason['id'] == '12345'
+    assert reason['link'] == 'https://archiveofourown.org/series/12345'
+    assert reason['title'] == 'A Series'
+    assert reason['error'] == strings.SKIPPED_SERIES
+
+
+def test_a_skipped_external_work_keeps_the_link_it_actually_points_at():
+    # there is no work number to keep, so the off-site link is the only way back to it
+    html = ('<li class="bookmark blurb group"><h4 class="heading">'
+            '<a href="https://example.com/fic/1">Elsewhere</a></h4></li>')
+
+    reason = parse_soup.get_blurb_skip_reason(_blurb(html))
+
+    assert reason['id'] is None
+    assert reason['link'] == 'https://example.com/fic/1'
+    assert reason['error'] == strings.SKIPPED_EXTERNAL
+
+
+def test_a_deleted_work_is_named_as_deleted():
+    # the real markup: no heading and no link at all, just ao3's message where the work was
+    html = ('<li class="bookmark blurb group user-613899">'
+            '<p class="message">This has been deleted, sorry!</p></li>')
+
+    assert parse_soup.get_blurb_skip_reason(_blurb(html))['error'] == strings.SKIPPED_DELETED
+
+
+def test_a_message_nobody_has_seen_before_is_passed_on_in_ao3s_own_words():
+    # better ao3's wording than a guess of ours, when it has bothered to say something
+    html = ('<li class="bookmark blurb group">'
+            '<p class="message">This work is temporarily unavailable.</p></li>')
+
+    reason = parse_soup.get_blurb_skip_reason(_blurb(html))['error']
+
+    assert reason == 'This work is temporarily unavailable.'
+
+
+# region works that exist but cannot be fetched yet
+
+def test_an_unrevealed_work_is_recognised_by_having_no_title_link():
+    # 'Mystery Work' is ao3's wording of the day; the missing link is the structure
+    html = ('<li class="bookmark blurb group work-75354806 user-613899">'
+            '<h4 class="heading">Mystery Work</h4></li>')
+
+    assert parse_soup.is_unrevealed_blurb(_blurb(html)) is True
+    # and it still has a work number, which is why it indexes like any other
+    assert parse_soup.get_blurb_work_number(_blurb(html)) == '75354806'
+
+
+def test_an_ordinary_work_is_not_mistaken_for_an_unrevealed_one():
+    html = ('<li class="work blurb group work-77"><h4 class="heading">'
+            '<a href="/works/77">A Fic</a></h4></li>')
+
+    assert parse_soup.is_unrevealed_blurb(_blurb(html)) is False
+
+
+def test_a_deleted_bookmark_is_not_an_unrevealed_work():
+    # it has no work number at all, so there is nothing to hold back from a download
+    html = ('<li class="bookmark blurb group">'
+            '<p class="message">This has been deleted, sorry!</p></li>')
+
+    assert parse_soup.is_unrevealed_blurb(_blurb(html)) is False
+
+
+def test_every_work_in_the_fixture_carries_both_a_number_and_a_title_link(fixture_soup):
+    # the assumption the test above rests on: if an ordinary blurb could lack its title
+    # link, that rule would call real works unrevealed and stop downloading them
+    soup = fixture_soup('bookmarks')
+
+    for blurb in parse_soup.get_blurbs(soup):
+        if not parse_soup.get_blurb_work_number(blurb): continue
+        assert not parse_soup.is_unrevealed_blurb(blurb)
+
+# endregion
+
+
+def test_a_bookmark_the_listing_will_not_explain_says_that_it_does_not_know():
+    # a guess dressed up as a reason is worse than saying the page did not say
+    html = '<li class="bookmark blurb group"><h4 class="heading">Something</h4></li>'
+
+    reason = parse_soup.get_blurb_skip_reason(_blurb(html))
+
+    assert reason['error'] == strings.SKIPPED_UNKNOWN
+    assert 'may have been' in reason['error']
+
+
+def test_the_skipped_shape_matches_a_failed_download():
+    # both lists render and export through the same code, so they have to agree
+    html = '<li class="bookmark blurb group"><h4 class="heading">Something</h4></li>'
+
+    assert set(parse_soup.get_blurb_skip_reason(_blurb(html))) >= {'id', 'link', 'error'}
+
+
+def test_the_real_bookmarked_series_in_the_fixture_is_explained(fixture_soup):
+    soup = fixture_soup('bookmarks')
+    skipped = [parse_soup.get_blurb_skip_reason(b) for b in parse_soup.get_blurbs(soup)
+               if not parse_soup.get_blurb_work_number(b)]
+
+    assert len(skipped) == 1
+    assert skipped[0]['error'] == strings.SKIPPED_SERIES
+
+# endregion
+
+
 def test_get_blurb_work_number_falls_back_to_the_title_link():
     # plain work listings don't always carry the work number in the class list
     html = '<li class="work blurb group"><h4 class="heading"><a href="/works/77">T</a></h4></li>'

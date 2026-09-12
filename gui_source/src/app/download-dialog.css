@@ -435,6 +435,12 @@ pre {
   font-size: 0.85rem;
 }
 
+/* a skipped bookmark is not a failure - nothing went wrong, so it does not wear red */
+.failures.skipped {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
 .failures-text {
   margin: 0 0 8px;
 }

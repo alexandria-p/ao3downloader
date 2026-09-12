@@ -56,16 +56,49 @@
       <span class="count">{{ collections().length | number }}</span>
     }
   </button>
+  <button
+    type="button"
+    [class.current]="view() === 'faq'"
+    [attr.aria-current]="view() === 'faq' ? 'page' : null"
+    (click)="setView('faq')"
+  >
+    FAQ
+  </button>
 </nav>
 
+<!-- the faq is something to read, not a folder to act on, so it carries no buttons -->
+@if (view() !== 'faq') {
 <div class="actions">
   @if (view() === 'bookmarks') {
-    <button type="button" class="button primary" (click)="dialogAction.set('bookmarks')">
-      Download newly added bookmarks
+    <!--
+      the everyday run first and the slow thorough one second, because that is the order
+      they should be reached for. the rest are each useful for one job and confusing as a
+      default, so they wait behind a disclosure rather than sitting in the way
+    -->
+    <button type="button" class="button primary" (click)="dialogAction.set('sync')">
+      (Recommended) Download new bookmarks and update incomplete fics
     </button>
-    <button type="button" class="button" (click)="dialogAction.set('update')">
-      Update any bookmarks marked as incomplete
+    <button type="button" class="button" (click)="dialogAction.set('bookmarks')">
+      (Full scan) Reindex &amp; Update All
     </button>
+
+    <details class="advanced">
+      <summary>Advanced options</summary>
+      <div class="advanced-actions">
+        <button type="button" class="button" (click)="dialogAction.set('update')">
+          Just update any bookmarks marked as incomplete
+        </button>
+        <button type="button" class="button" (click)="dialogAction.set('new')">
+          Just download newly added bookmarks
+        </button>
+        <button type="button" class="button" (click)="dialogAction.set('work')">
+          Download/update a specific fic
+        </button>
+        <button type="button" class="button" (click)="dialogAction.set('custom')">
+          Custom run
+        </button>
+      </div>
+    </details>
   } @else {
     <button type="button" class="button primary" (click)="dialogAction.set('collections')">
       Index my collections
@@ -75,6 +108,7 @@
     </button>
   }
 </div>
+}
 
 @if (dialogAction(); as action) {
   <app-download-dialog [action]="action" (closed)="dialogAction.set(null)" />
@@ -98,7 +132,8 @@
   <p class="notice">Reading files...</p>
 }
 
-@if (isEmpty()) {
+<!-- the faq is worth reading before a folder is chosen, so it is not held behind one -->
+@if (isEmpty() && view() !== 'faq') {
   <section class="empty">
     <h2>Choose your downloads folder</h2>
     <p>
@@ -133,10 +168,13 @@
     />
   } @else if (!isEmpty() && !loading()) {
     <p class="notice">
-      No bookmarks indexed in this folder yet. Use <strong>Download newly added bookmarks</strong>
-      above to fetch them.
+      No bookmarks indexed in this folder yet. Use
+      <strong>(Recommended) Download new bookmarks and update incomplete fics</strong> above to
+      fetch them.
     </p>
   }
-} @else {
+} @else if (view() === 'collections') {
   <app-collections-view />
+} @else {
+  <app-faq />
 }

@@ -145,6 +145,30 @@ AO3_INFO_UP_TO_DATE = 'everything else you have is already the current version'
 AO3_INFO_STAMPED = 'dated {} existing files as {}'
 AO3_INFO_FROM_INDEX = 'downloading {} works straight from the index, without walking the listing again'
 AO3_INFO_FAILED_WORKS = '{} works could not be downloaded'
+# the 'new bookmarks only' walk, which stops at the first fic it already has
+AO3_INFO_INDEXING_NEW = 'indexing your newest bookmarks, stopping at the first one you already have'
+AO3_INFO_REACHED_KNOWN = 'reached a fic you have already indexed - nothing newer left to find'
+AO3_INFO_NEW_NONE = 'no new bookmarks since the last run'
+AO3_INFO_NEW_FOUND = 'found {} newly bookmarked works'
+# the gap-filling pass at the end of a combined run
+AO3_INFO_CHECKING_GAPS = 'checking your finished fics for formats this run asked for but you do not have'
+AO3_INFO_GAPS_NONE = 'nothing missing - every finished fic has the formats you asked for'
+AO3_INFO_GAPS_FOUND = '{} finished works are missing a format you asked for'
+AO3_INFO_GAP_WORK = '[{} of {}] {} - fetching {}'
+AO3_INFO_GAP_INDEXED = '    index updated'
+# one fic on its own, by link or work number
+AO3_INFO_ONE_WORK = 'looking up work {}'
+AO3_INFO_ONE_WORK_INDEXED = 'index updated'
+AO3_INFO_ONE_WORK_DONE = 'finished with work {}'
+# a custom run told to work from what is already indexed
+# the separate images pass, which costs a work page per fic on top of everything else
+AO3_INFO_IMAGES_START = 'now fetching each work page for the images embedded in it - this is the slow part'
+AO3_INFO_IMAGE_WORK = '[{} of {}] {} - {} images saved'
+AO3_INFO_IMAGES_DONE = 'saved {} images from {} works'
+
+AO3_INFO_USING_LAST_INDEX = 'skipping indexing - working from what is already in your index'
+AO3_INFO_INDEXED_COUNT = 'your index holds {} works'
+
 AO3_INFO_READING_INDEX = 'reading your index for fics it last saw unfinished'
 AO3_INFO_INCOMPLETE_FOUND = 'the index lists {} works as unfinished'
 # said per fic, so the log reads as a running account of what is happening to each one
@@ -181,6 +205,17 @@ AO3_INFO_METADATA_PAGE = 'finished page {} of {}. {} works so far'
 # genuinely nothing to count towards - saying 'of None' would be worse than saying nothing
 AO3_INFO_METADATA_PAGE_ONLY = 'finished page {}. {} works so far'
 AO3_INFO_METADATA_SKIPPED = 'skipped {} bookmarks that are not works (series, external works, or deleted works)'
+# why one bookmark could not be indexed. said per bookmark, so the list at the end names
+# each one rather than leaving a count to be worked out from
+AO3_INFO_SKIPPED_WORKS = '{} bookmarks were not works and could not be downloaded - the list below says which, and why'
+SKIPPED_SERIES = 'a series, not a single work'
+SKIPPED_EXTERNAL = 'an external work, hosted somewhere other than ao3'
+SKIPPED_DELETED = 'the work has been deleted'
+# an author hides a work by putting it in an unrevealed collection. it keeps its work
+# number and is indexed like any other, but ao3 will not serve the file until it opens.
+SKIPPED_UNREVEALED = 'in an unrevealed collection - it cannot be downloaded until it is revealed'
+SKIPPED_PRIVATE = 'the work has been made private'
+SKIPPED_UNKNOWN = 'not a work - it may have been deleted, made private, or hidden'
 AO3_INFO_METADATA_WRITTEN = 'wrote metadata for {} works to {}'
 AO3_INFO_METADATA_INCREMENTAL = 'saving one json file per work as each page is read. if you need to stop\nearly, press ctrl+c rather than closing the window'
 AO3_INFO_METADATA_NONE = 'no works found on that page. nothing was written'
@@ -310,6 +345,7 @@ ERROR_METADATA_BLURB = 'Problem parsing work metadata from listing'
 ERROR_METADATA_SAVE = 'Problem saving work metadata file'
 ERROR_COLLECTIONS = 'Error encountered while syncing collections. Some may be missing.'
 ERROR_NOT_A_COLLECTION = 'That is not a link to an ao3 collection. It should look like https://archiveofourown.org/collections/somename'
+ERROR_NOT_A_WORK_LINK = 'That is not an ao3 work. Paste a link like https://archiveofourown.org/works/34816549, or just the work number.'
 ERROR_COLLECTION_PROFILE = 'Problem reading a collection profile page'
 ERROR_COLLECTION_ITEMS = 'Problem reading the items in a collection'
 ERROR_COLLECTION_SAVE = 'Problem saving collection file'

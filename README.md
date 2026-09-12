@@ -122,8 +122,15 @@ The page has two tabs, **Bookmarks** and **Collections**, each carrying the butt
 
 The **Bookmarks** tab lists your indexed bookmarks and has:
 
-- **Download newly added bookmarks** - the same as the console option 'download from ao3 link', pointed at `https://archiveofourown.org/users/<your username>/bookmarks`. Works already in your downloads folder are skipped, so a second run only picks up bookmarks added since the last one.
-- **Update any bookmarks marked as incomplete** - reads your index for fics it last saw unfinished, checks each one on AO3, and brings its index entry up to date. It only downloads a fic if you have no copy of it, or the copy you have is behind. See [updating unfinished fics](#updating-unfinished-fics) for what it does and does not catch.
+- **(Recommended) Download new bookmarks and update incomplete fics** - the one to reach for. Three passes: your newest bookmarks, then the fics your index last saw unfinished, then any finished fic missing a format you asked for on this run. None of them walks your whole listing, so it is quick even on a large library. It asks you to acknowledge three things first, and you can turn that note off: it stops indexing at the first bookmark it recognises, so gaps further back in a damaged index stay unseen; it never re-reads a fic the index already calls finished; and for those completed works it also misses changes to the *bookmark* rather than the fic - your own notes and tags, whether you marked it a rec, whether it is private.
+- **(Full scan) Reindex & Update All** - the same as the console option 'download from ao3 link', pointed at `https://archiveofourown.org/users/<your username>/bookmarks`. Walks every page, reindexes every fic, and downloads whatever is missing or out of date. It is the only run that can repair a wrong index or notice a completed fic that has been added to since - and on a large library it takes hours, which it says before you start.
+
+Behind **Advanced options**:
+
+- **Just update any bookmarks marked as incomplete** - reads your index for fics it last saw unfinished, checks each one on AO3, and brings its index entry up to date. It only downloads a fic if you have no copy of it, or the copy you have is behind. See [updating unfinished fics](#updating-unfinished-fics) for what it does and does not catch.
+- **Just download newly added bookmarks** - indexes from your newest bookmark and stops at the first one you already have, then downloads what it found. The first pass of the recommended run, on its own.
+- **Download/update a specific fic** - paste a work link or just the work number. Indexes that one fic and downloads it in the formats you pick. A link to any chapter works.
+- **Custom run** - a full scan with its parts made optional: choose which pages to cover, or skip reading AO3 at all and work from what is already indexed. That last one costs no requests to decide anything, but judges everything against however old your index is. This is the one run that asks its options *before* the file types, because skipping the indexing decides one of them: JSON is the index, so a run that does not index does not write it, and the JSON box is ticked or unticked to match and locked either way.
 
 The **Collections** tab lists your indexed collections and has:
 
@@ -132,9 +139,18 @@ The **Collections** tab lists your indexed collections and has:
 
 Clicking a collection opens what was recorded about it - maintainers, tags, challenge type, counts, the collection it belongs to and any subcollections - along with the works in it, in the same listing the Bookmarks tab uses. A collection records only the *work numbers* it holds, so a work that is in your bookmarks index is shown in full. A collection can also hold works you have never bookmarked: those are still listed, in the collection's own order, but by work number alone with a link to the work on AO3 - because the number really is all that is known about them. A line above the table says how many of them there are. A parent or subcollection that has been indexed too opens in the page; one that has not links out to AO3.
 
-The two bookmark buttons ask which file types you want. JSON is always produced and cannot be unticked - it is the index this page reads, and it costs nothing extra, being read off the listing pages that have to be fetched anyway. Everything else is optional: HTML starts ticked because most people want it, but **unticking it leaves a metadata-only run**, which is far lighter on ao3's rate limit. Indexing reads one page per 20 works; every other file type costs one request per work, so a full download of 700 bookmarks is roughly 735 requests where indexing alone is about 35. It then asks the same questions the console menu does - which page to start on and which to stop after (0 for all of them), whether to follow series links, whether to save embedded images, and whether to look up publication dates - leaving out any that do not apply to the action you picked. Finally it asks you to log in to ao3. **Index my collections** has nothing to choose, so it goes straight to the login; **Index collection by URL** asks for the link first.
+The two bookmark buttons ask which file types you want. JSON is always produced and cannot be unticked - it is the index this page reads, and it costs nothing extra, being read off the listing pages that have to be fetched anyway. Everything else is optional: HTML starts ticked because most people want it, but **unticking it leaves a metadata-only run**, which is far lighter on ao3's rate limit. Indexing reads one page per 20 works; every other file type costs one request per work, so a full download of 700 bookmarks is roughly 735 requests where indexing alone is about 35. It then asks whatever the run you picked can actually act on, and nothing else - a checkbox that would do nothing is not offered at all. **Custom run** is the only one that asks which pages to cover; a full scan covers all of them by definition. **(Full scan) Reindex & Update All** is the only one that offers series links and embedded images, for the reason below. Runs with nothing to choose say so and go on to the login. **Index my collections** goes straight there; **Index collection by URL** and **Download/update a specific fic** ask for their link first.
 
-Start and stop are both positions in the whole listing, so you can fetch a slice out of the middle of it - pages 5 to 9, or page 12 onwards. That is mostly useful for picking up where a stopped run left off without refetching what you already have. Works keep the position they hold in the full listing either way, so a partial run does not renumber them.
+Every run asks its options first and its file types second, and **a run with nothing to choose skips the options step entirely** rather than showing a page that says so.
+
+Series links and embedded images are both read off a work's **own page** - series are listed on it, and embedded images are `<img>` tags in the work's html. Most runs download straight from the work number instead, which is what makes them cheap: one request per format, and the work page never fetched at all.
+
+- **Series expansion** is offered on the full scan only, because that is the only run that walks the listing the long way round and can pull in works that were never bookmarked.
+- **Saving images separately** is offered on the custom run only. It fetches each work's page *after* the files themselves are down, purely to read the image links out of it - one extra request per fic, which makes the run considerably longer.
+
+You probably do not want the images option. Images are normally embedded in the downloaded work already and display when you read it; this saves a second copy of each as its own file, in an `images` subfolder, for when the pictures themselves are what you want.
+
+For the custom run, start and stop are both positions in the whole listing, so you can fetch a slice out of the middle of it - pages 5 to 9, or page 12 onwards. That is mostly useful for picking up where a stopped run left off without refetching what you already have. Works keep the position they hold in the full listing either way, so a partial run does not renumber them.
 
 While a run is in progress the dialog shows a progress bar, the file types and options you chose, the folder being written to, and the name of the fic being fetched right now along with the format it is being fetched in. A message appears if ao3 asks the script to slow down. **Leave the tab open while a download runs** - refreshing or closing it interrupts the run.
 
@@ -217,9 +233,9 @@ A fic is downloaded **only** if one of two things is true: you have no copy of a
 
 The re-read happens for every unfinished fic whether or not anything comes of it - so your index ends up current even where nothing needed downloading. Only the download is conditional. A fic that has not moved costs exactly one request and nothing else, which is what makes running this repeatedly cheap.
 
-This is a different order from **Download newly added bookmarks**, which indexes the whole listing first and only then downloads anything. It can do that because one listing request describes twenty fics at once. Here every fic has to be opened on its own, so there is nothing to gain by doing all the reading first - and doing it fic by fic means a run you stop partway has completely finished every fic it got to.
+This is a different order from **(Full scan) Reindex & Update All**, which indexes the whole listing first and only then downloads anything. It can do that because one listing request describes twenty fics at once. Here every fic has to be opened on its own, so there is nothing to gain by doing all the reading first - and doing it fic by fic means a run you stop partway has completely finished every fic it got to.
 
-Only the fields a work's own page can speak to are rewritten - chapters, words, comments, kudos, bookmarks, hits and the updated date. Tags, the summary and your own bookmark notes come from the bookmarks listing, so those are left exactly as they were and are refreshed by a **Download newly added bookmarks** run instead.
+Only the fields a work's own page can speak to are rewritten - chapters, words, comments, kudos, bookmarks, hits and the updated date. Tags, the summary and your own bookmark notes come from the bookmarks listing, so those are left exactly as they were and are refreshed by a **(Full scan) Reindex & Update All** run instead.
 
 #### What this will not catch
 
@@ -227,11 +243,11 @@ Only the fields a work's own page can speak to are rewritten - chapters, words, 
 
 The web UI makes you acknowledge this before it will let you log in, because it is the one thing an update pass cannot do.
 
-To pick those up, run **Download newly added bookmarks** instead. That re-reads the whole listing, so it sees any fic AO3 now reports as updated more recently than your copy, finished or not.
+To pick those up, run **(Full scan) Reindex & Update All** instead. That re-reads the whole listing, so it sees any fic AO3 now reports as updated more recently than your copy, finished or not.
 
 ### <span id="keeping-downloads-up-to-date"></span>Keeping downloads up to date
 
-**Download newly added bookmarks** does not only pick up bookmarks that are new to you. Because every downloaded work carries the date of the version it holds, the run can also see when a fic you already have has been updated since you saved it.
+**(Full scan) Reindex & Update All** does not only pick up bookmarks that are new to you. Because every downloaded work carries the date of the version it holds, the run can also see when a fic you already have has been updated since you saved it.
 
 After indexing - which is where the current update dates come from - it reads your downloads folder, matches each file to a work by the number it starts with, and compares:
 
@@ -259,11 +275,24 @@ When it finishes, it **names them**: how many there were, the first few with the
 
 There is an **Export the list** button alongside. It saves a plain text file - one work per line, with the work number, the link and the reason, tab separated - so you can look them over or feed the numbers back in. A work is listed once however many formats failed for it.
 
+#### Bookmarks that were never works
+
+A bookmarks listing holds more than works, and none of these has a work to download:
+
+- **a series**, bookmarked as a series rather than as its individual works
+- **an external work**, hosted somewhere other than AO3
+- **a deleted work** - the bookmark stays, the work does not
+- **something the listing will not explain**, which may have been deleted, made private, or hidden
+
+These get their own list at the end of the run, with the reason for each, and their own **Export the list** button - one row per bookmark, with the work or series number and the link where there is one. Where AO3 does not say why, it says that rather than guessing.
+
+They are deliberately kept apart from the failures above. Nothing went wrong with them and running again will skip them again, so mixing the two would make a real failure look routine. **Every button ends this way**, including the ones that only index.
+
 #### Files downloaded before this change
 
 Works saved before file names carried a date cannot be judged: there is nothing recorded about which version they are.
 
-**The run stops and asks you what to do about them**, before it downloads anything. It has to ask at that point rather than afterwards, because the answer decides which works count as out of date - and once the downloads have happened there is nothing left to act on. Both **Download newly added bookmarks** and **Update any bookmarks marked as incomplete** ask, right after they work out what you already have.
+**The run stops and asks you what to do about them**, before it downloads anything. It has to ask at that point rather than afterwards, because the answer decides which works count as out of date - and once the downloads have happened there is nothing left to act on. Both **(Full scan) Reindex & Update All** and **Update any bookmarks marked as incomplete** ask, right after they work out what you already have.
 
 You get three choices:
 

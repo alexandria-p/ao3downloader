@@ -58,7 +58,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 **4 tests in `test/test_ao3.py::test_proceed_*` fail with `UnicodeDecodeError`.** They are
 pre-existing, present on the unmodified upstream code, and caused by fixtures being read
 with the platform default codec (cp1252 on Windows). Do not chase them; do not count them
-as regressions. Current: **891 python passed, 4 failed; 184 gui passed.**
+as regressions. Current: **958 python passed, 4 failed; 226 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -149,6 +149,24 @@ discovered *on* the work page, so asking for any of them falls back to `Ao3.down
 other cost of the indexed path is that nothing reads the work page, so locked/deleted/hidden
 works are no longer recognised as such - they fail and are logged.
 
+**Only `run_bookmarks` can take that fallback**, and that decides what the ui offers. Every
+other action downloads a *subset* of the index through `download_planned` /
+`download_one_indexed`, and `Ao3.download` cannot do a subset - it walks a listing. So
+**series expansion is offered on the full scan alone** (`picksSeries`): nothing else goes
+the long way round, so there is nothing for a series to expand into.
+
+**Embedded images take the other route.** `Ao3.save_images_for` fetches a work's page on its
+own, purely to read the `<img>` tags out of it, and `server.save_images` runs that as a
+separate pass **after** the files are down - never instead of them, and last, because a work
+page fetched for pictures is the most expendable request in a run. It costs one extra
+request per work, which is why only the custom run offers it (`picksImages`) and why the ui
+says so twice: that it makes the run much longer, and that the images are normally embedded
+in the downloaded work already, so most people do not want it at all.
+
+`Ao3.save_images` is shared with `download_work`, which already had the page in hand. An
+image that will not come down is logged and skipped, never fatal - the hosts are third
+parties and a dead image link is the most ordinary failure here.
+
 ### The bundle ships only what the helper imports
 
 `copy_helper_package` walks imports out from `source_code/server.py` (`HELPER_ENTRY`) with
@@ -165,6 +183,78 @@ rather than at build time. There is a test for exactly that - add an import to t
 is read through `importlib.resources`, so it is named explicitly. `html/template.html` is
 **not** listed because only the console's log visualisation reads it. If you add another
 resource read that way, add it to `HELPER_DATA` or it will be missing from the bundle only.
+
+### Eight actions, one dispatch table
+
+`ACTIONS` is the allowlist and `runners()` maps each name to the function that runs it.
+**`runners()` is built per call, not held at module level**, because a module-level dict
+captures the functions at import - so replacing one afterwards (which every test of the
+dispatch does) would change the name and not the table. It replaced a chain of elifs whose
+last branch was a bare `else`, which quietly made any unrecognised action an update run.
+
+The three that walk a listing differ only in where they stop:
+
+| Action | Walks | For |
+| --- | --- | --- |
+| `bookmarks` | every page | repairing an index, or catching a finished fic that grew |
+| `custom` | the pages asked for, or none at all | filling in a format, or a slice of a listing |
+| `new` / `sync` | until the first fic already indexed | everything routine |
+
+`Ao3.get_metadata(link, workdates, known=...)` is what makes the short walk possible: it
+stops at the first work whose id is in `known`, and returns only the works ahead of it.
+`shared.indexed_work_ids` builds that set **from the index file names alone** - the work
+number leads the name by the same rule that pairs a download to its entry - because parsing
+a few thousand json files to answer "seen this one?" per blurb would cost more than the
+requests saved.
+
+**The assumption is that ao3 lists bookmarks newest first**, which is what makes one stop
+enough. Re-bookmarking an old fic moves it to the front, so the walk still stops correctly;
+what it cannot see is a gap *behind* the stopping point, left by an interrupted earlier run.
+That, and never re-reading a fic the index calls finished, are the two things `sync` makes
+the user acknowledge - and the note can be turned off, because a warning on the run people
+are meant to use routinely is one they otherwise learn to click past.
+
+`run_sync` is the three passes in order, on **one** `Ao3` so every failure lands in the same
+list and is reported once: `index_new_bookmarks` → `download_planned` →
+`update_incomplete` → `fill_missing_formats`. The order is load-bearing - the gap check is
+told which works the first two already handled, or it would fetch them again.
+
+`fill_missing_formats` is the case neither other pass covers: a fic indexed and saved as
+html long ago, on a run that now also asks for pdf. It is finished (so the update pass skips
+it) and old (so the newest-first walk never reached it). **It fetches only the formats
+actually missing**, by borrowing the caller's `Ao3` and setting `filetypes` per work - and
+puts it back in a `finally`, because that object belongs to the run rather than to this
+pass. Fetching the whole set would spend a request per format already on disk, and rate
+limit is the scarce thing here.
+
+**Every run asks its options before its file types.** A custom run has to - one of its
+options decides a file type, since skipping the indexing means no json and **json is the
+index** - and asking which types you want and then changing one behind you would read as the
+dialog overruling you. The rest follow the same order because two orders is one more than
+anybody needs to learn.
+
+A run with nothing to ask has **no options step at all** (`hasOptions`), rather than a page
+saying so: a step with nothing on it reads as one that failed to load. Which steps exist
+therefore varies per run, so `stepBefore` builds the list and takes the one before - don't
+hardcode a back target.
+
+So json is locked on that run in *both* directions - ticked and disabled while it indexes,
+unticked and disabled while it does not - rather than merely locked on. `chosenFiletypes`
+reconciles that with `selected` before anything is sent, and `resolve_filetypes` takes a
+`force` flag so the helper does not add json back to a run that will never write it. A
+reported file type the run does not produce is worse than not offering it.
+
+The steps are therefore **not in a fixed order**, which is why the dialog carries
+`data-step` and `advanceTo` in the spec walks by where it is rather than counting clicks.
+Counting clicks made every test quietly depend on which runs have an acknowledgement.
+
+`Ao3.index_one_work` backs the single-fic action. A work page and a listing blurb describe a
+fic differently, so an entry created there fills in only what a work page can honestly
+answer for - title, author, and the versioned stats - and leaves tags, summary and the
+bookmark's own fields empty rather than inventing a second schema. A fic already indexed
+keeps everything it has and only its stats are rewritten, exactly as `refresh_one` does.
+`server.work_link` accepts a link or a bare work number and normalises both to a work url in
+`do_POST`, so a bad one is a 400 rather than a job that starts and dies.
 
 ### The update action is driven by the index
 
@@ -184,6 +274,10 @@ The flow, in the order the ui narrates it:
 4. then one fic at a time (`updating`), through `update_one_work`: `Ao3.refresh_one`
    re-reads it and rewrites its entry, `shared.plan_downloads` judges that one work, and
    `Ao3.download_one_indexed` fetches it only if it has to
+
+`fill_missing_formats` re-reads its fics the same way, for the same reason: a file written
+from a stale entry is named with a stale date, and would read as current for ever after.
+See **What "outdated" means, exactly**.
 
 **This is deliberately not the bookmarks order.** `run_bookmarks` indexes everything before
 downloading anything, and can, because one listing request describes twenty works. Here
@@ -224,6 +318,30 @@ looking like a change. It is idempotent - normalising twice changes nothing.
 last recorded, so a fic that had finished by then is invisible however much was added after.
 The ui has an `acknowledge` step that must be ticked before the login for exactly this, and
 points at the bookmarks run instead, which re-reads the listing and catches those.
+
+### A run names what it could not get, in two lists
+
+`report_failures` emits **both**, and every one of the eight actions calls it - there is a
+parametrised test over `runners()` asserting exactly that, because the coverage had gaps
+twice: `run_collections` and `run_collection` never called it at all, and in `run_bookmarks`
+it sat *inside* `if downloadtypes`, so a metadata-only run reported nothing even though
+indexing is precisely where skipped bookmarks are found.
+
+- `Ao3.failures` - works that should have downloaded and did not. Worth retrying.
+- `Ao3.skipped_works` - bookmarks that were never works: a series, something hosted
+  elsewhere, one since deleted. **Never worth retrying**, because there is no work there.
+
+**Keep them apart.** They are different events (`FAILURES` / `SKIPPED`), different panels,
+and different colours - the skipped one deliberately does not wear the failure red. Merging
+them would make a real failure look routine and send people retrying things that cannot
+change.
+
+`parse_soup.get_blurb_skip_reason` works out *why* from the blurb, returning the same
+`{id, link, error}` shape a failure does so both lists render and export through one code
+path. It reads what the page says - a `/series/` link, an off-site href, the deleted stub -
+and where the listing does not say, `SKIPPED_UNKNOWN` says that rather than dressing a guess
+up as a reason. This used to be a bare count (`AO3_INFO_METADATA_SKIPPED`), which left no way
+to tell *which* bookmark was passed over or to go and look at it.
 
 ### A run that leaves gaps says which ones
 
@@ -303,6 +421,31 @@ appends to `indexes` only when the snapshot actually changed, and always updates
 `last_indexed`. Two identity sets: `IDENTITY_FIELDS` for works, `COLLECTION_IDENTITY_FIELDS`
 for collections. `position` is identity, not history - a fic sliding down the bookmarks
 list is not a change to the fic.
+
+### What "outdated" means, exactly
+
+**A copy is outdated when the most recent `date_updated` in the index is newer than the
+date in the file's own name.** That is the whole definition, it is the only one, and every
+part of this project that decides whether to fetch something again means precisely this.
+
+`shared.plan_downloads` is where it lives: `current` is the record's `date_updated` run
+through `parse_text.get_date_stamp`, `copy['date']` is read back out of the file name by
+`parse_text.get_date_from_filename`, and the test is `copy['date'] < current`. A plain string
+comparison is correct because both sides are `YYYY-MM-DD`, which sorts lexically.
+
+Three things follow from it, and each is load-bearing somewhere else:
+
+- **A file with no date in its name cannot be judged at all** - there is nothing to compare.
+  Those are `undated`, never `stale`, and the run stops and asks what to do about them
+  rather than guessing.
+- **The index has to be current before the comparison is worth anything.** An entry that has
+  not been re-read cannot say ao3 has moved on. This is why the update pass re-reads a fic
+  before judging it, and why the gap pass re-reads one before writing a file - a file named
+  from a stale entry carries a stale date, and would then look current forever.
+- **Nothing here looks at the file's own timestamp, its contents, or a chapter count.** An
+  earlier version also fired on chapter growth; it was removed, because for a dated file
+  that is redundant (gaining a chapter moves ao3's `date_updated`) and for an undated one
+  the answer comes from the user instead.
 
 ### Downloaded works carry the version they hold
 

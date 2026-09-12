@@ -6,6 +6,7 @@ it - what gets requested, what gets reported, and what never leaves the machine.
 """
 
 import contextlib
+import inspect
 import os
 import socket
 import threading
@@ -14,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from source_code import parse_text, progress, server, strings
+from source_code import exceptions, parse_text, progress, server, strings
 
 
 # region resolve_filetypes
@@ -73,15 +74,60 @@ def test_html_is_offered_by_default_but_can_be_turned_off():
 def test_resolve_options_defaults_match_the_console_defaults():
     assert server.resolve_options(None) == {
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
+        'reindex': True,
     }
 
 
 def test_resolve_options_reads_what_was_asked_for():
     result = server.resolve_options(
-        {'start': '5', 'pages': '8', 'series': True, 'images': True, 'workdates': True})
+        {'start': '5', 'pages': '8', 'series': True, 'images': True, 'workdates': True,
+         'reindex': False})
 
     assert result == {'start': 5, 'pages': 8, 'series': True, 'images': True,
-                      'workdates': True}
+                      'workdates': True, 'reindex': False}
+
+
+def test_json_is_added_back_even_when_a_request_leaves_it_out():
+    # the ui locks it on, but a request is not trusted to have honoured that
+    assert server.resolve_filetypes(['HTML']) == ['HTML', 'JSON']
+
+
+def test_a_run_that_will_not_index_is_not_given_json():
+    # json *is* the index. adding it back to a run that reads no listing would report a
+    # file type the run never writes, which is worse than not offering it
+    assert server.resolve_filetypes(['HTML'], force=False) == ['HTML']
+    assert server.resolve_filetypes(['HTML', 'JSON'], force=False) == ['HTML', 'JSON']
+
+
+def test_a_run_indexes_unless_it_was_actually_told_not_to():
+    # the dangerous default is the other way round: a run that quietly skipped indexing
+    # would judge everything against however stale the index happened to be
+    assert server.resolve_options({})['reindex'] is True
+    assert server.resolve_options({'reindex': None})['reindex'] is True
+    assert server.resolve_options({'reindex': False})['reindex'] is False
+
+
+def test_a_work_link_is_accepted_as_a_link_or_as_a_bare_number():
+    # pasting the number off the address bar is as natural as pasting the whole url
+    assert server.work_link('34816549') == 'https://archiveofourown.org/works/34816549'
+    assert server.work_link('https://archiveofourown.org/works/34816549') == \
+        'https://archiveofourown.org/works/34816549'
+    # a chapter link, or anything else with the work number in it, still names one work
+    assert server.work_link('https://archiveofourown.org/works/34816549/chapters/86677150') \
+        == 'https://archiveofourown.org/works/34816549'
+
+
+@pytest.mark.parametrize('value', [
+    '', '   ', None,
+    'https://archiveofourown.org/series/12345',
+    'https://archiveofourown.org/collections/somename',
+    'https://archiveofourown.org/users/Someone/bookmarks',
+    'https://example.com/works/34816549',
+    'not a link at all',
+])
+def test_anything_that_is_not_one_work_is_refused(value):
+    # refused before a run starts rather than after, so a typo is an answer not a failure
+    assert server.work_link(value) is None
 
 
 def test_what_to_do_about_undated_files_is_not_a_setting():
@@ -1049,6 +1095,405 @@ def test_run_update_names_the_works_it_could_not_re_read(fake_environment):
     run_update_with(fake_environment, ao3, [INCOMPLETE], report=events.append)
 
     assert [e for e in events if e['type'] == progress.FAILURES]
+
+
+# region filling in formats a finished fic never had
+
+def finished(work: str, title: str = 'Done') -> dict:
+    return {'id': work, 'link': f'https://archiveofourown.org/works/{work}',
+            'title': title, 'chapters_published': 5, 'chapters_total': 5}
+
+
+def filling(fake_environment, ao3, index, existing, skip=None, filetypes=('HTML',)):
+    # filetypes defaults through a tuple rather than `or ['HTML']`, so a test passing an
+    # empty list gets an empty list rather than the default back
+    job = server.Job(server.ACTION_SYNC, ['HTML'], 'Someone')
+    # the pass re-reads each fic before fetching it; unless a test says otherwise that
+    # hands back what it was given, so the record reaching the download can be asserted on
+    if ao3.refresh_one.side_effect is None:
+        ao3.refresh_one.side_effect = lambda record: record
+    with patch.object(server.shared, 'read_index', return_value=index), \
+         patch.object(server.shared, 'scan_downloaded_works', return_value=existing):
+        server.fill_missing_formats(job, fake_environment['fileops'], ao3,
+                                    skip or set(), list(filetypes), MagicMock())
+
+
+def test_a_finished_fic_missing_a_requested_format_is_fetched(fake_environment):
+    # the case the other two passes leave behind: not new, so the newest-first walk never
+    # reached it, and not unfinished, so the update pass ignored it
+    ao3 = MagicMock()
+    filling(fake_environment, ao3, [finished('111')], existing={})
+
+    assert ao3.download_one_indexed.call_args.args[0]['id'] == '111'
+
+
+def test_a_gap_is_re_indexed_before_it_is_fetched(fake_environment):
+    # the entry first, then the file. a file written from a stale entry carries a stale
+    # date in its name, and that date is the whole of how a later run judges it
+    ao3 = MagicMock()
+    order: list[str] = []
+    ao3.refresh_one.side_effect = lambda record: (order.append('index'), record)[1]
+    ao3.download_one_indexed.side_effect = lambda *a: order.append('download')
+
+    filling(fake_environment, ao3, [finished('111')], existing={})
+
+    assert order == ['index', 'download']
+
+
+def test_the_gap_download_uses_the_entry_as_it_now_stands(fake_environment):
+    # not the one read off disk before the re-read, or the name would still be the old one
+    ao3 = MagicMock()
+    fresh = {**finished('111'), 'date_updated': '20 Dec 2026'}
+    ao3.refresh_one.side_effect = lambda record: fresh
+
+    filling(fake_environment, ao3, [finished('111')], existing={})
+
+    assert ao3.download_one_indexed.call_args.args[0] is fresh
+
+
+def test_a_gap_whose_fic_cannot_be_re_read_is_recorded_and_skipped(fake_environment):
+    ao3 = MagicMock()
+    ao3.refresh_one.side_effect = Exception('deleted')
+
+    filling(fake_environment, ao3, [finished('111')], existing={})
+
+    ao3.download_one_indexed.assert_not_called()
+    ao3.record_failure.assert_called_once()
+
+
+def test_a_finished_fic_that_has_every_format_is_left_alone(fake_environment):
+    ao3 = MagicMock()
+    filling(fake_environment, ao3, [finished('111')],
+            existing={'111': {'HTML': {'path': 'a.html', 'date': '2024-12-14'}}})
+
+    ao3.download_one_indexed.assert_not_called()
+
+
+def test_only_the_formats_actually_missing_are_fetched(fake_environment):
+    # rate limit is the scarce thing here: re-fetching a file already on disk spends a
+    # request for nothing, and download_one_indexed takes whatever filetypes it is given
+    ao3 = MagicMock()
+    seen = []
+    ao3.download_one_indexed.side_effect = lambda *a: seen.append(list(ao3.filetypes))
+
+    filling(fake_environment, ao3, [finished('111')],
+            existing={'111': {'HTML': {'path': 'a.html', 'date': '2024-12-14'}}},
+            filetypes=['HTML', 'PDF'])
+
+    assert seen == [['PDF']]
+
+
+def test_the_borrowed_downloader_is_handed_back_as_it_was(fake_environment):
+    # the Ao3 belongs to the run, not to this pass; leaving it reconfigured would quietly
+    # change what every later pass downloads
+    ao3 = MagicMock()
+    ao3.filetypes = ['HTML', 'PDF']
+
+    filling(fake_environment, ao3, [finished('111')], existing={}, filetypes=['HTML', 'PDF'])
+
+    assert ao3.filetypes == ['HTML', 'PDF']
+
+
+def test_works_the_earlier_passes_handled_are_not_done_twice(fake_environment):
+    ao3 = MagicMock()
+    filling(fake_environment, ao3, [finished('111'), finished('222')], existing={},
+            skip={'111'})
+
+    assert [c.args[0]['id'] for c in ao3.download_one_indexed.call_args_list] == ['222']
+
+
+def test_an_unfinished_fic_is_left_to_the_update_pass(fake_environment):
+    # it has just been re-read and judged there; doing it again here would double the cost
+    ao3 = MagicMock()
+    filling(fake_environment, ao3, [INCOMPLETE], existing={})
+
+    ao3.download_one_indexed.assert_not_called()
+
+
+def test_filling_gaps_asks_ao3_for_nothing_when_no_formats_were_requested(fake_environment):
+    ao3 = MagicMock()
+    filling(fake_environment, ao3, [finished('111')], existing={}, filetypes=[])
+
+    ao3.download_one_indexed.assert_not_called()
+
+# endregion
+
+
+# region the combined run
+
+def test_a_combined_run_does_new_then_unfinished_then_the_gaps(fake_environment):
+    # each pass covers what the one before it cannot, and the order is the whole design:
+    # the gap check has to know what the first two already handled
+    job = server.Job(server.ACTION_SYNC, ['JSON', 'HTML'], 'Someone')
+    order: list[str] = []
+
+    with patch.object(server, 'Ao3', return_value=MagicMock()), \
+         patch.object(server, 'index_new_bookmarks',
+                      side_effect=lambda *a: order.append('new') or []), \
+         patch.object(server, 'download_planned',
+                      side_effect=lambda *a: order.append('download')), \
+         patch.object(server, 'update_incomplete',
+                      side_effect=lambda *a: order.append('update')), \
+         patch.object(server, 'fill_missing_formats',
+                      side_effect=lambda *a: order.append('gaps')):
+        server.run_sync(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert order == ['new', 'download', 'update', 'gaps']
+
+
+def test_a_combined_run_tells_the_gap_check_what_it_already_handled(fake_environment):
+    job = server.Job(server.ACTION_SYNC, ['JSON', 'HTML'], 'Someone')
+
+    with patch.object(server, 'Ao3', return_value=MagicMock()), \
+         patch.object(server, 'index_new_bookmarks', return_value=[finished('111')]), \
+         patch.object(server, 'download_planned'), \
+         patch.object(server, 'update_incomplete'), \
+         patch.object(server, 'fill_missing_formats') as gaps:
+        server.run_sync(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert gaps.call_args.args[3] == {'111'}
+
+
+def test_a_combined_run_stops_where_it_was_cancelled(fake_environment):
+    # a stop during the first pass must not start the next two
+    job = server.Job(server.ACTION_SYNC, ['JSON', 'HTML'], 'Someone')
+
+    with patch.object(server, 'Ao3', return_value=MagicMock()), \
+         patch.object(server, 'index_new_bookmarks',
+                      side_effect=lambda *a: job.cancel.set() or []), \
+         patch.object(server, 'download_planned'), \
+         patch.object(server, 'update_incomplete') as update, \
+         patch.object(server, 'fill_missing_formats') as gaps:
+        server.run_sync(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    update.assert_not_called()
+    gaps.assert_not_called()
+
+
+def test_a_new_bookmarks_run_stops_indexing_at_what_it_already_holds(fake_environment):
+    job = server.Job(server.ACTION_NEW, ['JSON', 'HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'indexed_work_ids', return_value={'111', '222'}), \
+         patch.object(server, 'download_planned'):
+        server.run_new(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert ao3.get_metadata.call_args.kwargs['known'] == {'111', '222'}
+    assert ao3.get_metadata.call_args.args[0] == \
+        'https://archiveofourown.org/users/Someone/bookmarks'
+
+
+def test_a_custom_run_saves_images_only_when_asked(fake_environment):
+    job = server.Job(server.ACTION_CUSTOM, ['JSON', 'HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = [finished('111')]
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server, 'download_planned'), \
+         patch.object(server, 'save_images') as images:
+        server.run_custom(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    images.assert_not_called()
+
+
+def test_a_custom_run_saves_images_after_the_files_are_down(fake_environment):
+    # never instead of them, and never first: a work page fetched for pictures is the most
+    # expendable request in the run, so it goes last
+    job = server.Job(server.ACTION_CUSTOM, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({'images': True}))
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = [finished('111')]
+    order: list[str] = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server, 'download_planned',
+                      side_effect=lambda *a: order.append('files')), \
+         patch.object(server, 'save_images', side_effect=lambda *a: order.append('images')):
+        server.run_custom(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert order == ['files', 'images']
+
+
+def test_saving_images_asks_each_work_for_its_own_page(fake_environment):
+    job = server.Job(server.ACTION_CUSTOM, ['HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.save_images_for.return_value = 2
+
+    server.save_images(job, fake_environment['fileops'], ao3,
+                       [finished('111'), finished('222')], MagicMock())
+
+    assert [c.args[0]['id'] for c in ao3.save_images_for.call_args_list] == ['111', '222']
+
+
+def test_a_work_page_that_will_not_load_costs_its_images_and_nothing_else(fake_environment):
+    # this is the last thing a run does; losing a second copy of some pictures is not worth
+    # ending it over
+    job = server.Job(server.ACTION_CUSTOM, ['HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.save_images_for.side_effect = [Exception('gone'), 3]
+
+    server.save_images(job, fake_environment['fileops'], ao3,
+                       [finished('111'), finished('222')], MagicMock())
+
+    assert ao3.save_images_for.call_count == 2
+    ao3.record_failure.assert_called_once()
+
+
+def test_saving_images_stops_when_the_run_is_cancelled(fake_environment):
+    job = server.Job(server.ACTION_CUSTOM, ['HTML'], 'Someone')
+    job.cancel.set()
+    ao3 = MagicMock()
+
+    server.save_images(job, fake_environment['fileops'], ao3, [finished('111')], MagicMock())
+
+    ao3.save_images_for.assert_not_called()
+
+
+def test_a_custom_run_told_to_skip_indexing_reads_no_listing(fake_environment):
+    job = server.Job(server.ACTION_CUSTOM, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({'reindex': False}))
+    ao3 = MagicMock()
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'read_index', return_value=[finished('111')]), \
+         patch.object(server, 'download_planned') as download:
+        server.run_custom(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    ao3.get_metadata.assert_not_called()
+    assert [x['id'] for x in download.call_args.args[3]] == ['111']
+
+
+def test_a_custom_run_indexes_by_default(fake_environment):
+    job = server.Job(server.ACTION_CUSTOM, ['JSON', 'HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server, 'download_planned'):
+        server.run_custom(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    ao3.get_metadata.assert_called_once()
+
+
+def test_one_fic_is_indexed_and_then_downloaded(fake_environment):
+    job = server.Job(server.ACTION_WORK, ['JSON', 'HTML'], 'Someone', None,
+                     'https://archiveofourown.org/works/111')
+    ao3 = MagicMock()
+    ao3.index_one_work.return_value = finished('111')
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'read_index', return_value=[]), \
+         patch.object(server, 'download_planned') as download:
+        server.run_work(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert ao3.index_one_work.call_args.args[0] == 'https://archiveofourown.org/works/111'
+    assert [x['id'] for x in download.call_args.args[3]] == ['111']
+
+
+def test_one_fic_already_indexed_is_handed_the_entry_it_has(fake_environment):
+    # so the listing's tags, summary and bookmark fields survive a single-fic run
+    job = server.Job(server.ACTION_WORK, ['JSON'], 'Someone', None,
+                     'https://archiveofourown.org/works/111')
+    ao3 = MagicMock()
+    ao3.index_one_work.return_value = finished('111')
+    held = {**finished('111'), 'summary': 'from the listing'}
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'read_index', return_value=[held]), \
+         patch.object(server, 'download_planned'):
+        server.run_work(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert ao3.index_one_work.call_args.args[1] == held
+
+
+def test_one_fic_with_an_unusable_link_never_starts(fake_environment):
+    job = server.Job(server.ACTION_WORK, ['JSON'], 'Someone', None, 'not a link')
+    ao3 = MagicMock()
+
+    with patch.object(server, 'Ao3', return_value=ao3):
+        with pytest.raises(exceptions.InvalidLinkException):
+            server.run_work(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    ao3.index_one_work.assert_not_called()
+
+# endregion
+
+
+# region naming what a run could not get
+
+def test_skipped_bookmarks_are_listed_with_a_reason_each():
+    # a count leaves no way to tell which bookmark was passed over or to go and look at it
+    ao3 = MagicMock()
+    ao3.failures = []
+    ao3.skipped_works = [
+        {'id': '12345', 'link': 'https://ao3/series/12345', 'error': 'a series'},
+        {'id': None, 'link': '', 'error': 'the work has been deleted'},
+    ]
+    events: list[dict] = []
+
+    server.report_failures(ao3, events.append)
+
+    sent = [e for e in events if e['type'] == progress.SKIPPED]
+    assert len(sent) == 1
+    assert [x['error'] for x in sent[0]['skipped']] == ['a series', 'the work has been deleted']
+
+
+def test_skipped_bookmarks_are_kept_apart_from_failed_downloads():
+    # nothing went wrong with a skipped bookmark, and listing them together would make a
+    # real failure look routine
+    ao3 = MagicMock()
+    ao3.skipped_works = [{'id': '1', 'link': 'a', 'error': 'a series'}]
+    ao3.failures = [{'id': '2', 'link': 'b', 'error': 'timed out'}]
+    events: list[dict] = []
+
+    server.report_failures(ao3, events.append)
+
+    assert [e['type'] for e in events] == [progress.SKIPPED, progress.FAILURES]
+
+
+def test_nothing_is_reported_when_a_run_got_everything():
+    ao3 = MagicMock()
+    ao3.skipped_works = []
+    ao3.failures = []
+    events: list[dict] = []
+
+    server.report_failures(ao3, events.append)
+
+    assert events == []
+
+
+@pytest.mark.parametrize('action', [
+    server.ACTION_BOOKMARKS, server.ACTION_UPDATE, server.ACTION_COLLECTIONS,
+    server.ACTION_COLLECTION, server.ACTION_NEW, server.ACTION_SYNC, server.ACTION_WORK,
+    server.ACTION_CUSTOM,
+])
+def test_every_action_ends_by_saying_what_it_could_not_get(action):
+    # every button, not most of them: a gap between what is bookmarked and what is on disk
+    # is worth naming whichever run left it
+    source = inspect.getsource(server.runners()[action])
+
+    assert 'report_failures' in source, action
+
+
+def test_a_metadata_only_run_still_says_what_it_skipped(fake_environment):
+    # it downloads nothing, so this used to sit inside the download block and never run -
+    # but indexing is exactly where skipped bookmarks are found
+    job = server.Job(server.ACTION_BOOKMARKS, [strings.AO3_DOWNLOAD_TYPE_METADATA], 'Someone')
+    ao3 = MagicMock()
+    ao3.failures = []
+    ao3.skipped_works = [{'id': None, 'link': '', 'error': 'the work has been deleted'}]
+    events: list[dict] = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'visited', return_value=[]):
+        server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'],
+                             events.append)
+
+    assert [e for e in events if e['type'] == progress.SKIPPED]
+
+# endregion
 
 
 def test_run_bookmarks_indexes_every_bookmark_before_downloading_any(fake_environment):

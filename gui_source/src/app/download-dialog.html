@@ -1,6 +1,18 @@
 <div class="backdrop" (click)="close()"></div>
 
-<div class="dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+<!--
+  data-step names the step the dialog is on. the order of the steps is not the same for
+  every run - a custom run asks its options before the file types, and several runs put an
+  acknowledgement in between - so anything walking this wizard has to go by where it is
+  rather than by counting clicks
+-->
+<div
+  class="dialog"
+  role="dialog"
+  aria-modal="true"
+  [attr.data-step]="step()"
+  (click)="$event.stopPropagation()"
+>
   <header>
     <h2>{{ title() }}</h2>
     @if (step() !== 'running') {
@@ -32,29 +44,55 @@
       <form class="body" (submit)="$event.preventDefault(); fromLink()">
         <p>{{ blurb() }}</p>
 
-        <label class="field">
-          <span>Collection link</span>
-          <input
-            type="url"
-            name="collection"
-            placeholder="https://archiveofourown.org/collections/yuletide2024"
-            [value]="collectionUrl()"
-            (input)="setCollectionUrl($any($event.target).value)"
-          />
-        </label>
+        @if (wantsWork()) {
+          <label class="field">
+            <span>Work link or work number</span>
+            <input
+              type="text"
+              name="work"
+              placeholder="https://archiveofourown.org/works/34816549 or 34816549"
+              [value]="collectionUrl()"
+              (input)="setCollectionUrl($any($event.target).value)"
+            />
+          </label>
 
-        @if (collectionUrl().trim() && !linkIsValid()) {
-          <p class="error">
-            That is not a link to a collection. It should look like
-            <code>https://archiveofourown.org/collections/somename</code>.
+          @if (collectionUrl().trim() && !linkIsValid()) {
+            <p class="error">
+              That is not an AO3 work. It should look like
+              <code>https://archiveofourown.org/works/34816549</code>, or just the number.
+            </p>
+          }
+
+          <p class="hint">
+            A link to any chapter works, so one copied straight out of the address bar is
+            fine. The work number on its own says the same thing.
           </p>
-        }
+          <p class="hint">Saved to <code>{{ folder() }}</code>, like any other download.</p>
+        } @else {
+          <label class="field">
+            <span>Collection link</span>
+            <input
+              type="url"
+              name="collection"
+              placeholder="https://archiveofourown.org/collections/yuletide2024"
+              [value]="collectionUrl()"
+              (input)="setCollectionUrl($any($event.target).value)"
+            />
+          </label>
 
-        <p class="hint">
-          Any page of the collection will do - the dashboard, the profile, its works - so a
-          link copied straight out of the address bar works.
-        </p>
-        <p class="hint">Saved to <code>{{ folder() }}</code>, alongside your own collections.</p>
+          @if (collectionUrl().trim() && !linkIsValid()) {
+            <p class="error">
+              That is not a link to a collection. It should look like
+              <code>https://archiveofourown.org/collections/somename</code>.
+            </p>
+          }
+
+          <p class="hint">
+            Any page of the collection will do - the dashboard, the profile, its works - so a
+            link copied straight out of the address bar works.
+          </p>
+          <p class="hint">Saved to <code>{{ folder() }}</code>, alongside your own collections.</p>
+        }
       </form>
       <footer>
         <button type="button" class="button subtle" (click)="close()">Cancel</button>
@@ -73,22 +111,33 @@
         <fieldset>
           <legend>File types</legend>
           @for (filetype of config()?.filetypes ?? []; track filetype) {
-            <label class="check" [class.locked]="isForced(filetype)">
+            <label class="check" [class.locked]="isLocked(filetype)">
               <input
                 type="checkbox"
                 [checked]="isSelected(filetype)"
-                [disabled]="isForced(filetype)"
+                [disabled]="isLocked(filetype)"
                 (change)="toggle(filetype)"
               />
               <span>{{ filetype }}</span>
-              @if (isForced(filetype)) {
-                <span class="badge">always on</span>
+              @if (isLocked(filetype)) {
+                <span class="badge">{{ lockedBecause(filetype) }}</span>
               }
             </label>
           }
         </fieldset>
 
-        @if (metadataNotApplicable()) {
+        @if (picksReindex()) {
+          <p class="hint">
+            @if (reindex()) {
+              JSON is the index itself, so it is written whenever a run indexes - which this
+              one does. Every other type is fetched per work.
+            } @else {
+              You chose to skip indexing, so no JSON is written: JSON <em>is</em> the index,
+              and this run is working from the one you already have. Go back a step to change
+              that.
+            }
+          </p>
+        } @else if (metadataNotApplicable()) {
           <p class="hint">
             JSON metadata comes from the bookmarks listing, so this run won't rewrite it - it
             updates the works themselves.
@@ -102,15 +151,18 @@
         }
       </section>
       <footer>
-        <button type="button" class="button subtle" (click)="close()">Cancel</button>
-        <button type="button" class="button primary" (click)="toOptions()">Continue</button>
+        <button type="button" class="button subtle" (click)="backFrom('filetypes')">
+          {{ hasStepBefore('filetypes') ? 'Back' : 'Cancel' }}
+        </button>
+        <button type="button" class="button primary" (click)="afterFiletypes()">Continue</button>
       </footer>
     }
 
     <!-- step 2: the questions the console menu asks -->
     @if (step() === 'options') {
       <section class="body">
-        @if (listingOptions()) {
+
+        @if (picksPages()) {
           <label class="field">
             <span>Start on page number</span>
             <input
@@ -140,7 +192,14 @@
             of it - useful for picking up where a stopped run left off. This run will fetch
             <strong>{{ pageRange() }}</strong>.
           </p>
+        }
 
+        <!--
+          a series is found on a work's own page, and following one pulls in works that were
+          never in the listing. only a full scan goes the long way round, so it is the only
+          run where ticking this could do anything
+        -->
+        @if (picksSeries()) {
           <label class="check">
             <input type="checkbox" [checked]="series()" (change)="series.set($any($event.target).checked)" />
             <span>Get works from all encountered series links</span>
@@ -152,52 +211,168 @@
           </p>
         }
 
-        <label class="check">
-          <input type="checkbox" [checked]="images()" (change)="images.set($any($event.target).checked)" />
-          <span>Download embedded images</span>
-        </label>
-        <p class="hint">Saved separately, into an <code>images</code> subfolder.</p>
+        @if (picksImages()) {
+          <label class="check">
+            <input type="checkbox" [checked]="images()" (change)="images.set($any($event.target).checked)" />
+            <span>Also save embedded images separately</span>
+          </label>
+          <p class="warning">
+            <strong>This will make the run much longer.</strong> Image links only exist on a
+            work's own page, so every fic has to have its page fetched as well as its files -
+            an extra request each, on top of whatever AO3 asks you to wait.
+          </p>
+          <p class="hint">
+            <strong>You probably do not need this.</strong> Images are normally embedded in
+            the downloaded work already and will display when you read it. This only saves a
+            second copy of each one as its own file, in an <code>images</code> subfolder -
+            useful if you want the pictures themselves, not if you just want to read the fic.
+          </p>
+        }
+
+        @if (picksReindex()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="reindex"
+              [checked]="!reindex()"
+              (change)="reindex.set(!$any($event.target).checked)"
+            />
+            <span>Skip indexing - work from what is already indexed</span>
+          </label>
+          <p class="hint">
+            Reads none of AO3's listing at all, so it costs no requests to decide what to
+            do - but every judgement about what is out of date is made against however old
+            your index is. Useful for filling in a format you did not ask for last time.
+          </p>
+        }
 
       </section>
       <footer>
-        <button type="button" class="button subtle" (click)="step.set('filetypes')">Back</button>
-        <button type="button" class="button primary" (click)="toCredentials()">Continue</button>
+        <button type="button" class="button subtle" (click)="backFrom('options')">
+          {{ hasStepBefore('options') ? 'Back' : 'Cancel' }}
+        </button>
+        <button type="button" class="button primary" (click)="afterOptions()">Continue</button>
       </footer>
     }
 
-    <!-- step 2a: what an update pass cannot see, read before logging in for one -->
+    <!-- step 2a: what this particular run cannot do, read before logging in for it -->
     @if (step() === 'acknowledge') {
       <section class="body">
-        <p>
-          This checks the fics your index <strong>last saw unfinished</strong>. It reads the
-          index for those, opens each one on AO3, brings its entry up to date, and
-          re-downloads the ones that have grown.
-        </p>
+        @if (action() === 'update') {
+          <p>
+            This checks the fics your index <strong>last saw unfinished</strong>. It reads the
+            index for those, opens each one on AO3, brings its entry up to date, and
+            re-downloads the ones that have grown.
+          </p>
 
-        <p class="warning">
-          <strong>It will not find a fic that was already finished.</strong> If a work was
-          marked complete and then updated afterwards - an epilogue added, chapters edited,
-          typos fixed - the index records it as complete, so this pass skips it entirely.
-        </p>
+          <p class="warning">
+            <strong>It will not find a fic that was already finished.</strong> If a work was
+            marked complete and then updated afterwards - an epilogue added, chapters edited,
+            typos fixed - the index records it as complete, so this pass skips it entirely.
+          </p>
 
-        <p class="hint">
-          To pick those up, run <strong>Download newly added bookmarks</strong> instead. That
-          re-reads the whole listing, so it sees any fic AO3 now reports as updated more
-          recently than your copy - finished or not.
-        </p>
+          <p class="hint">
+            To pick those up, run <strong>(Full scan) Reindex &amp; Update All</strong>
+            instead. That re-reads the whole listing, so it sees any fic AO3 now reports as
+            updated more recently than your copy - finished or not.
+          </p>
 
-        <label class="check">
-          <input
-            type="checkbox"
-            name="acknowledge"
-            [checked]="acknowledged()"
-            (change)="acknowledged.set($any($event.target).checked)"
-          />
-          <span>I understand that fics completed before their last update will be skipped</span>
-        </label>
+          <label class="check">
+            <input
+              type="checkbox"
+              name="acknowledge"
+              [checked]="acknowledged()"
+              (change)="acknowledged.set($any($event.target).checked)"
+            />
+            <span>I understand that fics completed before their last update will be skipped</span>
+          </label>
+        } @else if (action() === 'bookmarks') {
+          <p class="warning">
+            <strong>This will take a really long time.</strong> A full scan walks every page
+            of your bookmarks and reindexes every fic on it, however many that is, and AO3
+            will ask it to slow down repeatedly along the way. On a large library this is
+            hours, not minutes.
+          </p>
+
+          <p>
+            It is the thorough option, and worth running occasionally - it is the only run
+            that can find a fic your index has wrong, or one that was finished when it was
+            last indexed and has been added to since.
+          </p>
+
+          <p class="hint">
+            <strong>If you have used this app before, you probably want
+            <strong>Download new bookmarks and update incomplete fics</strong> instead.</strong>
+            It covers new bookmarks, unfinished fics and missing formats in a fraction of the
+            requests, because it stops indexing as soon as it reaches a fic you already have.
+          </p>
+
+          <label class="check">
+            <input
+              type="checkbox"
+              name="acknowledge"
+              [checked]="acknowledged()"
+              (change)="acknowledged.set($any($event.target).checked)"
+            />
+            <span>I understand this may take hours, and I want the full scan</span>
+          </label>
+        } @else {
+          <p>
+            This does three passes: your newest bookmarks, then the fics your index last saw
+            unfinished, then any finished fic missing a format you asked for on this run.
+          </p>
+
+          <p class="warning">
+            <strong>It trusts the index you already have.</strong> Indexing stops at the
+            first bookmark it recognises, so if your index is incomplete or damaged - an
+            earlier run interrupted, files deleted - the fics behind that point stay unseen
+            and will not be downloaded or updated.
+          </p>
+
+          <p class="warning">
+            <strong>It will not notice changes to fics already marked complete.</strong> If
+            chapters are added to or edited on a work your index calls finished, this run
+            skips it.
+          </p>
+
+          <p class="warning">
+            <strong>It will not pick up changes to a bookmark you already have.</strong> For a
+            completed work, things that live on the bookmark rather than the fic - your own
+            notes and tags, whether you marked it a rec, whether it is private - are not
+            re-read, because the listing they come from is never walked that far.
+          </p>
+
+          <p class="hint">
+            If either of those worries you, run
+            <strong>(Full scan) Reindex &amp; Update All</strong> instead. It is far slower,
+            and it checks everything.
+          </p>
+
+          <label class="check">
+            <input
+              type="checkbox"
+              name="acknowledge"
+              [checked]="acknowledged()"
+              (change)="acknowledged.set($any($event.target).checked)"
+            />
+            <span>I understand what this run will not pick up</span>
+          </label>
+
+          <label class="check">
+            <input
+              type="checkbox"
+              name="dontAskAgain"
+              [checked]="dontAskAgain()"
+              (change)="dontAskAgain.set($any($event.target).checked)"
+            />
+            <span>Don't show this again</span>
+          </label>
+        }
       </section>
       <footer>
-        <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
+        <button type="button" class="button subtle" (click)="backFrom('acknowledge')">
+          {{ hasStepBefore('acknowledge') ? 'Back' : 'Cancel' }}
+        </button>
         <button
           type="button"
           class="button primary"
@@ -254,16 +429,10 @@
         </p>
       </form>
       <footer>
-        <!-- indexing your own collections has no earlier step to go back to -->
-        @if (needsAcknowledgement()) {
-          <button type="button" class="button subtle" (click)="step.set('acknowledge')">Back</button>
-        } @else if (picksFiletypes()) {
-          <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
-        } @else if (needsLink()) {
-          <button type="button" class="button subtle" (click)="step.set('link')">Back</button>
-        } @else {
-          <button type="button" class="button subtle" (click)="close()">Cancel</button>
-        }
+        <!-- indexing your own collections has no earlier step, so this reads Cancel there -->
+        <button type="button" class="button subtle" (click)="backFrom('credentials')">
+          {{ hasStepBefore('credentials') ? 'Back' : 'Cancel' }}
+        </button>
         <button type="button" class="button primary" (click)="submit($event)">Start download</button>
       </footer>
     }
@@ -274,6 +443,9 @@
         <p class="warning">
           <strong>Leave this tab open.</strong> Refreshing, closing or navigating away will
           interrupt the download.
+          <strong>This may take a long time</strong> - AO3 will ask the run to slow down along
+          the way, and it waits those breaks out rather than giving up. Leave this window open
+          and running until it finishes.
         </p>
 
         @if (phase() === 'authenticating' && loginVerified() === null) {
@@ -402,7 +574,7 @@
         <!-- what this run was asked to do -->
         <dl class="chosen">
           <dt>Saving as</dt>
-          <dd>{{ selected().join(', ') }}</dd>
+          <dd>{{ chosenFiletypes().join(', ') || 'nothing - indexing only' }}</dd>
           @if (chosenOptions().length) {
             <dt>Options</dt>
             <dd>{{ chosenOptions().join(', ') }}</dd>
@@ -541,6 +713,47 @@
             <p class="hint">
               Saves a text file of the work numbers, links and reasons - one per line, so
               you can feed them back in or look them up.
+            </p>
+          </div>
+        }
+
+        <!--
+          kept apart from the failures above: nothing went wrong with these. there was no
+          work behind the bookmark to fetch, and running again would skip them again
+        -->
+        @if (skipped().length) {
+          <div class="failures skipped">
+            <p class="failures-text">
+              <strong>{{ skipped().length | number }}</strong>
+              {{ skipped().length === 1 ? 'bookmark was' : 'bookmarks were' }} not works, so
+              nothing could be downloaded for
+              {{ skipped().length === 1 ? 'it' : 'them' }}. Nothing has gone wrong - a
+              bookmark can be a series, a work hosted somewhere else, or one that has since
+              been deleted.
+            </p>
+            <ul class="failed-list">
+              @for (item of skipped().slice(0, 5); track $index) {
+                <li>
+                  @if (item.link) {
+                    <a [href]="item.link" target="_blank" rel="noopener">
+                      {{ item.id || item.title || item.link }}
+                    </a>
+                  } @else {
+                    <span>{{ item.title || 'a bookmark with no link' }}</span>
+                  }
+                  <span class="reason">{{ item.error }}</span>
+                </li>
+              }
+            </ul>
+            @if (skipped().length > 5) {
+              <p class="hint">and {{ skipped().length - 5 | number }} more.</p>
+            }
+            <button type="button" class="button" (click)="exportSkipped()">
+              Export the list
+            </button>
+            <p class="hint">
+              Saves a text file of the work or series numbers, links and reasons - one per
+              line, so you can go and look at them.
             </p>
           </div>
         }

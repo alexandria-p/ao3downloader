@@ -47,6 +47,30 @@
   margin: 14px 0 4px;
 }
 
+/* the runs that are each right for one job, kept out of the way of the two that are not */
+.advanced {
+  flex-basis: 100%;
+}
+
+.advanced summary {
+  display: inline-block;
+  padding: 4px 0;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.advanced summary:hover {
+  color: var(--text-strong);
+}
+
+.advanced-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 .button.primary {
   border-color: #5a7f9a;
   background: #33566b;

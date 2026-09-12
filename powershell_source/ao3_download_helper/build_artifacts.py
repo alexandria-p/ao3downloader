@@ -380,16 +380,56 @@ browser, and only if you tick the box.
 
 ### Bookmarks
 
-**Download newly added bookmarks** reads `/users/<you>/bookmarks`, writes a json index entry
+**(Recommended) Download new bookmarks and update incomplete fics** is the one to reach for.
+It makes three passes: your newest bookmarks, then the fics your index last saw unfinished,
+then any finished fic missing a format you asked for on this run. None of them walks your
+whole listing, so it stays quick however large your library is.
+
+It asks you to acknowledge two things first, and that note can be turned off. Indexing stops
+at the first bookmark it recognises, so if your index is incomplete - an earlier run
+interrupted, files deleted - the fics behind that point stay unseen. And it never re-reads a
+fic the index already calls finished, so chapters added to one afterwards are not noticed. A
+full scan answers both.
+
+**(Full scan) Reindex & Update All** reads `/users/<you>/bookmarks`, writes a json index entry
 for every work on it, then downloads the works themselves. Anything already downloaded and
 still current is skipped, so a second run only picks up what is new or has changed since.
-You choose the file types and which pages of the listing to cover.
+You choose the file types. It covers every page by definition, so it does not ask which - a
+custom run is where that lives. It is the only run that offers series links, because those
+are read off a work's own page and it is the only run that fetches one. It is the only run
+that
+can repair a wrong index or notice a completed fic that has grown - and on a large library
+it takes hours, which it says before you start.
 
-**Update any bookmarks marked as incomplete** takes the fics your index last recorded as
+Behind **Advanced options**:
+
+**Just update any bookmarks marked as incomplete** takes the fics your index last recorded as
 unfinished, opens each one on ao3, and brings its index entry up to date. It downloads a fic
 only if you have no copy of it or the copy you have is behind - see
 [Updating unfinished fics](#updating-unfinished-fics), which also covers the one thing it
 cannot find. You have to acknowledge that before it will let you log in.
+
+**Just download newly added bookmarks** indexes from your newest bookmark and stops at the
+first one you already have, then downloads what it found. It is the first pass of the
+recommended run, on its own.
+
+**Download/update a specific fic** takes a work link or just the work number, indexes that
+one fic, and downloads it in the formats you pick. A link to any chapter of it will do.
+
+**Custom run** is the full scan with its parts made optional: choose which pages to cover, or
+skip reading ao3 at all and work from what is already indexed. That last one costs no
+requests to decide anything, but judges everything against however old your index is.
+
+Skipping the indexing decides a file type as well: json is the index, so a run that does not
+index does not write it, and the json box is ticked or unticked to match and locked either
+way. Every run asks its options first and its file types second for that reason, and a run
+with nothing to choose skips the options step rather than showing an empty one.
+
+It is also the only run that offers **saving embedded images separately**. That fetches each
+work's page after its files are down, purely to read the image links out of it - an extra
+request per fic, so it makes the run considerably longer. You probably do not need it:
+images are normally embedded in the downloaded work already and display when you read it.
+This only writes a second copy of each as its own file, in an `images` subfolder.
 
 ### Collections
 
@@ -491,7 +531,7 @@ The re-read happens for every unfinished fic whether or not anything comes of it
 index ends up current even where nothing needed downloading. Only the download is
 conditional, which is why a fic that has not moved costs one request and nothing else.
 
-This is a different order from **Download newly added bookmarks**, which indexes the whole
+This is a different order from **(Full scan) Reindex & Update All**, which indexes the whole
 listing first and downloads afterwards. It can, because one listing request describes twenty
 fics at once. Here every fic has to be opened on its own, so there is nothing to gain by
 doing all the reading first - and going fic by fic means a run you stop partway has
@@ -499,12 +539,12 @@ completely finished every fic it got to.
 
 Only the fields a work's own page can speak to are rewritten. Tags, the summary and your
 own bookmark notes come from the listing, so they are left alone and refreshed by a
-**Download newly added bookmarks** run instead.
+**(Full scan) Reindex & Update All** run instead.
 
 **What it will not catch:** a fic that had already finished when it was last indexed. If a
 work was marked complete and then updated afterwards - an epilogue added, chapters edited -
 the index records it as complete, so this pass skips it. The web ui makes you acknowledge
-that before it will let you log in. Use **Download newly added bookmarks** for those: it
+that before it will let you log in. Use **(Full scan) Reindex & Update All** for those: it
 re-reads the whole listing and sees anything ao3 reports as updated more recently than your
 copy, finished or not.
 
@@ -532,6 +572,15 @@ run finishes it names them: how many, the first few with the reason, and a link 
 An **Export the list** button saves them as plain text - one work per line, with the work
 number, link and reason - so the numbers can be fed back in. A work is listed once however
 many formats failed for it.
+
+A second list covers **bookmarks that were never works at all**: a series bookmarked as a
+series, a work hosted somewhere other than ao3, or one that has since been deleted. Each is
+named with the reason the listing gave - and where the listing does not say, it says so
+rather than guessing - with its own **Export the list** button. These are kept apart from
+the failures above on purpose. Nothing went wrong with them and running again will skip them
+again, so mixing the two would make a real failure look routine.
+
+Every button ends this way, including the ones that only index.
 
 Works saved before names carried a date cannot be judged: nothing records which version
 they are. **The run stops and asks what to do about them before it downloads anything** -

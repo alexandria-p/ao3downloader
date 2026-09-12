@@ -306,6 +306,27 @@ def read_index(fileops: FileOps) -> list[dict]:
     return records
 
 
+def indexed_work_ids(fileops: FileOps) -> set[str]:
+    """The work numbers the index already holds, read from the file names alone.
+
+    Deliberately does not parse the json. This answers one question - "have we seen this
+    work before?" - for every blurb on every page of a listing, and an index of a few
+    thousand fics would otherwise be read in full to answer it. The work number leads the
+    file name by the same rule that pairs a download to its entry, so a directory listing
+    is all it takes.
+    """
+
+    folder = os.path.join(fileops.downloadfolder, strings.INDEXING_FOLDER_NAME)
+    if not os.path.isdir(folder): return set()
+
+    found = set()
+    for name in os.listdir(folder):
+        if not name.lower().endswith('.json'): continue
+        work = parse_text.get_work_number_from_filename(name)
+        if work: found.add(work)
+    return found
+
+
 def incomplete_works(records: list[dict]) -> list[dict]:
     """The works the index last saw unfinished."""
 

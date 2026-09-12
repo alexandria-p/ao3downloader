@@ -116,14 +116,35 @@ describe('App', () => {
     TestBed.inject(Library).htmlFiles.set(new Map());
   });
 
-  it('offers the two bookmark jobs on the bookmarks page', async () => {
+  it('leads with the everyday run and then the thorough one', async () => {
+    // the order is the recommendation: a full scan is hours, and is not what most runs
+    // should be
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
 
-    expect(actionLabels(element)).toEqual([
-      'Download newly added bookmarks',
-      'Update any bookmarks marked as incomplete',
+    expect(actionLabels(element).slice(0, 2)).toEqual([
+      '(Recommended) Download new bookmarks and update incomplete fics',
+      '(Full scan) Reindex & Update All',
+    ]);
+  });
+
+  it('keeps the single-purpose runs behind advanced options', async () => {
+    // each is right for exactly one job and confusing as a default, so none of them sits
+    // in the way of the two that are not
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const advanced = element.querySelector('.advanced');
+    expect(advanced?.querySelector('summary')?.textContent?.trim()).toBe('Advanced options');
+    expect(
+      Array.from(advanced!.querySelectorAll('button')).map((b) => b.textContent?.trim()),
+    ).toEqual([
+      'Just update any bookmarks marked as incomplete',
+      'Just download newly added bookmarks',
+      'Download/update a specific fic',
+      'Custom run',
     ]);
   });
 
@@ -248,6 +269,91 @@ describe('App', () => {
     expect(element.querySelector('.heading a.title')?.classList.contains('local')).toBe(true);
     expect(element.querySelector('.meta-line.linked')?.textContent).toContain('1 of 1 works');
   });
+
+  // region the faq tab
+
+  it('offers a faq alongside the two listings', async () => {
+    const { element } = await render(1);
+
+    expect(tab(element, 'FAQ')).toBeTruthy();
+  });
+
+  it('shows the faq with no buttons to act on a folder', async () => {
+    // it is something to read, not a folder to do anything with
+    const { fixture, element } = await render(1);
+
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-faq')).toBeTruthy();
+    expect(element.querySelector('.actions')).toBeNull();
+    expect(element.querySelector('app-work-list')).toBeNull();
+  });
+
+  it('reads the faq without a folder having been chosen', async () => {
+    // the likeliest moment to want it is when a download did not come out as expected,
+    // which is also a moment nothing may be loaded
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-faq')).toBeTruthy();
+    // and the 'choose a folder' panel steps out of the way
+    expect(element.querySelector('.empty')).toBeNull();
+  });
+
+  it('answers the things that catch people out', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+
+    const said = element.querySelector('app-faq')?.textContent ?? '';
+    expect(said).toContain('Work skins are stripped');
+    expect(said).toContain('audio and video');
+    expect(said).toContain('very large one');
+    expect(said).toContain('has to start with the AO3 work ID');
+    expect(said).toContain('date AO3 says the work was last updated');
+    // unbookmarking or deleting a fic on AO3 removes nothing here, which surprises people
+    expect(said).toContain('Removing a bookmark does not remove anything here');
+    expect(said).toContain('Indexing only ever');
+  });
+
+  it('explains what happens when a work cannot be downloaded', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+
+    const said = element.querySelector('app-faq')?.textContent ?? '';
+    expect(said).toContain('as a list, not a number');
+    // every reason a bookmark can be passed over
+    expect(said).toContain('A series');
+    expect(said).toContain('An external work');
+    expect(said).toContain('A deleted work');
+    expect(said).toContain('made private, or hidden');
+    // and what the export gives you
+    expect(said).toContain('Export the list');
+    expect(element.querySelector('app-faq .mock')).toBeTruthy();
+  });
+
+  it('explains the choice offered for files with no date', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+
+    const said = element.querySelector('app-faq')?.textContent ?? '';
+    expect(said).toContain('the run stops and asks');
+    expect(said).toContain('Give them a date');
+    expect(said).toContain('Re-download them');
+    expect(said).toContain('Ignore and skip them');
+    expect(
+      element.querySelector('app-faq a')?.getAttribute('href'),
+    ).toBe('https://archiveofourown.org/faq/downloading-fanworks');
+  });
+
+  // endregion
 
   // region the naming note shown before the folder picker
 

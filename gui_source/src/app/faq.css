@@ -1,0 +1,142 @@
+/* a reading page rather than a listing, so it is narrowed to a comfortable measure */
+.faq {
+  max-width: 760px;
+  margin: 14px 0 40px;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.faq h2 {
+  margin: 0 0 10px;
+  font-size: 1.15rem;
+  color: var(--text-strong);
+}
+
+.faq h3 {
+  margin: 26px 0 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 1rem;
+  color: var(--text-strong);
+}
+
+.faq h4 {
+  margin: 18px 0 6px;
+  font-size: 0.92rem;
+  color: var(--text-strong);
+}
+
+.faq p {
+  margin: 0 0 12px;
+}
+
+.faq ul {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+/*
+ * a picture of the panel a finished run shows, not the panel itself. it is deliberately
+ * inert - nothing here is a real button - so it can sit in a page that has no run behind it
+ */
+.mock {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-2);
+  font-size: 0.85rem;
+}
+
+.mock-text {
+  margin: 0 0 8px;
+}
+
+.mock-list {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.mock-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+}
+
+.mock-link {
+  color: #9fc4dc;
+  text-decoration: underline;
+}
+
+.mock-list .reason {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.mock-button {
+  display: inline-block;
+  padding: 5px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 0.84rem;
+}
+
+.lead {
+  color: var(--text-dim);
+}
+
+.faq dl {
+  margin: 0 0 12px;
+}
+
+.faq dt {
+  margin-top: 12px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.faq dd {
+  margin: 4px 0 0;
+}
+
+.examples {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  list-style: none;
+  line-height: 2;
+}
+
+.examples .yes {
+  color: #7fb37f;
+  font-weight: 700;
+}
+
+.examples .no {
+  color: #d08b8b;
+  font-weight: 700;
+}
+
+.example-name {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  overflow-wrap: anywhere;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
+
+.faq a {
+  color: #9fc4dc;
+}

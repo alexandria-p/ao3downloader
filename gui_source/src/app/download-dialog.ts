@@ -16,8 +16,22 @@ type Step =
 /** any page of a collection will do, so this only asks that a name follows /collections/ */
 const COLLECTION_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/collections\/([^/?#]+)/i;
 
+/** any chapter or page of a work will do, so this only asks that digits follow /works/ */
+const WORK_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/works\/(\d+)/i;
+
+/**
+ * The index's own file type, which is not a copy of a work like the others.
+ *
+ * Matches `strings.AO3_DOWNLOAD_TYPE_METADATA` on the helper. Named here rather than read
+ * out of `config.forced`, because what makes it special is what it *is* - the index - and
+ * not that it happens to be on a list of locked types.
+ */
+const METADATA = 'JSON';
+
 const USERNAME_KEY = 'ao3.username';
 const REMEMBER_KEY = 'ao3.remember';
+/** set once the combined run's note has been read and turned off */
+const SYNC_ACK_KEY = 'ao3.syncAcknowledged';
 const MAX_LOG = 200;
 
 @Component({
@@ -52,8 +66,13 @@ export class DownloadDialog implements OnDestroy {
   /** the collection to index, for the action that works from a link */
   protected readonly collectionUrl = signal('');
 
-  /** ticked once the limitation of an update pass has been read and accepted */
+  /** ticked once the limitation of this run has been read and accepted */
   protected readonly acknowledged = signal(false);
+  /** the combined run's note only: turns it off for next time, once accepted */
+  protected readonly dontAskAgain = signal(false);
+
+  /** a custom run may work from the index rather than reading AO3's listing again */
+  protected readonly reindex = signal(true);
 
   protected readonly log = signal<string[]>([]);
   protected readonly percent = signal<number | null>(null);
@@ -98,6 +117,14 @@ export class DownloadDialog implements OnDestroy {
   protected readonly stampedCount = signal(0);
   /** works this run could not download */
   protected readonly failures = signal<WorkFailure[]>([]);
+  /**
+   * Bookmarks that were never works: a series, something hosted elsewhere, one deleted.
+   *
+   * Kept apart from `failures` because nothing went wrong with these - there was no work
+   * there to fetch, and no amount of retrying would change that. Listing them together
+   * would make a real failure look routine.
+   */
+  protected readonly skipped = signal<WorkFailure[]>([]);
 
   /**
    * How many undated files the run has stopped to ask about, or 0 when it is not asking.
@@ -120,11 +147,19 @@ export class DownloadDialog implements OnDestroy {
   protected readonly title = computed(() => {
     switch (this.action()) {
       case 'bookmarks':
-        return 'Download newly added bookmarks';
+        return '(Full scan) Reindex & Update All';
       case 'collections':
         return 'Index my collections';
       case 'collection':
         return 'Index collection by URL';
+      case 'new':
+        return 'Just download newly added bookmarks';
+      case 'sync':
+        return 'Download new bookmarks and update incomplete fics';
+      case 'work':
+        return 'Download/update a specific fic';
+      case 'custom':
+        return 'Custom run';
       default:
         return 'Update incomplete fics';
     }
@@ -133,11 +168,19 @@ export class DownloadDialog implements OnDestroy {
   protected readonly blurb = computed(() => {
     switch (this.action()) {
       case 'bookmarks':
-        return 'Reads your AO3 bookmarks and downloads anything not already in your downloads folder.';
+        return 'Walks every page of your AO3 bookmarks, reindexes all of them, and downloads anything missing or out of date. Thorough, and slow.';
       case 'collections':
         return 'Saves a json file describing each of your collections, including the work IDs it contains. The works themselves are not downloaded - they come from your index.';
       case 'collection':
         return 'Indexes any one collection on AO3, whether or not it is yours. Saved alongside your own collections, in the same shape.';
+      case 'new':
+        return 'Indexes your newest bookmarks and stops at the first one you already have, then downloads what it found. Usually a request or two.';
+      case 'sync':
+        return 'Three passes: your new bookmarks, then the fics your index last saw unfinished, then any finished fic missing a format you asked for.';
+      case 'work':
+        return 'Indexes one fic and downloads it, in whichever formats you pick. Use it for a single work you want now, or to repair one copy.';
+      case 'custom':
+        return 'A full scan with its parts made optional - choose the pages to cover, or skip reading AO3 entirely and work from what is already indexed.';
       default:
         return 'Reads your index for fics it last saw unfinished, checks each one on AO3, brings its index entry up to date, and re-downloads any that have grown.';
     }
@@ -146,34 +189,99 @@ export class DownloadDialog implements OnDestroy {
   /** JSON is metadata rather than a work, so the update run cannot produce it */
   protected readonly metadataNotApplicable = computed(() => this.action() === 'update');
 
-  /** page limits, series expansion and publication dates only mean something for a listing */
-  protected readonly listingOptions = computed(() => this.action() === 'bookmarks');
+  /**
+   * Which page of the listing to begin and end on. Only a custom run asks.
+   *
+   * A full scan covers everything by definition - that is what makes it a full scan, and
+   * offering to cut it short there only makes it a custom run under another name.
+   */
+  protected readonly picksPages = computed(() => this.action() === 'custom');
+
+  /**
+   * Series expansion: the full scan only.
+   *
+   * A series is discovered on a work's own page, and following one means downloading works
+   * that were never in the listing. Only a full scan goes the long way round (see
+   * `server.can_use_index`); every other run downloads a known set straight from the work
+   * numbers, and there is nothing in that path to expand a series into.
+   */
+  protected readonly picksSeries = computed(() => this.action() === 'bookmarks');
+
+  /**
+   * Embedded images: the custom run only.
+   *
+   * Image links are `<img>` tags in the work's rendered html, so they need the work page.
+   * The custom run fetches it separately, after the files themselves have come down the
+   * cheap way - which costs an extra request per work and is why it is opt-in, on the one
+   * run that exists for asking about things like this.
+   */
+  protected readonly picksImages = computed(() => this.action() === 'custom');
+
+  /** only a custom run may work from the index instead of reading the listing */
+  protected readonly picksReindex = computed(() => this.action() === 'custom');
 
   /**
    * Indexing collections writes metadata only, so there is nothing to pick: no file types
-   * and no download options. Indexing one by link asks for the link first; indexing your
-   * own goes straight to the login.
+   * and no download options. The two link actions ask for their link first; indexing your
+   * own collections goes straight to the login.
    */
   protected readonly picksFiletypes = computed(
     () => this.action() !== 'collections' && this.action() !== 'collection',
   );
-  protected readonly needsLink = computed(() => this.action() === 'collection');
+  protected readonly needsLink = computed(
+    () => this.action() === 'collection' || this.action() === 'work',
+  );
+  /** the link step asks for a fic rather than a collection */
+  protected readonly wantsWork = computed(() => this.action() === 'work');
 
   /**
-   * An update pass only re-reads what the index last saw unfinished, so a fic that had
-   * finished by then is invisible to it however much was added afterwards. That is worth
-   * reading before logging in for a run that will not find it.
+   * Which runs say what they cannot do before anyone logs in for them.
+   *
+   * All three have a real limitation and none of them is obvious from the button: an update
+   * pass never sees a fic that had finished, a full scan takes hours, and a combined run
+   * trusts the index it already has. Better read before a long run than worked out after.
    */
-  protected readonly needsAcknowledgement = computed(() => this.action() === 'update');
+  protected readonly needsAcknowledgement = computed(() => {
+    const action = this.action();
+    if (action === 'update' || action === 'bookmarks') return true;
+    // this one can be turned off - it is the run people are meant to use routinely, and a
+    // note that cannot be silenced is one they learn to click past
+    return action === 'sync' && !safeGet(SYNC_ACK_KEY);
+  });
+
+  /**
+   * Whether this run has anything to ask on the options step.
+   *
+   * A step with nothing on it is worse than no step: it reads as something that failed to
+   * load. When there is nothing to choose the run goes straight past it, in both
+   * directions, rather than showing a page that says so.
+   */
+  protected readonly hasOptions = computed(
+    () => this.picksPages() || this.picksSeries() || this.picksImages() || this.picksReindex(),
+  );
+
+  /**
+   * The options come before the file types, for every run.
+   *
+   * They have to for a custom run, where one of the options decides a file type - skipping
+   * the indexing means no json, since json *is* the index - and asking which types you
+   * want and then changing one behind you reads as the dialog overruling you. The rest
+   * follow the same order because two orders is one more than anybody needs to learn.
+   */
   protected readonly firstStep = computed<Step>(() => {
     if (this.needsLink()) return 'link';
+    if (this.hasOptions()) return 'options';
     return this.picksFiletypes() ? 'filetypes' : 'credentials';
   });
 
-  /** whether what has been typed is a link to one collection */
-  protected readonly linkIsValid = computed(() =>
-    COLLECTION_URL.test(this.collectionUrl().trim()),
-  );
+  /** whether what has been typed is something this run can act on */
+  protected readonly linkIsValid = computed(() => {
+    const typed = this.collectionUrl().trim();
+    if (!this.wantsWork()) return COLLECTION_URL.test(typed);
+    // a bare work number says the same thing as the whole url, and is what you get from
+    // the address bar most easily
+    return /^\d+$/.test(typed) || WORK_URL.test(typed);
+  });
 
   /** what the current stage is doing, in words */
   protected readonly phaseLabel = computed(() => {
@@ -204,12 +312,13 @@ export class DownloadDialog implements OnDestroy {
   /** what the run was asked to do, shown back while it works */
   protected readonly chosenOptions = computed(() => {
     const chosen: string[] = [];
-    if (this.listingOptions()) {
-      chosen.push(this.pageRange());
-      if (this.series()) chosen.push('expand series links');
-      if (this.workdates()) chosen.push('look up publication dates');
-    }
-    if (this.images()) chosen.push('embedded images');
+    // only what this run was actually offered: showing back a setting it cannot act on
+    // would read as a promise it is not going to keep
+    if (this.picksPages()) chosen.push(this.pageRange());
+    if (this.workdates()) chosen.push('look up publication dates');
+    if (this.picksSeries() && this.series()) chosen.push('expand series links');
+    if (this.picksImages() && this.images()) chosen.push('save images separately');
+    if (this.picksReindex() && !this.reindex()) chosen.push('no reindexing');
     return chosen;
   });
 
@@ -254,20 +363,90 @@ export class DownloadDialog implements OnDestroy {
     return (this.config()?.forced ?? []).includes(filetype);
   }
 
+  /**
+   * Whether this type is decided for you rather than chosen.
+   *
+   * On a custom run json is settled by the indexing switch in both directions - on when it
+   * indexes, off when it does not - so it is locked either way rather than only when on.
+   */
+  protected isLocked(filetype: string): boolean {
+    if (this.picksReindex() && filetype === METADATA) return true;
+    return this.isForced(filetype);
+  }
+
   protected isSelected(filetype: string): boolean {
+    if (this.picksReindex() && filetype === METADATA) return this.reindex();
     return this.selected().includes(filetype);
   }
 
+  /** why this type is locked, in a word, or '' when it is not */
+  protected lockedBecause(filetype: string): string {
+    if (!this.isLocked(filetype)) return '';
+    if (this.picksReindex() && filetype === METADATA) {
+      return this.reindex() ? 'with indexing' : 'not indexing';
+    }
+    return 'always on';
+  }
+
   protected toggle(filetype: string): void {
-    if (this.isForced(filetype)) return;
+    if (this.isLocked(filetype)) return;
     const current = this.selected();
     this.selected.set(
       current.includes(filetype) ? current.filter((x) => x !== filetype) : [...current, filetype],
     );
   }
 
-  protected toOptions(): void {
-    this.step.set('options');
+  /**
+   * The file types the run is actually asked for.
+   *
+   * `selected` holds what was ticked; on a custom run json is not ticked at all but
+   * follows the indexing switch, so the two have to be reconciled before anything is sent
+   * rather than the helper being left to guess which of them meant it.
+   */
+  protected readonly chosenFiletypes = computed(() => {
+    if (!this.picksReindex()) return this.selected();
+    const rest = this.selected().filter((x) => x !== METADATA);
+    return this.reindex() ? [METADATA, ...rest] : rest;
+  });
+
+  protected afterFiletypes(): void {
+    this.toCredentials();
+  }
+
+  protected afterOptions(): void {
+    this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+  }
+
+  /**
+   * The step before this one, or null when this one is the first.
+   *
+   * Worked out rather than written down, because which steps a run has varies: a run with
+   * nothing to choose has no options step at all, and only two ask for a link.
+   */
+  private stepBefore(step: Step): Step | null {
+    const earlier: Step[] = [];
+    if (this.needsLink()) earlier.push('link');
+    if (this.hasOptions()) earlier.push('options');
+    if (this.picksFiletypes()) earlier.push('filetypes');
+    if (this.needsAcknowledgement()) earlier.push('acknowledge');
+    earlier.push('credentials');
+
+    const at = earlier.indexOf(step);
+    return at > 0 ? earlier[at - 1] : null;
+  }
+
+  protected backFrom(step: Step): void {
+    const previous = this.stepBefore(step);
+    if (previous) {
+      this.step.set(previous);
+      return;
+    }
+    this.close();
+  }
+
+  /** whether stepping back from here goes anywhere other than out of the dialog */
+  protected hasStepBefore(step: Step): boolean {
+    return this.stepBefore(step) !== null;
   }
 
   protected toCredentials(): void {
@@ -278,6 +457,8 @@ export class DownloadDialog implements OnDestroy {
   /** from the acknowledgement: only on once it has actually been accepted */
   protected fromAcknowledgement(): void {
     if (!this.acknowledged()) return;
+    // written only when they go through with it, so backing out never silences the note
+    if (this.action() === 'sync' && this.dontAskAgain()) safeSet(SYNC_ACK_KEY, 'true');
     this.step.set('credentials');
   }
 
@@ -298,7 +479,11 @@ export class DownloadDialog implements OnDestroy {
   /** from the link step: only worth going on once the link is one we can use */
   protected fromLink(): void {
     if (!this.linkIsValid()) return;
-    this.step.set('credentials');
+    if (this.hasOptions()) {
+      this.step.set('options');
+      return;
+    }
+    this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
   }
 
   // endregion
@@ -356,18 +541,21 @@ export class DownloadDialog implements OnDestroy {
     this.asking.set(0);
     this.answering.set(false);
     this.failures.set([]);
+    this.skipped.set([]);
 
     let jobId: string;
     try {
       jobId = await this.jobs.start({
         action: this.action(),
-        filetypes: this.selected(),
+        filetypes: this.chosenFiletypes(),
         options: {
           start: this.start(),
           pages: this.pages(),
           series: this.series(),
           images: this.images(),
           workdates: this.workdates(),
+          // only a custom run can turn this off; everything else always indexes
+          reindex: this.picksReindex() ? this.reindex() : true,
         },
         username: this.username().trim(),
         password: this.password(),
@@ -460,6 +648,9 @@ export class DownloadDialog implements OnDestroy {
         break;
       case 'failures':
         this.failures.set(event.failures ?? []);
+        break;
+      case 'skipped':
+        this.skipped.set(event.skipped ?? []);
         break;
       case 'question':
         // the run is blocked until this is answered, so it takes over from the progress
@@ -620,16 +811,31 @@ export class DownloadDialog implements OnDestroy {
 
   /** the failed works as the text that gets saved - kept apart from the saving itself */
   protected failureReport(): string {
-    const rows = this.failures();
-    const lines = [
-      `# ${rows.length} work${rows.length === 1 ? '' : 's'} that could not be downloaded`,
-      `# ${new Date().toISOString()}`,
-      '# work id, link, reason - tab separated',
-      ...rows.map((row) =>
-        [row.id ?? '', row.link ?? '', (row.error ?? '').replace(/\s+/g, ' ')].join('\t'),
-      ),
-    ];
-    return lines.join('\n') + '\n';
+    return this.listReport(
+      this.failures(),
+      `${this.failures().length} work${this.failures().length === 1 ? '' : 's'} that could not be downloaded`,
+    );
+  }
+
+  protected skippedReport(): string {
+    return this.listReport(
+      this.skipped(),
+      `${this.skipped().length} bookmark${this.skipped().length === 1 ? '' : 's'} that are not works`,
+    );
+  }
+
+  /** one row per entry, tab separated, so it can be read or fed back in as it is */
+  private listReport(rows: WorkFailure[], heading: string): string {
+    return (
+      [
+        `# ${heading}`,
+        `# ${new Date().toISOString()}`,
+        '# work id, link, reason - tab separated',
+        ...rows.map((row) =>
+          [row.id ?? '', row.link ?? '', (row.error ?? '').replace(/\s+/g, ' ')].join('\t'),
+        ),
+      ].join('\n') + '\n'
+    );
   }
 
   /**
@@ -639,13 +845,21 @@ export class DownloadDialog implements OnDestroy {
    * directly, so it does not need a round trip or a second thing that writes to disk.
    */
   protected exportFailures(): void {
-    if (!this.failures().length) return;
+    this.saveText(this.failureReport(), 'failed-downloads', this.failures().length);
+  }
 
-    const blob = new Blob([this.failureReport()], { type: 'text/plain;charset=utf-8' });
+  protected exportSkipped(): void {
+    this.saveText(this.skippedReport(), 'skipped-bookmarks', this.skipped().length);
+  }
+
+  private saveText(text: string, name: string, rows: number): void {
+    if (!rows) return;
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `failed-downloads-${new Date().toISOString().slice(0, 10)}.txt`;
+    link.download = `${name}-${new Date().toISOString().slice(0, 10)}.txt`;
     link.click();
     // the save has its own copy once started, so the handle can go
     setTimeout(() => URL.revokeObjectURL(url), 60_000);

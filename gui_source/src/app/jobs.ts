@@ -8,7 +8,19 @@ import { Injectable, signal } from '@angular/core';
  * the same python the console menu runs, and this service drives it.
  */
 
-export type JobAction = 'bookmarks' | 'update' | 'collections' | 'collection';
+export type JobAction =
+  | 'bookmarks'
+  | 'update'
+  | 'collections'
+  | 'collection'
+  /** newest bookmarks only, stopping at the first one already indexed */
+  | 'new'
+  /** new bookmarks, then the unfinished ones, then the formats still missing */
+  | 'sync'
+  /** one fic, by link or work number */
+  | 'work'
+  /** the full scan with its parts made optional */
+  | 'custom';
 
 /** what settings.ini says, so a run can show what it is working from */
 export interface ServerSettings {
@@ -46,6 +58,13 @@ export interface JobOptions {
   series: boolean;
   images: boolean;
   workdates: boolean;
+  /**
+   * Whether to read AO3's listing at all, or work from what the index already holds.
+   *
+   * Only a custom run offers this. It defaults to true everywhere else: a run that quietly
+   * skipped indexing would judge everything against however stale the index happened to be.
+   */
+  reindex: boolean;
 }
 
 /** what to do about downloaded files that carry no date, asked part way through a run */
@@ -57,6 +76,13 @@ export interface WorkFailure {
   id: string | null;
   link: string;
   error: string;
+  /**
+   * What the listing called it, when there is anything to call it.
+   *
+   * Only skipped bookmarks carry this. A bookmark of a deleted work has no number and no
+   * link to identify it by, so without the title there would be nothing on the row at all.
+   */
+  title?: string;
 }
 
 export interface JobEvent {
@@ -86,6 +112,8 @@ export interface JobEvent {
   stamped?: number;
   /** on a `failures` event: the works that would not download */
   failures?: WorkFailure[];
+  /** on a `skipped` event: bookmarks that were never works, and why each one was not */
+  skipped?: WorkFailure[];
   /** on a `question` event: which question is being asked, and how many works it concerns */
   count?: number;
   choices?: string[];

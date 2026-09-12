@@ -1,0 +1,263 @@
+<section class="faq">
+  <h2>About downloading from AO3</h2>
+
+  <p class="lead">
+    This page downloads fanworks using AO3's own download links, so what you get is what AO3
+    produces. The
+    <a href="https://archiveofourown.org/faq/downloading-fanworks" target="_blank" rel="noopener">
+      AO3 FAQ on downloading fanworks</a>
+    is the full account of that; below are the parts that catch people out here.
+  </p>
+
+  <h3>Why do I need to log in?</h3>
+
+  <p>
+    So the run can see what you can see. Logged out, AO3 shows a stranger's view of your
+    account, which leaves out two things:
+  </p>
+
+  <ul>
+    <li>
+      <strong>Your private bookmarks.</strong> Bookmarks you have marked private are not
+      shown to anyone else, so a logged-out run would never know they exist.
+    </li>
+    <li>
+      <strong>Works restricted to registered users.</strong> Authors can limit a work to
+      logged-in accounts. AO3 will not serve those to a visitor, so they would fail to
+      download.
+    </li>
+  </ul>
+
+  <p class="hint">
+    Your password is sent straight to AO3 to log in and is never stored by this page. Only
+    your username is kept, in your browser, and only if you tick the box.
+  </p>
+
+  <h3>What does not survive a download</h3>
+
+  <dl>
+    <dt>Work skins are stripped</dt>
+    <dd>
+      Any custom styling an author applied to their work is not carried into a downloaded
+      copy, so text laid out as chat logs, handwriting, redactions or newspaper clippings
+      will read as ordinary paragraphs. Sorry. Nothing on this page can change that - the
+      files come from AO3 already that way.
+    </dd>
+
+    <dt>Embedded audio and video are not kept</dt>
+    <dd>
+      A work with music, a podfic player or an embedded video keeps none of it in a
+      downloaded copy. If a work is mainly one of those, it is worth opening it on AO3.
+    </dd>
+
+    <dt>Very large images sometimes fail</dt>
+    <dd>
+      Images are normally embedded inside the downloaded work and display when you read it.
+      They are hosted elsewhere, though, not by AO3 - so a very large one, or one whose host
+      is slow or gone, can fail to come down and will show as a broken image. Nothing is
+      wrong with your copy when that happens; the picture was never in it.
+    </dd>
+  </dl>
+
+  <p class="hint">
+    <strong>Custom run</strong> can also save embedded images as separate files, in an
+    <code>images</code> subfolder. That is for when you want the pictures themselves - it
+    does not repair a work whose images failed, and it makes the run considerably longer,
+    because every fic needs its own page fetched on top of its files.
+  </p>
+
+  <h3>How indexing works</h3>
+
+  <p>
+    Downloading a fic gets you a file. <em>Indexing</em> it saves a small
+    <code>.json</code> file describing it - title, author, tags, summary, word and chapter
+    counts, when AO3 last updated it - into an <code>indexing</code> subfolder. That index is
+    what this page reads to show you your library; the works themselves are never opened by
+    the browser.
+  </p>
+
+  <p>
+    Indexing is cheap and downloading is not. One request to AO3 returns a whole page of the
+    listing, which is twenty works, so indexing a large library costs very little. Every
+    file type you tick costs one request <em>per work</em> on top of that. This is also why
+    JSON cannot be unticked on most runs - it is the index, and everything else depends on
+    it.
+  </p>
+
+  <p>
+    Each index file keeps a history. When a fic is indexed again, a new entry is added only
+    if something actually changed, so you can see when a work gained chapters or was
+    updated. That history is also how a run knows whether the copy you already have is
+    behind the version AO3 now has.
+  </p>
+
+  <h3>When something cannot be downloaded</h3>
+
+  <p>
+    A run never stops because one fic will not come down. It carries on, and when it
+    finishes it tells you exactly what it could not get - as a list, not a number - so the
+    gap between what you have bookmarked and what is on your disk is never a mystery. There
+    are two separate lists, because they mean different things.
+  </p>
+
+  <h4>Bookmarks that were never works</h4>
+
+  <p>
+    A bookmarks listing holds more than works. Any of these has no work to download, and no
+    amount of running again will change that:
+  </p>
+
+  <ul>
+    <li><strong>A series</strong> - bookmarked as a series rather than as its individual works.</li>
+    <li><strong>An external work</strong> - hosted somewhere other than AO3, so AO3 has no file to give.</li>
+    <li><strong>A deleted work</strong> - the bookmark remains, the work does not.</li>
+    <li>
+      <strong>An unrevealed work</strong> - shown by AO3 as <em>Mystery Work</em>, because
+      the author put it in a collection that has not opened yet. This one is a real work and
+      is indexed normally, but AO3 will not hand over the file until it is revealed, so the
+      run does not waste a request asking. Once the collection opens, a later run picks it
+      up like any other.
+    </li>
+    <li>
+      <strong>Something the listing will not explain</strong> - it may have been deleted,
+      made private, or hidden. Where AO3 does not say, this does not guess; where AO3 does
+      say something, you get its words rather than ours.
+    </li>
+  </ul>
+
+  <p>Which looks like this at the end of a run:</p>
+
+  <div class="mock" aria-hidden="true">
+    <p class="mock-text">
+      <strong>2</strong> bookmarks were not works, so nothing could be downloaded for them.
+      Nothing has gone wrong - a bookmark can be a series, a work hosted somewhere else, or
+      one that has since been deleted.
+    </p>
+    <ul class="mock-list">
+      <li><span class="mock-link">12345678</span> <span class="reason">a series, not a single work</span></li>
+      <li><span class="mock-link">Some Fic</span> <span class="reason">the work has been deleted</span></li>
+    </ul>
+    <span class="mock-button">Export the list</span>
+  </div>
+
+  <p class="hint">
+    <strong>Export the list</strong> saves a plain text file - one row per bookmark, with
+    the work or series number where there is one, the link where there is one, and the
+    reason. A deleted work has neither a number nor a link, so its row carries whatever the
+    listing still called it.
+  </p>
+
+  <h4>Works that would not come down</h4>
+
+  <p>
+    Separately, a work that <em>should</em> have downloaded and did not - a timeout, a
+    restricted work, a format AO3 does not have for it - is listed the same way, with its
+    work number, its link and the reason, and its own <strong>Export the list</strong>
+    button. Those are worth retrying; the ones above are not, which is why the two are never
+    mixed together.
+  </p>
+
+  <h3>Files you bring in that have no date</h3>
+
+  <p>
+    A file saved before names carried a date - or brought in from somewhere that never used
+    one - cannot be judged. There is nothing in the name to compare against what AO3 now
+    reports, so the run cannot tell whether your copy is current or years behind.
+  </p>
+
+  <p>
+    Rather than guess, <strong>the run stops and asks</strong>, before it downloads anything.
+    You get three choices:
+  </p>
+
+  <dl>
+    <dt>Give them a date</dt>
+    <dd>
+      You say which version to treat them as, and the files are renamed where they sit.
+      Nothing is downloaded to do this - no requests at all - and the run carries straight
+      on, so anything AO3 has updated since that date is fetched on the same pass. Today
+      means "what I have is current"; an earlier date means "my copies are from about then".
+    </dd>
+
+    <dt>Re-download them</dt>
+    <dd>
+      Every one counts as out of date from then on, and is fetched again as the run reaches
+      it. That is a full download of the lot, so it is a deliberate choice rather than
+      something that happens to you.
+    </dd>
+
+    <dt>Ignore and skip them</dt>
+    <dd>
+      They stay exactly as they are, nothing is downloaded for them, and you are asked again
+      next time. Stopping the run or closing the tab takes this option.
+    </dd>
+  </dl>
+
+  <h3>Removing a bookmark does not remove anything here</h3>
+
+  <p>
+    Indexing only ever <em>adds</em>. If you unbookmark a fic on AO3, or it is deleted there,
+    nothing on this page notices: its index file stays where it is, its downloaded copy stays
+    where it is, and it carries on appearing in your library as though nothing happened. No
+    run removes either one, including a full scan.
+  </p>
+
+  <p class="hint">
+    That is deliberate as far as your downloads go - losing a fic you had because AO3 stopped
+    listing it would be the worst thing this could do, and works are deleted, orphaned and
+    locked all the time. The index going stale alongside it is simply the cost of that. If
+    you want a fic gone, delete its file and its <code>indexing</code> entry yourself.
+  </p>
+
+  <h3>Bringing in files you already have</h3>
+
+  <p>
+    Downloads from anywhere else can sit in the same folder and be picked up, on one
+    condition: <strong>the file name has to start with the AO3 work ID</strong>, followed by
+    a space, <code>_</code>, <code>.</code> or <code>-</code>. Everything after that is yours
+    to name however you like.
+  </p>
+
+  <ul class="examples">
+    <li><span class="yes">&#10003;</span> <code>34816549 whatever you like.epub</code></li>
+    <li><span class="yes">&#10003;</span> <code>34816549-anything.pdf</code></li>
+    <li>
+      <span class="no">&times;</span> <code>whatever you like 34816549.epub</code>
+      &mdash; the number is not first
+    </li>
+    <li>
+      <span class="no">&times;</span> <code>34816549whatever.epub</code>
+      &mdash; nothing separates the number from the title
+    </li>
+  </ul>
+
+  <p class="hint">
+    A file named any other way still sits in the folder quite happily - it just cannot be
+    matched to a work, so that fic's title will open on AO3 instead of your own copy. The
+    line under the works listing says how many were matched, which is where you would
+    notice.
+  </p>
+
+  <h3>How downloaded files are named</h3>
+
+  <p>
+    <code>{{ '{' }}work number{{ '}' }} {{ '{' }}title{{ '}' }} - {{ '{' }}author{{ '}' }}
+    {{ '{' }}date updated{{ '}' }}</code>, for example:
+  </p>
+
+  <p class="example-name"><code>34816549 No Paths Are Bound - Cataclys 2026-08-23.html</code></p>
+
+  <p>
+    The two ends of that are fixed and not settings. The <strong>work number leads</strong>
+    so files can be paired with the index, and the <strong>date trails</strong> - it is the
+    date AO3 says the work was last updated, not the day you fetched it, which is what lets a
+    later run tell that AO3 has a newer version than your file. Only the title and author are
+    shortened, if the whole name would be too long for Windows.
+  </p>
+
+  <p class="hint">
+    Index files are named the same way but carry <em>no</em> date, deliberately: an index
+    file is the history of its fic, and a name that changed whenever the fic did would start
+    a new file and orphan everything recorded so far.
+  </p>
+</section>

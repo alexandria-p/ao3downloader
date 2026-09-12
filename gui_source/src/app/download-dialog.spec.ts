@@ -102,27 +102,50 @@ function checkbox(labelText: string): HTMLInputElement | undefined {
     ?.querySelector('input') as HTMLInputElement | undefined;
 }
 
-async function advanceTo(step: 'options' | 'credentials' | 'running') {
-  button('Continue')?.click();
-  await fixture.whenStable();
-  if (step === 'options') return;
+function currentStep(): string {
+  return element.querySelector('.dialog')?.getAttribute('data-step') ?? '';
+}
 
-  button('Continue')?.click();
-  await fixture.whenStable();
-  if (step === 'credentials') return;
+/**
+ * Walk the wizard to a step, by where it actually is rather than by counting clicks.
+ *
+ * The steps are not in the same order for every run: a custom run asks its options before
+ * the file types and everything else asks them after, and several runs put an
+ * acknowledgement in between. Counting clicks made every test quietly depend on which.
+ */
+async function advanceTo(target: 'options' | 'filetypes' | 'credentials' | 'running') {
+  for (let guard = 0; guard < 8; guard++) {
+    const at = currentStep();
+    if (at === target || at === 'running') return;
 
-  const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
-  password.value = 'a-password';
-  password.dispatchEvent(new Event('input'));
-  await fixture.whenStable();
+    if (at === 'acknowledge') {
+      element.querySelector<HTMLInputElement>('input[name="acknowledge"]')!.click();
+      await fixture.whenStable();
+    }
 
-  button('Start download')?.click();
-  await fixture.whenStable();
+    if (at === 'credentials') {
+      const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
+      password.value = 'a-password';
+      password.dispatchEvent(new Event('input'));
+      await fixture.whenStable();
+      button('Start download')!.click();
+      await fixture.whenStable();
+      continue;
+    }
+
+    button('Continue')?.click();
+    await fixture.whenStable();
+  }
+
+  throw new Error(`could not reach ${target}; stuck on ${currentStep()}`);
 }
 
 describe('DownloadDialog', () => {
   beforeEach(async () => {
     jobs = new FakeJobs();
+    // the remembered username and the combined run's note both live here, and either would
+    // carry between tests
+    localStorage.clear();
     TestBed.configureTestingModule({ providers: [{ provide: Jobs, useValue: jobs }] });
   });
 
@@ -130,6 +153,7 @@ describe('DownloadDialog', () => {
 
   it('locks the file types that are always produced', async () => {
     await open();
+    await advanceTo('filetypes');
 
     for (const forced of CONFIG.forced) {
       const input = checkbox(forced)!;
@@ -143,6 +167,7 @@ describe('DownloadDialog', () => {
   it('ticks html to begin with but lets it be turned off', async () => {
     // it costs a request per work on top of the indexing, which is the expensive half
     await open();
+    await advanceTo('filetypes');
 
     const html = checkbox('HTML')!;
     expect(html.checked).toBe(true);
@@ -151,6 +176,7 @@ describe('DownloadDialog', () => {
 
   it('asks for metadata only when everything else is unticked', async () => {
     await open('bookmarks');
+    await advanceTo('filetypes');
     checkbox('HTML')!.click();
     await fixture.whenStable();
 
@@ -161,6 +187,7 @@ describe('DownloadDialog', () => {
 
   it('says what unticking the rest buys, where the choice is made', async () => {
     await open('bookmarks');
+    await advanceTo('filetypes');
 
     expect(element.textContent).toContain('rate limit');
   });
@@ -169,13 +196,81 @@ describe('DownloadDialog', () => {
 
   // region options step
 
-  it('asks the listing questions the console asks, for a bookmarks run', async () => {
+  it('offers series expansion on a full scan, which is where it works', async () => {
+    // a series is found on a work's own page, and only a full scan goes the long way round
     await open('bookmarks');
     await advanceTo('options');
 
-    expect(element.querySelector('input[name="pages"]')).toBeTruthy();
     expect(checkbox('series links')).toBeTruthy();
-    expect(checkbox('embedded images')).toBeTruthy();
+  });
+
+  it('offers saving images separately only on a custom run', async () => {
+    await open('custom');
+    await advanceTo('options');
+    expect(checkbox('images separately')).toBeTruthy();
+
+    for (const action of ['bookmarks', 'sync', 'new', 'update'] as const) {
+      await open(action);
+      await advanceTo(currentStep() === 'options' ? 'options' : 'filetypes');
+      expect(checkbox('images separately'), action).toBeUndefined();
+    }
+  });
+
+  it('says plainly what saving images costs and what it is not', async () => {
+    // most people do not want this: the pictures are already inside the downloaded work
+    await open('custom');
+    await advanceTo('options');
+
+    const said = element.querySelector('.body')?.textContent ?? '';
+    expect(said).toContain('make the run much longer');
+    expect(said).toContain('probably do not need this');
+    expect(said).toContain('already');
+  });
+
+  it('asks a full scan nothing about pages', async () => {
+    // it covers everything by definition; offering to cut it short makes it a custom run
+    // under another name
+    await open('bookmarks');
+    await advanceTo('options');
+
+    expect(element.querySelector('input[name="pages"]')).toBeNull();
+    expect(element.querySelector('input[name="start"]')).toBeNull();
+  });
+
+  it('asks a custom run which pages to cover', async () => {
+    await open('custom');
+    await advanceTo('options');
+
+    expect(element.querySelector('input[name="pages"]')).toBeTruthy();
+    expect(element.querySelector('input[name="start"]')).toBeTruthy();
+  });
+
+  it('offers series expansion to no other run', async () => {
+    // nothing else goes the long way round, so there would be nothing to expand into
+    for (const action of ['custom', 'sync', 'new', 'update'] as const) {
+      await open(action);
+      await advanceTo(currentStep() === 'options' ? 'options' : 'filetypes');
+
+      expect(checkbox('series links'), action).toBeUndefined();
+    }
+  });
+
+  it('skips the options step when there is nothing to choose', async () => {
+    // a step with nothing on it reads as one that failed to load
+    for (const action of ['sync', 'new', 'update'] as const) {
+      await open(action);
+
+      expect(currentStep(), action).toBe('filetypes');
+    }
+  });
+
+  it('steps back past a skipped options step rather than into it', async () => {
+    await open('sync');
+    await advanceTo('filetypes');
+
+    // nothing before the file types on this run, so there is nowhere back to go
+    expect(button('Cancel')).toBeTruthy();
+    expect(button('Back')).toBeUndefined();
   });
 
   it('does not offer the publication date lookup', async () => {
@@ -195,41 +290,52 @@ describe('DownloadDialog', () => {
 
   it('leaves out the questions that mean nothing for an update run', async () => {
     await open('update');
-    await advanceTo('options');
 
-    // no listing to page through, no series to expand, no metadata to date
+    // no listing to page through, no work page to read anything off, nothing to date - so
+    // there is no options step at all, and it opens on the file types
+    expect(currentStep()).toBe('filetypes');
     expect(element.querySelector('input[name="pages"]')).toBeNull();
     expect(checkbox('series links')).toBeUndefined();
     expect(checkbox('publication date')).toBeUndefined();
-    // images still apply to a re-download
-    expect(checkbox('embedded images')).toBeTruthy();
+    expect(checkbox('images separately')).toBeUndefined();
   });
 
   it('sends the chosen options with the job', async () => {
     await open('bookmarks');
     await advanceTo('options');
 
-    const pages = element.querySelector<HTMLInputElement>('input[name="pages"]')!;
-    pages.value = '3';
-    pages.dispatchEvent(new Event('input'));
     checkbox('series links')!.click();
-    checkbox('embedded images')!.click();
     await fixture.whenStable();
 
     await advanceTo('running');
 
     expect(jobs.started).toHaveLength(1);
     expect(jobs.started[0].options).toEqual({
+      // a full scan covers the whole listing, so these are not its to choose
       start: 1,
-      pages: 3,
+      pages: 0,
       series: true,
-      images: true,
+      // images are a custom run's to ask for; a full scan is not offered them
+      images: false,
       workdates: false,
+      // only a custom run may turn this off, so every other run always indexes
+      reindex: true,
     });
   });
 
+  it('sends a custom run told to save images separately', async () => {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('images separately')!.click();
+    await fixture.whenStable();
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.images).toBe(true);
+  });
+
   it('sends the page to start on as well as the one to stop after', async () => {
-    await open('bookmarks');
+    await open('custom');
     await advanceTo('options');
 
     const start = element.querySelector<HTMLInputElement>('input[name="start"]')!;
@@ -247,7 +353,7 @@ describe('DownloadDialog', () => {
   });
 
   it('treats a blank or first page as starting at the beginning', async () => {
-    await open('bookmarks');
+    await open('custom');
     await advanceTo('options');
 
     const start = element.querySelector<HTMLInputElement>('input[name="start"]')!;
@@ -261,7 +367,7 @@ describe('DownloadDialog', () => {
   });
 
   it('says which slice of the listing the run will cover', async () => {
-    await open('bookmarks');
+    await open('custom');
     await advanceTo('options');
 
     const start = element.querySelector<HTMLInputElement>('input[name="start"]')!;
@@ -273,7 +379,7 @@ describe('DownloadDialog', () => {
   });
 
   it('treats a blank or zero page limit as every page', async () => {
-    await open('bookmarks');
+    await open('custom');
     await advanceTo('options');
 
     const pages = element.querySelector<HTMLInputElement>('input[name="pages"]')!;
@@ -327,7 +433,8 @@ describe('DownloadDialog', () => {
 
     const said = element.querySelector('.dialog .body')?.textContent ?? '';
     expect(said).toContain('will not find a fic that was already finished');
-    expect(said).toContain('Download newly added bookmarks');
+    // and points at the run that does catch those
+    expect(said).toContain('Reindex & Update All');
   });
 
   it('will not go on until it has actually been acknowledged', async () => {
@@ -887,8 +994,19 @@ describe('DownloadDialog', () => {
     const chosen = element.querySelector('.chosen')?.textContent ?? '';
     expect(chosen).toContain('JSON');
     expect(chosen).toContain('HTML');
-    expect(chosen).toContain('all pages');
     expect(chosen).toContain('my_downloads');
+  });
+
+  it('shows back only the settings the run was actually offered', async () => {
+    // a full scan is not asked which pages to cover, so showing 'all pages' back at it
+    // reads as a setting that was chosen rather than one that does not exist
+    await open('bookmarks');
+    await advanceTo('running');
+    expect(element.querySelector('.chosen')?.textContent).not.toContain('pages');
+
+    await open('custom');
+    await advanceTo('running');
+    expect(element.querySelector('.chosen')?.textContent).toContain('all pages');
   });
 
   it('names the fic and the format currently being fetched', async () => {
@@ -982,6 +1100,322 @@ describe('DownloadDialog', () => {
 
     expect(element.querySelector('.current')?.textContent).toContain('Updating');
   });
+
+  // region the runs and what each says it cannot do
+
+  async function toNote(action: 'bookmarks' | 'sync' | 'update') {
+    await open(action);
+    button('Continue')?.click();
+    await fixture.whenStable();
+    button('Continue')?.click();
+    await fixture.whenStable();
+  }
+
+  it('warns that a full scan is a long job and names the lighter run', async () => {
+    await toNote('bookmarks');
+
+    const said = element.querySelector('.dialog .body')?.textContent ?? '';
+    expect(said).toContain('take a really long time');
+    expect(said).toContain('Download new bookmarks and update incomplete fics');
+    expect(button('Continue')?.disabled).toBe(true);
+  });
+
+  it('says what the combined run trusts and what it will miss', async () => {
+    await toNote('sync');
+
+    const said = element.querySelector('.dialog .body')?.textContent ?? '';
+    expect(said).toContain('trusts the index you already have');
+    expect(said).toContain('already marked complete');
+    expect(said).toContain('Reindex & Update All');
+  });
+
+  it('lets the combined run’s note be turned off, once it is accepted', async () => {
+    await toNote('sync');
+    element.querySelector<HTMLInputElement>('input[name="acknowledge"]')!.click();
+    element.querySelector<HTMLInputElement>('input[name="dontAskAgain"]')!.click();
+    await fixture.whenStable();
+    button('Continue')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('input[name="password"]')).toBeTruthy();
+
+    await toNote('sync');
+
+    // straight past it to the login this time
+    expect(element.querySelector('input[name="acknowledge"]')).toBeNull();
+    expect(element.querySelector('input[name="password"]')).toBeTruthy();
+  });
+
+  it('keeps asking when the note is turned off but then backed out of', async () => {
+    // ticking the box is not the decision; going through with it is
+    await toNote('sync');
+    element.querySelector<HTMLInputElement>('input[name="dontAskAgain"]')!.click();
+    await fixture.whenStable();
+
+    await toNote('sync');
+
+    expect(element.querySelector('input[name="acknowledge"]')).toBeTruthy();
+  });
+
+  it('never lets the full scan note be turned off', async () => {
+    // it is the run that costs hours; it says so every time
+    await toNote('bookmarks');
+
+    expect(element.querySelector('input[name="dontAskAgain"]')).toBeNull();
+  });
+
+  it('asks a single-fic run for a work, by link or by number', async () => {
+    await open('work');
+
+    const input = element.querySelector<HTMLInputElement>('input[name="work"]')!;
+    expect(input).toBeTruthy();
+    expect(button('Continue')?.disabled).toBe(true);
+
+    input.value = '34816549';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    expect(button('Continue')?.disabled).toBe(false);
+  });
+
+  it('refuses a single-fic run anything that is not one work', async () => {
+    await open('work');
+    const input = element.querySelector<HTMLInputElement>('input[name="work"]')!;
+
+    input.value = 'https://archiveofourown.org/collections/yuletide';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    expect(button('Continue')?.disabled).toBe(true);
+    expect(element.querySelector('.error')?.textContent).toContain('not an AO3 work');
+  });
+
+  it('takes a chapter link as the work it belongs to', async () => {
+    await open('work');
+    const input = element.querySelector<HTMLInputElement>('input[name="work"]')!;
+
+    input.value = 'https://archiveofourown.org/works/34816549/chapters/86677150';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    expect(button('Continue')?.disabled).toBe(false);
+  });
+
+  it('offers skipping the indexing only on a custom run', async () => {
+    await open('custom');
+    await advanceTo('options');
+    expect(checkbox('Skip indexing')).toBeTruthy();
+
+    await open('bookmarks');
+    await advanceTo('options');
+    expect(checkbox('Skip indexing')).toBeUndefined();
+  });
+
+  it('asks a custom run its options before its file types', async () => {
+    // one of its options decides a file type, so asking which types you want and then
+    // changing one behind you would read as the dialog overruling you
+    await open('custom');
+    expect(currentStep()).toBe('options');
+
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('filetypes');
+  });
+
+  it('asks every run its options before its file types', async () => {
+    // two orders is one more than anybody needs to learn
+    await open('bookmarks');
+    expect(currentStep()).toBe('options');
+
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('filetypes');
+  });
+
+  it('lets a custom run step back from the file types to its options', async () => {
+    await open('custom');
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    button('Back')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('options');
+  });
+
+  it('ties a custom run’s JSON to whether it is indexing', async () => {
+    // json *is* the index, so a run that indexes writes it and a run that does not cannot
+    await open('custom');
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    const json = checkbox('JSON')!;
+    expect(json.checked).toBe(true);
+    expect(json.disabled).toBe(true);
+  });
+
+  it('unticks and locks a custom run’s JSON when it is not indexing', async () => {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('Skip indexing')!.click();
+    await fixture.whenStable();
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    const json = checkbox('JSON')!;
+    expect(json.checked).toBe(false);
+    expect(json.disabled).toBe(true);
+    expect(element.querySelector('.body')?.textContent).toContain('no JSON is written');
+  });
+
+  it('does not ask the helper for JSON it will not write', async () => {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('Skip indexing')!.click();
+    await fixture.whenStable();
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].filetypes).not.toContain('JSON');
+    expect(jobs.started[0].filetypes).toContain('HTML');
+  });
+
+  it('asks the helper for JSON when the custom run is indexing', async () => {
+    await open('custom');
+    await advanceTo('running');
+
+    expect(jobs.started[0].filetypes).toContain('JSON');
+  });
+
+  it('leaves JSON locked on for every other run', async () => {
+    await open('bookmarks');
+    await advanceTo('filetypes');
+
+    const json = checkbox('JSON')!;
+    expect(json.checked).toBe(true);
+    expect(json.disabled).toBe(true);
+  });
+
+  it('sends a custom run told to skip indexing', async () => {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('Skip indexing')!.click();
+    await fixture.whenStable();
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.reindex).toBe(false);
+  });
+
+  it('asks the lighter runs nothing about pages', async () => {
+    // they start at the first page by definition; there is nothing to choose
+    await open('sync');
+    await advanceTo('options');
+
+    expect(element.querySelector('input[name="pages"]')).toBeNull();
+    expect(element.querySelector('input[name="start"]')).toBeNull();
+  });
+
+  it('says a long run is expected to be left running', async () => {
+    await open('sync');
+    await advanceTo('running');
+
+    expect(element.querySelector('.warning')?.textContent).toContain('may take a long time');
+    expect(element.querySelector('.warning')?.textContent).toContain('Leave this tab open');
+  });
+
+  // endregion
+
+  // region bookmarks that were never works
+
+  async function finishedWithSkipped(rows: unknown[]) {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'skipped', skipped: rows as never });
+    jobs.push!({ type: 'finished' });
+    await fixture.whenStable();
+  }
+
+  it('names each bookmark it could not download, and why', async () => {
+    await finishedWithSkipped([
+      { id: '12345', link: 'https://ao3/series/12345', title: 'A Series',
+        error: 'a series, not a single work' },
+      { id: null, link: '', title: 'Gone', error: 'the work has been deleted' },
+    ]);
+
+    const said = element.querySelector('.failures.skipped')?.textContent ?? '';
+    expect(said).toContain('2');
+    expect(said).toContain('a series, not a single work');
+    expect(said).toContain('the work has been deleted');
+  });
+
+  it('still identifies a skipped bookmark that has no link at all', async () => {
+    // a deleted work has no number and no link, so the title is all there is to show
+    await finishedWithSkipped([
+      { id: null, link: '', title: 'Gone', error: 'the work has been deleted' },
+    ]);
+
+    expect(element.querySelector('.failures.skipped')?.textContent).toContain('Gone');
+  });
+
+  it('does not call a skipped bookmark a failure', async () => {
+    // nothing went wrong: there was no work there to fetch
+    await finishedWithSkipped([
+      { id: '1', link: 'https://ao3/series/1', title: 'S', error: 'a series' },
+    ]);
+
+    const said = element.querySelector('.failures.skipped')?.textContent ?? '';
+    expect(said).toContain('Nothing has gone wrong');
+    // and the red failures panel is not showing, because there were none
+    expect(element.querySelector('.failures:not(.skipped)')).toBeNull();
+  });
+
+  it('offers the skipped list as a file, with a reason on every row', async () => {
+    await finishedWithSkipped([
+      { id: '12345', link: 'https://ao3/series/12345', title: 'S',
+        error: 'a series, not a single work' },
+      { id: null, link: '', title: 'Gone', error: 'the work has been deleted' },
+    ]);
+
+    const exportButtons = Array.from(element.querySelectorAll('button')).filter(
+      (b) => b.textContent?.trim() === 'Export the list',
+    );
+    expect(exportButtons).toHaveLength(1);
+
+    const report = (fixture.componentInstance as unknown as {
+      skippedReport(): string;
+    }).skippedReport();
+    expect(report).toContain('12345\thttps://ao3/series/12345\ta series, not a single work');
+    expect(report).toContain('\t\tthe work has been deleted');
+  });
+
+  it('keeps the two lists apart when a run has both', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({
+      type: 'skipped',
+      skipped: [{ id: '1', link: 'a', title: 'S', error: 'a series' }] as never,
+    });
+    jobs.push!({ type: 'failures', failures: [{ id: '2', link: 'b', error: 'timed out' }] });
+    jobs.push!({ type: 'finished' });
+    await fixture.whenStable();
+
+    expect(element.querySelector('.failures.skipped')).toBeTruthy();
+    expect(element.querySelector('.failures:not(.skipped)')).toBeTruthy();
+  });
+
+  it('does not carry a skipped list into the next run', async () => {
+    await finishedWithSkipped([{ id: '1', link: 'a', title: 'S', error: 'a series' }]);
+
+    await open('bookmarks');
+    await advanceTo('running');
+
+    expect(element.querySelector('.failures.skipped')).toBeNull();
+  });
+
+  // endregion
 
   // region pausing a run
 

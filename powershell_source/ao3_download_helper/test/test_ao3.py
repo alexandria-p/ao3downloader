@@ -1262,6 +1262,107 @@ def test_get_metadata_also_reports_the_real_page_number_for_the_wording() -> Non
     assert (page['page'], page['total']) == (1, 8)
 
 
+# region indexing only what is new
+
+def test_indexing_stops_at_the_first_fic_already_held() -> None:
+    # ao3 lists bookmarks newest first, so everything before the first familiar one is new
+    # and everything after it has been seen. that is what makes one stop enough
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222', '333'], total_pages=9)
+
+    records = ao3.get_metadata(LISTING_URL, False, known={'222'})
+
+    assert [x['id'] for x in records] == ['111']
+    # and it did not walk on into the rest of the listing
+    assert repo.get_soup.call_count == 1
+
+
+def test_the_works_ahead_of_a_familiar_one_are_still_written() -> None:
+    # only the walking stops there; the new fics found before it are the point of the run
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222'], total_pages=9)
+
+    with patch.object(Ao3, 'save_metadata') as save:
+        ao3.get_metadata(LISTING_URL, False, known={'222'})
+
+    assert [c.args[0]['id'] for c in save.call_args_list] == ['111']
+
+
+def test_a_listing_with_nothing_new_indexes_nothing() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222'], total_pages=9)
+
+    assert ao3.get_metadata(LISTING_URL, False, known={'111'}) == []
+
+
+def test_without_a_known_set_the_whole_listing_is_walked() -> None:
+    # the full scan must not quietly become a stop-at-the-first-familiar-one walk
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=3)
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert repo.get_soup.call_count == 3
+    assert len(records) == 1  # the same stub page each time, deduped
+
+# endregion
+
+
+# region indexing one fic from its own page
+
+def _work_page_soup() -> BeautifulSoup:
+    return BeautifulSoup(
+        '<div class="preface"><h2 class="title">A Fic</h2>'
+        '<h3 class="byline">Cal</h3></div>'
+        '<dl class="stats"><dd class="chapters">3/?</dd><dd class="words">500</dd>'
+        '<dd class="status">2024-12-14</dd></dl>', 'html.parser')
+
+
+def test_a_fic_never_indexed_gets_an_entry_from_its_own_page() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _work_page_soup()
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        record = ao3.index_one_work('https://archiveofourown.org/works/111')
+
+    assert record['id'] == '111'
+    assert record['title'] == 'A Fic'
+    assert record['authors'] == ['Cal']
+    assert record['chapters_published'] == 3
+    fileops.save_json.assert_called_once()
+
+
+def test_a_fic_already_indexed_keeps_what_the_listing_gave_it() -> None:
+    # a work page cannot speak to tags, the summary or your own bookmark notes, so an
+    # entry that has them must not be overwritten with a work page's idea of the fic
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _work_page_soup()
+    existing = {'id': '111', 'link': 'https://archiveofourown.org/works/111',
+                'title': 'A Fic', 'authors': ['Cal'], 'summary': 'from the listing',
+                'bookmark_notes': 'mine', 'chapters_published': 1}
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        record = ao3.index_one_work('https://archiveofourown.org/works/111', existing)
+
+    assert record['summary'] == 'from the listing'
+    assert record['bookmark_notes'] == 'mine'
+    assert record['chapters_published'] == 3   # only the stats moved
+
+
+def test_a_fic_whose_page_cannot_be_read_raises_rather_than_writing_a_stub() -> None:
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = BeautifulSoup('<div></div>', 'html.parser')
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup), \
+         patch('source_code.parse_soup.get_work_stats', return_value={'error': 'broken'}):
+        with pytest.raises(exceptions.Ao3DownloaderException):
+            ao3.index_one_work('https://archiveofourown.org/works/111')
+
+    fileops.save_json.assert_not_called()
+
+# endregion
+
+
 def test_a_page_is_written_only_once_all_of_it_has_been_read() -> None:
     # a page is one unit of work: fetched, parsed, then saved. saving as each blurb was
     # parsed made a page half-written by definition, so a page abandoned partway - by a

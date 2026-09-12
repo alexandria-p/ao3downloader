@@ -27,6 +27,10 @@ REFRESH = 'refresh'
 QUESTION = 'question'
 # works the run could not download, sent once at the end so the gaps can be named
 FAILURES = 'failures'
+# bookmarks that were never works to begin with - a series, something hosted elsewhere, or
+# a work since deleted. kept apart from FAILURES because nothing went wrong with these:
+# there was never a work there to fetch, and no amount of retrying would change that
+SKIPPED = 'skipped'
 # ao3 has asked for a break. nobody chose this and it ends by itself.
 PAUSED = 'paused'
 RESUMED = 'resumed'
