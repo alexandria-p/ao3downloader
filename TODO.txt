@@ -1,40 +1,19 @@
-upload to, and read from, dropbox link (instead of local downloads folder)
--checkbox for which types to download
-- HTML and JSON are REQUIRED (for the site code to run), all others are optional.
-
-Doco:
-- import existing from another location (modal & ID)
+write doco:
 - what each button in the app does
-- what if you import undated? show what happens during download/update modal
-- 'skipped 2 bookmarks that are not works (series, external works, or deleted works)' -> ensures an exportable list is available at end, with the reason for each
 - what is indexing
 - EnableDebugTools=true in settings.ini
-
-
-long term:
-
-filtering in-app
-make html look nice, load images into html fics.
-
-
-
-for github pages - do not create downloads folder automatically. all buttons are greyed out until a downloads folder is selected  (make this a deployment option, that updates settings.ini, that is read by project)
-
-for github pages - do not bother keeping logs (make this a deployment option, that updates settings.ini, that is read by project)
-
-ask claude to help with how to configure this for github pages, and that for every push to /main should redeploy the new build.
-
-data.json is still being built in build/config when i run the app. i told you not to build it anymore since we dont need it.
-
-option to backdate individual (undated) files - instead of only in bulk?
-
 
 update readme 
 - if you make dev changes to website, you can just hot-reload.
 - if you make dev changes to downloader process, you will need to restart the worker (by exiting uv.exe and rerunning start-application.ps1
 
+---------
+DEPLOYMENT
+for github pages - do not create downloads folder automatically. all buttons are greyed out until a downloads folder is selected  (make this a deployment option, that updates settings.ini, that is read by project)
 
-Cosmetic improvements:
+for github pages - do not bother keeping logs (make this a deployment option, that updates settings.ini, that is read by project)
+
+ask claude to help with how to configure this for github pages, and that for every push to /main should redeploy the new build.
 
 
 -----------
@@ -59,12 +38,23 @@ let's fix the output wording here. cause it is confusing AF
 
 
 
+
+---------
+
+PAUSE ISSUES
+
+be able to pause a work IN progress, not AFTER work in progress
+
+
+what happens when i pause during login? It says "pausing after the work in progress" and 'appears to have paused' - what is actually happening functionally?
+
+
 what happens when stopped or exited mid-download?
 
 -- -Index writes are now per page, as you asked. get_metadata buffers a page's records and saves them only once the whole page is parsed — previously it saved after each blurb, which made a part-read page a part-written index by definition. --> should i change this?????
 
 
-
+------------
 
 
 
@@ -79,10 +69,6 @@ how to download a bookmarked series?
 when you do not know for sure how many pages need indexing examples include in the quickscan (and in custom scan) - for example if we are indexing up until a date, indexing between dates, indexing only new bookmarks etc....then don't show 'fetching page X out of Y' in the console or progress bar caption -> because we dont actually know what page Y IS (ie when we will stop).
 why was data.json still built in build/config?? we do not need this file, remove anything that builds in to build/config.
 
-be able to pause a work IN progress, not AFTER work in progress
-
-
-what happens when i pause during login? It says "pausing after the work in progress" and 'appears to have paused' - what is actually happening functionally?
 
 
 
@@ -91,33 +77,311 @@ Custom option & full index
 - instead of page-page, have an option to re-index (and redownload, if needed) if existing index is within a last-updated date range.
 
 
-add debug options in gui, if turned on in settings.ini
-- skip to next workflow step
-- skip to step that checks for deleted/failed works, and mockup a result with each type
-
-when updating incomplete fics - do it in date order (of existing indexes, go from most recently updated first)
 
 
-in 'Download new bookmarks and update incomplete fics' AND just update any bookmarks marked as incomplete AND download/update a specific fic AND full scan reindex & update all AND custom run
-
-when Re-reading each unfinished fic, make the debug message for each fic more descriptive -->
-you have no copy of this one, downloading it
 
 
-(e.g. 
-you have no copy in format XYZ - downloading now
-you have an outdated version in format XYZ - replacing now
-you already have the current version in format XYZ 
-)
 
 
-clarify in readme --> Download new bookmarks and update incomplete fics, in the third pass ( any finished fic missing a format you asked for) - update the index for any fic that is missing a format you asked for, then download/update those formats (as it does currently). -->  that we do this because the second pass indexes & downloads incomplete works, saving us time - the third pass in theory should only be remaining works missing a format and all these works are completed.
-
-also please ensure that custom run and full scan both will download any missing formats for all fics.
 
 
-for every single workflow (button) add a new collapsible panel to the download modal page (similar to 'settings this run is using'. call it 'steps in this run' or something similar. it should list out all expected steps in the workflow, and have a tick next to it once its complete, some indicator that it is in progress - maybe a spinning wheel, and an indicator if it has not started yet - maybe a timer (and a cross if it failed). this is so users can see what it left to do in the current workflow.
-
--- One caveat: AO3 logins do not last forever. A run left paused for a long time may find its session has expired when you resume, which shows up as works failing to download. If that happens, stop the run and start a new one. -> detect & handle this gracefully.
 
 
+-------------
+
+stretch goals:
+
+option to backdate individual (undated) files - instead of only in bulk?
+
+upload to, and read from, dropbox link (instead of local downloads folder)
+
+filtering in-app
+make html look nice, load images into html fics.
+
+
+-----------------
+
+and when displaying fics, if multiple indexes for a fic exist in its json file, display the one that has a title that is not null or empty string (as may happen for anonymous fics, etc)
+
+AND 
+
+in final step, when handling errored fics,
+
+Ask if user would like to attempt
+75354806 - wolfbird
+83832881
+
+
+
+GET /api/v0/epub?q=https%3A%2F%2Farchiveofourown.org%2Fworks%2F75354806 HTTP/1.1
+Accept: */*
+Accept-Encoding: gzip, deflate, br, zstd
+Accept-Language: en-US,en;q=0.9
+Cache-Control: no-cache
+Connection: keep-alive
+DNT: 1
+Host: fichub.net
+Pragma: no-cache
+Referer: https://fichub.net/?q=https://archiveofourown.org/works/75354806
+Sec-Fetch-Dest: empty
+Sec-Fetch-Mode: cors
+Sec-Fetch-Site: same-origin
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+sec-ch-ua: "Chromium";v="152", "Not?A_Brand";v="24", "Google Chrome";v="152"
+sec-ch-ua-mobile: ?0
+sec-ch-ua-platform: "Windows"
+
+query string parameters:
+q
+https%3A%2F%2Farchiveofourown.org%2Fworks%2F75354806
+
+HTTP/1.1 200 OK
+Server: nginx/1.18.0 (Ubuntu)
+Date: Sun, 13 Sep 2026 08:03:40 GMT
+Content-Type: application/json
+Transfer-Encoding: chunked
+Connection: keep-alive
+Vary: Accept-Encoding
+Vary: Accept-Encoding
+Content-Encoding: gzip
+
+{
+    "epub_url": "/cache/epub/4g7sxdaj/Wolfbird_by_OpalApparition-4g7sxdaj.epub?h=d722aaa594cdb4df528084d5a7a892dd",
+    "err": 0,
+    "fixits": [],
+    "hashes": {
+        "epub": "d722aaa594cdb4df528084d5a7a892dd"
+    },
+    "html_url": "/cache/html/4g7sxdaj?cv=26&eh=d722aaa594cdb4df528084d5a7a892dd",
+    "info": "Wolfbird by OpalApparition\n180137 words in 14 chapters\nStatus: ongoing\nUpdated: 2026-04-27 - 4 months 17 days  ago\n",
+    "meta": {
+        "author": "OpalApparition",
+        "authorId": 2277917,
+        "authorLocalId": "OpalApparition",
+        "authorUrl": "/users/OpalApparition/pseuds/OpalApparition",
+        "chapters": 14,
+        "created": "2025-12-05T00:00:00",
+        "description": "<p>Shane Hollander is hockey&rsquo;s closeted golden boy with everything to hide. Ilya Rozanov is a professional Dom with everything to lose and an expired visa.</p><p>Through their arrangement at a discreet Montreal kink bar, where NDAs protect secrets and sessions are charged per hour, they discover the most dangerous thing isn&rsquo;t being caught&mdash;it&rsquo;s wanting more than those hours allow.</p>",
+        "extraMeta": null,
+        "id": "4g7sxdaj",
+        "rawExtendedMeta": {
+            "category": [
+                "M/M"
+            ],
+            "category_hrefs": [
+                "/tags/M*s*M/works"
+            ],
+            "character": [
+                "Shane Hollander",
+                "Ilya Rozanov",
+                "Svetlana Vetrova",
+                "Hayden Pike"
+            ],
+            "character_hrefs": [
+                "/tags/Shane%20Hollander/works",
+                "/tags/Ilya%20Rozanov/works",
+                "/tags/Svetlana%20Vetrova/works",
+                "/tags/Hayden%20Pike/works"
+            ],
+            "collection_hrefs": [
+                "/collections/goodfanfic",
+                "/collections/queercharacters",
+                "/collections/noneventfics",
+                "/collections/WaitingHR",
+                "/collections/AllThingsHollanov",
+                "/collections/ShilyaHollanov",
+                "/collections/FicsThatChangedBrainChem",
+                "/collections/hollanovah",
+                "/collections/BestHRAU",
+                "/collections/pepperslibrary",
+                "/collections/HollanovHallofFame",
+                "/collections/Nutella",
+                "/collections/honorguard",
+                "/collections/mochaloveshollanov",
+                "/collections/godtierhollonov",
+                "/collections/Spade_Zs_favourite_fics",
+                "/collections/hollanov_reading6"
+            ],
+            "collections": [
+                "fanfics that i keep coming back to read",
+                "Queer Characters Collection",
+                "30PlusFanfic Non-Event Fics",
+                "AnnaSong",
+                "Hollanov \ud83e\udd70",
+                "Heated Rivalry \u27bb Ilya Grigoryevich Rozanov / Shane Hollander",
+                "Brain Chem Changed",
+                "\u2728 The Best of Hollanov\u2728\ud83c\udfd2\u2728",
+                "Best Heated Rivalry AUs",
+                "pepperroxd\u2019s library",
+                "Alidesidero's Hollanov Hall of Fame",
+                "Heated rivalry",
+                "\ud83e\udee1 i hope you come back from the war",
+                "\ud83c\udfd2Hollanov\ud83c\udfd2 W(rec)k It",
+                "god tier hollonov",
+                "Spade Z FaveZ",
+                "heated rivalry collection"
+            ],
+            "fandom": [
+                "Heated Rivalry (TV)",
+                "Game Changers Series - Rachel Reid",
+                "Game Changers | Heated Rivalry - All Media Types"
+            ],
+            "fandom_hrefs": [
+                "/tags/Heated%20Rivalry%20(TV)/works",
+                "/tags/Game%20Changers%20Series%20-%20Rachel%20Reid/works",
+                "/tags/Game%20Changers%20%7C%20Heated%20Rivalry%20-%20All%20Media%20Types/works"
+            ],
+            "freeform": [
+                "Alternate Universe - Canon Divergence",
+                "Sex Work",
+                "Sex Worker Ilya Rozanov",
+                "Praise Kink",
+                "Kink Negotiation",
+                "Enthusiastic Consent",
+                "Smut",
+                "Service Top",
+                "Safe Sane and Consensual",
+                "Condoms",
+                "Oral Sex",
+                "Anal Sex",
+                "Anxious Shane Hollander",
+                "Top Ilya Rozanov",
+                "Bottom Shane Hollander",
+                "Happy Ending",
+                "Soft Dom Ilya Rozanov",
+                "Blowjobs",
+                "Masturbation",
+                "Vaginal Sex",
+                "Spanking",
+                "Shibari",
+                "Ilya Rozanov Pets Many Dogs",
+                "Consent King Ilya Rozanov",
+                "Financial Issues",
+                "Orgasm Edging",
+                "Orgasm Denial",
+                "Orgasm Control",
+                "Aftercare",
+                "Non-Famous Ilya Rozanov",
+                "Famous Shane Hollander",
+                "Angst with a Happy Ending",
+                "Hurt/Comfort",
+                "POV Alternating",
+                "Phone Sex",
+                "Sex Toys",
+                "Dom Ilya Rozanov",
+                "Sub Shane Hollander",
+                "First Time",
+                "Coming Untouched",
+                "Alternate Universe - BDSM",
+                "Plot With Porn",
+                "Cinephile Shane Hollander",
+                "Movie Script Elements",
+                "Rimming",
+                "slowburn",
+                "but they're fucking the entire time",
+                "Angst"
+            ],
+            "freeform_hrefs": [
+                "/tags/Alternate%20Universe%20-%20Canon%20Divergence/works",
+                "/tags/Sex%20Work/works",
+                "/tags/Sex%20Worker%20Ilya%20Rozanov/works",
+                "/tags/Praise%20Kink/works",
+                "/tags/Kink%20Negotiation/works",
+                "/tags/Enthusiastic%20Consent/works",
+                "/tags/Smut/works",
+                "/tags/Service%20Top/works",
+                "/tags/Safe%20Sane%20and%20Consensual/works",
+                "/tags/Condoms/works",
+                "/tags/Oral%20Sex/works",
+                "/tags/Anal%20Sex/works",
+                "/tags/Anxious%20Shane%20Hollander/works",
+                "/tags/Top%20Ilya%20Rozanov/works",
+                "/tags/Bottom%20Shane%20Hollander/works",
+                "/tags/Happy%20Ending/works",
+                "/tags/Soft%20Dom%20Ilya%20Rozanov/works",
+                "/tags/Blowjobs/works",
+                "/tags/Masturbation/works",
+                "/tags/Vaginal%20Sex/works",
+                "/tags/Spanking/works",
+                "/tags/Shibari/works",
+                "/tags/Ilya%20Rozanov%20Pets%20Many%20Dogs/works",
+                "/tags/Consent%20King%20Ilya%20Rozanov/works",
+                "/tags/Financial%20Issues/works",
+                "/tags/Orgasm%20Edging/works",
+                "/tags/Orgasm%20Denial/works",
+                "/tags/Orgasm%20Control/works",
+                "/tags/Aftercare/works",
+                "/tags/Non-Famous%20Ilya%20Rozanov/works",
+                "/tags/Famous%20Shane%20Hollander/works",
+                "/tags/Angst%20with%20a%20Happy%20Ending/works",
+                "/tags/Hurt*s*Comfort/works",
+                "/tags/POV%20Alternating/works",
+                "/tags/Phone%20Sex/works",
+                "/tags/Sex%20Toys/works",
+                "/tags/Dom%20Ilya%20Rozanov/works",
+                "/tags/Sub%20Shane%20Hollander/works",
+                "/tags/First%20Time/works",
+                "/tags/Coming%20Untouched/works",
+                "/tags/Alternate%20Universe%20-%20BDSM/works",
+                "/tags/Plot%20With%20Porn/works",
+                "/tags/Cinephile%20Shane%20Hollander/works",
+                "/tags/Movie%20Script%20Elements/works",
+                "/tags/Rimming/works",
+                "/tags/slowburn/works",
+                "/tags/but%20they're%20fucking%20the%20entire%20time/works",
+                "/tags/Angst/works"
+            ],
+            "language": "English",
+            "rating": [
+                "Explicit"
+            ],
+            "rating_hrefs": [
+                "/tags/Explicit/works"
+            ],
+            "relationship": [
+                "Shane Hollander/Ilya Rozanov",
+                "Ilya Rozanov & Svetlana Vetrova",
+                "Shane Hollander & Hayden Pike & Jackie Pike"
+            ],
+            "relationship_hrefs": [
+                "/tags/Shane%20Hollander*s*Ilya%20Rozanov/works",
+                "/tags/Ilya%20Rozanov%20*a*%20Svetlana%20Vetrova/works",
+                "/tags/Shane%20Hollander%20*a*%20Hayden%20Pike%20*a*%20Jackie%20Pike/works"
+            ],
+            "stats": {
+                "bookmarks": "16,962",
+                "chapters": "14/?",
+                "comments": "21,360",
+                "hits": "1,976,720",
+                "kudos": "46,052",
+                "published": "2025-12-05",
+                "status": "2026-04-27",
+                "words": "180,137"
+            },
+            "warning": [
+                "No Archive Warnings Apply"
+            ],
+            "warning_hrefs": [
+                "/tags/No%20Archive%20Warnings%20Apply/works"
+            ]
+        },
+        "source": "https://archiveofourown.org/works/75354806",
+        "sourceId": 4,
+        "status": "ongoing",
+        "title": "Wolfbird",
+        "updated": "2026-04-27T00:00:00",
+        "words": 180137
+    },
+    "mobi_url": "/cache/mobi/4g7sxdaj?cv=26&eh=d722aaa594cdb4df528084d5a7a892dd",
+    "notes": [],
+    "pdf_url": "/cache/pdf/4g7sxdaj?cv=26&eh=d722aaa594cdb4df528084d5a7a892dd",
+    "q": "https://archiveofourown.org/works/75354806",
+    "slug": "Wolfbird_by_OpalApparition-4g7sxdaj",
+    "urlId": "4g7sxdaj",
+    "urls": {
+        "epub": "/cache/epub/4g7sxdaj/Wolfbird_by_OpalApparition-4g7sxdaj.epub?h=d722aaa594cdb4df528084d5a7a892dd",
+        "html": "/cache/html/4g7sxdaj?cv=26&eh=d722aaa594cdb4df528084d5a7a892dd",
+        "mobi": "/cache/mobi/4g7sxdaj?cv=26&eh=d722aaa594cdb4df528084d5a7a892dd",
+        "pdf": "/cache/pdf/4g7sxdaj?cv=26&eh=d722aaa594cdb4df528084d5a7a892dd"
+    }
+}

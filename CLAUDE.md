@@ -58,7 +58,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 **4 tests in `test/test_ao3.py::test_proceed_*` fail with `UnicodeDecodeError`.** They are
 pre-existing, present on the unmodified upstream code, and caused by fixtures being read
 with the platform default codec (cp1252 on Windows). Do not chase them; do not count them
-as regressions. Current: **1065 python passed, 4 failed; 281 gui passed.**
+as regressions. Current: **1097 python passed, 4 failed; 290 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -219,6 +219,14 @@ list and is reported once: `index_new_bookmarks` → `download_planned` →
 `update_incomplete` → `fill_missing_formats`. The order is load-bearing - the gap check is
 told which works the first two already handled, or it would fetch them again.
 
+**The gap pass belongs to the combined run alone.** It used to run after a full scan, a
+quick scan and a custom run too, through a `fill_gaps_in` wrapper that has been deleted.
+Those runs cover what they cover in one pass, so a second sweep could only re-attempt works
+that had just failed - which they already report as failures. The combined run is different
+in kind: its earlier passes deliberately leave works untouched (a finished fic missing a
+format nobody asked for last time), so something has to come back for them. There is a test
+over `ACTIONS` asserting no other action lists a `gaps` step.
+
 `fill_missing_formats` is the case neither other pass covers: a fic indexed and saved as
 html long ago, on a run that now also asks for pdf. It is finished (so the update pass skips
 it) and old (so the newest-first walk never reached it). **It fetches only the formats
@@ -321,8 +329,16 @@ points at the bookmarks run instead, which re-reads the listing and catches thos
 
 ### Debug tools, off unless settings.ini asks
 
-`EnableDebugTools` adds a panel to the download window. It is for working on the app, not
-for using it, and the two things it offers are deliberately different in kind:
+`EnableDebugTools` adds a panel to the download window, and **gates three of the buttons**:
+the combined run, 'just update incomplete' and 'just download new bookmarks'. Those are the
+passes the quick scan and the full scan are built from, each usable alone, and offering them
+beside the two runs people should reach for invites picking a part when the whole was wanted.
+They carry a `[DEBUG]` prefix and the red `.button.debug` treatment so they never read as
+part of the ordinary set. `App` reads the flag off `Jobs.config`, loading it as the page
+opens rather than waiting for a dialog to need it.
+
+The panel itself is for working on the app rather than for using it, and the two things it
+offers are deliberately different in kind:
 
 - **Skip this step** is real. `job.skip` is checked at the same loop boundaries `cancel` is,
   and `Job.skipping()` **clears the flag as it reads it** so one press skips one step rather
@@ -385,14 +401,46 @@ the whole point of writing it up front. Everything in `runs.py`
 swallows its own errors: a run that downloaded a library must not be reported as failed
 because a note about it could not be saved.
 
+**`RunRecord.line` can keep the console output too (`log`), but nothing currently calls
+it.** The machinery is built and tested - lines are batched because `save` rewrites the
+whole file and a run prints a line per fic per format, so `LOG_FLUSH_EVERY` lines go out at
+a time; `LOG_MAX_LINES` caps it and drops the **start** when reached, because whatever went
+wrong is at the end, with `logTrimmed` counting what went. `read_runs` leaves `log` out of
+the listing by default and reports `logLines` instead, since a hundred records of thousands
+of lines each would be tens of megabytes for a page that does not show them.
+
+The wiring in `server.run_job` that fed it was reverted at the user's request, so no run
+writes a log today. Either finish it - the missing piece is passing printed lines to
+`record.line`, plus somewhere to hold the ones printed before the record exists - or delete
+the machinery; do not leave it half-connected and assume it works.
+
+**settings.ini goes in beside the run's own choices** (`settings`). `filetypes` and
+`options` are what the user picked in the dialog; this is what the run inherited - pacing,
+naming, retries - and without it a run cannot be explained after the fact. The path is part
+of it because *which* settings.ini was in force depends on where the helper was started
+from, which is the usual explanation for settings that appear to have been ignored.
+`settings_for_record` gathers it in a try/except for the same reason everything in
+`runs.py` swallows its own errors: a run that downloaded a library must not be reported as
+failed because the note about it could not be filled in.
+
 The three fic lists are separate because they answer different questions - `reindexed` (a
 fresh index entry), `downloaded` (a file arrived), `updated` (an old copy was actually
 replaced, tracked where `replace_superseded` deletes it).
 
-`runs.last_successful` ignores stopped, failed and interrupted runs. That is what a quick
-scan measures back to, and a run that gave up partway is not a floor: it may have stopped
-before reaching works updated before it began, which would leave exactly those unseen for
-ever after.
+`runs.last_successful` ignores stopped, failed and interrupted runs, and takes a `match`
+predicate for the rest. **Finishing is not enough to be a floor.** A quick scan measures
+back to the last run that reached every work ao3 had updated by the time it started, and
+`server.covered_the_whole_listing` says which those are: a full scan, and a quick scan that
+was *not* given a date range. Nothing else qualifies - the combined run and 'just new
+bookmarks' stop at the first fic they recognise, an update run and a date window read no
+listing at all, a custom run covers whatever slice it was told to, and a quick scan over a
+date range stops at the user's date rather than the previous floor. Any of those can finish
+perfectly while never looking at a fic ao3 updated that day, and measuring back to one would
+skip that fic permanently.
+
+The predicate takes the whole record rather than a set of action names because whether a run
+covered everything depends on the options it ran with, not only on which button it was -
+which is exactly the date-range quick scan.
 
 ### A quick scan stops where ao3 stopped changing things
 
@@ -450,8 +498,11 @@ so every run function marks its steps without first checking whether anyone is l
 twice - while a step is a place in a plan and happens once. Only the second can drive a
 checklist.
 
-**A step with nothing to do is `skipped`, never `failed`.** A run with no unfinished fics has
-not gone wrong, and the ui colours the two differently for that reason. `fail_current` marks
+**A step a configuration makes unnecessary is left off the plan entirely**, rather than
+listed and skipped.
+
+**A step with nothing to do at runtime is `skipped`, never `failed`.** A run with no
+unfinished fics has not gone wrong, and the ui colours the two differently for that reason. `fail_current` marks
 only the step that was actually running: the ones after it never started, and blaming them
 for something that happened before they were reached would be a lie.
 
@@ -607,6 +658,19 @@ window that silently matches nothing. Records with no usable `date_updated` are 
 not included as a maybe: there is nothing to compare, which is the same rule as
 **What "outdated" means, exactly**.
 
+**The per-fic pass does not re-read what the walk just indexed.** `refresh_and_download`
+snapshots `ao3.reindexed` before it starts and passes it to `update_one_work` as
+`already_fresh`; anything in that set keeps the entry it has and goes straight to the
+download decision. A listing blurb reports the same `date_updated` a work page does, so on a
+date window - where the walk indexed exactly the fics the window then picks - this is the
+difference between one request per fic and none, and it is the largest cost in that run.
+
+The set is the right test rather than a "did we index?" flag, because it stays correct in
+the cases a flag would get wrong: skip indexing and it is empty, so everything is re-read;
+and a fic in the window that is no longer bookmarked was never on the walk, so it is re-read
+too. An entry from an earlier run cannot say whether ao3 has moved on since - see
+**What "outdated" means, exactly**.
+
 The picks are ordered by `newest_first`, because a window is usually opened to catch up on
 what moved most recently and a stopped run should have finished the fics that mattered most.
 
@@ -680,10 +744,25 @@ admission that nothing here can see a file that is damaged or truncated. The nam
 the date is right, and only the bytes are wrong, so no version check can ever catch it and
 the only honest answer is to ask the user and act on what they say.
 
-It is offered on the three runs that can be pointed at a known set of works - a full scan, a
-custom run, one fic by link - and **not** on the routine ones. The full scan alone leaves off
-the 'this makes the run far longer' warning: it is the run that already says it takes hours,
-and saying it twice on the same page reads as noise rather than emphasis. `sync`, `quick` and `update`
+There are exactly three answers, and which one a run gets is not negotiable:
+
+- **the full scan and the custom run offer it** as a checkbox. They are the runs pointed at a
+  library and told to spend more on it.
+- **the single-fic run always does it**, and offers no checkbox - see below.
+- **every other run never does it.** They exist to be cheap, and skip whatever is already on
+  disk and current.
+
+`OVERWRITE_ACTIONS` holds the first group and `do_POST` clamps the option to `False` for
+anything outside it, next to the line that clamps file types the same way. The ui never sends
+it otherwise, but the rule belongs at the boundary where a request becomes a run: a stray
+flag must not be able to make a routine run re-fetch a whole library.
+
+**The single-fic run always overwrites, and does not offer the box.** A box that cannot be
+unticked is not a choice. Every other run is pointed at a library and has to be careful about
+what it spends, so it skips what is on disk and current; this one is pointed at a single fic
+by hand, where being told nothing happened because the copy looked fine is not the answer
+anybody came for, and being wrong costs one request per format for one work. `run_work` sets
+the flag on the job's own options, so the history file records what the run actually did. `sync`, `quick` and `update`
 exist to be cheap; a run that re-fetches everything it already holds is the opposite of
 that, and putting the option there would invite it to be left on.
 
@@ -856,13 +935,19 @@ followed by a separator: `/^(\d+)(?:[\s_.\-]|$)/`. `99 Red Balloons.html` is wor
 the **work number**, which is what makes collections (which store only work numbers) join
 onto the index.
 
-### Nothing creates data.json just by reading it
+### Nothing creates data.json just by reading it, or by clearing nothing
 
 `FileOps.get_settings_json` returns `{}` for a missing file rather than opening it in `'a'`
 mode. It used to create one, and since `/api/config` reads the saved username on every page
 load, an empty `data.json` kept appearing in a bundle that is meant not to have one. The
-launcher (`ao3-env.ps1`) does not create it either. `save_setting` still does, which is what
-the console menu needs. Don't reintroduce a create-on-read.
+launcher (`ao3-env.ps1`) does not create it either. `save_setting` still creates it when
+there is something to write, which is what the console menu needs.
+
+**It also stops short of writing when asked to remove a key that is not there.**
+`FileOps.initialize` clears the saved password on every start whenever `SavePassword` is off
+- which in a bundle is always, because the bundler strips that setting out - so every run
+was leaving a `data.json` holding `{}` behind, recording the absence of a key that had never
+existed. Don't reintroduce a create-on-read, and don't let a no-op removal write.
 
 ### A work a collection lists but the index does not have
 

@@ -182,6 +182,25 @@ def test_save_setting_none_removes_key(fake_fileops):
 def test_get_setting_returns_empty_string_when_missing(fake_fileops):
     assert fake_fileops.get_setting('nope') == ''
 
+
+def test_clearing_a_setting_that_was_never_saved_creates_no_file(fake_fileops):
+    # `initialize` clears the saved password on every start whenever SavePassword is off,
+    # which in a bundle is always - the bundler strips that setting out. this used to write
+    # a data.json holding {} to record the absence of a key that had never existed
+    fake_fileops.save_setting(strings.SETTING_PASSWORD, None)
+
+    assert not os.path.exists(fake_fileops.settingsfile)
+
+
+def test_clearing_a_setting_that_was_saved_still_writes(fake_fileops):
+    # the point of the call: a password on disk when it is no longer allowed must go
+    fake_fileops.save_setting(strings.SETTING_PASSWORD, 'hunter2')
+
+    fake_fileops.save_setting(strings.SETTING_PASSWORD, None)
+
+    assert os.path.exists(fake_fileops.settingsfile)
+    assert fake_fileops.get_setting(strings.SETTING_PASSWORD) == ''
+
 # endregion
 
 

@@ -382,16 +382,21 @@ browser, and only if you tick the box.
 
 **Quick Scan** is a full scan that stops early. It reads your bookmarks **sorted by when ao3
 last updated each work** and stops at the first fic whose last-updated date is older than the
-day your last *completed* run started, then downloads and updates what it found. A fic
-updated on that day itself is still indexed. A run that failed, was stopped or was
-interrupted is not used as the mark: it may have given up before reaching works updated
-before it started.
+day your last qualifying scan started, then downloads and updates what it found. A fic
+updated on that day itself is still indexed.
+
+Two things decide whether an earlier run counts as that mark. It has to have **finished** -
+one that failed, was stopped or was interrupted may have given up before reaching works
+updated before it started. And it has to be a run that **covered your whole listing**: a
+full scan, or another quick scan that was not given a date range. Every other run covers
+only part of your bookmarks, so it can finish perfectly while never looking at a fic ao3
+updated that day, and measuring back to it would skip that fic for good.
 
 **The first time you run it, it does a full index.** There is nothing to measure back to
-until a run has completed, so it walks the whole listing and downloads everything missing -
-which on a large library is hours. Every run after that is the quick one. What it gives up is
-the date: anything ao3 updated before your last completed run is never looked at, so a fic
-missed by an earlier run stays missed.
+until a qualifying scan has completed, so it walks the whole listing and downloads
+everything missing - which on a large library is hours. Every run after that is the quick
+one. What it gives up is the date: anything ao3 updated before that mark is never looked at,
+so a fic missed by an earlier run stays missed.
 
 It can also be given **a date range of your own** instead of measuring back to your last run.
 The two are the same mechanism handed a different date, so they are alternatives rather than
@@ -411,44 +416,22 @@ it takes hours, which it says before you start.
 
 Behind **Advanced options**:
 
-**Download new bookmarks and update incomplete fics** makes three passes, in this order:
-your newest bookmarks, then the fics your index last saw unfinished, then any finished fic
-missing a format you asked for on this run. None of them walks your whole listing, so it
-stays quick however large your library is.
-
-The order is what makes the third pass cheap. The second has already re-read and downloaded
-every *unfinished* fic, so by the time the third runs, everything left is a work the index
-calls finished - and a finished work needs nothing but the formats you do not have yet. Each
-of those is re-read before it is fetched, so the file is named for the version ao3 has now
-rather than whatever the index was holding, and only the missing formats are fetched.
-
-It asks you to acknowledge two things first, and that note can be turned off. Indexing stops
-at the first bookmark it recognises, so if your index is incomplete - an earlier run
-interrupted, files deleted - the fics behind that point stay unseen. And it never re-reads a
-fic the index already calls finished, so chapters added to one afterwards are not noticed. A
-full scan answers both.
-
-**Just update any bookmarks marked as incomplete** takes the fics your index last recorded as
-unfinished, opens each one on ao3, and brings its index entry up to date. It downloads a fic
-only if you have no copy of it or the copy you have is behind - see
-[Updating unfinished fics](#updating-unfinished-fics), which also covers the one thing it
-cannot find. You have to acknowledge that before it will let you log in.
-
-**Just download newly added bookmarks** indexes from your newest bookmark and stops at the
-first one you already have, then downloads what it found. It is the first pass of the
-combined run, on its own.
-
 **Download/update a specific fic** takes a work link or just the work number, indexes that
 one fic, and downloads it in the formats you pick. A link to any chapter of it will do.
 
-**Custom run** is the full scan with its parts made optional: choose which pages to cover, or
-skip reading ao3 at all and work from what is already indexed. That last one costs no
-requests to decide anything, but judges everything against however old your index is.
+**Custom run** is the full scan with its parts made optional. It covers exactly one of
+three things, which it asks before anything else: **all bookmarks**, a **slice** of your
+listing by page number, or a **date range**. They are alternatives rather than settings that
+combine - a run cannot be walking a listing and not walking it - so choosing one puts the
+others away.
 
-It can also cover **a date range instead of pages**. The two are alternatives rather than
-settings that combine: one picks works by where they sit in the listing, the other by when
-ao3 last updated them. A date range comes in two shapes - everything updated since a date,
-or between two dates - and both ends count.
+A date range comes in two shapes, everything updated since a date or between two dates, and
+both ends count.
+
+On top of whichever it covers, the run can **skip reading ao3 at all** and work from what is
+already indexed. That costs no requests to decide anything, but judges everything against
+however old your index is - useful for downloading your fics in a new format, or filling in
+blanks in your downloaded files when the index is already up to date.
 
 Unless you tick *skip indexing*, the run indexes first. It reads your bookmarks **sorted by
 when ao3 last updated each work** and stops at the first fic older than the earliest date
@@ -479,6 +462,40 @@ download the file again: nothing else can spot a file that is damaged or truncat
 the name and the date are both right and only the bytes are wrong. Nothing is skipped for
 already being current, so it costs a request per format per work and makes the run far
 longer. It is deliberately not offered on the routine runs, which exist to be cheap.
+
+Behind **Advanced options**, and only when the debug tools are on:
+
+**Download new bookmarks and update incomplete fics** makes three passes, in this order:
+your newest bookmarks, then the fics your index last saw unfinished, then any finished fic
+missing a format you asked for on this run. None of them walks your whole listing, so it
+stays quick however large your library is.
+
+The order is what makes the third pass cheap. The second has already re-read and downloaded
+every *unfinished* fic, so by the time the third runs, everything left is a work the index
+calls finished - and a finished work needs nothing but the formats you do not have yet. Each
+of those is re-read before it is fetched, so the file is named for the version ao3 has now
+rather than whatever the index was holding, and only the missing formats are fetched.
+
+It asks you to acknowledge two things first, and that note can be turned off. Indexing stops
+at the first bookmark it recognises, so if your index is incomplete - an earlier run
+interrupted, files deleted - the fics behind that point stay unseen. And it never re-reads a
+fic the index already calls finished, so chapters added to one afterwards are not noticed. A
+full scan answers both.
+
+**Just update any bookmarks marked as incomplete** takes the fics your index last recorded as
+unfinished, opens each one on ao3, and brings its index entry up to date. It downloads a fic
+only if you have no copy of it or the copy you have is behind - see
+[Updating unfinished fics](#updating-unfinished-fics), which also covers the one thing it
+cannot find. You have to acknowledge that before it will let you log in.
+
+**Just download newly added bookmarks** indexes from your newest bookmark and stops at the
+first one you already have, then downloads what it found. It is the first pass of the
+combined run, on its own.
+
+Those three are the individual passes **Quick Scan** and **(Full scan) Reindex &
+Update All** are built from, so they are off by default. Set `EnableDebugTools=true` in
+`config/settings.ini` to show them - they appear in red, prefixed **[DEBUG]**, because
+reaching for one part when you wanted the whole is the easy mistake to make.
 
 ### Collections
 

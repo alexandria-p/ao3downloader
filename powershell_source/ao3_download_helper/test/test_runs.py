@@ -114,6 +114,23 @@ def test_a_choice_the_run_stopped_to_ask_is_recorded(tmp_path):
     assert choices[0]['at']
 
 
+def test_a_record_keeps_the_settings_the_run_worked_from(tmp_path):
+    # pacing, naming and retries all come from settings.ini, so a run cannot be explained
+    # afterwards without knowing what it said - or which settings.ini it was
+    runs.RunRecord(fake_fileops(tmp_path), 'abc', 'sync', 'A', ['JSON'], {},
+                   settings={'extraWaitTime': 15, 'file': 'C:\\app\\config\\settings.ini'})
+
+    saved = written(tmp_path)[0]['settings']
+    assert saved['extraWaitTime'] == 15
+    assert saved['file'] == 'C:\\app\\config\\settings.ini'
+
+
+def test_a_record_with_no_settings_to_hand_still_writes(tmp_path):
+    a_record(tmp_path)
+
+    assert written(tmp_path)[0]['settings'] == {}
+
+
 def test_the_console_output_is_kept_with_the_run(tmp_path):
     # the modal is gone once the tab is closed, and this is the only lasting copy
     record = a_record(tmp_path)
@@ -208,6 +225,43 @@ def test_runs_come_back_newest_first(tmp_path):
                                           '2026-01-01T000000-a.json']
 
 
+def test_the_listing_leaves_the_console_log_behind(tmp_path):
+    # a hundred records with thousands of lines each would be tens of megabytes, to build a
+    # page that does not show them. the count is what the listing can use; the lines stay
+    # in the file
+    record = a_record(tmp_path)
+    record.line('indexing')
+    record.line('fetching page 1 of 80')
+    record.finish(runs.STATUS_SUCCESS)
+
+    listed = runs.read_runs(fake_fileops(tmp_path))[0]
+
+    assert 'log' not in listed
+    assert listed['logLines'] == 2
+
+
+def test_the_log_can_be_asked_for_when_it_is_wanted(tmp_path):
+    record = a_record(tmp_path)
+    record.line('indexing')
+    record.finish(runs.STATUS_SUCCESS)
+
+    listed = runs.read_runs(fake_fileops(tmp_path), with_log=True)[0]
+
+    assert listed['log'] == ['indexing']
+
+
+def test_a_record_written_before_logs_were_kept_still_lists(tmp_path):
+    # the history folder outlives any one version of the format
+    folder = tmp_path / 'runs'
+    folder.mkdir()
+    (folder / 'old.json').write_text(json.dumps({'id': 'x', 'status': 'success'}),
+                                     encoding='utf-8')
+
+    listed = runs.read_runs(fake_fileops(tmp_path))
+
+    assert listed[0]['logLines'] == 0
+
+
 def test_a_damaged_record_does_not_hide_the_rest(tmp_path):
     folder = tmp_path / 'runs'
     folder.mkdir(parents=True)
@@ -239,5 +293,23 @@ def test_the_last_successful_run_ignores_the_ones_that_did_not_finish(tmp_path):
 
 def test_there_may_never_have_been_a_successful_run(tmp_path):
     assert runs.last_successful(fake_fileops(tmp_path)) is None
+
+
+def test_a_caller_can_say_which_finished_runs_count(tmp_path):
+    # finishing is not enough on its own: most runs cover only part of the listing, so a
+    # successful one says nothing about the works it was never looking at
+    folder = tmp_path / 'runs'
+    folder.mkdir(parents=True)
+    (folder / '2026-01-01T000000-a.json').write_text(
+        json.dumps({'id': 'scan', 'status': runs.STATUS_SUCCESS, 'action': 'bookmarks'}),
+        encoding='utf-8')
+    (folder / '2026-02-01T000000-b.json').write_text(
+        json.dumps({'id': 'sync', 'status': runs.STATUS_SUCCESS, 'action': 'sync'}),
+        encoding='utf-8')
+
+    found = runs.last_successful(fake_fileops(tmp_path),
+                                 match=lambda r: r.get('action') == 'bookmarks')
+
+    assert found['id'] == 'scan'
 
 # endregion

@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
+import { Jobs } from './jobs';
 import { Library } from './library';
 import { Bookmark, BookmarksExport } from './bookmarks';
 import { Collection } from './collections';
@@ -140,12 +141,54 @@ describe('App', () => {
     expect(advanced?.querySelector('summary')?.textContent?.trim()).toBe('Advanced options');
     expect(
       Array.from(advanced!.querySelectorAll('button')).map((b) => b.textContent?.trim()),
-    ).toEqual([
-      'Download new bookmarks and update incomplete fics',
-      'Just update any bookmarks marked as incomplete',
-      'Just download newly added bookmarks',
-      'Download/update a specific fic',
-      'Custom run',
+    ).toEqual(['Download/update a specific fic', 'Custom run']);
+  });
+
+  // they are the passes the two runs above are built from, kept for working on the app
+  // rather than for using it
+  it('hides the single-pass runs unless settings.ini turns the debug tools on', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const labels = actionLabels(element).join(' ');
+    expect(labels).not.toContain('update incomplete fics');
+    expect(labels).not.toContain('marked as incomplete');
+    expect(labels).not.toContain('newly added bookmarks');
+  });
+
+  it('offers the single-pass runs in red, marked as debug, when they are turned on', async () => {
+    TestBed.inject(Jobs).config.set({
+      downloadFolder: 'downloads',
+      username: '',
+      filetypes: ['JSON', 'HTML'],
+      forced: ['JSON'],
+      defaults: ['JSON', 'HTML'],
+      settings: {
+        file: 'C:\\app\\config\\settings.ini',
+        downloadFolder: 'downloads',
+        extraWaitTime: 15,
+        fileNamePattern: '{worknum} {title} - {author} {date updated}',
+        fileNameLength: 50,
+        fileNameExample: '34816549 A Fic - Someone 2026-01-01.html',
+        maxRetries: 0,
+        maxTimeouts: 3,
+        debugLogging: false,
+        debugTools: true,
+      },
+    });
+
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const debug = Array.from(element.querySelectorAll('.actions button.debug')).map((b) =>
+      b.textContent?.trim(),
+    );
+    expect(debug).toEqual([
+      '[DEBUG] Download new bookmarks and update incomplete fics',
+      '[DEBUG] Just update any bookmarks marked as incomplete',
+      '[DEBUG] Just download newly added bookmarks',
     ]);
   });
 

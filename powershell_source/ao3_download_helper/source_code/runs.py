@@ -53,7 +53,8 @@ class RunRecord:
 
     def __init__(self, fileops, job_id: str, action: str, action_name: str,
                  filetypes: list[str], options: dict,
-                 printed: list[str] | None = None) -> None:
+                 printed: list[str] | None = None,
+                 settings: dict | None = None) -> None:
         self.fileops = fileops
         # lines counted since the last write, not since the run began
         self.unsaved = 0
@@ -68,6 +69,11 @@ class RunRecord:
             'status': STATUS_RUNNING,
             'filetypes': list(filetypes),
             'options': dict(options or {}),
+            # what settings.ini said at the time. it decides pacing, file naming and
+            # retries, so a run cannot be explained afterwards without it - and which
+            # settings.ini was in force depends on where the helper was started from,
+            # which is why the path it was read from is part of this
+            'settings': dict(settings or {}),
             # the fics this run touched, and in which way. kept apart because they answer
             # different questions: what got a fresh index entry, what arrived as a file,
             # and what replaced a copy that was already there.
@@ -143,11 +149,16 @@ class RunRecord:
         self.save()
 
 
-def read_runs(fileops, limit: int = 100) -> list[dict]:
+def read_runs(fileops, limit: int = 100, with_log: bool = False) -> list[dict]:
     """Every run on record, newest first.
 
     A file that cannot be read is skipped rather than ending the listing - one damaged
     record should not hide the history around it.
+
+    **The console log is left out by default.** A record can hold thousands of lines, and a
+    hundred of them in one response would be tens of megabytes to build a page that does not
+    show them. `logLines` says how many the file holds, so the listing can still mention it;
+    the lines themselves are in the file.
     """
 
     folder = fileops.runsfolder
@@ -161,6 +172,9 @@ def read_runs(fileops, limit: int = 100) -> list[dict]:
                 record = json.load(f)
             if isinstance(record, dict):
                 record['file'] = name
+                if not with_log:
+                    record['logLines'] = len(record.get('log') or [])
+                    record.pop('log', None)
                 found.append(record)
         except Exception:
             continue
@@ -168,15 +182,24 @@ def read_runs(fileops, limit: int = 100) -> list[dict]:
     return found
 
 
-def last_successful(fileops) -> dict | None:
+def last_successful(fileops, match=None) -> dict | None:
     """The most recent run that actually finished, or None if there has never been one.
 
     What 'up to the last run' means for a quick scan. A run that failed, was stopped, or
     was interrupted is **not** a floor to index down to: it may have stopped before
     reaching fics that were updated before it started, and trusting it would leave exactly
     those unseen.
+
+    `match` narrows it to the runs that are a floor at all. Finishing is not enough on its
+    own: most runs cover only part of the listing, so a successful one says nothing about
+    works it was never looking at. It takes a record and answers whether that run qualifies,
+    rather than a list of action names, because whether a run covered everything can depend
+    on the options it ran with and not only on which button it was. The caller decides -
+    this module deliberately knows nothing about what any of that means.
     """
 
     for record in read_runs(fileops):
-        if record.get('status') == STATUS_SUCCESS: return record
+        if record.get('status') != STATUS_SUCCESS: continue
+        if match is not None and not match(record): continue
+        return record
     return None

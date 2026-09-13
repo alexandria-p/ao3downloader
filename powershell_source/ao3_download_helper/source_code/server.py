@@ -74,6 +74,13 @@ ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTIO
 # actions that need a link from the caller rather than working it out from the username
 ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK)
 
+# The runs whose overwrite choice is the caller's to make. Refetching a copy nothing says is
+# out of date is the answer to a damaged file, and it costs a request per format per work -
+# so it belongs to the two runs that are pointed at a library and told to spend more on it,
+# and nowhere else. ACTION_WORK is absent on purpose: it always overwrites, and `run_work`
+# sets that itself rather than taking it from the request.
+OVERWRITE_ACTIONS = (ACTION_BOOKMARKS, ACTION_CUSTOM)
+
 # json is always produced, so the ui shows it ticked and locked. it is what the web page
 # reads, and it costs nothing extra: the metadata comes off the listing page that has to be
 # fetched anyway, rather than one request per work.
@@ -196,6 +203,21 @@ def read_settings(fileops: FileOps) -> dict:
     }
 
 
+def settings_for_record(fileops: FileOps) -> dict:
+    """settings.ini as the history file should record it, or nothing if it cannot be read.
+
+    Everything in `runs.py` swallows its own errors for one reason: a history file is a
+    convenience, and a run that downloaded a library must not be reported as failed because
+    a note about it could not be filled in. This is the same rule applied one step earlier -
+    the values are gathered out here, so they have to be gathered safely too.
+    """
+
+    try:
+        return read_settings(fileops)
+    except Exception:
+        return {}
+
+
 class Job:
     """One download run, executing on its own thread and publishing progress events."""
 
@@ -226,9 +248,6 @@ class Job:
         # being written about this run. both are set as the run gets going.
         self.ao3 = None
         self.record = None
-        # console lines printed before the history file existed. everything after it goes
-        # straight into the record, so this only ever holds the first few
-        self.printed: list[str] = []
         # a run can stop and put a question to the ui; these carry the reply back
         self.answered = threading.Event()
         self.answer: dict = {}
@@ -377,11 +396,18 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         plan.append(('read', strings.STEP_READ_INDEX))
         if downloads: plan.append(('check', strings.STEP_CHECK_FILES))
         plan.append(('update', strings.STEP_UPDATE))
+    elif job.action == ACTION_NEW:
+        # the first pass of the combined run, on its own: it indexes what is new and
+        # downloads that. no gap pass, because `run_new` does not run one
+        plan.append(('index', strings.STEP_INDEX_NEW))
+        if downloads:
+            plan.append(('check', strings.STEP_CHECK_FILES))
+            plan.append(('download', strings.STEP_DOWNLOAD_NEW))
     elif job.action == ACTION_SYNC:
         plan.append(('index', strings.STEP_INDEX_NEW))
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
-            plan.append(('download', strings.STEP_DOWNLOAD))
+            plan.append(('download', strings.STEP_DOWNLOAD_NEW))
         plan.append(('update', strings.STEP_UPDATE))
         if downloads: plan.append(('gaps', strings.STEP_FILL_GAPS))
     else:
@@ -408,7 +434,6 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD))
-            plan.append(('gaps', strings.STEP_FILL_GAPS))
         if job.options['images'] and job.action == ACTION_CUSTOM:
             plan.append(('images', strings.STEP_IMAGES))
 
@@ -438,17 +463,7 @@ def run_job(job: Job, password: str) -> None:
     def report(event: dict) -> None:
         job.emit(event)
 
-    def say(line: str) -> None:
-        """Send a printed line to the ui, and keep it with the run's own history."""
-
-        job.emit({'type': progress.MESSAGE, 'text': line})
-        # before the history file exists there is nowhere to put it yet, so it waits on the
-        # job and is handed over when the record is made. the modal is gone once the tab
-        # closes, and this is the only lasting copy of what the run said
-        if job.record: job.record.line(line)
-        else: job.printed.append(line)
-
-    stream = LineStream(say)
+    stream = LineStream(lambda line: job.emit({'type': progress.MESSAGE, 'text': line}))
 
     try:
         fileops = FileOps()
@@ -478,7 +493,8 @@ def run_job(job: Job, password: str) -> None:
                 # history entry for something that never happened.
                 job.record = runs.RunRecord(fileops, job.id, job.action,
                                             action_name(job.action), job.filetypes,
-                                            job.options, printed=job.printed)
+                                            job.options,
+                                            settings=settings_for_record(fileops))
                 repo.login(job.username, password)
                 print(strings.AO3_INFO_LOGGED_IN)
                 progress.report(report, progress.AUTHENTICATED, username=job.username)
@@ -579,13 +595,10 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             # the download walks the same listing, so it begins on the same page
             ao3.download(parse_text.set_page_number(link, start), visited)
         job.steps.done('download')
-
-        fill_gaps_in(job, fileops, ao3, records, downloadtypes, report)
     else:
         # a metadata-only run, or one stopped during indexing: these never start
         job.steps.skip('check')
         job.steps.skip('download')
-        job.steps.skip('gaps')
 
     # a run that leaves gaps should say which works they were, rather than leaving it to be
     # worked out from the log afterwards. outside the download block on purpose: a
@@ -857,12 +870,25 @@ def run_sync(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
 
 def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
-    """Index one fic and download it, from a link or a bare work number."""
+    """Index one fic and download it, from a link or a bare work number.
+
+    **It always replaces whatever copy you already have.** Every other run is pointed at a
+    library and has to be careful about what it spends, so it skips anything already on disk
+    and current. This one is pointed at a single fic by hand: asking for it and being told
+    nothing happened because the copy looked fine is not the answer anybody came for, and
+    the whole cost of being wrong is one request per format, for one work.
+
+    So the option is forced on rather than offered - the ui does not show the checkbox for
+    this run, because a box that cannot be unticked is not a choice. Setting it on the job's
+    own options is what makes the history file say what the run actually did.
+    """
 
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
     link = work_link(job.url)
     if not link:
         raise exceptions.InvalidLinkException(strings.ERROR_INVALID_LINK)
+
+    job.options['overwrite'] = True
 
     ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
@@ -935,21 +961,44 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         job.steps.skip('index')
 
     download_planned(job, fileops, ao3, records, downloadtypes, report)
-    fill_gaps_in(job, fileops, ao3, records, downloadtypes, report)
     report_failures(ao3, report)
 
 
 def quick_scan_floor(fileops: FileOps) -> str:
     """The date a quick scan indexes back to, or '' when there is nothing to go on.
 
-    The day the last **successful** run started. A run that failed, was stopped, or was
-    interrupted is not a floor: it may have given up before reaching works updated before
-    it began, and treating it as one would leave exactly those unseen for ever after.
+    The day the last successful **full scan or quick scan** started. Two conditions, and
+    both matter:
+
+    - it has to have **finished**. A run that failed, was stopped, or was interrupted may
+      have given up before reaching works updated before it began, and treating it as a
+      floor would leave exactly those unseen for ever after.
+    - it has to be a run that **covered the whole listing down to its own floor**. A full
+      scan reads everything; a quick scan reads everything since the previous floor, so a
+      chain of them is unbroken back to a full scan. Nothing else qualifies: the combined
+      run and 'just new bookmarks' stop at the first fic they recognise, an update run and
+      a date window read no listing at all, and a custom run covers whatever slice it was
+      told to. Any of those can finish perfectly while never looking at a fic ao3 updated
+      that day, so measuring back to one would skip it permanently.
     """
 
-    last = runs.last_successful(fileops)
+    last = runs.last_successful(fileops, match=covered_the_whole_listing)
     if not last: return ''
     return str(last.get('started') or '')[:10]
+
+
+def covered_the_whole_listing(record: dict) -> bool:
+    """Whether a finished run reached every work ao3 had updated by the time it started.
+
+    Only a full scan and a quick scan do. A quick scan given a **date range** does not: it
+    stops at the date the user picked rather than at the previous floor, so anything older
+    than that was never looked at - which is the same hole a half-covering run leaves, and
+    the reason this is a question about the record rather than about the button.
+    """
+
+    if record.get('action') == ACTION_BOOKMARKS: return True
+    if record.get('action') != ACTION_QUICK: return False
+    return not (record.get('options') or {}).get('dates')
 
 
 def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -999,7 +1048,6 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     job.steps.done('index')
 
     download_planned(job, fileops, ao3, records, downloadtypes, report)
-    fill_gaps_in(job, fileops, ao3, records, downloadtypes, report)
 
     # last, and only when asked: it costs a work page per fic, which is exactly what the
     # rest of this run is built to avoid
@@ -1007,27 +1055,6 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         save_images(job, fileops, ao3, records, report)
 
     report_failures(ao3, report)
-
-
-def fill_gaps_in(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
-                 downloadtypes: list[str], report) -> None:
-    """Catch any requested format still missing from the works this run just covered.
-
-    The download phase decides what to skip from `shared.visited`, which is built from the
-    **log**. That is fine until the log and the folder disagree - a file deleted by hand, a
-    log trimmed, a library moved in from somewhere else - and then a work looks downloaded
-    when it is not. This reads the folder itself and fetches whatever is genuinely absent.
-
-    No re-read: the caller has just had these entries off ao3's listing, so they are as
-    current as they are going to get and asking again would cost a request per fic for
-    nothing.
-    """
-
-    if not records or not downloadtypes or job.cancel.is_set(): return
-
-    covered = {str(x.get('id') or '') for x in records if x.get('id')}
-    fill_missing_formats(job, fileops, ao3, set(), downloadtypes, report,
-                         reindex=False, only=covered)
 
 
 def work_link(value: str) -> str | None:
@@ -1283,6 +1310,9 @@ def refresh_and_download(job: Job, fileops: FileOps, ao3: Ao3, records: list[dic
     existing: dict = {}
     refresh_undated = False
     overwrite = bool(job.options.get('overwrite'))
+    # taken before this pass starts adding to it: whatever the run indexed off the listing
+    # beforehand has an entry too new to be worth re-reading one fic at a time
+    already_fresh = set(ao3.reindexed)
     if downloadtypes:
         job.steps.start('check')
         progress.report(report, progress.PHASE, name=progress.CHECKING_FILES)
@@ -1319,7 +1349,7 @@ def refresh_and_download(job: Job, fileops: FileOps, ao3: Ao3, records: list[dic
         try:
             fetched += update_one_work(ao3, record, existing, downloadtypes, maximum,
                                        refresh_undated, checked, len(records), report,
-                                       overwrite=overwrite)
+                                       overwrite=overwrite, already_fresh=already_fresh)
         except exceptions.CancelledException:
             # a stop is not a failed run; what has been written so far stays written
             break
@@ -1481,11 +1511,22 @@ def fetch_formats(ao3: Ao3, record: dict, wanted: list[str], maximum: int, log: 
 
 def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str],
                     maximum: int, refresh_undated: bool, done: int, total: int,
-                    report, overwrite: bool = False) -> int:
+                    report, overwrite: bool = False,
+                    already_fresh: set[str] | None = None) -> int:
     """Bring one fic's entry up to date, and fetch it again if the copy is behind.
 
     Says what it is doing at each step rather than only at the end, because this is the
     slow part of the run and a line per fic is the only sign it is still moving.
+
+    `already_fresh` holds the works **this run has just indexed off the listing**. Their
+    entries were written minutes ago from a blurb carrying the same `date_updated` a work
+    page reports, so re-reading them costs a request each and learns nothing. On a date
+    window that is the whole list - the run indexed exactly these fics moments earlier -
+    so it is the difference between one request per fic and none.
+
+    Anything *not* in that set is re-read as before. An entry from an earlier run cannot
+    say whether ao3 has moved on since, and a fic in the window that is no longer
+    bookmarked was never on the walk at all.
 
     Returns 1 if the fic was downloaded, 0 if only its entry changed. A fic that cannot be
     read is recorded as a failure and skipped - it keeps the entry it already had.
@@ -1501,9 +1542,16 @@ def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str]
         progress.report(ao3.progress, progress.WORK, title=title, link=link,
                         done=done, total=total, phase=progress.UPDATING)
 
-        print(strings.AO3_INFO_UPDATE_READING)
-        fresh = ao3.refresh_one(record)
-        print(strings.AO3_INFO_UPDATE_INDEXED)
+        if str(record.get('id') or '') in (already_fresh or set()):
+            # this run wrote the entry from its own listing walk minutes ago, and a listing
+            # blurb reports the same updated date a work page does. asking again would
+            # spend a request to be told what we were just told
+            print(strings.AO3_INFO_UPDATE_ALREADY_FRESH)
+            fresh = record
+        else:
+            print(strings.AO3_INFO_UPDATE_READING)
+            fresh = ao3.refresh_one(record)
+            print(strings.AO3_INFO_UPDATE_INDEXED)
 
         if not filetypes:
             print(strings.AO3_INFO_UPDATE_NOTHING)
@@ -1695,6 +1743,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         options = resolve_options(body.get('options'))
+        # the option only means anything on the runs that offer it. the ui never sends it
+        # otherwise, but the rule belongs here, where what arrives in a request is turned
+        # into what a run may actually do - a stray flag must not make a routine run
+        # re-fetch a whole library
+        if action not in OVERWRITE_ACTIONS: options['overwrite'] = False
         # a custom run told to skip indexing writes no json, because json is the index
         indexing_run = options['reindex'] or action != ACTION_CUSTOM
         filetypes = resolve_filetypes(body.get('filetypes'), force=indexing_run)

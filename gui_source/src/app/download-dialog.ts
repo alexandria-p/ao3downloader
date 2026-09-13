@@ -82,7 +82,17 @@ export class DownloadDialog implements OnDestroy {
    * in the listing and the other by when AO3 last touched them, and a run cannot both be
    * walking a listing and not walking it.
    */
-  protected readonly useDates = signal(false);
+  /**
+   * What this run reaches for, as one choice rather than several flags.
+   *
+   * 'all' is the whole listing, 'pages' a slice of it, 'dates' a window of time. They are
+   * alternatives - a run cannot be walking a listing and not walking it - so one signal
+   * with three values cannot hold a combination that means nothing, which two booleans
+   * could. A quick scan uses the same signal for its own pair: 'all' there means back to
+   * its last completed run.
+   */
+  protected readonly coverage = signal<'all' | 'pages' | 'dates'>('all');
+  protected readonly useDates = computed(() => this.coverage() === 'dates');
   /**
    * Whether the window has a newer end as well as an older one.
    *
@@ -235,7 +245,7 @@ export class DownloadDialog implements OnDestroy {
    * offering to cut it short there only makes it a custom run under another name.
    */
   protected readonly picksPages = computed(
-    () => this.action() === 'custom' && !this.useDates(),
+    () => this.action() === 'custom' && this.coverage() === 'pages',
   );
 
   /** only a custom run may cover a window of time instead */
@@ -274,18 +284,20 @@ export class DownloadDialog implements OnDestroy {
   /**
    * Which runs may fetch a work again that nothing says is out of date.
    *
-   * The three that can be pointed at a known set of works: a full scan, a custom run, and
-   * one fic by link. It is the answer to a damaged or truncated file, which no version
-   * check can see - the name and the date are both fine, and only the bytes are wrong.
+   * The two that can be pointed at a library and told to spend more on it: a full scan and
+   * a custom run. It is the answer to a damaged or truncated file, which no version check
+   * can see - the name and the date are both fine, and only the bytes are wrong.
    *
    * Deliberately not offered on the routine runs. They exist to be cheap, and a run that
    * re-fetches everything it already has is the opposite of that.
+   *
+   * Nor on the single-fic run, which always overwrites: a box that cannot be unticked is
+   * not a choice. Asking for one fic by hand and being told nothing happened because the
+   * copy looked fine is not the answer anybody came for, and being wrong costs one request
+   * per format for one work.
    */
   protected readonly picksOverwrite = computed(
-    () =>
-      this.action() === 'bookmarks' ||
-      this.action() === 'custom' ||
-      this.action() === 'work',
+    () => this.action() === 'bookmarks' || this.action() === 'custom',
   );
 
   /** only a custom run may work from the index instead of reading the listing */
@@ -426,6 +438,65 @@ export class DownloadDialog implements OnDestroy {
         : 'any works, whenever they were updated';
     }
     return `any works that were updated between ${newest || 'today'} and ${oldest}`;
+  });
+
+  /**
+   * Everything this run was asked on the way in, as label/value pairs.
+   *
+   * The two wizard pages read back in full - the options page and the file types page -
+   * rather than only the choices that differ from the default, which is what
+   * `chosenOptions` shows at a glance while the run works. Once the dialog has moved on,
+   * this panel is the only place the answers still exist.
+   *
+   * Only what this run actually offered appears: a setting it never asked about would read
+   * as one that was decided behind your back.
+   */
+  protected readonly runSettings = computed(() => {
+    const rows: { label: string; value: string }[] = [];
+
+    rows.push({
+      label: 'File types',
+      value: this.chosenFiletypes().join(', ') || 'nothing - indexing only',
+    });
+
+    if (this.picksDates() && this.useDates()) {
+      rows.push({ label: 'Covers', value: this.dateRange() });
+    } else if (this.picksPages()) {
+      rows.push({ label: 'Covers', value: this.pageRange() });
+    } else if (this.picksDates()) {
+      // the third choice: no slice and no window, so it reaches as far as the run can
+      rows.push({
+        label: 'Covers',
+        value:
+          this.action() === 'quick'
+            ? 'anything AO3 has updated since your last completed run'
+            : 'all bookmarks',
+      });
+    }
+    if (this.picksReindex()) {
+      rows.push({
+        label: 'Indexing',
+        value: this.reindex()
+          ? "reading AO3's listing"
+          : 'skipped - working from the saved index',
+      });
+    }
+    if (this.picksSeries()) {
+      rows.push({ label: 'Series links', value: this.series() ? 'followed' : 'not followed' });
+    }
+    if (this.picksImages()) {
+      rows.push({
+        label: 'Embedded images',
+        value: this.images() ? 'saved separately' : 'not saved separately',
+      });
+    }
+    if (this.picksOverwrite()) {
+      rows.push({
+        label: 'Existing files',
+        value: this.overwrite() ? 'overwritten, current or not' : 'kept unless out of date',
+      });
+    }
+    return rows;
   });
 
   /** what settings.ini says this run will work from */
@@ -664,8 +735,11 @@ export class DownloadDialog implements OnDestroy {
         action: this.action(),
         filetypes: this.chosenFiletypes(),
         options: {
-          start: this.start(),
-          pages: this.pages(),
+          // a slice is only sent by the run that asked for one. the inputs keep whatever
+          // was typed in them, so a run switched back to 'all bookmarks' would otherwise
+          // carry a limit it no longer shows
+          start: this.picksPages() ? this.start() : 1,
+          pages: this.picksPages() ? this.pages() : 0,
           series: this.series(),
           images: this.images(),
           workdates: this.workdates(),

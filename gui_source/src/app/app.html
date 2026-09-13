@@ -93,15 +93,23 @@
     <details class="advanced">
       <summary>Advanced options</summary>
       <div class="advanced-actions">
-        <button type="button" class="button" (click)="dialogAction.set('sync')">
-          Download new bookmarks and update incomplete fics
-        </button>
-        <button type="button" class="button" (click)="dialogAction.set('update')">
-          Just update any bookmarks marked as incomplete
-        </button>
-        <button type="button" class="button" (click)="dialogAction.set('new')">
-          Just download newly added bookmarks
-        </button>
+        <!--
+          the passes the two runs above are built from, each usable on its own. kept for
+          working on the app rather than for using it, so they appear only when
+          settings.ini turns the debug tools on - and wear the same colour as every other
+          debug control, so nobody reaches for one by habit
+        -->
+        @if (debugTools()) {
+          <button type="button" class="button debug" (click)="dialogAction.set('sync')">
+            [DEBUG] Download new bookmarks and update incomplete fics
+          </button>
+          <button type="button" class="button debug" (click)="dialogAction.set('update')">
+            [DEBUG] Just update any bookmarks marked as incomplete
+          </button>
+          <button type="button" class="button debug" (click)="dialogAction.set('new')">
+            [DEBUG] Just download newly added bookmarks
+          </button>
+        }
         <button type="button" class="button" (click)="dialogAction.set('work')">
           Download/update a specific fic
         </button>

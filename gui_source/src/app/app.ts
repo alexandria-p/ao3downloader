@@ -5,7 +5,7 @@ import { DownloadDialog } from './download-dialog';
 import { Faq } from './faq';
 import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
-import { JobAction } from './jobs';
+import { JobAction, Jobs } from './jobs';
 import { Library } from './library';
 import { WorkList } from './work-list';
 import { Bookmark, ownerFromSource } from './bookmarks';
@@ -21,6 +21,7 @@ export type View = 'bookmarks' | 'collections' | 'history' | 'faq';
 })
 export class App {
   private readonly library = inject(Library);
+  private readonly jobs = inject(Jobs);
 
   protected readonly view = signal<View>('bookmarks');
   /** which download dialog is open, if any */
@@ -40,9 +41,24 @@ export class App {
   protected readonly needsReconnect = this.library.needsReconnect;
   protected readonly canPickFolder = this.library.canPickFolder;
 
+  /**
+   * Whether settings.ini has turned the debug tools on.
+   *
+   * Gates the runs that are kept for working on the app rather than for using it.
+   * They still work, and they are still the passes the recommended run is built
+   * from - but offering them beside it invites picking one of the parts when the
+   * whole is what was wanted.
+   */
+  protected readonly debugTools = computed(
+    () => !!this.jobs.config()?.settings?.debugTools,
+  );
+
   constructor() {
     // reopen the folder picked last time, if the browser still lets us read it
     void this.library.restore();
+    // the buttons on offer depend on settings.ini, so it is read as the page opens
+    // rather than when a dialog first needs it
+    void this.jobs.loadConfig();
   }
 
   protected readonly works = computed<Bookmark[]>(() => this.data()?.works ?? []);

@@ -81,6 +81,20 @@
   background: #3d6580;
 }
 
+/*
+  a run that only exists when settings.ini turns the debug tools on. red because it is not
+  part of the ordinary set, and reads that way at a glance beside the buttons that are
+*/
+.button.debug {
+  border-color: #8a4040;
+  background: #4a2020;
+  color: var(--text-strong);
+}
+
+.button.debug:hover {
+  background: #5d2828;
+}
+
 .remembered {
   color: #7fb069;
   font-size: 0.7em;

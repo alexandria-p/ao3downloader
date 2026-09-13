@@ -150,7 +150,7 @@ AO3_INFO_UNDATED_SKIPPED = 'leaving all {} as they are'
 AO3_INFO_UP_TO_DATE = 'everything else you have is already the current version'
 AO3_INFO_OVERWRITING = 'overwriting {} downloaded works at your request, current or not'
 AO3_INFO_STAMPED = 'dated {} existing files as {}'
-AO3_INFO_FROM_INDEX = 'downloading {} works straight from the index, without walking the listing again'
+AO3_INFO_FROM_INDEX = 'downloading {} works directly, without re-indexing'
 AO3_INFO_FAILED_WORKS = '{} works could not be downloaded'
 # the 'new bookmarks only' walk, which stops at the first fic it already has
 AO3_INFO_INDEXING_NEW = 'indexing your newest bookmarks, stopping at the first one you already have'
@@ -203,6 +203,8 @@ AO3_INFO_UPDATE_WORK = '[{} of {}] {}'
 # line first the run looks stalled on the fic it has only just named
 AO3_INFO_UPDATE_READING = '    reading latest index'
 AO3_INFO_UPDATE_INDEXED = '    index updated'
+AO3_INFO_UPDATE_ALREADY_FRESH = (
+    '    already indexed earlier in this run by a previous step - downloading directly')
 # said per format, not per fic. a run asking for html and pdf can want one and already have
 # the other, and 'downloading it' told you neither which nor why
 # which button was pressed, recorded in the run's history file. the label rather than the
@@ -228,13 +230,16 @@ STEP_INDEX_ONE = 'Index this fic'
 STEP_INDEX_COLLECTIONS = 'Index your collections'
 STEP_INDEX_COLLECTION = 'Index this collection'
 STEP_USE_INDEX = 'Read the index already saved'
-STEP_CHECK_FILES = 'Determine which fics are missing or outdated from your downloads'
+STEP_CHECK_FILES = 'Read your existing downloaded files'
 STEP_DOWNLOAD = 'Download the works'
-STEP_READ_INDEX = 'Read the index for unfinished fics'
+# the runs that only ever fetch bookmarks added since last time say so, because on those
+# 'the works' would read as the whole library
+STEP_DOWNLOAD_NEW = 'Download newly added works'
+STEP_READ_INDEX = 'Read existing index for unfinished fics'
 STEP_INDEX_WINDOW = 'Index works AO3 has updated since that date'
 STEP_READ_WINDOW = 'Find indexed works updated in that date range'
-STEP_UPDATE_WINDOW = 'Download or Update each fic as necessary'
-STEP_UPDATE = 'Re-read each unfinished fic and update it'
+STEP_UPDATE_WINDOW = 'Download or update each fic as necessary'
+STEP_UPDATE = 'Re-index each fic, then download or update as necessary'
 STEP_FILL_GAPS = 'Fetch any format still missing'
 STEP_IMAGES = 'Save embedded images separately'
 STEP_REPORT = 'Report anything that could not be fetched'

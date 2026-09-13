@@ -68,6 +68,11 @@
             fine. The work number on its own says the same thing.
           </p>
           <p class="hint">Saved to <code>{{ folder() }}</code>, like any other download.</p>
+          <p class="hint">
+            <strong>This always replaces the copy you have</strong>, in every format you
+            pick, whether or not AO3 has a newer version. You asked for this one fic by
+            hand, so it is fetched rather than skipped for looking current.
+          </p>
         } @else {
           <label class="field">
             <span>Collection link</span>
@@ -169,20 +174,31 @@
         @if (picksDates()) {
           <fieldset>
             <legend>What this run covers</legend>
+
+            <!-- a quick scan's 'everything' is its own floor, so it words this its way -->
             <label class="check">
-              <input type="radio" name="coverage" [checked]="!useDates()"
-                     (change)="useDates.set(false)" />
+              <input type="radio" name="coverage" [checked]="coverage() === 'all'"
+                     (change)="coverage.set('all')" />
               <span>
                 @if (action() === 'quick') {
                   (Recommended) Anything that has changed since my last run
                 } @else {
-                  A slice of your bookmarks listing
+                  All bookmarks
                 }
               </span>
             </label>
+
+            @if (action() !== 'quick') {
+              <label class="check">
+                <input type="radio" name="coverage" [checked]="coverage() === 'pages'"
+                       (change)="coverage.set('pages')" />
+                <span>A slice of your bookmarks listing</span>
+              </label>
+            }
+
             <label class="check">
-              <input type="radio" name="coverage" [checked]="useDates()"
-                     (change)="useDates.set(true)" />
+              <input type="radio" name="coverage" [checked]="coverage() === 'dates'"
+                     (change)="coverage.set('dates')" />
               <span>
                 @if (action() === 'quick') {
                   Choose my own date range
@@ -293,33 +309,19 @@
           never in the listing. only a full scan goes the long way round, so it is the only
           run where ticking this could do anything
         -->
-        @if (picksSeries()) {
+        @if (picksReindex()) {
           <label class="check">
-            <input type="checkbox" [checked]="series()" (change)="series.set($any($event.target).checked)" />
-            <span>Get works from all encountered series links</span>
+            <input
+              type="checkbox"
+              name="reindex"
+              [checked]="!reindex()"
+              (change)="reindex.set(!$any($event.target).checked)"
+            />
+            <span>Skip indexing - work from what is already indexed</span>
           </label>
           <p class="hint">
-            If a bookmarked work belongs to a series, download the whole series too. This can
-            take a great deal longer. Series you bookmarked directly are always downloaded
-            either way.
-          </p>
-        }
-
-        @if (picksImages()) {
-          <label class="check">
-            <input type="checkbox" [checked]="images()" (change)="images.set($any($event.target).checked)" />
-            <span>Also save embedded images separately</span>
-          </label>
-          <p class="warning">
-            <strong>This will make the run much longer.</strong> Image links only exist on a
-            work's own page, so every fic has to have its page fetched as well as its files -
-            an extra request each, on top of whatever AO3 asks you to wait.
-          </p>
-          <p class="hint">
-            <strong>You probably do not need this.</strong> Images are normally embedded in
-            the downloaded work already and will display when you read it. This only saves a
-            second copy of each one as its own file, in an <code>images</code> subfolder -
-            useful if you want the pictures themselves, not if you just want to read the fic.
+            Useful for downloading your fics in a new format, or to fill in any blanks in
+            your downloaded files if your index is already up-to-date
           </p>
         }
 
@@ -339,30 +341,30 @@
             every work this run covers, whether or not AO3 has a newer version than the copy
             you hold.
           </p>
-          <!-- the full scan already says it takes hours; saying it twice reads as noise -->
-          @if (action() !== 'bookmarks') {
-            <p class="warning">
-              <strong>This makes the run far longer.</strong> Nothing is skipped for already
-              being current, so it costs a request per format per work - the whole download
-              again, at whatever pace AO3 allows.
-            </p>
-          }
         }
 
-        @if (picksReindex()) {
+        @if (picksSeries()) {
           <label class="check">
-            <input
-              type="checkbox"
-              name="reindex"
-              [checked]="!reindex()"
-              (change)="reindex.set(!$any($event.target).checked)"
-            />
-            <span>Skip indexing - work from what is already indexed</span>
+            <input type="checkbox" [checked]="series()" (change)="series.set($any($event.target).checked)" />
+            <span>Get works from all encountered series links</span>
           </label>
           <p class="hint">
-            Reads none of AO3's listing at all, so it costs no requests to decide what to
-            do - but every judgement about what is out of date is made against however old
-            your index is. Useful for filling in a format you did not ask for last time.
+            If a bookmarked work belongs to a series, download the whole series too. This can
+            take a great deal longer. Series you bookmarked directly are always downloaded
+            either way.
+          </p>
+        }
+
+        @if (picksImages()) {
+          <label class="check">
+            <input type="checkbox" [checked]="images()" (change)="images.set($any($event.target).checked)" />
+            <span>Also save embedded images separately</span>
+          </label>
+          <p class="hint">
+            <strong>Please note:</strong> images are already embedded inside all regular
+            downloaded works, and display when you read them. This option just also exports
+            any images to their own folder in your downloads directory, for you to look at
+            separately. It will make the download longer.
           </p>
         }
 
@@ -391,10 +393,22 @@
             typos fixed - the index records it as complete, so this pass skips it entirely.
           </p>
 
+          <!--
+            the other half of the same limitation: the first warning is about fics the
+            index has but calls finished, this one about fics the index does not have
+          -->
+          <p class="warning">
+            <strong>It will not pick up unfinished fics you have bookmarked since your last
+            scan.</strong> It works from the index you already have and reads no listing, so
+            a work that has never been indexed is not in the list it checks - however
+            unfinished it is.
+          </p>
+
           <p class="hint">
-            To pick those up, run <strong>(Full scan) Reindex &amp; Update All</strong>
-            instead. That re-reads the whole listing, so it sees any fic AO3 now reports as
-            updated more recently than your copy - finished or not.
+            To pick either of those up, run <strong>(Full scan) Reindex &amp; Update
+            All</strong> instead. That re-reads the whole listing, so it sees any fic AO3
+            now reports as updated more recently than your copy - finished or not, and newly
+            bookmarked or not.
           </p>
 
           <label class="check">
@@ -780,11 +794,19 @@
           </details>
         }
 
-        <!-- what settings.ini says, since that decides pacing and file names -->
+        <!--
+          what this run was asked, and what settings.ini says. both belong here: the wizard
+          pages are gone by now, and between them they are everything the run is working
+          from - what you chose, and what pacing and naming it inherited
+        -->
         @if (settings(); as ini) {
           <details class="settings">
             <summary>Settings this run is using</summary>
             <dl>
+              @for (row of runSettings(); track row.label) {
+                <dt>{{ row.label }}</dt>
+                <dd>{{ row.value }}</dd>
+              }
               <dt>Wait between requests</dt>
               <dd>
                 {{ ini.extraWaitTime }}s

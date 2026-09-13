@@ -963,6 +963,38 @@ def test_a_link_that_is_not_one_collection_is_refused_before_the_job_starts(url)
     assert 'collection' in sent['body']['error'].lower()
 
 
+def started_options(action, asked, url=''):
+    """Post a job and hand back the options the helper decided it would run with."""
+
+    sent = {}
+    handler = MagicMock()
+    handler.path = '/api/jobs'
+    handler.read_json.return_value = {
+        'action': action, 'username': 'Someone', 'password': 'a-password',
+        'filetypes': ['JSON', 'HTML'], 'options': asked, 'url': url}
+    handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
+
+    with patch.object(server.threading, 'Thread'):
+        server.Handler.do_POST(handler)
+
+    assert sent['status'] == 202, sent
+    return sent['body']['options']
+
+
+@pytest.mark.parametrize('action', [server.ACTION_SYNC, server.ACTION_NEW,
+                                    server.ACTION_UPDATE, server.ACTION_QUICK])
+def test_a_run_that_does_not_offer_overwriting_cannot_be_told_to(action):
+    # the ui never sends it, but the rule belongs at the boundary: a stray flag must not
+    # make a routine run re-fetch a whole library
+    assert started_options(action, {'overwrite': True})['overwrite'] is False
+
+
+@pytest.mark.parametrize('action', [server.ACTION_BOOKMARKS, server.ACTION_CUSTOM])
+def test_the_two_runs_that_offer_overwriting_are_taken_at_their_word(action):
+    assert started_options(action, {'overwrite': True})['overwrite'] is True
+    assert started_options(action, {'overwrite': False})['overwrite'] is False
+
+
 def test_a_collection_link_deeper_than_the_dashboard_is_accepted():
     # whatever page of the collection was open when the link was copied
     assert parse_text.get_collection_name(
@@ -1190,30 +1222,6 @@ def test_a_run_that_just_indexed_does_not_re_read_to_fill_a_gap(fake_environment
 
     ao3.refresh_one.assert_not_called()
     ao3.download_one_indexed.assert_called_once()
-
-
-def test_a_full_scan_only_fills_gaps_in_what_it_actually_walked(fake_environment):
-    # the index can hold fics no longer bookmarked; fetching those would be a surprise
-    ao3 = MagicMock()
-    job = server.Job(server.ACTION_BOOKMARKS, ['HTML'], 'Someone')
-
-    with patch.object(server.shared, 'read_index',
-                      return_value=[finished('111'), finished('222')]), \
-         patch.object(server.shared, 'scan_downloaded_works', return_value={}):
-        server.fill_gaps_in(job, fake_environment['fileops'], ao3, [finished('111')],
-                            ['HTML'], MagicMock())
-
-    assert [c.args[0]['id'] for c in ao3.download_one_indexed.call_args_list] == ['111']
-
-
-def test_filling_gaps_does_nothing_when_the_run_downloaded_nothing(fake_environment):
-    ao3 = MagicMock()
-    job = server.Job(server.ACTION_BOOKMARKS, [strings.AO3_DOWNLOAD_TYPE_METADATA], 'Someone')
-
-    server.fill_gaps_in(job, fake_environment['fileops'], ao3, [finished('111')], [],
-                        MagicMock())
-
-    ao3.download_one_indexed.assert_not_called()
 
 
 def test_a_gap_is_re_indexed_before_it_is_fetched(fake_environment):
@@ -1643,6 +1651,78 @@ def test_a_lapsed_login_ends_the_update_pass_rather_than_failing_every_fic(fake_
     ao3.record_failure.assert_not_called()
 
 
+def test_unfinished_fics_are_done_most_recently_updated_first(fake_environment):
+    # a run can be stopped, and where it got to should be the half worth having: the fics
+    # ao3 touched last are the ones you are most likely waiting on
+    job = server.Job(server.ACTION_UPDATE, ['JSON', 'HTML'], 'Someone')
+    index = [dated('1', '01 Jan 2026'), dated('2', '01 Dec 2026'), dated('3', '01 Jun 2026')]
+
+    with patch.object(server.shared, 'read_index', return_value=index), \
+         patch.object(server.shared, 'incomplete_works', side_effect=lambda x: x), \
+         patch.object(server, 'refresh_and_download') as pass_:
+        server.update_incomplete(job, fake_environment['fileops'], MagicMock(),
+                                 ['HTML'], MagicMock())
+
+    assert [x['id'] for x in pass_.call_args.args[3]] == ['2', '3', '1']
+
+
+def test_a_fic_this_run_just_indexed_is_not_read_again(fake_environment):
+    # a listing blurb reports the same updated date a work page does, and the run wrote
+    # this entry from one minutes ago. asking again spends a request to learn nothing
+    ao3 = MagicMock()
+
+    with patch.object(server.shared, 'plan_downloads',
+                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+        server.update_one_work(ao3, INCOMPLETE, {}, ['HTML'], 50, False, 1, 3, None,
+                               already_fresh={str(INCOMPLETE['id'])})
+
+    ao3.refresh_one.assert_not_called()
+
+
+def test_a_fic_the_run_did_not_index_is_still_read_again(fake_environment):
+    # an entry from an earlier run cannot say whether ao3 has moved on since
+    ao3 = MagicMock()
+    ao3.refresh_one.return_value = INCOMPLETE
+
+    with patch.object(server.shared, 'plan_downloads',
+                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+        server.update_one_work(ao3, INCOMPLETE, {}, ['HTML'], 50, False, 1, 3, None,
+                               already_fresh={'999999'})
+
+    ao3.refresh_one.assert_called_once()
+
+
+def test_a_date_window_does_not_re_read_the_fics_it_has_just_indexed(fake_environment):
+    # the window walked the listing to find these, so every one of them was indexed moments
+    # ago. re-reading them would be a second request per fic for the same information
+    job = server.Job(server.ACTION_CUSTOM, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({'dates': True, 'dateFrom': '2026-01-01'}))
+    ao3 = MagicMock()
+    ao3.reindexed = {'1'}
+
+    with patch.object(server, 'update_one_work') as one:
+        one.return_value = 0
+        server.refresh_and_download(job, fake_environment['fileops'], ao3,
+                                    [dated('1', '01 Jun 2026')], [], MagicMock())
+
+    assert one.call_args.kwargs['already_fresh'] == {'1'}
+
+
+def test_a_run_that_indexed_nothing_re_reads_everything(fake_environment):
+    # skip indexing, or an update run that walks no listing: there is nothing fresh, so
+    # every fic has to be opened to find out where it stands
+    job = server.Job(server.ACTION_UPDATE, ['JSON', 'HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.reindexed = set()
+
+    with patch.object(server, 'update_one_work') as one:
+        one.return_value = 0
+        server.refresh_and_download(job, fake_environment['fileops'], ao3,
+                                    [dated('1', '01 Jun 2026')], [], MagicMock())
+
+    assert one.call_args.kwargs['already_fresh'] == set()
+
+
 def test_a_lapsed_login_ends_the_gap_pass_too(fake_environment):
     ao3 = MagicMock()
     ao3.refresh_one.side_effect = exceptions.SessionExpiredException('gone')
@@ -1667,8 +1747,7 @@ def test_a_quick_scan_indexes_back_to_the_last_completed_run(fake_environment):
     with patch.object(server, 'Ao3', return_value=ao3), \
          patch.object(server.runs, 'last_successful',
                       return_value={'started': '2026-09-01T12:00:00'}), \
-         patch.object(server, 'download_planned'), \
-         patch.object(server, 'fill_gaps_in'):
+         patch.object(server, 'download_planned'):
         server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert ao3.get_metadata.call_args.kwargs['stop_before'] == '2026-09-01'
@@ -1684,8 +1763,7 @@ def test_a_quick_scan_asks_for_the_listing_sorted_by_when_works_were_updated(
 
     with patch.object(server, 'Ao3', return_value=ao3), \
          patch.object(server.runs, 'last_successful', return_value=None), \
-         patch.object(server, 'download_planned'), \
-         patch.object(server, 'fill_gaps_in'):
+         patch.object(server, 'download_planned'):
         server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert strings.AO3_SORT_BY_UPDATED in ao3.get_metadata.call_args.args[0]
@@ -1699,8 +1777,7 @@ def test_a_quick_scan_with_no_completed_run_reads_everything(fake_environment):
 
     with patch.object(server, 'Ao3', return_value=ao3), \
          patch.object(server.runs, 'last_successful', return_value=None), \
-         patch.object(server, 'download_planned'), \
-         patch.object(server, 'fill_gaps_in'):
+         patch.object(server, 'download_planned'):
         server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert ao3.get_metadata.call_args.kwargs['stop_before'] == ''
@@ -1716,8 +1793,7 @@ def test_the_first_quick_scan_indexes_and_downloads_everything(fake_environment)
 
     with patch.object(server, 'Ao3', return_value=ao3), \
          patch.object(server.runs, 'last_successful', return_value=None), \
-         patch.object(server, 'download_planned') as download, \
-         patch.object(server, 'fill_gaps_in'):
+         patch.object(server, 'download_planned') as download:
         server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     # nothing told the walk where to stop...
@@ -1736,20 +1812,69 @@ def test_the_floor_ignores_runs_that_did_not_finish(fake_environment):
         assert server.quick_scan_floor(fake_environment['fileops']) == '2026-09-01'
 
 
-def test_a_quick_scan_downloads_and_then_fills_gaps(fake_environment):
+def test_a_quick_scan_indexes_then_downloads_and_stops_there(fake_environment):
+    # no gap pass: that belongs to the combined run alone
     job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone')
     ao3 = MagicMock()
-    ao3.get_metadata.return_value = [finished('111')]
+    ao3.get_metadata.side_effect = lambda *a, **k: order.append('index') or [finished('111')]
     order: list[str] = []
 
     with patch.object(server, 'Ao3', return_value=ao3), \
          patch.object(server.runs, 'last_successful', return_value=None), \
+         patch.object(server, 'fill_missing_formats') as filling, \
          patch.object(server, 'download_planned',
-                      side_effect=lambda *a: order.append('download')), \
-         patch.object(server, 'fill_gaps_in', side_effect=lambda *a: order.append('gaps')):
+                      side_effect=lambda *a: order.append('download')):
         server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
 
-    assert order == ['download', 'gaps']
+    assert order == ['index', 'download']
+    filling.assert_not_called()
+
+
+def test_one_fic_by_link_always_replaces_the_copy_you_have(fake_environment):
+    # asking for one fic by hand and being told nothing happened because the copy looked
+    # fine is not the answer anybody came for, and being wrong costs one request per format
+    job = server.Job(server.ACTION_WORK, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({}), url='https://archiveofourown.org/works/111')
+    assert job.options['overwrite'] is False
+
+    with patch.object(server, 'Ao3', return_value=MagicMock()), \
+         patch.object(server.shared, 'read_index', return_value=[]), \
+         patch.object(server, 'download_planned'), \
+         patch.object(server, 'report_failures'):
+        server.run_work(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert job.options['overwrite'] is True
+
+
+def test_only_a_full_scan_or_a_plain_quick_scan_is_a_floor(fake_environment):
+    # every other run covers part of the listing. one can finish perfectly while never
+    # looking at a fic ao3 updated that day, and measuring back to it would skip that fic
+    # permanently
+    assert server.covered_the_whole_listing({'action': server.ACTION_BOOKMARKS}) is True
+    assert server.covered_the_whole_listing({'action': server.ACTION_QUICK}) is True
+
+    for action in (server.ACTION_SYNC, server.ACTION_NEW, server.ACTION_UPDATE,
+                   server.ACTION_CUSTOM, server.ACTION_WORK, server.ACTION_COLLECTIONS):
+        assert server.covered_the_whole_listing({'action': action}) is False, action
+
+
+def test_a_quick_scan_over_a_date_range_is_not_a_floor_either():
+    # it stops at the date the user picked rather than at the previous floor, so anything
+    # older than that was never looked at - the same hole a half-covering run leaves
+    assert server.covered_the_whole_listing(
+        {'action': server.ACTION_QUICK, 'options': {'dates': True}}) is False
+    assert server.covered_the_whole_listing(
+        {'action': server.ACTION_QUICK, 'options': {'dates': False}}) is True
+
+
+def test_the_floor_skips_finished_runs_that_were_not_scans(fake_environment):
+    history = [{'status': server.runs.STATUS_SUCCESS, 'action': server.ACTION_SYNC,
+                'started': '2026-09-10T12:00:00'},
+               {'status': server.runs.STATUS_SUCCESS, 'action': server.ACTION_BOOKMARKS,
+                'started': '2026-09-01T12:00:00'}]
+
+    with patch.object(server.runs, 'read_runs', return_value=history):
+        assert server.quick_scan_floor(fake_environment['fileops']) == '2026-09-01'
 
 
 def test_a_quick_scan_says_it_is_indexing_since_the_last_run():
@@ -1771,8 +1896,7 @@ def test_a_quick_scan_settles_undated_files_after_it_has_indexed(fake_environmen
          patch.object(server.shared, 'scan_downloaded_works', return_value={}), \
          patch.object(server.shared, 'plan_downloads', return_value=undated_plan(['a'])), \
          patch.object(server, 'settle_undated',
-                      side_effect=lambda *a: order.append('asked') or (False, 0)), \
-         patch.object(server, 'fill_gaps_in'):
+                      side_effect=lambda *a: order.append('asked') or (False, 0)):
         server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert order == ['indexed', 'asked']
@@ -1826,6 +1950,29 @@ def test_a_run_records_itself_as_it_starts_and_when_it_ends(fake_environment, tm
     assert record['action'] == server.ACTION_SYNC
     assert record['actionName'] == strings.ACTION_NAME_SYNC
     assert record['filetypes'] == ['JSON', 'HTML']
+
+
+def test_a_run_records_the_settings_it_worked_from(fake_environment, tmp_path):
+    # the panel in the modal shows these while the run works, and is gone afterwards. the
+    # history file is where they survive
+    fake_environment['fileops'].runsfolder = str(tmp_path / 'runs')
+    job = server.Job(server.ACTION_SYNC, ['JSON'], 'Someone')
+    ini = {'extraWaitTime': 15, 'file': 'C:\\app\\config\\settings.ini', 'maxRetries': 0}
+
+    with patch.object(server, 'FileOps', return_value=fake_environment['fileops']), \
+         patch.object(server, 'Repository'), \
+         patch.object(server, 'read_settings', return_value=ini), \
+         patch.object(server, 'run_sync'):
+        server.run_job(job, 'a-password')
+
+    saved = json.loads(list((tmp_path / 'runs').iterdir())[0].read_text(encoding='utf-8'))
+    assert saved['settings'] == ini
+
+
+def test_settings_that_cannot_be_read_do_not_take_the_run_down(fake_environment):
+    # a note about the run is not worth failing a run that downloaded a library
+    with patch.object(server, 'read_settings', side_effect=OSError('gone')):
+        assert server.settings_for_record(fake_environment['fileops']) == {}
 
 
 def test_a_run_that_never_reaches_the_login_leaves_no_history_file(fake_environment, tmp_path):
@@ -1928,6 +2075,35 @@ def test_every_run_starts_by_logging_in_and_ends_by_reporting():
 def test_the_combined_run_lists_its_three_passes_in_order():
     assert plan_ids(server.ACTION_SYNC) == [
         'login', 'index', 'check', 'download', 'update', 'gaps', 'report']
+
+
+def test_the_new_bookmarks_run_lists_only_the_pass_it_actually_does():
+    # it is the combined run's first pass on its own, and `run_new` runs no gap pass - a
+    # step on the checklist that nothing ever marks reads as one that silently failed
+    assert plan_ids(server.ACTION_NEW) == ['login', 'index', 'check', 'download', 'report']
+
+
+def test_the_runs_that_only_fetch_new_bookmarks_say_so_on_the_download_step():
+    # 'the works' on a run that covers what was added since last time reads as the library
+    for action in (server.ACTION_NEW, server.ACTION_SYNC):
+        job = server.Job(action, ['JSON', 'HTML'], 'Someone', server.resolve_options({}))
+        assert dict(server.step_plan(job))['download'] == strings.STEP_DOWNLOAD_NEW, action
+
+    scan = server.Job(server.ACTION_BOOKMARKS, ['JSON', 'HTML'], 'Someone',
+                      server.resolve_options({}))
+    assert dict(server.step_plan(scan))['download'] == strings.STEP_DOWNLOAD
+
+
+def test_only_the_combined_run_has_a_gap_pass():
+    # it is the one workflow whose earlier passes deliberately leave works untouched - the
+    # finished fics missing a format nobody asked for last time. every other run covers what
+    # it covers in one go, so a second sweep would only re-attempt what just failed
+    assert 'gaps' in plan_ids(server.ACTION_SYNC)
+    for action in server.ACTIONS:
+        if action == server.ACTION_SYNC: continue
+        assert 'gaps' not in plan_ids(action), action
+    assert 'gaps' not in plan_ids(server.ACTION_CUSTOM, options={'overwrite': True})
+    assert 'gaps' not in plan_ids(server.ACTION_CUSTOM, options={'dates': True})
 
 
 def test_an_update_run_reads_before_it_checks_before_it_updates():
@@ -2175,8 +2351,7 @@ def test_a_custom_run_given_pages_still_scans(fake_environment):
     ao3.get_metadata.return_value = []
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server, 'download_planned'), \
-         patch.object(server, 'fill_gaps_in'):
+         patch.object(server, 'download_planned'):
         server.run_custom(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     ao3.get_metadata.assert_called_once()

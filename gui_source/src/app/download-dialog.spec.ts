@@ -162,6 +162,19 @@ async function advanceTo(target: 'options' | 'filetypes' | 'credentials' | 'runn
   throw new Error(`could not reach ${target}; stuck on ${currentStep()}`);
 }
 
+/**
+ * Open the custom run and choose the page-slice coverage.
+ *
+ * It is no longer what the run opens on - 'All bookmarks' is the first row now - so a
+ * test about the page inputs has to pick that coverage before they exist.
+ */
+async function toPageOptions() {
+  await open('custom');
+  await advanceTo('options');
+  checkbox('A slice of your bookmarks listing')!.click();
+  await fixture.whenStable();
+}
+
 describe('DownloadDialog', () => {
   beforeEach(async () => {
     jobs = new FakeJobs();
@@ -244,9 +257,9 @@ describe('DownloadDialog', () => {
     await advanceTo('options');
 
     const said = element.querySelector('.body')?.textContent ?? '';
-    expect(said).toContain('make the run much longer');
-    expect(said).toContain('probably do not need this');
-    expect(said).toContain('already');
+    expect(said).toContain('already embedded inside all regular downloaded works');
+    expect(said).toContain('their own folder');
+    expect(said).toContain('make the download longer');
   });
 
   it('asks a full scan nothing about pages', async () => {
@@ -259,9 +272,45 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('input[name="start"]')).toBeNull();
   });
 
-  it('asks a custom run which pages to cover', async () => {
+  it('opens a custom run on all bookmarks, with no slice to fill in', async () => {
     await open('custom');
     await advanceTo('options');
+
+    expect(checkbox('All bookmarks')!.checked).toBe(true);
+    expect(element.querySelector('input[name="start"]')).toBeNull();
+    expect(element.querySelector('input[name="pages"]')).toBeNull();
+  });
+
+  // the inputs keep what was typed in them, so a run switched back to the whole listing
+  // would otherwise carry a limit it no longer shows
+  it('drops a page range once the run is switched back to all bookmarks', async () => {
+    await toPageOptions();
+
+    const pages = element.querySelector<HTMLInputElement>('input[name="pages"]')!;
+    pages.value = '9';
+    pages.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    checkbox('All bookmarks')!.click();
+    await fixture.whenStable();
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.start).toBe(1);
+    expect(jobs.started[0].options.pages).toBe(0);
+  });
+
+  // a quick scan works out its own floor; a slice of the listing means nothing to it
+  it('offers a quick scan no page slice', async () => {
+    await open('quick');
+    await advanceTo('options');
+
+    expect(checkbox('A slice of your bookmarks listing')).toBeUndefined();
+    expect(checkbox('Anything that has changed since my last run')).toBeTruthy();
+  });
+
+  it('asks a custom run which pages to cover', async () => {
+    await toPageOptions();
 
     expect(element.querySelector('input[name="pages"]')).toBeTruthy();
     expect(element.querySelector('input[name="start"]')).toBeTruthy();
@@ -363,8 +412,7 @@ describe('DownloadDialog', () => {
   });
 
   it('sends the page to start on as well as the one to stop after', async () => {
-    await open('custom');
-    await advanceTo('options');
+    await toPageOptions();
 
     const start = element.querySelector<HTMLInputElement>('input[name="start"]')!;
     start.value = '5';
@@ -464,8 +512,7 @@ describe('DownloadDialog', () => {
   // the two are alternatives, so choosing the window has to take the page inputs away
   // rather than leave a slice showing that the run will not honour
   it('hides the page inputs while the date window is chosen', async () => {
-    await open('custom');
-    await advanceTo('options');
+    await toPageOptions();
 
     expect(element.querySelector('input[name="start"]')).not.toBeNull();
 
@@ -504,8 +551,7 @@ describe('DownloadDialog', () => {
   });
 
   it('treats a blank or first page as starting at the beginning', async () => {
-    await open('custom');
-    await advanceTo('options');
+    await toPageOptions();
 
     const start = element.querySelector<HTMLInputElement>('input[name="start"]')!;
     start.value = '';
@@ -518,8 +564,7 @@ describe('DownloadDialog', () => {
   });
 
   it('says which slice of the listing the run will cover', async () => {
-    await open('custom');
-    await advanceTo('options');
+    await toPageOptions();
 
     const start = element.querySelector<HTMLInputElement>('input[name="start"]')!;
     start.value = '5';
@@ -530,8 +575,7 @@ describe('DownloadDialog', () => {
   });
 
   it('treats a blank or zero page limit as every page', async () => {
-    await open('custom');
-    await advanceTo('options');
+    await toPageOptions();
 
     const pages = element.querySelector<HTMLInputElement>('input[name="pages"]')!;
     pages.value = '';
@@ -586,6 +630,16 @@ describe('DownloadDialog', () => {
     expect(said).toContain('will not find a fic that was already finished');
     // and points at the run that does catch those
     expect(said).toContain('Reindex & Update All');
+  });
+
+  // the other half of the same limitation: the first is about fics the index has but calls
+  // finished, this about fics the index has never heard of
+  it('says it will not see unfinished fics bookmarked since the last scan', async () => {
+    await toAcknowledgement();
+
+    const said = element.querySelector('.dialog .body')?.textContent ?? '';
+    expect(said).toContain('will not pick up unfinished fics you have bookmarked since');
+    expect(said).toContain('reads no listing');
   });
 
   it('will not go on until it has actually been acknowledged', async () => {
@@ -1053,6 +1107,42 @@ describe('DownloadDialog', () => {
     expect(shown).toContain('50');
   });
 
+  // the wizard pages are gone by the time the run is working, so this panel is the only
+  // place the answers given on them still exist
+  it('reads back the file types chosen on the way in', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    expect(element.querySelector('.settings')?.textContent).toContain('File types');
+    expect(element.querySelector('.settings')?.textContent).toContain('JSON, HTML');
+  });
+
+  it('reads back the options chosen on the way in', async () => {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('Overwrite existing downloads')!.click();
+    await fixture.whenStable();
+
+    await advanceTo('running');
+
+    const shown = element.querySelector('.settings')?.textContent ?? '';
+    expect(shown).toContain('overwritten, current or not');
+    expect(shown).toContain("reading AO3's listing");
+    expect(shown).toContain('all bookmarks');
+  });
+
+  it('leaves out settings the run never asked about', async () => {
+    // a setting shown for a run that does not offer it reads as one decided behind you
+    await open('update');
+    await advanceTo('running');
+
+    const shown = element.querySelector('.settings')?.textContent ?? '';
+    expect(shown).toContain('File types');
+    expect(shown).not.toContain('Series links');
+    expect(shown).not.toContain('Existing files');
+    expect(shown).not.toContain('Covers');
+  });
+
   it('spells out how files are named, including the date', async () => {
     await open('bookmarks');
     await advanceTo('running');
@@ -1149,13 +1239,14 @@ describe('DownloadDialog', () => {
   });
 
   it('shows back only the settings the run was actually offered', async () => {
-    // a full scan is not asked which pages to cover, so showing 'all pages' back at it
+    // a full scan is not asked which pages to cover, so showing a page range back at it
     // reads as a setting that was chosen rather than one that does not exist
     await open('bookmarks');
     await advanceTo('running');
     expect(element.querySelector('.chosen')?.textContent).not.toContain('pages');
 
-    await open('custom');
+    // and a custom run says so only once it has actually been asked for a slice
+    await toPageOptions();
     await advanceTo('running');
     expect(element.querySelector('.chosen')?.textContent).toContain('all pages');
   });
@@ -1346,7 +1437,7 @@ describe('DownloadDialog', () => {
 
   // the answer to a damaged or truncated file, which no version check can see: the name
   // and the date are both right and only the bytes are wrong
-  it.each(['bookmarks', 'custom', 'work'] as const)(
+  it.each(['bookmarks', 'custom'] as const)(
     'lets a %s run overwrite files nothing says are out of date',
     async (action) => {
       await open(action);
@@ -1362,7 +1453,7 @@ describe('DownloadDialog', () => {
   );
 
   // they exist to be cheap, and a run that re-fetches everything it holds is the opposite
-  it.each(['sync', 'quick', 'update'] as const)(
+  it.each(['sync', 'quick', 'update', 'work'] as const)(
     'does not offer %s the option to overwrite',
     async (action) => {
       await open(action);

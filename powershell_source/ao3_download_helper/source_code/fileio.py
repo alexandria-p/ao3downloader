@@ -191,8 +191,20 @@ class FileOps:
 
 
     def save_setting(self, setting: str, value) -> None:
+        """Write one saved setting, or remove it when the value is None.
+
+        **Removing something that was never there writes nothing.** `initialize` clears the
+        saved password on every start whenever SavePassword is off - which is always, in a
+        bundle, because the bundler strips that setting out - and this used to create a
+        data.json holding `{}` to record the absence of a key that had never existed. The
+        web ui keeps nothing here at all, so the file was pure litter in a config folder
+        that is meant not to have one. See `get_settings_json`, which does not create on
+        read for the same reason.
+        """
+
         js = self.get_settings_json()
         if value is None:
+            if setting not in js: return
             js.pop(setting, None)
         else:
             js[setting] = value
