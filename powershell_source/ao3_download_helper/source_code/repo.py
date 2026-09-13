@@ -322,6 +322,23 @@ class Repository:
             raise exceptions.LoginException(strings.ERROR_FAILED_LOGIN.format(strings.FAILED_LOGIN_INVALID_CREDENTIALS))
         
 
+    def still_logged_in(self) -> bool:
+        """Whether ao3 still recognises this session.
+
+        Every ao3 page carries `<body class="logged-in">` while a session is alive, so any
+        page will answer it - the front page is the cheapest.
+
+        **A check that cannot be made answers True.** This exists to end a run early when
+        the login has lapsed; ending one because the check itself timed out would be worse
+        than the problem, so anything going wrong here means carry on as before.
+        """
+
+        try:
+            return parse_soup.is_logged_in(self.get_soup(strings.AO3_BASE_URL))
+        except Exception:
+            return True
+
+
     def mark_work_as_read(self, soup: BeautifulSoup, work_url: str):
         """Mark a work as read on ao3."""
 

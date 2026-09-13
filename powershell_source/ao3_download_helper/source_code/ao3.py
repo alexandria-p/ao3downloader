@@ -47,6 +47,15 @@ class Ao3:
         # bookmarks that are not works at all, so could never be indexed or downloaded.
         # kept as a list rather than a count so the run can name each one at the end
         self.skipped_works: list[dict] = []
+        # whether this run has already asked ao3 whether its login is still good. asked at
+        # most once: it costs a request, and a lapsed session fails every work after it
+        self.session_checked = False
+        # what this run did to which fics, for the history file. three sets rather than one
+        # because they answer different questions: what got a fresh index entry, what
+        # arrived as a file, and what replaced a copy that was already on disk.
+        self.reindexed: set[str] = set()
+        self.downloaded: set[str] = set()
+        self.updated: set[str] = set()
         # work numbers seen on this run's listing that ao3 will not serve a file for yet,
         # because the work is in a collection that has not been revealed. they index fine;
         # it is only the download that is impossible, so they are held back from it.
@@ -67,6 +76,8 @@ class Ao3:
         except exceptions.CancelledException:
             # works already downloaded stay where they are; this is not a failure
             print(strings.INFO_CANCELLED)
+        except exceptions.SessionExpiredException:
+            raise  # every work after this one would fail the same way; let it end the run
         except Exception as e:
             self.log_error(log, e)
 
@@ -94,7 +105,7 @@ class Ao3:
 
 
     def get_metadata(self, link: str, workdates: bool,
-                     known: set[str] | None = None) -> list[dict]:
+                     known: set[str] | None = None, stop_before: str = '') -> list[dict]:
         """Walk a listing and save metadata for every work on it, one file per bookmark.
 
         One request per page rather than per work, so a bookmarks list of any size is
@@ -114,6 +125,13 @@ class Ao3:
         run stops correctly either way, but a fic bookmarked *before* the stopping point
         and never indexed - because an earlier run was interrupted, say - stays unseen. A
         full walk is the answer to that, and the ui says so.
+
+        `stop_before` is the other short walk: stop at the first work ao3 last updated
+        before that date (`YYYY-MM-DD`). **It is only correct on a listing sorted by that
+        date** - `strings.AO3_SORT_BY_UPDATED` - and the caller is responsible for asking
+        for one. Verified against the live site: the default order is by when each work was
+        bookmarked and jumps about by years, so this walk down an unsorted listing would
+        stop almost immediately and miss nearly everything.
         """
 
         if parse_text.is_work(link):
@@ -146,6 +164,12 @@ class Ao3:
                 print(strings.AO3_INFO_METADATA_FETCHING.format(str(current), str(total_pages))
                       if total_pages else
                       strings.AO3_INFO_METADATA_FETCHING_FIRST.format(str(current)))
+                # said before the request, so the ui names the page being fetched rather
+                # than the last one that finished. the fetch is the slow part, and a
+                # caption written only afterwards describes the wrong page for all of it
+                asking, asking_of = self.page_progress(current, total_pages)
+                progress.report(self.progress, progress.PAGE, page=asking, total=asking_of,
+                                listingPage=current, listingTotal=total_pages, fetching=True)
                 self.fileops.write_log({'link': link, 'message': strings.INFO_STARTING_PAGE, 'level': 'debug'})
                 thesoup = self.repo.get_soup(link)
                 if total_pages is None:
@@ -176,6 +200,15 @@ class Ao3:
                         print(strings.AO3_INFO_REACHED_KNOWN)
                         reached_known = True
                         break
+
+                    if stop_before:
+                        # only sound on a listing sorted by this date - see the docstring
+                        updated = parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                            blurb, 'div.header p.datetime'))
+                        if updated and updated < stop_before:
+                            print(strings.AO3_INFO_REACHED_OLDER.format(stop_before))
+                            reached_known = True
+                            break
                     # a work can be bookmarked more than once, and can shift between pages
                     # while we're paging through, so dedupe on the bookmark rather than the work
                     key = parse_soup.get_blurb_id(blurb) or str(worknum)
@@ -383,7 +416,9 @@ class Ao3:
                 print(strings.INFO_CANCELLED)
                 return
             except Exception as e:
-                # one work that will not come down should not end the run
+                # one work that will not come down should not end the run - unless the
+                # login has lapsed, in which case every work after it fails the same way
+                self.check_session()
                 self.record_failure(record['link'], e)
                 self.log_error(log, e)
 
@@ -417,6 +452,7 @@ class Ao3:
             self.replace_superseded(record['link'], filetype, saved, len(content))
 
         log['success'] = True
+        self.downloaded.add(work)
         self.fileops.write_log(log)
 
 
@@ -718,6 +754,7 @@ class Ao3:
             # says something new
             merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
             self.fileops.save_json(path, merged)
+            if document.get('id'): self.reindexed.add(str(document['id']))
         except Exception as e:
             # one unwritable file shouldn't end the run
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
@@ -913,6 +950,7 @@ class Ao3:
         except exceptions.CancelledException:
             raise # a stop is not a failed download, and must not be logged as one
         except Exception as e:
+            self.check_session()
             self.record_failure(link, e)
             self.log_error(log, e)
         else:
@@ -995,6 +1033,10 @@ class Ao3:
                     'level': 'debug'})
                 return
             if self.fileops.delete_file(old):
+                # an old copy actually gone is what makes this an update rather than a
+                # first download, which is the distinction the history file records
+                work = parse_text.get_work_number(work_url)
+                if work: self.updated.add(work)
                 print(strings.INFO_REPLACED_OLD_COPY.format(os.path.basename(old)))
                 self.fileops.write_log({
                     'link': work_url, 'message': strings.INFO_REPLACED_OLD_COPY.format(old),
@@ -1030,6 +1072,26 @@ class Ao3:
 
         if self.cancelled is not None and self.cancelled():
             raise exceptions.CancelledException(strings.INFO_CANCELLED)
+
+
+    def check_session(self) -> None:
+        """End the run if ao3 has stopped recognising the login it started with.
+
+        A lapsed session does not announce itself. Ao3 simply serves the logged-out view,
+        so a restricted work comes back as a page instead of a file and
+        `repo.download_file` rejects it - the same failure a deleted work produces. The
+        difference is that a lapsed session fails *everything* from then on.
+
+        So the check is made only when a download has already failed, and **only once per
+        run**: it costs a request, and asking again after each of four hundred failures
+        would cost four hundred. If the session is alive this is a per-work failure like
+        any other and the run carries on.
+        """
+
+        if self.session_checked: return
+        self.session_checked = True
+        if self.repo.still_logged_in(): return
+        raise exceptions.SessionExpiredException(strings.ERROR_SESSION_EXPIRED)
 
 
     def record_failure(self, link: str, exception: Exception) -> None:

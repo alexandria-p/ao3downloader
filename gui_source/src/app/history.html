@@ -1,0 +1,128 @@
+<section class="history">
+  <div class="history-head">
+    <h2>Run history</h2>
+    <button type="button" class="button subtle" (click)="load()">Refresh</button>
+  </div>
+
+  @if (loading()) {
+    <p class="notice">Reading past runs...</p>
+  } @else if (unavailable()) {
+    <p class="notice">
+      The local helper isn't running, so past runs can't be read. Start the app again and
+      this page will fill in.
+    </p>
+  } @else if (!runs().length) {
+    <p class="notice">
+      No runs recorded yet. Every download or indexing run from now on is written down here -
+      what it did, which fics it touched, and how it ended.
+    </p>
+  } @else {
+    @for (run of runs(); track run.file) {
+      <article class="run" [class]="'run-' + run.status">
+        <header class="run-head">
+          <span class="run-name">{{ run.actionName }}</span>
+          <span class="run-status">{{ outcome(run) }}</span>
+        </header>
+
+        <p class="run-when">
+          {{ when(run.started) }}
+          @if (run.finished) { &ndash; {{ when(run.finished) }} }
+        </p>
+
+        @if (run.status === 'running') {
+          <p class="hint">
+            This run never reported finishing, so it was most likely interrupted - the app
+            closed, or the helper stopped. Anything it had already saved is still on disk.
+          </p>
+        }
+
+        @if (run.error) {
+          <p class="run-error">{{ run.error }}</p>
+        }
+
+        <dl class="run-settings">
+          <dt>File types</dt>
+          <dd>{{ run.filetypes.join(', ') || 'none' }}</dd>
+          @if (settingsOf(run).length) {
+            <dt>Options</dt>
+            <dd>{{ settingsOf(run).join(', ') }}</dd>
+          }
+        </dl>
+
+        @if (run.choices.length) {
+          <div class="run-choices">
+            @for (choice of run.choices; track $index) {
+              <p>
+                Asked about <strong>{{ choice.count | number }}</strong> undated
+                {{ choice.count === 1 ? 'file' : 'files' }}, and chose
+                <strong>{{ choice.choice }}</strong>@if (choice.date) { ({{ choice.date }})}.
+              </p>
+            }
+          </div>
+        }
+
+        <!--
+          collapsed by default: a run that touched a thousand works would bury the next one,
+          and the number is usually all anybody wants from it
+        -->
+        @for (group of [
+          { label: 'Re-indexed', ids: run.reindexed },
+          { label: 'Downloaded', ids: run.downloaded },
+          { label: 'Updated', ids: run.updated }
+        ]; track group.label) {
+          @if (group.ids.length) {
+            <details class="ids">
+              <summary>
+                {{ group.label }}
+                <span class="ids-count">{{ group.ids.length | number }}</span>
+              </summary>
+              <ul class="id-list">
+                @for (id of group.ids; track id) {
+                  <li>
+                    <a [href]="workLink(id)" target="_blank" rel="noopener">{{ id }}</a>
+                  </li>
+                }
+              </ul>
+            </details>
+          }
+        }
+
+        @if (run.skipped.length) {
+          <details class="ids">
+            <summary>
+              Not works
+              <span class="ids-count">{{ run.skipped.length | number }}</span>
+            </summary>
+            <ul class="reason-list">
+              @for (item of run.skipped; track $index) {
+                <li>
+                  <span class="who">{{ item.id || item.title || 'a bookmark' }}</span>
+                  <span class="reason">{{ item.error }}</span>
+                </li>
+              }
+            </ul>
+          </details>
+        }
+
+        @if (run.failures.length) {
+          <details class="ids failed">
+            <summary>
+              Could not be fetched
+              <span class="ids-count">{{ run.failures.length | number }}</span>
+            </summary>
+            <ul class="reason-list">
+              @for (item of run.failures; track $index) {
+                <li>
+                  <a [href]="item.link" target="_blank" rel="noopener">
+                    {{ item.id || item.link }}
+                  </a>
+                  <span class="reason">{{ item.error }}</span>
+                </li>
+              }
+            </ul>
+          </details>
+        }
+      </article>
+    }
+  }
+</section>

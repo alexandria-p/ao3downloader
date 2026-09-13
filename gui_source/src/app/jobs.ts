@@ -20,7 +20,9 @@ export type JobAction =
   /** one fic, by link or work number */
   | 'work'
   /** the full scan with its parts made optional */
-  | 'custom';
+  | 'custom'
+  /** a full scan that stops at the works ao3 has not touched since the last run */
+  | 'quick';
 
 /** what settings.ini says, so a run can show what it is working from */
 export interface ServerSettings {
@@ -36,6 +38,13 @@ export interface ServerSettings {
   maxRetries: number;
   maxTimeouts: number;
   debugLogging: boolean;
+  /**
+   * Whether settings.ini turns on the debug panel in the download window.
+   *
+   * For working on the app rather than for using it: skipping a step really does skip it,
+   * so this stays off unless somebody has deliberately asked for it.
+   */
+  debugTools?: boolean;
 }
 
 export interface ServerConfig {
@@ -59,16 +68,76 @@ export interface JobOptions {
   images: boolean;
   workdates: boolean;
   /**
+   * Fetch every requested format again, whether or not the copy held is behind.
+   *
+   * The answer to a file that is damaged or truncated - something no version check can
+   * see, because the name and the date are both right and only the bytes are wrong.
+   */
+  overwrite: boolean;
+  /**
    * Whether to read AO3's listing at all, or work from what the index already holds.
    *
    * Only a custom run offers this. It defaults to true everywhere else: a run that quietly
    * skipped indexing would judge everything against however stale the index happened to be.
    */
   reindex: boolean;
+  /**
+   * Whether to cover a date window instead of a slice of the listing.
+   *
+   * The two are alternatives rather than settings that combine, so `dates` decides which of
+   * `start`/`pages` and `dateFrom`/`dateTo` the helper reads at all.
+   */
+  dates: boolean;
+  /** inclusive ends of that window, YYYY-MM-DD; empty means no limit at that end */
+  dateFrom: string;
+  dateTo: string;
 }
 
 /** what to do about downloaded files that carry no date, asked part way through a run */
 export type UndatedChoice = 'stamp' | 'refresh' | 'skip';
+
+/**
+ * Where a step has got to.
+ *
+ * 'skipped' is not 'failed'. A run with no unfinished fics skips that step and nothing has
+ * gone wrong, so the two must not look alike.
+ */
+export type StepStatus = 'waiting' | 'running' | 'done' | 'skipped' | 'failed';
+
+/** one step of the checklist a run publishes before it starts */
+export interface RunStep {
+  id: string;
+  label: string;
+  status: StepStatus;
+}
+
+/**
+ * How a past run ended.
+ *
+ * `running` is also what an **interrupted** run is left as: the record is written when a
+ * run starts, and a run killed mid-flight never gets to write its ending.
+ */
+export type RunStatus = 'running' | 'success' | 'failed' | 'stopped';
+
+/** one past run, as the helper wrote it down */
+export interface RunHistory {
+  file: string;
+  id: string;
+  action: string;
+  actionName: string;
+  started: string;
+  finished: string | null;
+  status: RunStatus;
+  filetypes: string[];
+  options: Record<string, unknown>;
+  reindexed: string[];
+  downloaded: string[];
+  updated: string[];
+  choices: { at: string; question: string; choice: string; date?: string; count?: number }[];
+  failures: WorkFailure[];
+  skipped: WorkFailure[];
+  error: string;
+}
 
 /** a work the run could not download */
 export interface WorkFailure {
@@ -94,6 +163,14 @@ export interface JobEvent {
   /** on a `page` event: the same page's actual number in the listing, for the wording */
   listingPage?: number;
   listingTotal?: number;
+  /**
+   * On a `page` event: this page is about to be fetched rather than finished.
+   *
+   * The fetch is the slow part of indexing, so the run says what it is asking for before
+   * it asks - a caption written only once a page is in describes the wrong page for as
+   * long as the next one takes to arrive.
+   */
+  fetching?: boolean;
   works?: number;
   done?: number;
   title?: string;
@@ -114,12 +191,24 @@ export interface JobEvent {
   failures?: WorkFailure[];
   /** on a `skipped` event: bookmarks that were never works, and why each one was not */
   skipped?: WorkFailure[];
+  /** on a `steps` event: the checklist this run intends to work through */
+  steps?: { id: string; label: string }[];
+  /** on a `step` event: which step changed, and to what */
+  id?: string;
+  status?: StepStatus;
   /** on a `question` event: which question is being asked, and how many works it concerns */
   count?: number;
   choices?: string[];
   seconds?: number;
   until?: string;
   error?: string;
+  /**
+   * On a `failed` event: whether AO3 stopped recognising the login mid-run.
+   *
+   * Flagged by the helper rather than left to be guessed from the error text - it is not a
+   * crash, and there is a specific thing to do about it.
+   */
+  sessionExpired?: boolean;
   folder?: string;
   action?: string;
   filetypes?: string[];
@@ -157,6 +246,34 @@ export class Jobs {
       this.available.set(false);
       return null;
     }
+  }
+
+  /**
+   * Every run the helper has written down, newest first.
+   *
+   * Returns null rather than throwing when the helper is not there: the history page is
+   * something to read, and a page that shows an error where a list should be is less
+   * useful than one that says the helper is not running.
+   */
+  async loadRuns(): Promise<RunHistory[] | null> {
+    try {
+      const response = await fetch(`${API_BASE}/api/runs`);
+      if (!response.ok) throw new Error(String(response.status));
+      return ((await response.json()) as { runs: RunHistory[] }).runs ?? [];
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Ask a run to abandon the step it is on.
+   *
+   * A debug tool. Throws on refusal for the same reason pausing does: a skip that silently
+   * did not happen would leave the page believing the run had moved on when it had not.
+   */
+  async skipStep(jobId: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/api/jobs/${jobId}/skip`, { method: 'POST' });
+    if (!response.ok) throw new Error('could not skip the current step');
   }
 
   async start(request: StartRequest): Promise<string> {

@@ -745,6 +745,42 @@ def test_an_undated_copy_is_refetched_when_the_run_asks_for_it():
     assert plan['superseded']['https://archiveofourown.org/works/1']['HTML'] == 'old.html'
 
 
+def test_overwriting_replaces_a_copy_that_is_perfectly_current():
+    # nothing here can see a damaged file - the name and the date are both right and only
+    # the bytes are wrong - so this is the one case where the user's answer overrules
+    plan = shared.plan_downloads(
+        [record('1', '14 Dec 2024')], {'1': held('2024-12-14')}, ['HTML'], overwrite=True)
+
+    assert plan['stale'] == ['https://archiveofourown.org/works/1']
+    assert plan['superseded']['https://archiveofourown.org/works/1']['HTML'] == 'old.html'
+
+
+def test_overwriting_replaces_an_undated_copy_without_anyone_being_asked():
+    # the question exists to decide what happens to these, and this has decided it
+    plan = shared.plan_downloads(
+        [record('1', '20 Dec 2024')], {'1': held(None)}, ['HTML'], overwrite=True)
+
+    assert plan['undated'] == []
+    assert plan['superseded']['https://archiveofourown.org/works/1']['HTML'] == 'old.html'
+
+
+def test_overwriting_still_touches_only_the_file_types_this_run_asked_for():
+    existing = {'1': {'HTML': {'path': 'old.html', 'date': '2024-12-20'},
+                      'EPUB': {'path': 'old.epub', 'date': '2024-12-20'}}}
+
+    plan = shared.plan_downloads([record('1', '20 Dec 2024')], existing, ['HTML'],
+                                 overwrite=True)
+
+    assert plan['superseded']['https://archiveofourown.org/works/1'] == {'HTML': 'old.html'}
+
+
+def test_overwriting_does_not_invent_a_copy_that_is_not_there():
+    plan = shared.plan_downloads([record('1', '20 Dec 2024')], {}, ['HTML'], overwrite=True)
+
+    assert plan['stale'] == []
+    assert plan['superseded'] == {}
+
+
 def test_only_the_file_types_that_are_out_of_date_are_replaced():
     # re-downloading the html must not mark the epub for removal
     existing = {'1': {'HTML': {'path': 'old.html', 'date': '2024-01-01'},

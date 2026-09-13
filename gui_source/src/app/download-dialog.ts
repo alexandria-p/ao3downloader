@@ -1,6 +1,6 @@
 import { Component, OnDestroy, computed, inject, input, output, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
-import { JobAction, JobEvent, Jobs, UndatedChoice, WorkFailure } from './jobs';
+import { JobAction, JobEvent, Jobs, RunStep, UndatedChoice, WorkFailure } from './jobs';
 import { safeGet, safeRemove, safeSet } from './storage';
 
 type Step =
@@ -62,6 +62,8 @@ export class DownloadDialog implements OnDestroy {
   protected readonly series = signal(false);
   protected readonly images = signal(false);
   protected readonly workdates = signal(false);
+  /** fetch every requested format again, whether or not the copy held is behind */
+  protected readonly overwrite = signal(false);
 
   /** the collection to index, for the action that works from a link */
   protected readonly collectionUrl = signal('');
@@ -73,6 +75,24 @@ export class DownloadDialog implements OnDestroy {
 
   /** a custom run may work from the index rather than reading AO3's listing again */
   protected readonly reindex = signal(true);
+  /**
+   * Whether a custom run covers a window of time instead of a slice of the listing.
+   *
+   * The two are alternatives, not settings that combine: one picks works by where they sit
+   * in the listing and the other by when AO3 last touched them, and a run cannot both be
+   * walking a listing and not walking it.
+   */
+  protected readonly useDates = signal(false);
+  /**
+   * Whether the window has a newer end as well as an older one.
+   *
+   * The older end is the one that always exists, because it is what the indexing walk
+   * stops at - a window open at the top is just 'everything since'. The newer end only
+   * narrows what is picked out of the index afterwards.
+   */
+  protected readonly betweenDates = signal(false);
+  protected readonly dateFrom = signal('');
+  protected readonly dateTo = signal('');
 
   protected readonly log = signal<string[]>([]);
   protected readonly percent = signal<number | null>(null);
@@ -94,6 +114,13 @@ export class DownloadDialog implements OnDestroy {
 
   protected readonly cancelling = signal(false);
   protected readonly wasCancelled = signal(false);
+  /**
+   * Whether the run ended because AO3 stopped recognising the login.
+   *
+   * Flagged by the helper rather than guessed from the error text: there is a specific
+   * thing to do about it, and it is not a crash.
+   */
+  protected readonly sessionExpired = signal(false);
 
   /**
    * Whether the run is paused, and whether a pause has been asked for but not taken effect.
@@ -115,6 +142,14 @@ export class DownloadDialog implements OnDestroy {
   protected readonly staleCount = signal(0);
   /** existing files this run gave a date to, by renaming them */
   protected readonly stampedCount = signal(0);
+  /**
+   * The checklist this run published before it began, and where it has got to.
+   *
+   * Sent up front rather than built from what has happened, so the panel can show what is
+   * still to come. Everything starts 'waiting' and the helper moves each one as it goes.
+   */
+  protected readonly steps = signal<RunStep[]>([]);
+
   /** works this run could not download */
   protected readonly failures = signal<WorkFailure[]>([]);
   /**
@@ -160,6 +195,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Download/update a specific fic';
       case 'custom':
         return 'Custom run';
+      case 'quick':
+        return 'Quick Scan';
       default:
         return 'Update incomplete fics';
     }
@@ -181,6 +218,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Indexes one fic and downloads it, in whichever formats you pick. Use it for a single work you want now, or to repair one copy.';
       case 'custom':
         return 'A full scan with its parts made optional - choose the pages to cover, or skip reading AO3 entirely and work from what is already indexed.';
+      case 'quick':
+        return 'A full scan that stops early: it reads your bookmarks newest-updated first and stops at the first fic AO3 has not touched since your last completed run.';
       default:
         return 'Reads your index for fics it last saw unfinished, checks each one on AO3, brings its index entry up to date, and re-downloads any that have grown.';
     }
@@ -195,7 +234,22 @@ export class DownloadDialog implements OnDestroy {
    * A full scan covers everything by definition - that is what makes it a full scan, and
    * offering to cut it short there only makes it a custom run under another name.
    */
-  protected readonly picksPages = computed(() => this.action() === 'custom');
+  protected readonly picksPages = computed(
+    () => this.action() === 'custom' && !this.useDates(),
+  );
+
+  /** only a custom run may cover a window of time instead */
+  /**
+   * Which runs can be given a window of time instead of their usual reach.
+   *
+   * A custom run swaps it for a slice of the listing; a quick scan swaps it for the floor
+   * it works out on its own. Both end up walking the listing sorted by when AO3 last
+   * updated each work and stopping at the older end, which is the one shape a date range
+   * can be honoured in.
+   */
+  protected readonly picksDates = computed(
+    () => this.action() === 'custom' || this.action() === 'quick',
+  );
 
   /**
    * Series expansion: the full scan only.
@@ -216,6 +270,23 @@ export class DownloadDialog implements OnDestroy {
    * run that exists for asking about things like this.
    */
   protected readonly picksImages = computed(() => this.action() === 'custom');
+
+  /**
+   * Which runs may fetch a work again that nothing says is out of date.
+   *
+   * The three that can be pointed at a known set of works: a full scan, a custom run, and
+   * one fic by link. It is the answer to a damaged or truncated file, which no version
+   * check can see - the name and the date are both fine, and only the bytes are wrong.
+   *
+   * Deliberately not offered on the routine runs. They exist to be cheap, and a run that
+   * re-fetches everything it already has is the opposite of that.
+   */
+  protected readonly picksOverwrite = computed(
+    () =>
+      this.action() === 'bookmarks' ||
+      this.action() === 'custom' ||
+      this.action() === 'work',
+  );
 
   /** only a custom run may work from the index instead of reading the listing */
   protected readonly picksReindex = computed(() => this.action() === 'custom');
@@ -244,9 +315,10 @@ export class DownloadDialog implements OnDestroy {
   protected readonly needsAcknowledgement = computed(() => {
     const action = this.action();
     if (action === 'update' || action === 'bookmarks') return true;
-    // this one can be turned off - it is the run people are meant to use routinely, and a
-    // note that cannot be silenced is one they learn to click past
-    return action === 'sync' && !safeGet(SYNC_ACK_KEY);
+    // these can be turned off - they are the runs people are meant to use routinely, and a
+    // note that cannot be silenced is one they learn to click past. a quick scan carries
+    // the same caveats as the combined run, so one answer covers both.
+    return (action === 'sync' || action === 'quick') && !safeGet(SYNC_ACK_KEY);
   });
 
   /**
@@ -257,7 +329,14 @@ export class DownloadDialog implements OnDestroy {
    * directions, rather than showing a page that says so.
    */
   protected readonly hasOptions = computed(
-    () => this.picksPages() || this.picksSeries() || this.picksImages() || this.picksReindex(),
+    () =>
+      this.picksPages() ||
+      // a run that has swapped pages for a date window still has that choice to offer
+      this.picksDates() ||
+      this.picksSeries() ||
+      this.picksImages() ||
+      this.picksReindex() ||
+      this.picksOverwrite(),
   );
 
   /**
@@ -314,11 +393,13 @@ export class DownloadDialog implements OnDestroy {
     const chosen: string[] = [];
     // only what this run was actually offered: showing back a setting it cannot act on
     // would read as a promise it is not going to keep
+    if (this.picksDates() && this.useDates()) chosen.push(this.dateRange());
     if (this.picksPages()) chosen.push(this.pageRange());
     if (this.workdates()) chosen.push('look up publication dates');
     if (this.picksSeries() && this.series()) chosen.push('expand series links');
     if (this.picksImages() && this.images()) chosen.push('save images separately');
     if (this.picksReindex() && !this.reindex()) chosen.push('no reindexing');
+    if (this.picksOverwrite() && this.overwrite()) chosen.push('overwrite existing files');
     return chosen;
   });
 
@@ -330,8 +411,35 @@ export class DownloadDialog implements OnDestroy {
     return stop === 0 ? `page ${start} onwards` : `pages ${start} to ${stop}`;
   });
 
+  /**
+   * The window this run covers, in words - the date range's answer to `pageRange`.
+   *
+   * Read newest first, because that is the direction the run works in: it walks the
+   * listing down from the most recently updated fic and stops at the older end.
+   */
+  protected readonly dateRange = computed(() => {
+    const oldest = this.dateFrom();
+    const newest = this.betweenDates() ? this.dateTo() : '';
+    if (!oldest) {
+      return newest
+        ? `any works that were updated on or before ${newest}, however long ago`
+        : 'any works, whenever they were updated';
+    }
+    return `any works that were updated between ${newest || 'today'} and ${oldest}`;
+  });
+
   /** what settings.ini says this run will work from */
   protected readonly settings = computed(() => this.config()?.settings ?? null);
+
+  /**
+   * Whether settings.ini has turned on the debug panel.
+   *
+   * Off unless deliberately asked for: skipping a step really does skip it, and what that
+   * step would have done does not happen.
+   */
+  protected readonly debugTools = computed(() => !!this.settings()?.debugTools);
+  /** set once a skip has been asked for, so it cannot be sent twice by accident */
+  protected readonly skipping = signal(false);
 
   constructor() {
     void this.init();
@@ -378,6 +486,11 @@ export class DownloadDialog implements OnDestroy {
     if (this.picksReindex() && filetype === METADATA) return this.reindex();
     return this.selected().includes(filetype);
   }
+
+  /** how many steps are behind this run, for the panel's summary line */
+  protected readonly stepsDone = computed(
+    () => this.steps().filter((x) => x.status === 'done' || x.status === 'skipped').length,
+  );
 
   /** why this type is locked, in a word, or '' when it is not */
   protected lockedBecause(filetype: string): string {
@@ -458,7 +571,8 @@ export class DownloadDialog implements OnDestroy {
   protected fromAcknowledgement(): void {
     if (!this.acknowledged()) return;
     // written only when they go through with it, so backing out never silences the note
-    if (this.action() === 'sync' && this.dontAskAgain()) safeSet(SYNC_ACK_KEY, 'true');
+    const shared = this.action() === 'sync' || this.action() === 'quick';
+    if (shared && this.dontAskAgain()) safeSet(SYNC_ACK_KEY, 'true');
     this.step.set('credentials');
   }
 
@@ -542,6 +656,7 @@ export class DownloadDialog implements OnDestroy {
     this.answering.set(false);
     this.failures.set([]);
     this.skipped.set([]);
+    this.steps.set([]);
 
     let jobId: string;
     try {
@@ -554,8 +669,17 @@ export class DownloadDialog implements OnDestroy {
           series: this.series(),
           images: this.images(),
           workdates: this.workdates(),
+          // only offered on the runs that can be pointed at a known set of works
+          overwrite: this.picksOverwrite() && this.overwrite(),
           // only a custom run can turn this off; everything else always indexes
           reindex: this.picksReindex() ? this.reindex() : true,
+          // a window of time and a slice of the listing are alternatives, so the one not
+          // chosen is not sent at all rather than sent and ignored
+          dates: this.picksDates() && this.useDates(),
+          dateFrom: this.useDates() ? this.dateFrom() : '',
+          // an open-topped window has no newer end, so it must not carry one left behind
+          // from a moment when 'between two dates' was ticked
+          dateTo: this.useDates() && this.betweenDates() ? this.dateTo() : '',
         },
         username: this.username().trim(),
         password: this.password(),
@@ -596,11 +720,27 @@ export class DownloadDialog implements OnDestroy {
         this.currentFiletype.set('');
         break;
       case 'page': {
-        // the bar measures the slice being fetched, so it runs 1..n and ends full
-        if (event.total) this.percent.set(Math.round(((event.page ?? 0) / event.total) * 100));
         // the words say where that is in the listing itself - the page you would go and look at
         const where = event.listingPage ?? event.page;
         const outOf = event.listingTotal ?? event.total;
+
+        if (event.fetching) {
+          // a page about to be asked for is not a page that has arrived, so the bar shows
+          // what is actually finished - everything before this one - while the caption
+          // names the page in flight. the fetch is the slow part, and saying 'page 3' for
+          // the whole time page 4 is on its way names the wrong page for all of it
+          if (event.total) {
+            this.percent.set(Math.round((((event.page ?? 1) - 1) / event.total) * 100));
+          }
+          // the first page is fetched before anything says how many there are
+          this.summary.set(
+            outOf ? `fetching page ${where ?? '?'} of ${outOf}` : `fetching page ${where ?? '?'}`,
+          );
+          break;
+        }
+
+        // the bar measures the slice being fetched, so it runs 1..n and ends full
+        if (event.total) this.percent.set(Math.round(((event.page ?? 0) / event.total) * 100));
         this.summary.set(
           `page ${where ?? '?'} of ${outOf ?? '?'}` +
             (event.works !== undefined ? ` - ${event.works} works so far` : ''),
@@ -652,6 +792,17 @@ export class DownloadDialog implements OnDestroy {
       case 'skipped':
         this.skipped.set(event.skipped ?? []);
         break;
+      case 'steps':
+        // everything starts waiting; the helper moves each one as it reaches it
+        this.steps.set((event.steps ?? []).map((x) => ({ ...x, status: 'waiting' as const })));
+        break;
+      case 'step':
+        this.steps.update((current) =>
+          current.map((x) =>
+            x.id === event.id ? { ...x, status: event.status ?? x.status } : x,
+          ),
+        );
+        break;
       case 'question':
         // the run is blocked until this is answered, so it takes over from the progress
         this.asking.set(event.count ?? 0);
@@ -676,6 +827,7 @@ export class DownloadDialog implements OnDestroy {
         if (this.loginVerified() === null && this.phase() === 'authenticating') {
           this.loginVerified.set(false);
         }
+        this.sessionExpired.set(!!event.sessionExpired);
         this.error.set(event.error ?? 'the download failed');
         this.step.set('failed');
         this.finishUp();
@@ -691,6 +843,53 @@ export class DownloadDialog implements OnDestroy {
       this.step.set('failed');
       this.finishUp();
     }
+  }
+
+  /**
+   * Debug only: ask the run to abandon the step it is on.
+   *
+   * It really does skip - whatever that step would have done does not happen, and the
+   * checklist marks it skipped rather than done so nothing claims otherwise.
+   */
+  protected async skipCurrentStep(): Promise<void> {
+    if (!this.jobId || this.skipping()) return;
+    this.skipping.set(true);
+    try {
+      await this.jobs.skipStep(this.jobId);
+      this.append('debug: skipping the rest of this step');
+    } catch {
+      this.append('debug: could not skip the current step');
+    }
+    this.skipping.set(false);
+  }
+
+  /**
+   * Debug only: fill the end-of-run report with made-up entries.
+   *
+   * Entirely in the page - nothing is sent to the helper and no run is affected. It exists
+   * so the layout of both lists can be checked without having to find real works that fail,
+   * which otherwise means waiting for a long run and hoping something goes wrong.
+   */
+  protected mockReport(): void {
+    this.failures.set([
+      { id: '111', link: 'https://archiveofourown.org/works/111', error: 'timed out' },
+      { id: '222', link: 'https://archiveofourown.org/works/222',
+        error: 'not a work file - it may be restricted to registered users' },
+    ]);
+    this.skipped.set([
+      { id: '12345', link: 'https://archiveofourown.org/series/12345', title: 'A Series',
+        error: 'a series, not a single work' },
+      { id: null, link: 'https://example.com/fic/1', title: 'Elsewhere',
+        error: 'an external work, hosted somewhere other than ao3' },
+      { id: null, link: '', title: 'Gone', error: 'the work has been deleted' },
+      { id: '75354806', link: 'https://archiveofourown.org/works/75354806',
+        title: 'Mystery Work',
+        error: 'in an unrevealed collection - it cannot be downloaded until it is revealed' },
+      { id: null, link: '', title: 'Something',
+        error: 'not a work - it may have been deleted, made private, or hidden' },
+    ]);
+    this.append('debug: showing a made-up report - nothing here really happened');
+    this.step.set('done');
   }
 
   /** Ask the helper to stop. It keeps everything already written. */

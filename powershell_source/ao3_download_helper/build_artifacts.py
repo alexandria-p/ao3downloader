@@ -380,16 +380,24 @@ browser, and only if you tick the box.
 
 ### Bookmarks
 
-**(Recommended) Download new bookmarks and update incomplete fics** is the one to reach for.
-It makes three passes: your newest bookmarks, then the fics your index last saw unfinished,
-then any finished fic missing a format you asked for on this run. None of them walks your
-whole listing, so it stays quick however large your library is.
+**Quick Scan** is a full scan that stops early. It reads your bookmarks **sorted by when ao3
+last updated each work** and stops at the first fic whose last-updated date is older than the
+day your last *completed* run started, then downloads and updates what it found. A fic
+updated on that day itself is still indexed. A run that failed, was stopped or was
+interrupted is not used as the mark: it may have given up before reaching works updated
+before it started.
 
-It asks you to acknowledge two things first, and that note can be turned off. Indexing stops
-at the first bookmark it recognises, so if your index is incomplete - an earlier run
-interrupted, files deleted - the fics behind that point stay unseen. And it never re-reads a
-fic the index already calls finished, so chapters added to one afterwards are not noticed. A
-full scan answers both.
+**The first time you run it, it does a full index.** There is nothing to measure back to
+until a run has completed, so it walks the whole listing and downloads everything missing -
+which on a large library is hours. Every run after that is the quick one. What it gives up is
+the date: anything ao3 updated before your last completed run is never looked at, so a fic
+missed by an earlier run stays missed.
+
+It can also be given **a date range of your own** instead of measuring back to your last run.
+The two are the same mechanism handed a different date, so they are alternatives rather than
+settings that combine, and the range works exactly as the custom run's does - everything
+updated since a date, or between two dates. The further back you reach, the longer the
+indexing takes.
 
 **(Full scan) Reindex & Update All** reads `/users/<you>/bookmarks`, writes a json index entry
 for every work on it, then downloads the works themselves. Anything already downloaded and
@@ -403,6 +411,23 @@ it takes hours, which it says before you start.
 
 Behind **Advanced options**:
 
+**Download new bookmarks and update incomplete fics** makes three passes, in this order:
+your newest bookmarks, then the fics your index last saw unfinished, then any finished fic
+missing a format you asked for on this run. None of them walks your whole listing, so it
+stays quick however large your library is.
+
+The order is what makes the third pass cheap. The second has already re-read and downloaded
+every *unfinished* fic, so by the time the third runs, everything left is a work the index
+calls finished - and a finished work needs nothing but the formats you do not have yet. Each
+of those is re-read before it is fetched, so the file is named for the version ao3 has now
+rather than whatever the index was holding, and only the missing formats are fetched.
+
+It asks you to acknowledge two things first, and that note can be turned off. Indexing stops
+at the first bookmark it recognises, so if your index is incomplete - an earlier run
+interrupted, files deleted - the fics behind that point stay unseen. And it never re-reads a
+fic the index already calls finished, so chapters added to one afterwards are not noticed. A
+full scan answers both.
+
 **Just update any bookmarks marked as incomplete** takes the fics your index last recorded as
 unfinished, opens each one on ao3, and brings its index entry up to date. It downloads a fic
 only if you have no copy of it or the copy you have is behind - see
@@ -411,7 +436,7 @@ cannot find. You have to acknowledge that before it will let you log in.
 
 **Just download newly added bookmarks** indexes from your newest bookmark and stops at the
 first one you already have, then downloads what it found. It is the first pass of the
-recommended run, on its own.
+combined run, on its own.
 
 **Download/update a specific fic** takes a work link or just the work number, indexes that
 one fic, and downloads it in the formats you pick. A link to any chapter of it will do.
@@ -419,6 +444,22 @@ one fic, and downloads it in the formats you pick. A link to any chapter of it w
 **Custom run** is the full scan with its parts made optional: choose which pages to cover, or
 skip reading ao3 at all and work from what is already indexed. That last one costs no
 requests to decide anything, but judges everything against however old your index is.
+
+It can also cover **a date range instead of pages**. The two are alternatives rather than
+settings that combine: one picks works by where they sit in the listing, the other by when
+ao3 last updated them. A date range comes in two shapes - everything updated since a date,
+or between two dates - and both ends count.
+
+Unless you tick *skip indexing*, the run indexes first. It reads your bookmarks **sorted by
+when ao3 last updated each work** and stops at the first fic older than the earliest date
+you gave, because everything past that point is outside the range by definition. Give it no
+earliest date and there is nothing to stop at, so it reads the whole listing. It then picks
+the works in range out of the index, re-reads them one at a time newest first, and downloads
+whatever turns out to be missing or behind.
+
+With indexing skipped it reads no listing at all, and a fic whose index entry is behind ao3
+can be picked or missed on the strength of that entry. Works with no recorded update date
+are never covered either way, since there is nothing to compare.
 
 Skipping the indexing decides a file type as well: json is the index, so a run that does not
 index does not write it, and the json box is ticked or unticked to match and locked either
@@ -430,6 +471,14 @@ work's page after its files are down, purely to read the image links out of it -
 request per fic, so it makes the run considerably longer. You probably do not need it:
 images are normally embedded in the downloaded work already and display when you read it.
 This only writes a second copy of each as its own file, in an `images` subfolder.
+
+**Overwrite existing downloads** is offered here, on the full scan, and on the single-fic
+run. It fetches every format you asked for again, whether or not ao3 has a newer version than
+the copy you hold. Check it if you are worried about file integrity and would rather simply
+download the file again: nothing else can spot a file that is damaged or truncated, because
+the name and the date are both right and only the bytes are wrong. Nothing is skipped for
+already being current, so it costs a request per format per work and makes the run far
+longer. It is deliberately not offered on the routine runs, which exist to be cheap.
 
 ### Collections
 

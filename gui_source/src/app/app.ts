@@ -3,18 +3,19 @@ import { DecimalPipe } from '@angular/common';
 import { CollectionsView } from './collections-view';
 import { DownloadDialog } from './download-dialog';
 import { Faq } from './faq';
+import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { JobAction } from './jobs';
 import { Library } from './library';
 import { WorkList } from './work-list';
 import { Bookmark, ownerFromSource } from './bookmarks';
 
-/** the two things this folder holds, the two pages that show them, and the help page */
-export type View = 'bookmarks' | 'collections' | 'faq';
+/** the two things this folder holds, the pages that show them, and the two reading pages */
+export type View = 'bookmarks' | 'collections' | 'history' | 'faq';
 
 @Component({
   selector: 'app-root',
-  imports: [DecimalPipe, DownloadDialog, Faq, FolderWarning, WorkList, CollectionsView],
+  imports: [DecimalPipe, DownloadDialog, Faq, FolderWarning, History, WorkList, CollectionsView],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })

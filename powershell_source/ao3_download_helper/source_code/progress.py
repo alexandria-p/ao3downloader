@@ -25,6 +25,21 @@ REFRESH = 'refresh'
 # a run stops here and waits for an answer before going on. the ui replies through
 # /api/jobs/<id>/answer; a cancel releases the wait so nothing can hang on it.
 QUESTION = 'question'
+# the steps this run intends to take, sent once at the start, and then one of these per
+# change as it works through them. kept separate from PHASE: a phase says what kind of work
+# is happening and repeats (a combined run downloads twice), while a step is a place in a
+# plan and happens once, which is the only thing a checklist can be built on.
+STEPS = 'steps'
+STEP = 'step'
+
+# a step's state. 'skipped' is not 'failed' - a run with no unfinished fics skips that step
+# and nothing went wrong.
+STEP_WAITING = 'waiting'
+STEP_RUNNING = 'running'
+STEP_DONE = 'done'
+STEP_SKIPPED = 'skipped'
+STEP_FAILED = 'failed'
+
 # works the run could not download, sent once at the end so the gaps can be named
 FAILURES = 'failures'
 # bookmarks that were never works to begin with - a series, something hosted elsewhere, or

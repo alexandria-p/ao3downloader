@@ -11,6 +11,10 @@ COLLECTIONS_FOLDER_NAME = 'collections'
 HTML_FOLDER_NAME = 'source_code.html'
 SETTINGS_FOLDER_NAME = 'source_code.settings'
 LOG_FOLDER_NAME = 'logs'
+# one json file per run, recording what it set out to do and what became of it. beside the
+# logs rather than inside the downloads folder: it describes the run, not the library, and
+# the downloads folder is read by the web page as though everything in it were a work.
+RUNS_FOLDER_NAME = 'runs'
 LOG_FILE_NAME = 'log.jsonl'
 SETTINGS_FILE_NAME = 'data.json'
 TEMPLATE_FILE_NAME = 'template.html'
@@ -28,6 +32,8 @@ INI_WAIT_TIME = 'ExtraWaitTime'
 INI_PASSWORD_SAVE = 'SavePassword'
 INI_NAME_LENGTH = 'FileNameLength'
 INI_DEBUG_LOGGING = 'EnableDebugLogging'
+# adds a debug panel to the download window. for working on the app, not for using it.
+INI_DEBUG_TOOLS = 'EnableDebugTools'
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
 INI_DOWNLOAD_FOLDER = 'DownloadFolder'
@@ -142,12 +148,22 @@ AO3_INFO_UNDATED_WAITING = 'waiting for you to say what to do about them'
 AO3_INFO_UNDATED_REFRESH = 'treating all {} as out of date, so they will be downloaded again'
 AO3_INFO_UNDATED_SKIPPED = 'leaving all {} as they are'
 AO3_INFO_UP_TO_DATE = 'everything else you have is already the current version'
+AO3_INFO_OVERWRITING = 'overwriting {} downloaded works at your request, current or not'
 AO3_INFO_STAMPED = 'dated {} existing files as {}'
 AO3_INFO_FROM_INDEX = 'downloading {} works straight from the index, without walking the listing again'
 AO3_INFO_FAILED_WORKS = '{} works could not be downloaded'
 # the 'new bookmarks only' walk, which stops at the first fic it already has
 AO3_INFO_INDEXING_NEW = 'indexing your newest bookmarks, stopping at the first one you already have'
 AO3_INFO_REACHED_KNOWN = 'reached a fic you have already indexed - nothing newer left to find'
+# the quick scan's stop: it walks a listing ordered by when ao3 last updated each work, so
+# the first one older than the floor means everything after it is older too
+AO3_INFO_REACHED_OLDER = 'reached a fic ao3 last updated before {} - nothing older to check'
+AO3_INFO_QUICK_FLOOR = 'indexing works ao3 has updated since your last completed run, on {}'
+AO3_INFO_QUICK_NO_FLOOR = 'no completed run on record, so this reads the whole listing'
+# sorting the bookmarks listing by when ao3 last updated each work, rather than by when it
+# was bookmarked. verified against the live site: the default order is by date bookmarked
+# and jumps about, so a walk that stops at the first older fic would stop almost at once.
+AO3_SORT_BY_UPDATED = 'bookmark_search%5Bsort_column%5D=bookmarkable_date'
 AO3_INFO_NEW_NONE = 'no new bookmarks since the last run'
 AO3_INFO_NEW_FOUND = 'found {} newly bookmarked works'
 # the gap-filling pass at the end of a combined run
@@ -156,6 +172,8 @@ AO3_INFO_GAPS_NONE = 'nothing missing - every finished fic has the formats you a
 AO3_INFO_GAPS_FOUND = '{} finished works are missing a format you asked for'
 AO3_INFO_GAP_WORK = '[{} of {}] {} - fetching {}'
 AO3_INFO_GAP_INDEXED = '    index updated'
+# the debug tool, which really does skip: whatever the step would have done does not happen
+AO3_INFO_STEP_SKIPPED = 'skipping the rest of this step at your request'
 # one fic on its own, by link or work number
 AO3_INFO_ONE_WORK = 'looking up work {}'
 AO3_INFO_ONE_WORK_INDEXED = 'index updated'
@@ -165,6 +183,14 @@ AO3_INFO_ONE_WORK_DONE = 'finished with work {}'
 AO3_INFO_IMAGES_START = 'now fetching each work page for the images embedded in it - this is the slow part'
 AO3_INFO_IMAGE_WORK = '[{} of {}] {} - {} images saved'
 AO3_INFO_IMAGES_DONE = 'saved {} images from {} works'
+
+# a custom run covering a window of time rather than a slice of the listing
+AO3_INFO_DATE_WINDOW = 'looking for works ao3 last updated between {} and {}'
+AO3_INFO_DATE_ANY = 'the beginning'
+AO3_INFO_DATE_NONE = 'no indexed works fall in that window'
+AO3_INFO_DATE_FOUND = '{} indexed works fall in that window'
+AO3_INFO_DATE_INDEXING = 'indexing bookmarks by when ao3 last updated them, back to {}'
+AO3_INFO_DATE_NO_FLOOR = 'no earliest date given, so this indexes the whole listing'
 
 AO3_INFO_USING_LAST_INDEX = 'skipping indexing - working from what is already in your index'
 AO3_INFO_INDEXED_COUNT = 'your index holds {} works'
@@ -177,6 +203,47 @@ AO3_INFO_UPDATE_WORK = '[{} of {}] {}'
 # line first the run looks stalled on the fic it has only just named
 AO3_INFO_UPDATE_READING = '    reading latest index'
 AO3_INFO_UPDATE_INDEXED = '    index updated'
+# said per format, not per fic. a run asking for html and pdf can want one and already have
+# the other, and 'downloading it' told you neither which nor why
+# which button was pressed, recorded in the run's history file. the label rather than the
+# action name, so a history read months later says what was actually clicked - and kept
+# here rather than taken from the ui, because the file has to make sense on its own.
+ACTION_NAME_BOOKMARKS = '(Full scan) Reindex & Update All'
+ACTION_NAME_UPDATE = 'Just update any bookmarks marked as incomplete'
+ACTION_NAME_COLLECTIONS = 'Index my collections'
+ACTION_NAME_COLLECTION = 'Index collection by URL'
+ACTION_NAME_NEW = 'Just download newly added bookmarks'
+ACTION_NAME_SYNC = 'Download new bookmarks and update incomplete fics'
+ACTION_NAME_WORK = 'Download/update a specific fic'
+ACTION_NAME_CUSTOM = 'Custom run'
+ACTION_NAME_QUICK = 'Quick Scan'
+
+# the checklist a run shows: what it intends to do, in order. one label per step, so the
+# panel reads as a plan rather than as a log that has to be interpreted.
+STEP_LOGIN = 'Log in to AO3'
+STEP_INDEX_ALL = 'Index every bookmark'
+STEP_INDEX_NEW = 'Index bookmarks added since last time'
+STEP_INDEX_SINCE = 'Index works AO3 has updated since your last run'
+STEP_INDEX_ONE = 'Index this fic'
+STEP_INDEX_COLLECTIONS = 'Index your collections'
+STEP_INDEX_COLLECTION = 'Index this collection'
+STEP_USE_INDEX = 'Read the index already saved'
+STEP_CHECK_FILES = 'Determine which fics are missing or outdated from your downloads'
+STEP_DOWNLOAD = 'Download the works'
+STEP_READ_INDEX = 'Read the index for unfinished fics'
+STEP_INDEX_WINDOW = 'Index works AO3 has updated since that date'
+STEP_READ_WINDOW = 'Find indexed works updated in that date range'
+STEP_UPDATE_WINDOW = 'Download or Update each fic as necessary'
+STEP_UPDATE = 'Re-read each unfinished fic and update it'
+STEP_FILL_GAPS = 'Fetch any format still missing'
+STEP_IMAGES = 'Save embedded images separately'
+STEP_REPORT = 'Report anything that could not be fetched'
+
+AO3_INFO_FORMAT_MISSING = '    no copy in {} - downloading now'
+AO3_INFO_FORMAT_OUTDATED = '    outdated version in {} - replacing now'
+AO3_INFO_FORMAT_CURRENT = '    already have the current version in {}'
+AO3_INFO_FORMAT_UNDATED = '    copy in {} has no date, so it cannot be judged - left alone'
+AO3_INFO_FORMAT_REPLACING = '    downloading {} again at your request'
 AO3_INFO_UPDATE_CURRENT = '    you already have the current version - nothing to download'
 AO3_INFO_UPDATE_BEHIND = '    your copy is behind, downloading the new version'
 AO3_INFO_UPDATE_MISSING = '    you have no copy of this one, downloading it'
@@ -345,6 +412,10 @@ ERROR_METADATA_BLURB = 'Problem parsing work metadata from listing'
 ERROR_METADATA_SAVE = 'Problem saving work metadata file'
 ERROR_COLLECTIONS = 'Error encountered while syncing collections. Some may be missing.'
 ERROR_NOT_A_COLLECTION = 'That is not a link to an ao3 collection. It should look like https://archiveofourown.org/collections/somename'
+ERROR_SESSION_EXPIRED = (
+    'AO3 has stopped recognising your login, so the rest of this run would fail. '
+    'Everything downloaded so far has been kept - log in again and start the same run, '
+    'and it will carry on from what is still missing.')
 ERROR_NOT_A_WORK_LINK = 'That is not an ao3 work. Paste a link like https://archiveofourown.org/works/34816549, or just the work number.'
 ERROR_COLLECTION_PROFILE = 'Problem reading a collection profile page'
 ERROR_COLLECTION_ITEMS = 'Problem reading the items in a collection'

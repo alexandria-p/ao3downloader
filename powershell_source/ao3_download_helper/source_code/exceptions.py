@@ -59,6 +59,15 @@ class CancelledException(Ao3DownloaderException):
     pass
 
 
+class SessionExpiredException(Ao3DownloaderException):
+    """Raised when ao3 has stopped recognising the login this run started with.
+
+    Ends the run rather than being recorded per work. Once the session is gone every
+    restricted work fails for the same reason, and grinding through hundreds of them
+    produces a failure list that says nothing and spends the rate limit saying it."""
+    pass
+
+
 class PausedException(Ao3DownloaderException):
     """Raised when a pause arrives while a response body is still coming down.
 

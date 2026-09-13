@@ -427,7 +427,8 @@ def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
 
 
 def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
-                   filetypes: list[str], refresh_undated: bool = False) -> dict:
+                   filetypes: list[str], refresh_undated: bool = False,
+                   overwrite: bool = False) -> dict:
     """Work out which already-downloaded works this run should fetch again.
 
     A work is out of date when ao3 says it was updated after the date on the file we hold.
@@ -437,6 +438,12 @@ def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
     A file saved before names carried a date cannot be judged either way, so by default it
     is left alone and only counted. `refresh_undated` treats those as out of date too,
     which is what the ui's offer to refresh them does.
+
+    `overwrite` replaces every copy of a requested type, however current it looks. Nothing
+    here can see a file that is damaged or truncated - the name and the date are both right
+    and only the bytes are wrong - so that judgement is the user's to make, and this is
+    where their answer is applied. It is the one case where a copy the version check calls
+    current is still fetched again.
 
     Returns the links to re-fetch, the links that are merely undated, and the exact file
     each download will replace - {link: {FILETYPE: path}} - so nothing is removed on a guess.
@@ -461,7 +468,9 @@ def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
         for filetype in filetypes:
             copy = have.get(filetype.upper())
             if not copy: continue
-            if copy['date'] is None:
+            if overwrite:
+                replacing[filetype] = copy['path']
+            elif copy['date'] is None:
                 is_undated = True
                 if refresh_undated: replacing[filetype] = copy['path']
             elif current and copy['date'] < current:

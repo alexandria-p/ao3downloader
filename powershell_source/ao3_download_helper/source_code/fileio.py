@@ -21,6 +21,9 @@ class FileOps:
         log_folder = os.environ.get(strings.ENV_LOG_FOLDER, '')
 
         self.logfile = os.path.join(log_folder, strings.LOG_FOLDER_NAME, strings.LOG_FILE_NAME)
+        # beside the logs, for the same reason they are there: it describes runs, not the
+        # library, and the downloads folder is read as though everything in it were a work
+        self.runsfolder = os.path.join(log_folder, strings.RUNS_FOLDER_NAME)
         self.inifile = os.path.join(config_folder, strings.INI_FILE_NAME)
         self.settingsfile = os.path.join(config_folder, strings.SETTINGS_FILE_NAME)
         self.downloadfolder = self.get_download_folder()
@@ -28,6 +31,7 @@ class FileOps:
 
     def initialize(self) -> None:
         os.makedirs(os.path.dirname(self.logfile), exist_ok=True)
+        os.makedirs(self.runsfolder, exist_ok=True)
         # empty when config sits in the working directory, which needs no creating
         config_folder = os.path.dirname(self.inifile)
         if config_folder: os.makedirs(config_folder, exist_ok=True)

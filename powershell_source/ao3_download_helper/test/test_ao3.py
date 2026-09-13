@@ -1234,6 +1234,12 @@ def test_progress_says_how_far_along_even_with_no_total_to_go_on() -> None:
     assert ao3.page_progress(4, None) == (2, None)
 
 
+def _finished_pages(events: list[dict]) -> list[dict]:
+    """The 'this page is in' events, as opposed to the 'asking for it now' ones."""
+
+    return [e for e in events if e['type'] == 'page' and not e.get('fetching')]
+
+
 def test_get_metadata_reports_progress_within_the_slice_it_is_fetching() -> None:
     events: list[dict] = []
     ao3, repo, _ = make_ao3(start=3)
@@ -1242,9 +1248,51 @@ def test_get_metadata_reports_progress_within_the_slice_it_is_fetching() -> None
 
     ao3.get_metadata(LISTING_URL, False)
 
-    pages = [e for e in events if e['type'] == 'page']
+    pages = _finished_pages(events)
     assert pages[0]['page'] == 1
     assert pages[0]['total'] == 8  # pages 3 to 10
+
+
+def test_a_page_is_announced_before_it_is_asked_for() -> None:
+    # the fetch is the slow part, so the ui has to be able to name the page in flight -
+    # a caption written only once a page is in describes the wrong page for all of it
+    events: list[dict] = []
+    ao3, repo, _ = make_ao3()
+    ao3.progress = events.append
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=2)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    kinds = [bool(e.get('fetching')) for e in events if e['type'] == 'page']
+    # asked for, arrived, asked for, arrived
+    assert kinds == [True, False, True, False]
+
+
+def test_the_page_being_asked_for_carries_its_place_in_the_listing() -> None:
+    events: list[dict] = []
+    ao3, repo, _ = make_ao3()
+    ao3.progress = events.append
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=2)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    asking = [e for e in events if e['type'] == 'page' and e.get('fetching')]
+    # the total is read off the first page, so nothing knows it until that one is in
+    assert (asking[0]['listingPage'], asking[0]['listingTotal']) == (1, None)
+    assert (asking[1]['listingPage'], asking[1]['listingTotal']) == (2, 2)
+
+
+def test_a_page_being_fetched_reports_no_works_yet() -> None:
+    # it has not been read, so any count would be the previous page's
+    events: list[dict] = []
+    ao3, repo, _ = make_ao3()
+    ao3.progress = events.append
+    repo.get_soup.return_value = _listing_soup(['111'], total_pages=1)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    asking = [e for e in events if e['type'] == 'page' and e.get('fetching')][0]
+    assert 'works' not in asking
 
 
 def test_get_metadata_also_reports_the_real_page_number_for_the_wording() -> None:
@@ -1257,7 +1305,7 @@ def test_get_metadata_also_reports_the_real_page_number_for_the_wording() -> Non
 
     ao3.get_metadata(LISTING_URL, False)
 
-    page = [e for e in events if e['type'] == 'page'][0]
+    page = _finished_pages(events)[0]
     assert (page['listingPage'], page['listingTotal']) == (3, 10)
     assert (page['page'], page['total']) == (1, 8)
 
@@ -1304,6 +1352,108 @@ def test_without_a_known_set_the_whole_listing_is_walked() -> None:
 
     assert repo.get_soup.call_count == 3
     assert len(records) == 1  # the same stub page each time, deduped
+
+# endregion
+
+
+# region noticing that the login has lapsed
+
+def test_a_failed_download_asks_once_whether_the_login_is_still_good():
+    ao3, repo, _ = make_ao3()
+    repo.still_logged_in.return_value = True
+
+    ao3.check_session()
+    ao3.check_session()
+    ao3.check_session()
+
+    # once per run, not once per failure: it costs a request, and a lapsed session fails
+    # every work after it
+    assert repo.still_logged_in.call_count == 1
+
+
+def test_a_lapsed_login_ends_the_run():
+    ao3, repo, _ = make_ao3()
+    repo.still_logged_in.return_value = False
+
+    with pytest.raises(exceptions.SessionExpiredException):
+        ao3.check_session()
+
+
+def test_a_login_that_is_still_good_lets_the_run_carry_on():
+    # the same failure a deleted work produces, so it must not end the run by itself
+    ao3, repo, _ = make_ao3()
+    repo.still_logged_in.return_value = True
+
+    ao3.check_session()
+
+
+def test_a_session_check_is_not_made_before_anything_has_failed():
+    ao3, repo, _ = make_ao3()
+
+    assert ao3.session_checked is False
+    repo.still_logged_in.assert_not_called()
+
+# endregion
+
+
+# region indexing only what ao3 has touched lately
+
+def _dated_listing(dates: list[str], total_pages: int = 9) -> BeautifulSoup:
+    """A listing whose blurbs carry the dates given, in that order."""
+
+    blurbs = ''.join(
+        f'<li id="bookmark_{n}" class="bookmark blurb group work-{n}">'
+        f'<div class="header module"><h4 class="heading"><a href="/works/{n}">W{n}</a> by '
+        f'<a href="/users/a/pseuds/a" rel="author">A</a></h4>'
+        f'<p class="datetime">{date}</p></div></li>'
+        for n, date in enumerate(dates, start=100))
+    items = ''.join(f'<li>{i}</li>' for i in range(1, total_pages + 1))
+    return BeautifulSoup(
+        f'<ol class="bookmark index group">{blurbs}</ol>'
+        f'<ol class="pagination actions">{items}</ol>', 'html.parser')
+
+
+def test_indexing_stops_at_the_first_work_older_than_the_floor() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _dated_listing(
+        ['11 Sep 2026', '10 Sep 2026', '01 Jan 2020'])
+
+    records = ao3.get_metadata(LISTING_URL, False, stop_before='2026-09-01')
+
+    assert [x['id'] for x in records] == ['100', '101']
+    assert repo.get_soup.call_count == 1
+
+
+def test_a_work_updated_on_the_floor_date_is_still_indexed() -> None:
+    # 'since the last run' includes the day it ran: a work updated that morning is newer
+    # than a run that started that afternoon as far as this can tell
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _dated_listing(['01 Sep 2026', '31 Aug 2026'])
+
+    records = ao3.get_metadata(LISTING_URL, False, stop_before='2026-09-01')
+
+    assert [x['id'] for x in records] == ['100']
+
+
+def test_without_a_floor_the_whole_listing_is_walked() -> None:
+    # the first time there is no completed run to measure from, and a short walk down from
+    # an invented date would be worse than an honest full one
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _dated_listing(['01 Jan 2020'], total_pages=3)
+
+    ao3.get_metadata(LISTING_URL, False, stop_before='')
+
+    assert repo.get_soup.call_count == 3
+
+
+def test_a_work_with_no_readable_date_does_not_stop_the_walk() -> None:
+    # it cannot be judged against the floor, and stopping on it would cut the run short
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _dated_listing(['', '11 Sep 2026'])
+
+    records = ao3.get_metadata(LISTING_URL, False, stop_before='2026-09-01')
+
+    assert [x['id'] for x in records] == ['100', '101']
 
 # endregion
 

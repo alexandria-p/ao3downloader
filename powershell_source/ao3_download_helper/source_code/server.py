@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from source_code import exceptions, parse_text, progress, strings
+from source_code import exceptions, parse_text, progress, runs, strings
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -47,6 +47,9 @@ ACTION_SYNC = 'sync'
 ACTION_WORK = 'work'
 # the full scan with its parts made optional
 ACTION_CUSTOM = 'custom'
+# a full scan's shape, but stopping at the works ao3 has not touched since the last run
+# that actually finished
+ACTION_QUICK = 'quick'
 
 # how long a run waits between checks for an answer to a question it has asked. short
 # enough that a stop is noticed quickly, long enough not to spin.
@@ -66,7 +69,7 @@ UNDATED_SKIP = 'skip'
 UNDATED_CHOICES = (UNDATED_STAMP, UNDATED_REFRESH, UNDATED_SKIP)
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
-           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_CUSTOM)
+           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_CUSTOM, ACTION_QUICK)
 
 # actions that need a link from the caller rather than working it out from the username
 ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK)
@@ -134,10 +137,20 @@ def resolve_options(requested) -> dict:
         'series': bool(given.get('series')),
         'images': bool(given.get('images')),
         'workdates': bool(given.get('workdates')),
+        # fetch every requested format again, however current the copy on disk looks. the
+        # answer to a damaged or truncated file, which no version check can see: the name
+        # and the date are both right and only the bytes are wrong.
+        'overwrite': bool(given.get('overwrite')),
         # a custom run can work from what is already indexed rather than reading ao3's
         # listing again. it defaults to indexing, because a run that quietly skipped it
         # would judge everything against however stale the index happened to be.
         'reindex': given.get('reindex') is not False,
+        # a custom run covers *either* a slice of the listing or a window of time, never
+        # both: one picks works by where they sit in the listing and the other by when ao3
+        # last touched them, and a run cannot be walking a listing and not walking it.
+        'dates': bool(given.get('dates')),
+        'dateFrom': parse_text.get_date_stamp(given.get('dateFrom') or ''),
+        'dateTo': parse_text.get_date_stamp(given.get('dateTo') or ''),
     }
 
 
@@ -179,6 +192,7 @@ def read_settings(fileops: FileOps) -> dict:
         'maxRetries': fileops.get_ini_value_integer(strings.INI_MAX_RETRIES, 0),
         'maxTimeouts': fileops.get_ini_value_integer(strings.INI_MAX_TIMEOUTS, 3),
         'debugLogging': fileops.get_ini_value_boolean(strings.INI_DEBUG_LOGGING, False),
+        'debugTools': fileops.get_ini_value_boolean(strings.INI_DEBUG_TOOLS, False),
     }
 
 
@@ -200,6 +214,21 @@ class Job:
         # set while the user has the run paused. it is only ever read at the one safe
         # point in the request loop, so setting it here cannot interrupt anything.
         self.held = threading.Event()
+        # a debug tool: abandon the step in progress and go on to the next one. read at the
+        # same loop boundaries a stop is read at, and cleared by whichever pass consumes it,
+        # so one press skips one step rather than every step after it.
+        self.skip = threading.Event()
+        # the checklist this run is working through. starts as one with nothing in it and
+        # nowhere to report to, so every run function can mark its steps without first
+        # checking whether anyone is listening - `run_job` swaps in the real one.
+        self.steps: 'Steps' = Steps(None, [])
+        # the downloader doing the work, once a runner has built one, and the history file
+        # being written about this run. both are set as the run gets going.
+        self.ao3 = None
+        self.record = None
+        # console lines printed before the history file existed. everything after it goes
+        # straight into the record, so this only ever holds the first few
+        self.printed: list[str] = []
         # a run can stop and put a question to the ui; these carry the reply back
         self.answered = threading.Event()
         self.answer: dict = {}
@@ -235,6 +264,17 @@ class Job:
         return self.answer or default
 
 
+    def skipping(self) -> bool:
+        """Whether the step in progress should be abandoned, consuming the request.
+
+        Cleared as it is read, so one press skips one step rather than every step after it.
+        """
+
+        if not self.skip.is_set(): return False
+        self.skip.clear()
+        return True
+
+
     def reply(self, answer: dict) -> None:
         """Hand an answer back to whatever asked."""
 
@@ -245,6 +285,135 @@ class Job:
     def finish(self) -> None:
         self.done.set()
         self.events.put(None)
+
+
+class Steps:
+    """The steps a run intends to take, and where it has got to.
+
+    A checklist rather than a log: it is sent once up front so the ui can show what is
+    still to come, and then one event per change. That is why it cannot be built from
+    `PHASE` events - a phase says what kind of work is happening and repeats (a combined
+    run downloads twice, checks files twice), while a step is a place in a plan.
+
+    A step that turns out to have nothing to do is **skipped, not failed**. A run with no
+    unfinished fics has not gone wrong.
+    """
+
+    def __init__(self, report, plan: list[tuple[str, str]]) -> None:
+        self.report = report
+        self.plan = plan
+        self.current: str | None = None
+        progress.report(report, progress.STEPS,
+                        steps=[{'id': i, 'label': label} for i, label in plan])
+
+    def _set(self, step: str, status: str) -> None:
+        progress.report(self.report, progress.STEP, id=step, status=status)
+
+    def start(self, step: str) -> None:
+        self.current = step
+        self._set(step, progress.STEP_RUNNING)
+
+    def done(self, step: str) -> None:
+        if self.current == step: self.current = None
+        self._set(step, progress.STEP_DONE)
+
+    def skip(self, step: str) -> None:
+        if self.current == step: self.current = None
+        self._set(step, progress.STEP_SKIPPED)
+
+    def fail_current(self) -> None:
+        """Mark whatever was in progress as failed, when a run ends badly.
+
+        Only the step actually running: the ones after it never started, and saying they
+        failed would blame them for something that happened before they were reached.
+        """
+
+        if self.current: self._set(self.current, progress.STEP_FAILED)
+        self.current = None
+
+
+def action_name(action: str) -> str:
+    """The button this action belongs to, for a history read months later.
+
+    Kept on the helper rather than taken from the page, because a run's record has to make
+    sense on its own - it is read back by the history tab, but it is also just a file.
+    """
+
+    return {
+        ACTION_BOOKMARKS: strings.ACTION_NAME_BOOKMARKS,
+        ACTION_UPDATE: strings.ACTION_NAME_UPDATE,
+        ACTION_COLLECTIONS: strings.ACTION_NAME_COLLECTIONS,
+        ACTION_COLLECTION: strings.ACTION_NAME_COLLECTION,
+        ACTION_NEW: strings.ACTION_NAME_NEW,
+        ACTION_SYNC: strings.ACTION_NAME_SYNC,
+        ACTION_WORK: strings.ACTION_NAME_WORK,
+        ACTION_CUSTOM: strings.ACTION_NAME_CUSTOM,
+        ACTION_QUICK: strings.ACTION_NAME_QUICK,
+    }.get(action, action)
+
+
+def step_plan(job: Job) -> list[tuple[str, str]]:
+    """What this particular run is going to do, in order.
+
+    Built from the action and the options rather than written per action, so a step that
+    depends on a choice - images, skipping the indexing - appears only when it will
+    actually happen. A checklist that lists work the run will not do is worse than none.
+    """
+
+    downloads = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
+    plan: list[tuple[str, str]] = [('login', strings.STEP_LOGIN)]
+
+    if job.action == ACTION_COLLECTIONS:
+        plan.append(('collections', strings.STEP_INDEX_COLLECTIONS))
+    elif job.action == ACTION_COLLECTION:
+        plan.append(('collection', strings.STEP_INDEX_COLLECTION))
+    elif job.action == ACTION_WORK:
+        plan.append(('index', strings.STEP_INDEX_ONE))
+        if downloads:
+            plan.append(('check', strings.STEP_CHECK_FILES))
+            plan.append(('download', strings.STEP_DOWNLOAD))
+    elif job.action == ACTION_UPDATE:
+        plan.append(('read', strings.STEP_READ_INDEX))
+        if downloads: plan.append(('check', strings.STEP_CHECK_FILES))
+        plan.append(('update', strings.STEP_UPDATE))
+    elif job.action == ACTION_SYNC:
+        plan.append(('index', strings.STEP_INDEX_NEW))
+        if downloads:
+            plan.append(('check', strings.STEP_CHECK_FILES))
+            plan.append(('download', strings.STEP_DOWNLOAD))
+        plan.append(('update', strings.STEP_UPDATE))
+        if downloads: plan.append(('gaps', strings.STEP_FILL_GAPS))
+    else:
+        # a full scan, a quick scan and a custom run differ only in where the walk stops
+        indexing = job.action != ACTION_CUSTOM or job.options['reindex']
+        if job.action in (ACTION_CUSTOM, ACTION_QUICK) and job.options['dates']:
+            # a window of time chooses from the index and re-reads each one it picked -
+            # the unfinished-fics shape rather than a scan. The walk that brings the index
+            # up to date first is only there when the run was not told to skip indexing
+            window = [('login', strings.STEP_LOGIN)]
+            if job.options['reindex'] and metadata:
+                window.append(('index', strings.STEP_INDEX_WINDOW))
+            window.extend([('read', strings.STEP_READ_WINDOW),
+                           ('check', strings.STEP_CHECK_FILES),
+                           ('update', strings.STEP_UPDATE_WINDOW),
+                           ('report', strings.STEP_REPORT)])
+            return window
+        if job.action == ACTION_QUICK:
+            plan.append(('index', strings.STEP_INDEX_SINCE))
+        elif indexing and metadata:
+            plan.append(('index', strings.STEP_INDEX_ALL))
+        else:
+            plan.append(('index', strings.STEP_USE_INDEX))
+        if downloads:
+            plan.append(('check', strings.STEP_CHECK_FILES))
+            plan.append(('download', strings.STEP_DOWNLOAD))
+            plan.append(('gaps', strings.STEP_FILL_GAPS))
+        if job.options['images'] and job.action == ACTION_CUSTOM:
+            plan.append(('images', strings.STEP_IMAGES))
+
+    plan.append(('report', strings.STEP_REPORT))
+    return plan
 
 
 class LineStream(io.TextIOBase):
@@ -269,7 +438,17 @@ def run_job(job: Job, password: str) -> None:
     def report(event: dict) -> None:
         job.emit(event)
 
-    stream = LineStream(lambda line: job.emit({'type': progress.MESSAGE, 'text': line}))
+    def say(line: str) -> None:
+        """Send a printed line to the ui, and keep it with the run's own history."""
+
+        job.emit({'type': progress.MESSAGE, 'text': line})
+        # before the history file exists there is nowhere to put it yet, so it waits on the
+        # job and is handed over when the record is made. the modal is gone once the tab
+        # closes, and this is the only lasting copy of what the run said
+        if job.record: job.record.line(line)
+        else: job.printed.append(line)
+
+    stream = LineStream(say)
 
     try:
         fileops = FileOps()
@@ -280,20 +459,66 @@ def run_job(job: Job, password: str) -> None:
                 job.emit({'type': progress.STARTED, 'action': job.action,
                           'folder': fileops.downloadfolder,
                           'filetypes': job.filetypes, 'options': job.options})
+                # the checklist goes out before anything happens, so the ui can show what
+                # is still to come rather than only what has already been done
+                job.steps = Steps(report, step_plan(job))
+
                 # announced separately so the ui can show it is waiting, and say whether
                 # the credentials worked before anything else starts
+                job.steps.start('login')
                 progress.report(report, progress.PHASE, name=progress.AUTHENTICATING)
                 print(strings.AO3_INFO_LOGGING_IN.format(job.username))
+                # written here rather than at the end: a run killed mid-flight cannot write
+                # its own epitaph, so a record still saying 'running' is how the history
+                # page recognises one that was interrupted.
+                #
+                # and here rather than a few lines earlier, so a history file always means
+                # a run that got as far as trying to log in. everything before this point
+                # is setup that cannot reach ao3, and a record for one of those would be a
+                # history entry for something that never happened.
+                job.record = runs.RunRecord(fileops, job.id, job.action,
+                                            action_name(job.action), job.filetypes,
+                                            job.options, printed=job.printed)
                 repo.login(job.username, password)
                 print(strings.AO3_INFO_LOGGED_IN)
                 progress.report(report, progress.AUTHENTICATED, username=job.username)
+                job.steps.done('login')
+
                 runners()[job.action](job, fileops, repo, report)
+                # every runner ends by calling report_failures, so by the time it returns
+                # the reporting has happened. marked here rather than inside that function
+                # so the step is ticked once per run and not once per place it is called.
+                job.steps.done('report')
+        close_record(job, runs.STATUS_STOPPED if job.cancel.is_set()
+                     else runs.STATUS_SUCCESS)
         job.emit({'type': progress.FINISHED, 'cancelled': job.cancel.is_set()})
     except Exception as e:
-        job.emit({'type': progress.FAILED, 'error': str(e),
+        # the step that was running is the one that failed; the ones after it never started
+        job.steps.fail_current()
+        close_record(job, runs.STATUS_FAILED, str(e))
+        # a lapsed login is not a crash and there is a specific thing to do about it, so it
+        # is flagged rather than left to be recognised from the wording of an error
+        expired = isinstance(e, exceptions.SessionExpiredException)
+        job.emit({'type': progress.FAILED, 'error': str(e), 'sessionExpired': expired,
                   'detail': traceback.format_exc()})
     finally:
         job.finish()
+
+
+def close_record(job: Job, status: str, error: str = '') -> None:
+    """Finish this run's history file, whatever happened to the run.
+
+    A stop is `stopped`, not `failed`: the user asked for it and everything written stays
+    written. Anything thrown in here is swallowed - a run that downloaded a library
+    successfully must not be reported as failed because a note about it could not be saved.
+    """
+
+    if not job.record: return
+    try:
+        job.record.collect(job.ao3)
+        job.record.finish(status, error)
+    except Exception:
+        pass
 
 
 def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -315,16 +540,23 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     ao3 = Ao3(repo, fileops, downloadtypes, pages, job.options['series'],
               job.options['images'], progress=report, cancelled=job.cancel.is_set,
               start=start)
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
 
     # indexing first: every bookmark gets its json before any work is downloaded, so an
     # interrupted run still leaves a complete index of what is bookmarked.
     records: list[dict] = []
     if metadata:
+        job.steps.start('index')
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
         records = ao3.get_metadata(link, job.options['workdates'])
+        job.steps.done('index')
+    else:
+        job.steps.skip('index')
 
     if downloadtypes and not job.cancel.is_set():
+        job.steps.start('check')
         visited = shared.visited(fileops, downloadtypes)
         # the index is what says how recently each work was updated, so this can only be
         # judged once indexing has run
@@ -332,17 +564,28 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         # an out-of-date copy is not 'already downloaded', so it must not be skipped
         visited = [x for x in visited if x not in set(plan['stale'])]
         ao3.superseded = plan['superseded']
+        job.steps.done('check')
 
+        job.steps.start('download')
         progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
         print(strings.AO3_INFO_DOWNLOADING)
 
         if can_use_index(job, records):
             # the index already knows every work number, so neither the listing nor each
-            # work's page has to be read again
-            ao3.download_indexed(records, visited)
+            # work's page has to be read again. newest first, so a run that is stopped has
+            # got through the fics most likely to be worth having
+            ao3.download_indexed(newest_first(records), visited)
         else:
             # the download walks the same listing, so it begins on the same page
             ao3.download(parse_text.set_page_number(link, start), visited)
+        job.steps.done('download')
+
+        fill_gaps_in(job, fileops, ao3, records, downloadtypes, report)
+    else:
+        # a metadata-only run, or one stopped during indexing: these never start
+        job.steps.skip('check')
+        job.steps.skip('download')
+        job.steps.skip('gaps')
 
     # a run that leaves gaps should say which works they were, rather than leaving it to be
     # worked out from the log afterwards. outside the download block on purpose: a
@@ -371,6 +614,7 @@ def bookmarks_link(job: Job) -> str:
 def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[dict]:
     """Index from the newest bookmark until one already held, and return what was new."""
 
+    job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_INDEXING_NEW)
 
@@ -379,6 +623,7 @@ def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[di
 
     print(strings.AO3_INFO_NEW_FOUND.format(len(records)) if records
           else strings.AO3_INFO_NEW_NONE)
+    job.steps.done('index')
     return records
 
 
@@ -388,23 +633,35 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
 
     The same rule a full run downloads by, applied to whichever slice of the index the
     caller has in hand rather than to the whole listing.
+
+    Works are fetched **newest first**. A long run then gets through the fics you are most
+    likely to be waiting on before the ones that have not moved in years, which matters
+    because a run can be stopped and where it got to should be the useful half.
     """
 
-    if not records or not downloadtypes or job.cancel.is_set(): return
+    if not records or not downloadtypes or job.cancel.is_set():
+        job.steps.skip('check')
+        job.steps.skip('download')
+        return
 
+    job.steps.start('check')
     plan = plan_refresh(job, fileops, records, downloadtypes, report)
     # an out-of-date copy is not 'already downloaded', so it must not be skipped
     visited = [x for x in shared.visited(fileops, downloadtypes)
                if x not in set(plan['stale'])]
     ao3.superseded = plan['superseded']
+    job.steps.done('check')
 
+    job.steps.start('download')
     progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
     print(strings.AO3_INFO_DOWNLOADING)
-    ao3.download_indexed(records, visited)
+    ao3.download_indexed(newest_first(records), visited)
+    job.steps.done('download')
 
 
 def fill_missing_formats(job: Job, fileops: FileOps, ao3: Ao3, skip: set[str],
-                         downloadtypes: list[str], report) -> None:
+                         downloadtypes: list[str], report, reindex: bool = True,
+                         only: set[str] | None = None) -> None:
     """Finished works, already indexed, simply missing a format this run asked for.
 
     The case the other two passes leave behind: not new, so the newest-first walk never
@@ -421,8 +678,11 @@ def fill_missing_formats(job: Job, fileops: FileOps, ao3: Ao3, skip: set[str],
     the scarce thing, and re-fetching a file already on disk spends it for nothing.
     """
 
-    if not downloadtypes or job.cancel.is_set(): return
+    if not downloadtypes or job.cancel.is_set():
+        job.steps.skip('gaps')
+        return
 
+    job.steps.start('gaps')
     progress.report(report, progress.PHASE, name=progress.CHECKING_FILES)
     print(strings.AO3_INFO_CHECKING_GAPS)
 
@@ -431,16 +691,22 @@ def fill_missing_formats(job: Job, fileops: FileOps, ao3: Ao3, skip: set[str],
     existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
 
     gaps: list[tuple[dict, list[str]]] = []
-    for record in index:
+    for record in newest_first(index):
         work = str(record.get('id') or '')
         if not work or not record.get('link'): continue
         if work in skip or work in unfinished: continue
+        # `only` narrows this to the works a run actually covered. a full scan fills the
+        # gaps in what it just walked, not in every fic the index has ever held - some of
+        # those are no longer bookmarked, and fetching them would be a surprise
+        if only is not None and work not in only: continue
         have = existing.get(work, {})
         missing = [x for x in downloadtypes if x.upper() not in have]
         if missing: gaps.append((record, missing))
 
     if not gaps:
         print(strings.AO3_INFO_GAPS_NONE)
+        # nothing to fill is not a failure - it is the answer most runs get
+        job.steps.done('gaps')
         return
 
     print(strings.AO3_INFO_GAPS_FOUND.format(len(gaps)))
@@ -449,9 +715,14 @@ def fill_missing_formats(job: Job, fileops: FileOps, ao3: Ao3, skip: set[str],
     maximum = fileops.get_ini_value_integer(
         strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
     wanted = ao3.filetypes
+    abandoned = False
     try:
         for done, (record, missing) in enumerate(gaps, start=1):
             if job.cancel.is_set(): break
+            if job.skipping():
+                print(strings.AO3_INFO_STEP_SKIPPED)
+                abandoned = True
+                break
             log: dict = {'link': record['link']}
             try:
                 ao3.check_cancelled()
@@ -462,19 +733,26 @@ def fill_missing_formats(job: Job, fileops: FileOps, ao3: Ao3, skip: set[str],
                                 title=record.get('title') or '', link=record['link'],
                                 done=done, total=len(gaps), phase=progress.DOWNLOADING)
                 # the entry first, then the file - so the name carries the version ao3 has
-                # now rather than the one the index happened to be holding
-                fresh = ao3.refresh_one(record)
-                print(strings.AO3_INFO_GAP_INDEXED)
+                # now rather than the one the index happened to be holding. skipped when
+                # the caller has only just read the listing: the entry is already current,
+                # and re-reading it would cost a request per fic to learn nothing.
+                fresh = record
+                if reindex:
+                    fresh = ao3.refresh_one(record)
+                    print(strings.AO3_INFO_GAP_INDEXED)
                 ao3.filetypes = missing
                 ao3.download_one_indexed(fresh, maximum, log, done, len(gaps))
             except exceptions.CancelledException:
                 break
+            except exceptions.SessionExpiredException:
+                raise  # every fic after this one would fail the same way
             except Exception as e:
                 ao3.record_failure(record['link'], e)
                 ao3.log_error(log, e)
     finally:
         # the caller's Ao3 is borrowed, not ours to leave reconfigured
         ao3.filetypes = wanted
+    job.steps.skip('gaps') if abandoned else job.steps.done('gaps')
 
 
 def save_images(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict], report) -> None:
@@ -488,8 +766,11 @@ def save_images(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict], repor
     a run does, and losing a second copy of some pictures is not worth ending it over.
     """
 
-    if not records or job.cancel.is_set(): return
+    if not records or job.cancel.is_set():
+        job.steps.skip('images')
+        return
 
+    job.steps.start('images')
     progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
     print(strings.AO3_INFO_IMAGES_START)
 
@@ -498,8 +779,13 @@ def save_images(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict], repor
     saved = 0
     done = 0
 
+    abandoned = False
     for record in records:
         if job.cancel.is_set(): break
+        if job.skipping():
+            print(strings.AO3_INFO_STEP_SKIPPED)
+            abandoned = True
+            break
         if not record.get('id'): continue
         done += 1
         try:
@@ -513,11 +799,14 @@ def save_images(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict], repor
                 done, len(records), record.get('title') or record.get('id'), count))
         except exceptions.CancelledException:
             break
+        except exceptions.SessionExpiredException:
+            raise  # every work page after this one would come back logged out
         except Exception as e:
             ao3.record_failure(record.get('link') or '', e)
             ao3.log_error({'link': record.get('link') or ''}, e)
 
     print(strings.AO3_INFO_IMAGES_DONE.format(saved, done))
+    job.steps.skip('images') if abandoned else job.steps.done('images')
 
 
 def run_new(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -526,6 +815,8 @@ def run_new(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
     ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
 
     records = index_new_bookmarks(job, fileops, ao3, report)
     download_planned(job, fileops, ao3, records, downloadtypes, report)
@@ -548,6 +839,8 @@ def run_sync(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     # names them once at the end rather than three times over
     ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
 
     records = index_new_bookmarks(job, fileops, ao3, report)
     download_planned(job, fileops, ao3, records, downloadtypes, report)
@@ -573,8 +866,11 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
     ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
 
     work = parse_text.get_work_number(link) or ''
+    job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_ONE_WORK.format(work))
 
@@ -583,10 +879,77 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
                      if str(x.get('id') or '') == work), None)
     record = ao3.index_one_work(link, existing)
     print(strings.AO3_INFO_ONE_WORK_INDEXED)
+    job.steps.done('index')
 
     download_planned(job, fileops, ao3, [record], downloadtypes, report)
     print(strings.AO3_INFO_ONE_WORK_DONE.format(work))
     report_failures(ao3, report)
+
+
+def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """A full scan's shape, stopping where ao3 stopped changing things.
+
+    It walks the bookmarks listing **sorted by when ao3 last updated each work** and stops
+    at the first one older than the last run that actually finished. Everything past that
+    point is, by definition, a work ao3 has not touched since we last looked.
+
+    The sort is not optional. Verified against the live site: the default listing is
+    ordered by when each work was *bookmarked* and jumps about by years, so this walk down
+    an unsorted listing would stop after a fic or two and miss nearly everything.
+
+    With no completed run on record there is no floor, so it reads the whole listing - the
+    honest answer the first time, rather than a short walk from a date it invented.
+
+    A date range replaces the floor it works out for itself with one the user gave, and from
+    there it is the custom run's window in every respect - same walk, same stop, same per-fic
+    pass. The two are alternatives because they are the same mechanism given a different
+    number, and there is no sense in measuring back to both.
+    """
+
+    downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
+
+    ao3 = Ao3(repo, fileops, downloadtypes, None, False, False,
+              progress=report, cancelled=job.cancel.is_set)
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
+
+    if job.options['dates']:
+        run_custom_dates(job, fileops, ao3, downloadtypes, report)
+        report_failures(ao3, report)
+        return
+
+    floor = quick_scan_floor(fileops)
+    print(strings.AO3_INFO_QUICK_FLOOR.format(floor) if floor
+          else strings.AO3_INFO_QUICK_NO_FLOOR)
+
+    records: list[dict] = []
+    if metadata:
+        job.steps.start('index')
+        progress.report(report, progress.PHASE, name=progress.INDEXING)
+        print(strings.AO3_INFO_INDEXING)
+        link = f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}'
+        records = ao3.get_metadata(link, job.options['workdates'], stop_before=floor)
+        job.steps.done('index')
+    else:
+        job.steps.skip('index')
+
+    download_planned(job, fileops, ao3, records, downloadtypes, report)
+    fill_gaps_in(job, fileops, ao3, records, downloadtypes, report)
+    report_failures(ao3, report)
+
+
+def quick_scan_floor(fileops: FileOps) -> str:
+    """The date a quick scan indexes back to, or '' when there is nothing to go on.
+
+    The day the last **successful** run started. A run that failed, was stopped, or was
+    interrupted is not a floor: it may have given up before reaching works updated before
+    it began, and treating it as one would leave exactly those unseen for ever after.
+    """
+
+    last = runs.last_successful(fileops)
+    if not last: return ''
+    return str(last.get('started') or '')[:10]
 
 
 def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -596,6 +959,11 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     holds - no listing is read at all, and every judgement about what is out of date is
     made against however old that index is. That is the point of the option and also its
     whole risk, which is why it is off by default.
+
+    It can also cover a **window of time** instead of a slice of the listing. The two are
+    alternatives rather than settings that combine: one picks works by where they sit in
+    the listing and the other by when ao3 last touched them, and a run cannot both be
+    walking a listing and not walking it.
     """
 
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
@@ -603,10 +971,23 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     pages = job.options['pages'] or None
     start = job.options['start']
 
+    if job.options['dates']:
+        # a window walks the sorted listing down to its own floor, so a page limit left
+        # over from the other shape of this run would cut that walk short
+        pages, start = None, 1
+
     ao3 = Ao3(repo, fileops, downloadtypes, pages, job.options['series'],
               job.options['images'], progress=report, cancelled=job.cancel.is_set,
               start=start)
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
 
+    if job.options['dates']:
+        run_custom_dates(job, fileops, ao3, downloadtypes, report)
+        report_failures(ao3, report)
+        return
+
+    job.steps.start('index')
     if job.options['reindex'] and metadata:
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
@@ -615,8 +996,10 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         print(strings.AO3_INFO_USING_LAST_INDEX)
         records = shared.read_index(fileops)
         print(strings.AO3_INFO_INDEXED_COUNT.format(len(records)))
+    job.steps.done('index')
 
     download_planned(job, fileops, ao3, records, downloadtypes, report)
+    fill_gaps_in(job, fileops, ao3, records, downloadtypes, report)
 
     # last, and only when asked: it costs a work page per fic, which is exactly what the
     # rest of this run is built to avoid
@@ -624,6 +1007,27 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         save_images(job, fileops, ao3, records, report)
 
     report_failures(ao3, report)
+
+
+def fill_gaps_in(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
+                 downloadtypes: list[str], report) -> None:
+    """Catch any requested format still missing from the works this run just covered.
+
+    The download phase decides what to skip from `shared.visited`, which is built from the
+    **log**. That is fine until the log and the folder disagree - a file deleted by hand, a
+    log trimmed, a library moved in from somewhere else - and then a work looks downloaded
+    when it is not. This reads the folder itself and fetches whatever is genuinely absent.
+
+    No re-read: the caller has just had these entries off ao3's listing, so they are as
+    current as they are going to get and asking again would cost a request per fic for
+    nothing.
+    """
+
+    if not records or not downloadtypes or job.cancel.is_set(): return
+
+    covered = {str(x.get('id') or '') for x in records if x.get('id')}
+    fill_missing_formats(job, fileops, ao3, set(), downloadtypes, report,
+                         reindex=False, only=covered)
 
 
 def work_link(value: str) -> str | None:
@@ -670,6 +1074,12 @@ def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: di
         {'choice': UNDATED_SKIP, 'date': ''})
     choice = answer.get('choice')
 
+    # whatever was decided goes into the run's history, so a library renamed months ago can
+    # be explained by looking at what was asked and what was answered
+    if job.record:
+        job.record.choice({'question': UNDATED_QUESTION, 'count': len(undated),
+                           'choice': choice, 'date': answer.get('date') or ''})
+
     if choice == UNDATED_STAMP and answer.get('date'):
         maximum = fileops.get_ini_value_integer(
             strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
@@ -703,21 +1113,37 @@ def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
     """
 
     if not records:
-        return {'stale': [], 'undated': [], 'superseded': {}, 'existing': {}}
+        return {'stale': [], 'undated': [], 'superseded': {}, 'existing': {},
+                'overwrite': False}
 
     progress.report(report, progress.PHASE, name=progress.CHECKING_FILES)
     print(strings.AO3_INFO_CHECKING_FILES)
     existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
 
-    refresh_undated, stamped = settle_undated(job, fileops, records, existing, downloadtypes)
+    overwrite = bool(job.options.get('overwrite'))
+
+    # the undated question decides which copies count as behind, and overwriting has
+    # already decided that for all of them. stopping to ask would be asking about works
+    # this run is about to fetch again either way
+    if overwrite:
+        refresh_undated, stamped = False, 0
+    else:
+        refresh_undated, stamped = settle_undated(job, fileops, records, existing,
+                                                  downloadtypes)
 
     progress.report(report, progress.PHASE, name=progress.CHECKING_VERSIONS)
     print(strings.AO3_INFO_CHECKING_VERSIONS)
     plan = shared.plan_downloads(records, existing, downloadtypes,
-                                 refresh_undated=refresh_undated)
+                                 refresh_undated=refresh_undated, overwrite=overwrite)
     plan['existing'] = existing
+    # so the per-format lines can say why a current-looking copy is being fetched again
+    plan['overwrite'] = overwrite
 
-    if plan['stale']:
+    if plan['stale'] and overwrite:
+        # not 'out of date' - most of them are not, and saying so would be a lie the user
+        # would reasonably act on
+        print(strings.AO3_INFO_OVERWRITING.format(len(plan['stale'])))
+    elif plan['stale']:
         print(strings.AO3_INFO_OUT_OF_DATE.format(len(plan['stale'])))
     else:
         print(strings.AO3_INFO_UP_TO_DATE)
@@ -742,7 +1168,11 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
 
     ao3 = Ao3(repo, fileops, [], pages, False, False,
               progress=report, cancelled=job.cancel.is_set)
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
+    job.steps.start('collections')
     records = ao3.get_collections(link)
+    job.steps.done('collections')
 
     if records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
@@ -765,7 +1195,11 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
 
     ao3 = Ao3(repo, fileops, [], None, False, False,
               progress=report, cancelled=job.cancel.is_set)
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
+    job.steps.start('collection')
     records = ao3.get_collection(job.url)
+    job.steps.done('collection')
 
     if records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
@@ -797,6 +1231,8 @@ def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
     ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
 
     update_incomplete(job, fileops, ao3, downloadtypes, report)
     report_failures(ao3, report)
@@ -811,53 +1247,241 @@ def update_incomplete(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[
     """
 
     # 1. the index, off disk. no requests at all.
+    job.steps.start('read')
     progress.report(report, progress.PHASE, name=progress.SCANNING)
     print(strings.AO3_INFO_READING_INDEX)
-    incomplete = shared.incomplete_works(shared.read_index(fileops))
+    incomplete = newest_first(shared.incomplete_works(shared.read_index(fileops)))
+    job.steps.done('read')
 
     if not incomplete:
         print(strings.AO3_INFO_INCOMPLETE_NONE)
+        # nothing unfinished is a perfectly good answer, not a failure
+        job.steps.skip('check')
+        job.steps.skip('update')
         return
 
     print(strings.AO3_INFO_INCOMPLETE_FOUND.format(len(incomplete)))
+    refresh_and_download(job, fileops, ao3, incomplete, downloadtypes, report)
 
-    # 2 and 3. what is already downloaded for those works, and what to do about any of it
-    # that carries no date. asked now, before a single request, because the answer decides
-    # which copies count as behind.
+
+def refresh_and_download(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
+                         downloadtypes: list[str], report) -> None:
+    """Re-read each of these fics and fetch whatever the re-read says is needed.
+
+    The one-fic-at-a-time pass, given a list rather than finding its own. The unfinished
+    works are one way to choose that list; a window of dates is another, and both want
+    exactly this afterwards - so it lives here rather than twice.
+
+    Works are done newest first, because a run can be stopped and where it got to should be
+    the half worth having.
+    """
+
+    # what is already downloaded for those works, and what to do about any of it that
+    # carries no date. asked now, before a single request, because the answer decides which
+    # copies count as behind.
+    records = newest_first(records)
     existing: dict = {}
     refresh_undated = False
+    overwrite = bool(job.options.get('overwrite'))
     if downloadtypes:
+        job.steps.start('check')
         progress.report(report, progress.PHASE, name=progress.CHECKING_FILES)
         print(strings.AO3_INFO_CHECKING_FILES)
         existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
-        refresh_undated, stamped = settle_undated(
-            job, fileops, incomplete, existing, downloadtypes)
+        # overwriting has already settled what happens to every copy, undated ones
+        # included, so there is nothing left to ask about
+        stamped = 0
+        if not overwrite:
+            refresh_undated, stamped = settle_undated(
+                job, fileops, records, existing, downloadtypes)
         if stamped:
             progress.report(report, progress.REFRESH, stale=0, undated=0, stamped=stamped)
+        job.steps.done('check')
+    else:
+        job.steps.skip('check')
 
-    # 4. one fic at a time: re-read it, then fetch it if the copy is behind
+    # one fic at a time: re-read it, then fetch it if the copy is behind
+    job.steps.start('update')
     progress.report(report, progress.PHASE, name=progress.UPDATING)
     maximum = fileops.get_ini_value_integer(
         strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
 
     checked = 0
     fetched = 0
-    for record in incomplete:
+    skipped_step = False
+    for record in records:
         if job.cancel.is_set(): break
+        if job.skipping():
+            print(strings.AO3_INFO_STEP_SKIPPED)
+            skipped_step = True
+            break
         checked += 1
         try:
             fetched += update_one_work(ao3, record, existing, downloadtypes, maximum,
-                                       refresh_undated, checked, len(incomplete), report)
+                                       refresh_undated, checked, len(records), report,
+                                       overwrite=overwrite)
         except exceptions.CancelledException:
             # a stop is not a failed run; what has been written so far stays written
             break
 
     print(strings.AO3_INFO_UPDATE_DONE.format(checked, fetched))
+    # a step that was abandoned must not claim to have finished
+    job.steps.skip('update') if skipped_step else job.steps.done('update')
+
+
+def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[str],
+                     report) -> None:
+    """The custom run's other shape: a window of time rather than a slice of the listing.
+
+    Works are chosen from the index by when ao3 last updated them, then each is re-read and
+    fetched if the copy is behind - the same per-fic pass the unfinished-fics run uses,
+    given a different list.
+
+    The index is brought up to date first, unless the run was told to skip indexing. That
+    walk goes down the bookmarks listing **sorted by when ao3 last updated each work** and
+    stops at the first fic older than the window's earliest date: everything past that point
+    is, by definition, outside the window. The sort is what makes the stop sound - see
+    `Ao3.get_metadata` - and with no earliest date there is no floor, so the walk runs to
+    the end of the listing.
+
+    It matters because the window is judged on what the index records. Skip the indexing and
+    a fic whose entry is older than ao3's truth is chosen, or missed, on the strength of
+    that entry. The per-fic re-read then corrects each entry it touches, which is why the
+    pass re-reads before it decides what to download.
+    """
+
+    start = job.options['dateFrom']
+    end = job.options['dateTo']
+    metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
+
+    if job.options['reindex'] and metadata:
+        job.steps.start('index')
+        progress.report(report, progress.PHASE, name=progress.INDEXING)
+        print(strings.AO3_INFO_DATE_INDEXING.format(start) if start
+              else strings.AO3_INFO_DATE_NO_FLOOR)
+        # the whole index is read below rather than just what came back here: a fic in the
+        # window that is no longer bookmarked is still one the window asked for
+        ao3.get_metadata(f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
+                         job.options['workdates'], stop_before=start)
+        job.steps.done('index')
+
+    job.steps.start('read')
+    progress.report(report, progress.PHASE, name=progress.SCANNING)
+    print(strings.AO3_INFO_DATE_WINDOW.format(start or strings.AO3_INFO_DATE_ANY,
+                                              end or strings.AO3_INFO_DATE_ANY))
+
+    chosen = works_updated_between(shared.read_index(fileops), start, end)
+    job.steps.done('read')
+
+    if not chosen:
+        print(strings.AO3_INFO_DATE_NONE)
+        # an empty window is an answer, not a failure
+        job.steps.skip('check')
+        job.steps.skip('update')
+        return
+
+    print(strings.AO3_INFO_DATE_FOUND.format(len(chosen)))
+    refresh_and_download(job, fileops, ao3, chosen, downloadtypes, report)
+
+
+def works_updated_between(records: list[dict], start: str, end: str) -> list[dict]:
+    """The indexed works ao3 last updated inside a window, newest first.
+
+    Judged on the index's own `date_updated`, normalised through `get_date_stamp` so the
+    two forms ao3 writes compare properly. **Both ends are inclusive**: a window of a single
+    day is a real thing to ask for, and would otherwise select nothing.
+
+    An empty bound means no limit at that end, so one date alone gives 'since then' or
+    'up to then'. A work with no readable date is left out rather than guessed at - it
+    cannot be placed in a window, and including it would make the window a lie.
+    """
+
+    chosen = []
+    for record in records:
+        updated = parse_text.get_date_stamp(record.get('date_updated') or '')
+        if not updated: continue
+        if start and updated < start: continue
+        if end and updated > end: continue
+        chosen.append(record)
+    return newest_first(chosen)
+
+
+def newest_first(records: list[dict]) -> list[dict]:
+    """Records in the order ao3 last updated them, most recent first.
+
+    A long run gets through the fics you are most likely to be waiting on before the ones
+    that have not moved in years - which matters because a run can be stopped, and where it
+    got to should be the useful half rather than an arbitrary one.
+
+    Sorted on the normalised stamp rather than the raw field, because a listing writes
+    '14 Dec 2024' and a work page writes '2024-12-14' for the same day. An entry with no
+    usable date sorts last: it cannot be placed, and guessing would put it at the front.
+    """
+
+    return sorted(
+        records,
+        key=lambda x: parse_text.get_date_stamp(x.get('date_updated') or '') or '',
+        reverse=True)
+
+
+def say_what_each_format_needs(record: dict, existing: dict, filetypes: list[str],
+                               plan: dict) -> list[str]:
+    """Say what is going to happen to each requested format, and return the ones to fetch.
+
+    Per format rather than per fic, because a run asking for html and pdf can want one and
+    already have the other - and 'downloading it' said neither which nor why.
+
+    The verdicts come straight out of `plan_downloads` rather than being worked out again
+    here: `superseded` already names exactly the formats it decided to replace, so there is
+    one definition of outdated (see **What "outdated" means, exactly**) and this only puts
+    words to it.
+    """
+
+    have = existing.get(str(record.get('id') or ''), {})
+    replacing = plan['superseded'].get(record.get('link') or '', {})
+
+    wanted: list[str] = []
+    for filetype in filetypes:
+        copy = have.get(filetype.upper())
+        if not copy:
+            print(strings.AO3_INFO_FORMAT_MISSING.format(filetype))
+            wanted.append(filetype)
+        elif filetype in replacing:
+            # a run told to overwrite replaces copies that are perfectly current, so the
+            # line has to say which reason it is or it reads as a version check gone wrong
+            print(strings.AO3_INFO_FORMAT_REPLACING.format(filetype) if plan.get('overwrite')
+                  else strings.AO3_INFO_FORMAT_OUTDATED.format(filetype))
+            wanted.append(filetype)
+        elif copy['date'] is None:
+            print(strings.AO3_INFO_FORMAT_UNDATED.format(filetype))
+        else:
+            print(strings.AO3_INFO_FORMAT_CURRENT.format(filetype))
+
+    return wanted
+
+
+def fetch_formats(ao3: Ao3, record: dict, wanted: list[str], maximum: int, log: dict,
+                  done: int, total: int) -> int:
+    """Download exactly the formats named, and leave the downloader as it was found.
+
+    `download_one_indexed` fetches whatever `ao3.filetypes` holds, so asking it for one
+    work used to mean asking for every format that work's run wanted - including the ones
+    already on disk and current. That is a request each, spent for nothing, and rate limit
+    is the scarce thing here.
+    """
+
+    keep = ao3.filetypes
+    try:
+        ao3.filetypes = wanted
+        ao3.download_one_indexed(record, maximum, log, done, total)
+    finally:
+        ao3.filetypes = keep
+    return 1
 
 
 def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str],
                     maximum: int, refresh_undated: bool, done: int, total: int,
-                    report) -> int:
+                    report, overwrite: bool = False) -> int:
     """Bring one fic's entry up to date, and fetch it again if the copy is behind.
 
     Says what it is doing at each step rather than only at the end, because this is the
@@ -887,25 +1511,21 @@ def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str]
 
         # the same rule a bookmarks run uses, asked about one work rather than all of them
         plan = shared.plan_downloads([fresh], existing, filetypes,
-                                     refresh_undated=refresh_undated)
-        have = existing.get(str(fresh.get('id') or ''), {})
-        missing = [x for x in filetypes if x.upper() not in have]
+                                     refresh_undated=refresh_undated, overwrite=overwrite)
+        plan['overwrite'] = overwrite
+        wanted = say_what_each_format_needs(fresh, existing, filetypes, plan)
 
-        if missing:
-            print(strings.AO3_INFO_UPDATE_MISSING)
-        elif plan['stale']:
-            print(strings.AO3_INFO_UPDATE_BEHIND)
-        else:
-            print(strings.AO3_INFO_UPDATE_CURRENT)
+        if not wanted:
             return 0
 
         ao3.superseded = plan['superseded']
-        ao3.download_one_indexed(fresh, maximum, log, done, total)
-        return 1
+        return fetch_formats(ao3, fresh, wanted, maximum, log, done, total)
 
     except exceptions.CancelledException:
         print(strings.INFO_CANCELLED)
         raise
+    except exceptions.SessionExpiredException:
+        raise  # every fic after this one would fail the same way
     except Exception as e:
         ao3.record_failure(link, e)
         ao3.log_error(log, e)
@@ -955,6 +1575,7 @@ def runners() -> dict:
         ACTION_SYNC: run_sync,
         ACTION_WORK: run_work,
         ACTION_CUSTOM: run_custom,
+        ACTION_QUICK: run_quick,
     }
 
 
@@ -1013,6 +1634,13 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
+        if self.path == '/api/runs':
+            # read off disk each time rather than kept in memory: the helper is restarted
+            # far more often than the history is looked at, and the files are the record
+            fileops = FileOps()
+            self.send_json(200, {'runs': runs.read_runs(fileops)})
+            return
+
         if self.path.startswith('/api/jobs/') and self.path.endswith('/events'):
             self.stream_events(self.path.split('/')[3])
             return
@@ -1034,6 +1662,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path.startswith('/api/jobs/') and self.path.endswith('/resume'):
             self.hold_job(self.path.split('/')[3], False)
+            return
+
+        if self.path.startswith('/api/jobs/') and self.path.endswith('/skip'):
+            self.skip_step(self.path.split('/')[3])
             return
 
         if self.path != '/api/jobs':
@@ -1101,6 +1733,23 @@ class Handler(BaseHTTPRequestHandler):
         # the run notices at its next checkpoint and unwinds, keeping what it has saved
         job.cancel.set()
         self.send_json(202, {'cancelling': True})
+
+    def skip_step(self, job_id: str) -> None:
+        """Abandon the step a run is on and let it go to the next.
+
+        A debug tool, offered only when settings.ini turns it on. It really does skip: what
+        that step would have done does not happen, and the checklist marks it skipped rather
+        than done so the run does not claim otherwise.
+        """
+
+        with Handler.jobs_lock:
+            job = Handler.jobs.get(job_id)
+        if not job:
+            self.send_json(404, {'error': 'no such job'})
+            return
+
+        job.skip.set()
+        self.send_json(202, {'skipping': True})
 
     def hold_job(self, job_id: str, hold: bool) -> None:
         """Pause or resume a run.

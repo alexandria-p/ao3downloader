@@ -58,7 +58,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 **4 tests in `test/test_ao3.py::test_proceed_*` fail with `UnicodeDecodeError`.** They are
 pre-existing, present on the unmodified upstream code, and caused by fixtures being read
 with the platform default codec (cp1252 on Windows). Do not chase them; do not count them
-as regressions. Current: **958 python passed, 4 failed; 226 gui passed.**
+as regressions. Current: **1065 python passed, 4 failed; 281 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -319,6 +319,171 @@ last recorded, so a fic that had finished by then is invisible however much was 
 The ui has an `acknowledge` step that must be ticked before the login for exactly this, and
 points at the bookmarks run instead, which re-reads the listing and catches those.
 
+### Debug tools, off unless settings.ini asks
+
+`EnableDebugTools` adds a panel to the download window. It is for working on the app, not
+for using it, and the two things it offers are deliberately different in kind:
+
+- **Skip this step** is real. `job.skip` is checked at the same loop boundaries `cancel` is,
+  and `Job.skipping()` **clears the flag as it reads it** so one press skips one step rather
+  than every step after it. The abandoned step is marked `skipped`, never `done` - what it
+  would have done did not happen, and the checklist must not claim otherwise.
+- **Show a made-up report** is entirely in the page. Nothing is sent to the helper and no
+  run is touched; it fills both end-of-run lists with one entry of every kind so their
+  layout can be checked without waiting for a long run and hoping something goes wrong.
+
+### A login that lapses mid-run ends the run
+
+A lapsed ao3 session does not announce itself: ao3 serves the logged-out view, so a
+restricted work comes back as a page instead of a file and `download_file` rejects it - the
+**same failure a deleted work produces**. The difference is that a lapsed session fails
+everything from then on.
+
+So `Ao3.check_session` is called only from the download `except` blocks, and asks
+`repo.still_logged_in()` **at most once per run** (`session_checked`). It costs a request,
+and asking again after each of four hundred failures would cost four hundred. If the session
+is alive it is a per-work failure like any other and the run carries on.
+
+`SessionExpiredException` must **propagate**, so every per-work handler that would otherwise
+swallow it re-raises explicitly - `Ao3.download`, `update_one_work`, `fill_missing_formats`,
+`save_images`. Miss one and the run grinds on producing a failure list of hundreds of
+identical reasons, which is exactly what this exists to prevent. `still_logged_in` answers
+**True** when the check itself fails: ending a run because a check timed out would be worse
+than the problem.
+
+`run_job` flags it on the `failed` event (`sessionExpired`) rather than leaving the ui to
+recognise it from the error text - it is not a crash, and there is a specific thing to do.
+
+**There is no resume-from-position, and none is needed.** Every run works out what to do
+from the index and the folder - `visited`, `plan_downloads`, `fill_gaps_in` - not from where
+a previous run got to. Starting the same run again *is* the resume: it fetches what is
+missing or outdated and skips what is not. The ui says so on the failure.
+
+### Every run writes itself down
+
+`runs/` sits beside `logs/` (same env var, so `build/runs` in a bundle), one json file per
+run: which button, which settings, which fics were reindexed / downloaded / updated, the
+choices it stopped to ask, what it could not get, and how it ended. `GET /api/runs` reads
+them back for the history tab.
+
+**The file is written when the run starts, not when it ends.** A run killed mid-flight
+cannot write its own epitaph, so a record still saying `running` *is* the evidence that it
+was interrupted - that is how the history tab recognises one.
+
+**'Starts' means 'is about to try the login'**, not 'the job object exists'. `run_job`
+creates the `RunRecord` between `steps.start('login')` and `repo.login`, so a history file
+always means a run that got as far as reaching for ao3. Everything before that point is
+setup that cannot touch the network, and a file written for one of those would sit in the
+history for ever describing a run that never happened. A login that is *refused* still gets
+its record, because it did happen - it is written before the attempt for exactly that
+reason.
+
+Note what this does **not** fix: a `running` record whose fic lists are all empty means the
+helper went away almost immediately after the login - the app closed, the process killed, or
+restarted to pick up a rebuild. Nothing the run itself can do will close that file, which is
+the whole point of writing it up front. Everything in `runs.py`
+swallows its own errors: a run that downloaded a library must not be reported as failed
+because a note about it could not be saved.
+
+The three fic lists are separate because they answer different questions - `reindexed` (a
+fresh index entry), `downloaded` (a file arrived), `updated` (an old copy was actually
+replaced, tracked where `replace_superseded` deletes it).
+
+`runs.last_successful` ignores stopped, failed and interrupted runs. That is what a quick
+scan measures back to, and a run that gave up partway is not a floor: it may have stopped
+before reaching works updated before it began, which would leave exactly those unseen for
+ever after.
+
+### A quick scan stops where ao3 stopped changing things
+
+`run_quick` walks the bookmarks listing **sorted by when ao3 last updated each work**
+(`strings.AO3_SORT_BY_UPDATED`) and stops at the first work older than
+`quick_scan_floor` - the day the last successful run started.
+
+**The sort is not optional, and this was verified against the live site.** The default
+bookmarks listing is ordered by when each work was *bookmarked* and jumps about by years
+(28 Apr, 30 Aug, 10 Sep, 23 Feb...). Sorted by `bookmarkable_date` it is strictly
+descending. A stop-at-first-older walk down the default listing would halt after a fic or
+two and miss nearly everything, so `get_metadata`'s `stop_before` is only sound on that
+order and says so.
+
+**With no completed run there is no floor, and the walk runs to the end** - `stop_before`
+is `''`, which `get_metadata` treats as no limit at all. So the first quick scan is a full
+index and download. The ui promises this in as many words, and there is a test asserting it
+rather than trusting the promise.
+
+The stop itself is in `get_metadata`: each blurb's `p.datetime` is the work's own updated
+date, and the walk breaks at the first one where `updated < stop_before`. The comparison is
+strict, so **a work updated on the floor date is still indexed** - a run that started that
+afternoon cannot tell it apart from a work updated that morning. A blurb with no readable
+date never stops the walk, because it cannot be judged and stopping on it would cut the run
+short.
+
+**A quick scan can be given a date range instead.** `run_quick` branches to
+`run_custom_dates` before it works anything out, because the two are the same mechanism given
+a different number: measuring back to the last completed run and measuring back to a date the
+user picked both end as `stop_before` on the sorted listing. Measuring back to both would
+mean measuring back to neither, so they are alternatives and the ui offers them as a pair of
+radios.
+
+Its acknowledgement branches on that choice, and has to: the default shape can do a full
+index on its first run and cannot restore what an earlier run missed, while a date range
+cannot do either of those things and instead gets slower the further back it reaches. One
+note covering both would be half untrue whichever way it was worded.
+
+The quick scan is given the combined run's acknowledgement but **not** its wording: it
+re-reads any completed fic ao3 has touched since the floor, so "will not notice changes to
+fics already marked complete" would be untrue of it. Its own caveat is the one that applies
+- it trusts the date, so anything missed before that date stays missed.
+
+### A run publishes the steps it intends to take
+
+`step_plan(job)` builds the checklist from the action **and the options**, so a step that
+depends on a choice - images, skipping the indexing, a metadata-only run - appears only when
+it will actually happen. A checklist that lists work the run will not do is worse than none.
+`Steps` sends it once as a `STEPS` event before anything starts, then one `STEP` event per
+change, and `job.steps` is a no-op `Steps(None, [])` until `run_job` swaps in the real one -
+so every run function marks its steps without first checking whether anyone is listening.
+
+**This cannot be built from `PHASE` events**, which is why it is separate. A phase says what
+*kind* of work is happening and repeats - a combined run downloads twice and checks files
+twice - while a step is a place in a plan and happens once. Only the second can drive a
+checklist.
+
+**A step with nothing to do is `skipped`, never `failed`.** A run with no unfinished fics has
+not gone wrong, and the ui colours the two differently for that reason. `fail_current` marks
+only the step that was actually running: the ones after it never started, and blaming them
+for something that happened before they were reached would be a lie.
+
+### Decisions are per format, and works are done newest first
+
+`say_what_each_format_needs` classifies **each requested format** for one work - missing,
+outdated, undated or current - prints a line for each, and returns only the ones to fetch.
+`fetch_formats` then borrows `ao3.filetypes`, sets it to exactly that list, and puts it back
+in a `finally`.
+
+This was per *fic*: anything missing or stale meant `download_one_indexed` with the run's
+whole filetype list, so a fic that had a current html and no pdf re-fetched the html too. A
+request each, spent for nothing.
+
+**The verdicts come out of `plan_downloads`, not from judging again here.** `superseded`
+already names the exact formats it decided to replace, so there is one definition of
+outdated (see **What "outdated" means, exactly**) and this only puts words to it. `stale` and
+`superseded` always move together in a real plan - a test stub with one and not the other is
+a stub that cannot happen.
+
+`newest_first` orders by `date_updated` through `get_date_stamp`, so the two formats ao3
+writes sort together and an entry with no usable date goes last. Every pass that works
+through a list of fics uses it, because **a run can be stopped** and where it got to should
+be the half worth having.
+
+`fill_gaps_in` runs after the download phase of a full scan or custom run. The download phase
+decides what to skip from `shared.visited`, which is built from the **log**; this reads the
+folder instead, so a file deleted by hand or a trimmed log cannot leave a work looking
+downloaded when it is not. It passes `reindex=False` (the caller has just had these entries
+off the listing) and `only=` the works this run covered - the index can hold fics no longer
+bookmarked, and fetching those would be a surprise.
+
 ### A run names what it could not get, in two lists
 
 `report_failures` emits **both**, and every one of the eight actions calls it - there is a
@@ -383,12 +548,72 @@ and drive the bar, while `listingPage`/`listingTotal` are the real page numbers 
 what the wording shows ("page 42 of 80" is the page you would go and look at). Don't
 collapse them back into one pair - each is wrong in the other's place.
 
+**Each page sends two of those events**: one before the request carrying `fetching=True`,
+one after it carrying `works`. The caption has to name what is happening, not what last
+finished - the fetch is the slow part of indexing, so a caption written only once a page is
+in names the *previous* page for the whole time the next one is on its way. The console
+output already said both ("fetching page 4 of 80" before, "finished page 3 of 80" after);
+the progress bar was reading the second one alone.
+
+The pre-request event deliberately does **not** move the bar to that page. It sets it to
+`(page - 1) / total` - what has actually arrived - because a page being asked for is not a
+page that has been fetched, and a bar that counts it is claiming work that may yet fail. It
+also carries no `works` count, since the only count available would be the previous page's.
+On the first page it carries no total either: the total is read off that page, so nothing
+knows it yet, and the ui says "fetching page 1" rather than "page 1 of ?".
+
 `get_metadata` keeps `source` as the bare listing url rather than the page it began on
 (`source` is an identity field, so a page suffix there would look like a different listing),
 and offsets `position` by `(start - 1) * AO3_LISTING_PAGE_SIZE`. Without that offset a run
 starting at page 5 would number its first fic 1 and collide with a later run over page 1.
 The offset assumes ao3's 20-per-page listings, which is the only thing that makes the
 skipped pages countable.
+
+### A custom run can cover a date window instead of a listing slice
+
+The two are alternatives, never both: pages pick works by **where they sit in the listing**,
+a window picks them by **when ao3 last updated them**, and a run that tried to honour both
+would have no honest answer for a fic that satisfied one and not the other. `resolve_options`
+carries `dates`, `dateFrom` and `dateTo` alongside `start`/`pages`, and `dates` is what says
+which pair is read at all. The ui enforces the same thing by hiding the page inputs while the
+window is chosen, rather than leaving a slice showing that the run will ignore.
+
+`run_custom` branches to `run_custom_dates`, which reads `downloads/indexing/`, filters with
+`works_updated_between`, and hands the result to `refresh_and_download` - the same function
+the unfinished-fics pass uses, extracted from `update_incomplete` so the two cannot drift
+apart.
+
+It brings the index up to date first, and **the walk that does it is the quick scan's**:
+the bookmarks listing sorted by `AO3_SORT_BY_UPDATED`, with `stop_before` set to the
+window's **older** end. Only the older end can stop a walk that runs newest first - the
+newer end is passed on the way down, so stopping at it would halt before the window was
+reached. With no older end there is nothing to stop at and the listing is read in full,
+which is the same answer a first quick scan gives and is said in as many words in the ui.
+
+`pages` and `start` are forced to `None`/`1` for a window. The page inputs are hidden once
+a window is chosen but the run still carries whatever was in them, and a leftover limit
+would cut the walk short of its floor.
+
+The whole index is filtered afterwards rather than just what the walk returned: a fic
+inside the window that is no longer bookmarked is still one the window asked for. Skipping
+the indexing (or a run with no json, since json *is* the index) leaves the pass working
+from the index as it stands, and then a fic whose entry is behind ao3 is picked or missed
+on the strength of that entry - the ui says so where the option is.
+
+Both ends are inclusive and an empty end means no limit there. The dates go through
+`parse_text.get_date_stamp`, so anything unparseable becomes `''` - a bad date widens the
+window rather than failing the run, which is the safe direction when the alternative is a
+window that silently matches nothing. Records with no usable `date_updated` are **excluded**,
+not included as a maybe: there is nothing to compare, which is the same rule as
+**What "outdated" means, exactly**.
+
+The picks are ordered by `newest_first`, because a window is usually opened to catch up on
+what moved most recently and a stopped run should have finished the fics that mattered most.
+
+`step_plan` gives the window its own steps (`login → index → read → check → update →
+report`) rather than reusing the indexing plan, since three of the scan's steps never run,
+and drops the `index` step when the run will not do one. An empty window is **skipped, not
+failed** - no fic updated in that range is an answer, not an error.
 
 ### Indexing one collection by link
 
@@ -446,6 +671,36 @@ Three things follow from it, and each is load-bearing somewhere else:
   earlier version also fired on chapter growth; it was removed, because for a dated file
   that is redundant (gaining a chapter moves ao3's `date_updated`) and for an undated one
   the answer comes from the user instead.
+
+### Overwriting is the one exception, and it is the user's to make
+
+`plan_downloads(..., overwrite=True)` puts **every** copy of a requested type into
+`superseded`, current or not. That is not a second definition of outdated - it is the
+admission that nothing here can see a file that is damaged or truncated. The name is right,
+the date is right, and only the bytes are wrong, so no version check can ever catch it and
+the only honest answer is to ask the user and act on what they say.
+
+It is offered on the three runs that can be pointed at a known set of works - a full scan, a
+custom run, one fic by link - and **not** on the routine ones. The full scan alone leaves off
+the 'this makes the run far longer' warning: it is the run that already says it takes hours,
+and saying it twice on the same page reads as noise rather than emphasis. `sync`, `quick` and `update`
+exist to be cheap; a run that re-fetches everything it already holds is the opposite of
+that, and putting the option there would invite it to be left on.
+
+Two things follow, and both are in `plan_refresh` and `refresh_and_download`:
+
+- **the undated question is not asked.** It exists to decide what happens to copies that
+  cannot be judged, and this has decided it - for those and for every other copy. Stopping
+  to ask would be asking about works the run is about to fetch again anyway.
+- **the wording changes.** `AO3_INFO_OVERWRITING` replaces `AO3_INFO_OUT_OF_DATE`, and
+  `AO3_INFO_FORMAT_REPLACING` replaces `AO3_INFO_FORMAT_OUTDATED`, because most of what an
+  overwrite replaces is perfectly current and calling it outdated would read as the version
+  check having gone wrong. The plan carries an `overwrite` flag purely so
+  `say_what_each_format_needs` can tell which sentence is true.
+
+`replace_superseded` needs nothing new: the re-fetched file usually has the *same* name, so
+there is no old file to delete and the write lands on top of it. The guard only fires when a
+name actually changed, which is still exactly right.
 
 ### Downloaded works carry the version they hold
 

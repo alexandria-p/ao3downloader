@@ -38,6 +38,10 @@ class FakeJobs extends Jobs {
   answerFails: string | null = null;
   /** set by a test that needs pausing to fail, so the run carries on regardless */
   pauseFails: string | null = null;
+  /** job ids a debug skip was asked for */
+  skipped: string[] = [];
+  /** set by a test that needs a skip to be refused */
+  skipFails = false;
   push: ((event: JobEvent) => void) | null = null;
   closed = false;
   /** set by a test that needs settings.ini to say something other than the default */
@@ -69,6 +73,11 @@ class FakeJobs extends Jobs {
   override async setPaused(jobId: string, paused: boolean): Promise<void> {
     if (this.pauseFails) throw new Error(this.pauseFails);
     this.pauses.push({ jobId, paused });
+  }
+
+  override async skipStep(jobId: string): Promise<void> {
+    if (this.skipFails) throw new Error('could not skip the current step');
+    this.skipped.push(jobId);
   }
 
   override stream(_id: string, onEvent: (e: JobEvent) => void): () => void {
@@ -120,6 +129,19 @@ async function advanceTo(target: 'options' | 'filetypes' | 'credentials' | 'runn
 
     if (at === 'acknowledge') {
       element.querySelector<HTMLInputElement>('input[name="acknowledge"]')!.click();
+      await fixture.whenStable();
+    }
+
+    // the two link actions cannot go on without one, so the walker supplies a valid one
+    if (at === 'link') {
+      const field = element.querySelector<HTMLInputElement>(
+        'input[name="work"], input[name="collection"]',
+      )!;
+      field.value =
+        field.name === 'work'
+          ? 'https://archiveofourown.org/works/34816549'
+          : 'https://archiveofourown.org/collections/yuletide2024';
+      field.dispatchEvent(new Event('input'));
       await fixture.whenStable();
     }
 
@@ -320,6 +342,12 @@ describe('DownloadDialog', () => {
       workdates: false,
       // only a custom run may turn this off, so every other run always indexes
       reindex: true,
+      // offered on a full scan, but off unless it is asked for
+      overwrite: false,
+      // the date window is a custom run's alternative to pages; nothing else offers it
+      dates: false,
+      dateFrom: '',
+      dateTo: '',
     });
   });
 
@@ -350,6 +378,129 @@ describe('DownloadDialog', () => {
 
     expect(jobs.started[0].options.start).toBe(5);
     expect(jobs.started[0].options.pages).toBe(9);
+  });
+
+  /** tick the date range, and fill in the dates the chosen shape of window offers */
+  async function chooseWindow(from: string, to = '') {
+    checkbox('date range')!.click();
+    await fixture.whenStable();
+
+    if (to) {
+      checkbox('Between two dates')!.click();
+      await fixture.whenStable();
+      const upper = element.querySelector<HTMLInputElement>('input[name="dateTo"]')!;
+      upper.value = to;
+      upper.dispatchEvent(new Event('input'));
+    }
+
+    const lower = element.querySelector<HTMLInputElement>('input[name="dateFrom"]')!;
+    lower.value = from;
+    lower.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+  }
+
+  it('sends a date window instead of pages when the custom run asks for one', async () => {
+    await open('custom');
+    await advanceTo('options');
+    await chooseWindow('2024-01-01', '2024-06-30');
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.dates).toBe(true);
+    expect(jobs.started[0].options.dateFrom).toBe('2024-01-01');
+    expect(jobs.started[0].options.dateTo).toBe('2024-06-30');
+  });
+
+  // 'since a date' is open at the top, so there is no newer end to send. a date left over
+  // from a moment when 'between two dates' was ticked would silently narrow the run
+  it('sends no newer end for a window that is open at the top', async () => {
+    await open('custom');
+    await advanceTo('options');
+    await chooseWindow('2024-01-01', '2024-06-30');
+
+    checkbox('Everything updated since')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('input[name="dateTo"]')).toBeNull();
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.dateFrom).toBe('2024-01-01');
+    expect(jobs.started[0].options.dateTo).toBe('');
+  });
+
+  // the live example, the same thing the page slice offers. read newest first, because
+  // that is the direction the run works in
+  it('says what a window covers while it is being chosen', async () => {
+    await open('custom');
+    await advanceTo('options');
+    await chooseWindow('2024-01-01');
+
+    expect(element.textContent).toContain(
+      'any works that were updated between today and 2024-01-01',
+    );
+
+    await chooseWindow('2024-01-01', '2024-06-30');
+
+    expect(element.textContent).toContain(
+      'any works that were updated between 2024-06-30 and 2024-01-01',
+    );
+  });
+
+  // the earliest date is what the indexing walk stops at, so without one it reads the lot
+  it('warns that a window with no earliest date indexes the whole listing', async () => {
+    await open('custom');
+    await advanceTo('options');
+    await chooseWindow('');
+
+    expect(element.textContent).toContain('reads the whole listing');
+
+    await chooseWindow('2024-01-01');
+
+    expect(element.textContent).not.toContain('reads the whole listing');
+    expect(element.textContent).toContain('stops at the first fic older than');
+  });
+
+  // the two are alternatives, so choosing the window has to take the page inputs away
+  // rather than leave a slice showing that the run will not honour
+  it('hides the page inputs while the date window is chosen', async () => {
+    await open('custom');
+    await advanceTo('options');
+
+    expect(element.querySelector('input[name="start"]')).not.toBeNull();
+
+    checkbox('date range')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('input[name="start"]')).toBeNull();
+    expect(element.querySelector('input[name="pages"]')).toBeNull();
+
+    checkbox('bookmarks listing')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('input[name="start"]')).not.toBeNull();
+  });
+
+  // an end left empty means no limit there, and the summary has to say so - a blank in a
+  // list of what the run will do reads as something that failed to fill in
+  it('describes an open-ended window in the summary of what was chosen', async () => {
+    await open('custom');
+    await advanceTo('options');
+    await chooseWindow('2024-01-01');
+
+    await advanceTo('running');
+
+    expect(element.textContent).toContain(
+      'any works that were updated between today and 2024-01-01',
+    );
+  });
+
+  // nothing but a custom run works from a date window, so nothing else may show the choice
+  it('offers the date window on the custom run alone', async () => {
+    await open('bookmarks');
+    await advanceTo('options');
+
+    expect(checkbox('date range')).toBeUndefined();
   });
 
   it('treats a blank or first page as starting at the beginning', async () => {
@@ -1103,12 +1254,27 @@ describe('DownloadDialog', () => {
 
   // region the runs and what each says it cannot do
 
-  async function toNote(action: 'bookmarks' | 'sync' | 'update') {
+  /**
+   * Walk on to the acknowledgement from wherever the dialog is, or to the login if this
+   * run has no note to show.
+   *
+   * By where it has got to rather than by counting clicks: which steps come before the
+   * note varies per run, and a count quietly depends on that. It stops at the login as
+   * well, because a note that has been turned off leaves no step to stop at - and whether
+   * that happened is what several of these tests are checking.
+   */
+  async function walkToNote() {
+    for (let guard = 0; guard < 6; guard++) {
+      const at = currentStep();
+      if (at === 'acknowledge' || at === 'credentials') return;
+      button('Continue')?.click();
+      await fixture.whenStable();
+    }
+  }
+
+  async function toNote(action: 'bookmarks' | 'sync' | 'update' | 'quick') {
     await open(action);
-    button('Continue')?.click();
-    await fixture.whenStable();
-    button('Continue')?.click();
-    await fixture.whenStable();
+    await walkToNote();
   }
 
   it('warns that a full scan is a long job and names the lighter run', async () => {
@@ -1154,6 +1320,117 @@ describe('DownloadDialog', () => {
     await toNote('sync');
 
     expect(element.querySelector('input[name="acknowledge"]')).toBeTruthy();
+  });
+
+  it('warns that a quick scan does a full index the first time', async () => {
+    // there is nothing to measure back to until a run has completed, so the first one
+    // walks the whole listing - which on a large library is hours, not minutes
+    await toNote('quick');
+
+    const said = element.querySelector('.dialog .body')?.textContent ?? '';
+    expect(said).toContain('this will perform a full index');
+    expect(said).toContain('may take several hours');
+  });
+
+  it('gives a quick scan its own caveat rather than the combined run’s', async () => {
+    // a quick scan does re-read completed fics that changed, so the combined run's warning
+    // about those would be untrue here
+    await toNote('quick');
+
+    const said = element.querySelector('.dialog .body')?.textContent ?? '';
+    expect(said).toContain('will not be restored by this Quick Scan');
+    expect(said).toContain('(Full scan) Reindex & Update All');
+    expect(said).not.toContain('not notice changes to fics already marked complete');
+    expect(said).not.toContain('three passes');
+  });
+
+  // the answer to a damaged or truncated file, which no version check can see: the name
+  // and the date are both right and only the bytes are wrong
+  it.each(['bookmarks', 'custom', 'work'] as const)(
+    'lets a %s run overwrite files nothing says are out of date',
+    async (action) => {
+      await open(action);
+      await advanceTo('options');
+
+      checkbox('Overwrite existing downloads')!.click();
+      await fixture.whenStable();
+
+      await advanceTo('running');
+
+      expect(jobs.started[0].options.overwrite).toBe(true);
+    },
+  );
+
+  // they exist to be cheap, and a run that re-fetches everything it holds is the opposite
+  it.each(['sync', 'quick', 'update'] as const)(
+    'does not offer %s the option to overwrite',
+    async (action) => {
+      await open(action);
+      await advanceTo('filetypes');
+
+      expect(checkbox('Overwrite existing downloads')).toBeUndefined();
+    },
+  );
+
+  it('leaves overwriting off unless it is asked for', async () => {
+    await open('custom');
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.overwrite).toBe(false);
+  });
+
+  // a quick scan's two shapes, in its own words: the floor it works out for itself, or one
+  // the user gives it
+  it('offers a quick scan its own pair of coverage choices', async () => {
+    await open('quick');
+    await advanceTo('options');
+
+    expect(checkbox('Anything that has changed since my last run')).toBeTruthy();
+    expect(checkbox('Choose my own date range')).toBeTruthy();
+    // that is the custom run's wording, and it walks no slice of the listing
+    expect(checkbox('A slice of your bookmarks listing')).toBeUndefined();
+    expect(element.querySelector('input[name="start"]')).toBeNull();
+  });
+
+  it('sends a quick scan the date range it was given', async () => {
+    await open('quick');
+    await advanceTo('options');
+
+    checkbox('Choose my own date range')!.click();
+    await fixture.whenStable();
+    const from = element.querySelector<HTMLInputElement>('input[name="dateFrom"]')!;
+    from.value = '2026-01-01';
+    from.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.dates).toBe(true);
+    expect(jobs.started[0].options.dateFrom).toBe('2026-01-01');
+  });
+
+  it('leaves a quick scan measuring back to the last run unless told otherwise', async () => {
+    await open('quick');
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.dates).toBe(false);
+  });
+
+  // the caveats differ: measuring back to the last run and measuring back to a date you
+  // picked fail in different ways, so one note cannot cover both
+  it('gives a quick scan over a date range its own caveats', async () => {
+    await open('quick');
+    await advanceTo('options');
+
+    checkbox('Choose my own date range')!.click();
+    await fixture.whenStable();
+    await walkToNote();
+
+    const said = element.querySelector('.dialog .body')?.textContent ?? '';
+    expect(said).toContain('has changed in this date range');
+    expect(said).toContain("The further back you've gone in time");
+    expect(said).not.toContain('since the last successful run');
+    expect(said).not.toContain('will not be restored by this Quick Scan');
   });
 
   it('never lets the full scan note be turned off', async () => {
@@ -1324,6 +1601,218 @@ describe('DownloadDialog', () => {
 
     expect(element.querySelector('.warning')?.textContent).toContain('may take a long time');
     expect(element.querySelector('.warning')?.textContent).toContain('Leave this tab open');
+  });
+
+  // endregion
+
+  // region the debug panel
+
+  async function runningWithDebug(on: boolean) {
+    jobs.settingsOverride = { ...CONFIG.settings!, debugTools: on };
+    await open('sync');
+    await advanceTo('running');
+  }
+
+  it('hides the debug panel unless settings.ini asks for it', async () => {
+    // skipping a step really skips it, so this is not something to leave lying about
+    await runningWithDebug(false);
+
+    expect(element.querySelector('.settings.debug')).toBeNull();
+  });
+
+  it('shows the debug panel when settings.ini asks for it', async () => {
+    await runningWithDebug(true);
+
+    const panel = element.querySelector('.settings.debug');
+    expect(panel).toBeTruthy();
+    expect(button('Skip this step')).toBeTruthy();
+    expect(button('Show a made-up report')).toBeTruthy();
+  });
+
+  it('asks the helper to skip the current step', async () => {
+    await runningWithDebug(true);
+
+    button('Skip this step')!.click();
+    await fixture.whenStable();
+
+    expect(jobs.skipped).toEqual(['job-1']);
+    expect(element.querySelector('.log')?.textContent).toContain('skipping the rest');
+  });
+
+  it('says so when a skip is refused rather than pretending it worked', async () => {
+    jobs.skipFails = true;
+    await runningWithDebug(true);
+
+    button('Skip this step')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('.log')?.textContent).toContain('could not skip');
+  });
+
+  it('fills both report lists with one of every kind, and says they are made up', async () => {
+    await runningWithDebug(true);
+
+    button('Show a made-up report')!.click();
+    await fixture.whenStable();
+
+    const said = element.querySelector('.body')?.textContent ?? '';
+    expect(said).toContain('a series, not a single work');
+    expect(said).toContain('an external work');
+    expect(said).toContain('the work has been deleted');
+    expect(said).toContain('unrevealed collection');
+    expect(said).toContain('made private, or hidden');
+    // and the failures list, which is the other half of the report
+    expect(element.querySelector('.failures:not(.skipped)')?.textContent).toContain(
+      'timed out',
+    );
+  });
+
+  it('sends nothing to the helper for a made-up report', async () => {
+    // it is a picture of the layout, not a result - no run is affected
+    await runningWithDebug(true);
+
+    button('Show a made-up report')!.click();
+    await fixture.whenStable();
+
+    expect(jobs.skipped).toEqual([]);
+    expect(jobs.cancelled).toEqual([]);
+  });
+
+  // endregion
+
+  // region a login that lapses mid-run
+
+  it('explains an expired login rather than showing a bare error', async () => {
+    await open('sync');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'failed', error: 'AO3 has stopped recognising your login',
+                 sessionExpired: true });
+    await fixture.whenStable();
+
+    const said = element.querySelector('.body')?.textContent ?? '';
+    expect(said).toContain('login expired while this was running');
+    expect(said).toContain('Nothing was lost');
+    // and says what to do, because re-running really does continue from what is missing
+    expect(said).toContain('carries on from what is still missing');
+  });
+
+  it('shows an ordinary failure as itself', async () => {
+    await open('sync');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'failed', error: 'something else went wrong' });
+    await fixture.whenStable();
+
+    const said = element.querySelector('.body')?.textContent ?? '';
+    expect(said).toContain('something else went wrong');
+    expect(said).not.toContain('login expired');
+  });
+
+  // endregion
+
+  // region the checklist of steps
+
+  async function runningWithSteps(steps: { id: string; label: string }[]) {
+    await open('sync');
+    await advanceTo('running');
+    jobs.push!({ type: 'steps', steps });
+    await fixture.whenStable();
+  }
+
+  function stepRows() {
+    return Array.from(element.querySelectorAll('.step-list li')).map((li) => ({
+      label: li.querySelector('.step-label')?.textContent?.trim(),
+      state: li.querySelector('.step-state')?.textContent?.trim(),
+      status: li.className,
+    }));
+  }
+
+  it('shows what the run intends to do before it has done any of it', async () => {
+    // the point of the panel: what is still to come, not only what has happened
+    await runningWithSteps([
+      { id: 'login', label: 'Log in to AO3' },
+      { id: 'index', label: 'Index bookmarks added since last time' },
+    ]);
+
+    expect(stepRows().map((r) => r.label)).toEqual([
+      'Log in to AO3',
+      'Index bookmarks added since last time',
+    ]);
+    expect(stepRows().every((r) => r.state === 'waiting')).toBe(true);
+  });
+
+  it('moves a step to in progress and then to done', async () => {
+    await runningWithSteps([{ id: 'index', label: 'Index' }]);
+
+    jobs.push!({ type: 'step', id: 'index', status: 'running' });
+    await fixture.whenStable();
+    expect(stepRows()[0].state).toBe('in progress');
+    expect(stepRows()[0].status).toContain('step-running');
+
+    jobs.push!({ type: 'step', id: 'index', status: 'done' });
+    await fixture.whenStable();
+    expect(stepRows()[0].state).toBe('done');
+  });
+
+  it('does not make a skipped step look like a failed one', async () => {
+    // a run with no unfinished fics skips that step and nothing has gone wrong
+    await runningWithSteps([
+      { id: 'update', label: 'Update' },
+      { id: 'gaps', label: 'Gaps' },
+    ]);
+
+    jobs.push!({ type: 'step', id: 'update', status: 'skipped' });
+    jobs.push!({ type: 'step', id: 'gaps', status: 'failed' });
+    await fixture.whenStable();
+
+    expect(stepRows()[0].state).toBe('nothing to do');
+    expect(stepRows()[0].status).not.toContain('step-failed');
+    expect(stepRows()[1].state).toBe('failed');
+  });
+
+  it('counts how far through the run is', async () => {
+    await runningWithSteps([
+      { id: 'a', label: 'A' },
+      { id: 'b', label: 'B' },
+      { id: 'c', label: 'C' },
+    ]);
+
+    jobs.push!({ type: 'step', id: 'a', status: 'done' });
+    jobs.push!({ type: 'step', id: 'b', status: 'skipped' });
+    await fixture.whenStable();
+
+    // a skipped step is behind the run just as much as a finished one
+    expect(element.querySelector('.step-count')?.textContent).toContain('2 of 3');
+  });
+
+  it('leaves the other steps alone when one changes', async () => {
+    await runningWithSteps([
+      { id: 'a', label: 'A' },
+      { id: 'b', label: 'B' },
+    ]);
+
+    jobs.push!({ type: 'step', id: 'b', status: 'running' });
+    await fixture.whenStable();
+
+    expect(stepRows()[0].state).toBe('waiting');
+    expect(stepRows()[1].state).toBe('in progress');
+  });
+
+  it('shows no panel at all before a run has published a plan', async () => {
+    await open('sync');
+    await advanceTo('running');
+
+    expect(element.querySelector('.run-steps')).toBeNull();
+  });
+
+  it('does not carry a checklist over into the next run', async () => {
+    await runningWithSteps([{ id: 'a', label: 'A' }]);
+
+    await open('sync');
+    await advanceTo('running');
+
+    expect(element.querySelector('.run-steps')).toBeNull();
   });
 
   // endregion
@@ -1589,6 +2078,60 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
 
     expect(element.querySelector('.percent')?.textContent).toContain('25');
+  });
+
+  // the fetch is the slow part of indexing, so naming the page that just finished names
+  // the wrong page for as long as the next one takes to arrive
+  it('names the page being fetched, not the last one that finished', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({
+      type: 'page',
+      page: 3,
+      total: 80,
+      listingPage: 3,
+      listingTotal: 80,
+      works: 57,
+    });
+    await fixture.whenStable();
+    expect(element.querySelector('.status')?.textContent).toContain('page 3 of 80');
+
+    jobs.push!({
+      type: 'page',
+      page: 4,
+      total: 80,
+      listingPage: 4,
+      listingTotal: 80,
+      fetching: true,
+    });
+    await fixture.whenStable();
+
+    expect(element.querySelector('.status')?.textContent).toContain('fetching page 4 of 80');
+  });
+
+  it('does not count a page as done while it is still being fetched', async () => {
+    // the caption names what is in flight; the bar still measures what has arrived
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'page', page: 21, total: 80, fetching: true });
+    await fixture.whenStable();
+
+    expect(element.querySelector('.percent')?.textContent).toContain('25');
+  });
+
+  it('names the first page before anything knows how many there are', async () => {
+    // the total comes off the page itself, so the first fetch has no total to report
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'page', page: 1, listingPage: 1, fetching: true });
+    await fixture.whenStable();
+
+    const said = element.querySelector('.status')?.textContent ?? '';
+    expect(said).toContain('fetching page 1');
+    expect(said).not.toContain('of ?');
   });
 
   it('warns when ao3 asks the run to slow down', async () => {

@@ -1,0 +1,175 @@
+.history {
+  max-width: 820px;
+  margin: 14px 0 40px;
+}
+
+.history-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.history-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--text-strong);
+}
+
+.notice {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.run {
+  margin: 0 0 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 3px;
+  background: var(--surface);
+  font-size: 0.88rem;
+}
+
+/* the outcome is the first thing worth seeing, so it colours the whole card's edge */
+.run-success { border-left-color: #7fb37f; }
+.run-stopped { border-left-color: #6b5330; }
+.run-failed { border-left-color: #6b3a3a; }
+.run-running { border-left-color: #5a7f9a; }
+
+.run-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.run-name {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.run-status {
+  flex: none;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.run-when {
+  margin: 2px 0 8px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.run-error {
+  margin: 0 0 8px;
+  color: #d08b8b;
+}
+
+.hint {
+  margin: 0 0 8px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.run-settings {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0 0 8px;
+  font-size: 0.84rem;
+}
+
+.run-settings dt {
+  color: var(--text-dim);
+}
+
+.run-settings dd {
+  margin: 0;
+}
+
+.run-choices {
+  margin: 0 0 8px;
+  font-size: 0.84rem;
+  color: var(--text-dim);
+}
+
+.run-choices p {
+  margin: 0 0 4px;
+}
+
+.ids {
+  margin-top: 4px;
+  font-size: 0.84rem;
+}
+
+.ids summary {
+  padding: 3px 0;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.ids summary:hover {
+  color: var(--text-strong);
+}
+
+.ids-count {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.76rem;
+}
+
+.ids.failed summary {
+  color: #d08b8b;
+}
+
+/* work numbers wrap as a dense block - a long column of them would be unreadable */
+.id-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.id-list a {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: #9fc4dc;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.id-list a:hover {
+  border-color: var(--border-strong);
+}
+
+.reason-list {
+  margin: 6px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.reason-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0;
+}
+
+.reason-list .reason,
+.reason-list .who {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}

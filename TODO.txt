@@ -8,6 +8,7 @@ Doco:
 - what if you import undated? show what happens during download/update modal
 - 'skipped 2 bookmarks that are not works (series, external works, or deleted works)' -> ensures an exportable list is available at end, with the reason for each
 - what is indexing
+- EnableDebugTools=true in settings.ini
 
 
 long term:
@@ -62,11 +63,61 @@ what happens when stopped or exited mid-download?
 
 -- -Index writes are now per page, as you asked. get_metadata buffers a page's records and saves them only once the whole page is parsed — previously it saved after each blurb, which made a part-read page a part-written index by definition. --> should i change this?????
 
--- One caveat: AO3 logins do not last forever. A run left paused for a long time may find its session has expired when you resume, which shows up as works failing to download. If that happens, stop the run and start a new one. -> detect & handle this gracefully.
+
+
+
+
+
 
 
 Get works from all encountered series links
 If a bookmarked work belongs to a series, download the whole series too. This can take a great deal longer. Series you bookmarked directly are always downloaded either way. why cant i choose this for all download types?
 
 how to download a bookmarked series?
+
+/// bleh think this is already completed
+when you do not know for sure how many pages need indexing examples include in the quickscan (and in custom scan) - for example if we are indexing up until a date, indexing between dates, indexing only new bookmarks etc....then don't show 'fetching page X out of Y' in the console or progress bar caption -> because we dont actually know what page Y IS (ie when we will stop).
+why was data.json still built in build/config?? we do not need this file, remove anything that builds in to build/config.
+
+be able to pause a work IN progress, not AFTER work in progress
+
+
+what happens when i pause during login? It says "pausing after the work in progress" and 'appears to have paused' - what is actually happening functionally?
+
+
+
+Custom option & full index 
+- do it in date order (of existing indexes, go from most recently updated first)
+- instead of page-page, have an option to re-index (and redownload, if needed) if existing index is within a last-updated date range.
+
+
+add debug options in gui, if turned on in settings.ini
+- skip to next workflow step
+- skip to step that checks for deleted/failed works, and mockup a result with each type
+
+when updating incomplete fics - do it in date order (of existing indexes, go from most recently updated first)
+
+
+in 'Download new bookmarks and update incomplete fics' AND just update any bookmarks marked as incomplete AND download/update a specific fic AND full scan reindex & update all AND custom run
+
+when Re-reading each unfinished fic, make the debug message for each fic more descriptive -->
+you have no copy of this one, downloading it
+
+
+(e.g. 
+you have no copy in format XYZ - downloading now
+you have an outdated version in format XYZ - replacing now
+you already have the current version in format XYZ 
+)
+
+
+clarify in readme --> Download new bookmarks and update incomplete fics, in the third pass ( any finished fic missing a format you asked for) - update the index for any fic that is missing a format you asked for, then download/update those formats (as it does currently). -->  that we do this because the second pass indexes & downloads incomplete works, saving us time - the third pass in theory should only be remaining works missing a format and all these works are completed.
+
+also please ensure that custom run and full scan both will download any missing formats for all fics.
+
+
+for every single workflow (button) add a new collapsible panel to the download modal page (similar to 'settings this run is using'. call it 'steps in this run' or something similar. it should list out all expected steps in the workflow, and have a tick next to it once its complete, some indicator that it is in progress - maybe a spinning wheel, and an indicator if it has not started yet - maybe a timer (and a cross if it failed). this is so users can see what it left to do in the current workflow.
+
+-- One caveat: AO3 logins do not last forever. A run left paused for a long time may find its session has expired when you resume, which shows up as works failing to download. If that happens, stop the run and start a new one. -> detect & handle this gracefully.
+
 

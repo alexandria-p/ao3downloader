@@ -124,7 +124,7 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(actionLabels(element).slice(0, 2)).toEqual([
-      '(Recommended) Download new bookmarks and update incomplete fics',
+      'Quick Scan',
       '(Full scan) Reindex & Update All',
     ]);
   });
@@ -141,6 +141,7 @@ describe('App', () => {
     expect(
       Array.from(advanced!.querySelectorAll('button')).map((b) => b.textContent?.trim()),
     ).toEqual([
+      'Download new bookmarks and update incomplete fics',
       'Just update any bookmarks marked as incomplete',
       'Just download newly added bookmarks',
       'Download/update a specific fic',
@@ -270,6 +271,40 @@ describe('App', () => {
     expect(element.querySelector('.meta-line.linked')?.textContent).toContain('1 of 1 works');
   });
 
+  // region the history tab
+
+  it('offers a history tab', async () => {
+    const { element } = await render(1);
+
+    expect(tab(element, 'History')).toBeTruthy();
+  });
+
+  it('shows past runs with no buttons to act on a folder', async () => {
+    const { fixture, element } = await render(1);
+
+    tab(element, 'History')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-history')).toBeTruthy();
+    expect(element.querySelector('.actions')).toBeNull();
+    expect(element.querySelector('app-work-list')).toBeNull();
+  });
+
+  it('reads the history without a folder having been chosen', async () => {
+    // it describes runs, not the library, so it does not need one
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    tab(element, 'History')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-history')).toBeTruthy();
+    expect(element.querySelector('.empty')).toBeNull();
+  });
+
+  // endregion
+
   // region the faq tab
 
   it('offers a faq alongside the two listings', async () => {
@@ -348,6 +383,18 @@ describe('App', () => {
     expect(said).toContain('Give them a date');
     expect(said).toContain('Re-download them');
     expect(said).toContain('Ignore and skip them');
+    // and that the choice covers every undated file at once, with no per-file option
+    expect(said).toContain('applied to all of them at once');
+  });
+
+  it('says why a login is needed at all', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+
+    const said = element.querySelector('app-faq')?.textContent ?? '';
+    expect(said).toContain('Your private bookmarks');
+    expect(said).toContain('restricted to registered users');
     expect(
       element.querySelector('app-faq a')?.getAttribute('href'),
     ).toBe('https://archiveofourown.org/faq/downloading-fanworks');

@@ -162,6 +162,100 @@
     @if (step() === 'options') {
       <section class="body">
 
+        <!--
+          the two are alternatives, not settings that combine: one picks works by where
+          they sit in the listing, the other by when AO3 last touched them
+        -->
+        @if (picksDates()) {
+          <fieldset>
+            <legend>What this run covers</legend>
+            <label class="check">
+              <input type="radio" name="coverage" [checked]="!useDates()"
+                     (change)="useDates.set(false)" />
+              <span>
+                @if (action() === 'quick') {
+                  (Recommended) Anything that has changed since my last run
+                } @else {
+                  A slice of your bookmarks listing
+                }
+              </span>
+            </label>
+            <label class="check">
+              <input type="radio" name="coverage" [checked]="useDates()"
+                     (change)="useDates.set(true)" />
+              <span>
+                @if (action() === 'quick') {
+                  Choose my own date range
+                } @else {
+                  Works AO3 updated in a date range
+                }
+              </span>
+            </label>
+          </fieldset>
+        }
+
+        @if (picksDates() && useDates()) {
+          <fieldset>
+            <legend>Which date range</legend>
+            <label class="check">
+              <input type="radio" name="window" [checked]="!betweenDates()"
+                     (change)="betweenDates.set(false)" />
+              <span>Everything updated since a date</span>
+            </label>
+            <label class="check">
+              <input type="radio" name="window" [checked]="betweenDates()"
+                     (change)="betweenDates.set(true)" />
+              <span>Between two dates</span>
+            </label>
+          </fieldset>
+
+          <!--
+            the newer end comes first because the run works in that direction: it walks
+            down from the most recently updated fic and stops at the older end
+          -->
+          @if (betweenDates()) {
+            <label class="field">
+              <span>Updated on or before</span>
+              <input type="date" name="dateTo" [value]="dateTo()"
+                     (input)="dateTo.set($any($event.target).value)" />
+            </label>
+          }
+
+          <label class="field">
+            <span>Updated on or after</span>
+            <input type="date" name="dateFrom" [value]="dateFrom()"
+                   (input)="dateFrom.set($any($event.target).value)" />
+          </label>
+
+          <p class="hint">
+            Both ends count. This run will fetch <strong>{{ dateRange() }}</strong>.
+          </p>
+
+          @if (reindex()) {
+            <p class="hint">
+              Indexing reads your bookmarks sorted by when AO3 last updated each work, and
+              @if (dateFrom()) {
+                stops at the first fic older than <strong>{{ dateFrom() }}</strong> -
+                everything past that point is outside the range by definition.
+              } @else {
+                with no <em>on or after</em> date to stop at, <strong>reads the whole
+                listing</strong>. Give it an earliest date to keep the run short.
+              }
+            </p>
+          } @else {
+            <p class="hint">
+              With indexing skipped, this picks works out of your existing index without
+              reading AO3's listing at all - so a fic whose entry is out of date can be
+              picked, or missed, on the strength of that entry.
+            </p>
+          }
+
+          <p class="hint">
+            Whichever fics it picks are then re-read one at a time, newest first, and
+            anything missing or behind is downloaded.
+          </p>
+        }
+
         @if (picksPages()) {
           <label class="field">
             <span>Start on page number</span>
@@ -227,6 +321,32 @@
             second copy of each one as its own file, in an <code>images</code> subfolder -
             useful if you want the pictures themselves, not if you just want to read the fic.
           </p>
+        }
+
+        @if (picksOverwrite()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="overwrite"
+              [checked]="overwrite()"
+              (change)="overwrite.set($any($event.target).checked)"
+            />
+            <span>Overwrite existing downloads, even if there has been no update</span>
+          </label>
+          <p class="hint">
+            Check this if you are concerned about file integrity issues and would like to
+            simply download the file again. Every format you ask for is fetched afresh for
+            every work this run covers, whether or not AO3 has a newer version than the copy
+            you hold.
+          </p>
+          <!-- the full scan already says it takes hours; saying it twice reads as noise -->
+          @if (action() !== 'bookmarks') {
+            <p class="warning">
+              <strong>This makes the run far longer.</strong> Nothing is skipped for already
+              being current, so it costs a request per format per work - the whole download
+              again, at whatever pace AO3 allows.
+            </p>
+          }
         }
 
         @if (picksReindex()) {
@@ -317,36 +437,75 @@
             <span>I understand this may take hours, and I want the full scan</span>
           </label>
         } @else {
-          <p>
-            This does three passes: your newest bookmarks, then the fics your index last saw
-            unfinished, then any finished fic missing a format you asked for on this run.
-          </p>
+          @if (action() === 'quick') {
+            <!--
+              which caveats are true depends on what was chosen a step ago: measuring back
+              to the last run and measuring back to a date you picked fail differently
+            -->
+            @if (useDates()) {
+              <p>Scans for and updates anything that has changed in this date range.</p>
 
-          <p class="warning">
-            <strong>It trusts the index you already have.</strong> Indexing stops at the
-            first bookmark it recognises, so if your index is incomplete or damaged - an
-            earlier run interrupted, files deleted - the fics behind that point stay unseen
-            and will not be downloaded or updated.
-          </p>
+              <p class="warning">
+                The further back you've gone in time, the longer it will take to index.
+              </p>
+            } @else {
+              <p>
+                Scans for and updates anything that has changed since the last successful
+                run.
+              </p>
 
-          <p class="warning">
-            <strong>It will not notice changes to fics already marked complete.</strong> If
-            chapters are added to or edited on a work your index calls finished, this run
-            skips it.
-          </p>
+              <p class="warning">
+                If you've never completed a successful scan using this website, this will
+                perform a full index. Please be aware that for a large library, the first
+                run may take several hours.
+              </p>
 
-          <p class="warning">
-            <strong>It will not pick up changes to a bookmark you already have.</strong> For a
-            completed work, things that live on the bookmark rather than the fic - your own
-            notes and tags, whether you marked it a rec, whether it is private - are not
-            re-read, because the listing they come from is never walked that far.
-          </p>
+              <p class="warning">
+                Files missing from earlier runs due to an incomplete or damaged index - for
+                example, if an earlier run was interrupted, or files were deleted - will not
+                be restored by this Quick Scan.
+              </p>
 
-          <p class="hint">
-            If either of those worries you, run
-            <strong>(Full scan) Reindex &amp; Update All</strong> instead. It is far slower,
-            and it checks everything.
-          </p>
+              <p class="hint">
+                If you are concerned about your file integrity, run
+                <strong>(Full scan) Reindex &amp; Update All</strong> instead. It is far
+                slower, but it checks and restores everything.
+              </p>
+            }
+          } @else {
+            <p>
+              This does three passes: your newest bookmarks, then the fics your index last
+              saw unfinished, then any finished fic missing a format you asked for on this
+              run.
+            </p>
+
+            <p class="warning">
+              <strong>It trusts the index you already have.</strong> Indexing stops at the
+              first bookmark it recognises, so if your index is incomplete or damaged - an
+              earlier run interrupted, files deleted - the fics behind that point stay unseen
+              and will not be downloaded or updated.
+            </p>
+
+            <p class="warning">
+              <strong>It will not notice changes to fics already marked complete.</strong> If
+              chapters are added to or edited on a work your index calls finished, this run
+              skips it.
+            </p>
+
+            <p class="warning">
+              <strong>It will not pick up changes to a bookmark you already have.</strong> For
+              a completed work, things that live on the bookmark rather than the fic - your
+              own notes and tags, whether you marked it a rec, whether it is private - are not
+              re-read, because the listing they come from is never walked that far.
+            </p>
+
+            <!-- the quick scan makes this point in its own words, just above -->
+            <p class="hint">
+              If that worries you, run
+              <strong>(Full scan) Reindex &amp; Update All</strong> instead. It is far
+              slower, and it checks everything.
+            </p>
+          }
 
           <label class="check">
             <input
@@ -583,6 +742,44 @@
           <dd><code>{{ folder() }}</code></dd>
         </dl>
 
+        <!--
+          the plan, so what is still to come is visible rather than only what has happened.
+          open by default: on a long run this is the thing worth looking at
+        -->
+        @if (steps().length) {
+          <details class="settings run-steps" open>
+            <summary>
+              Steps in this run
+              <span class="step-count">{{ stepsDone() }} of {{ steps().length }}</span>
+            </summary>
+            <ol class="step-list">
+              @for (step of steps(); track step.id) {
+                <li [class]="'step-' + step.status">
+                  <span class="step-mark" aria-hidden="true">
+                    @switch (step.status) {
+                      @case ('done') { &#10003; }
+                      @case ('skipped') { &#8722; }
+                      @case ('failed') { &times; }
+                      @case ('running') { <span class="spinner"></span> }
+                      @default { &#9203; }
+                    }
+                  </span>
+                  <span class="step-label">{{ step.label }}</span>
+                  <span class="step-state">
+                    @switch (step.status) {
+                      @case ('done') { done }
+                      @case ('skipped') { nothing to do }
+                      @case ('failed') { failed }
+                      @case ('running') { in progress }
+                      @default { waiting }
+                    }
+                  </span>
+                </li>
+              }
+            </ol>
+          </details>
+        }
+
         <!-- what settings.ini says, since that decides pacing and file names -->
         @if (settings(); as ini) {
           <details class="settings">
@@ -637,6 +834,32 @@
             allowed to finish, so nothing is half-written, and nothing new will be started
             until you press Resume. You can still stop the run from here.
           </p>
+        }
+
+        <!--
+          only when settings.ini asks for it. this is for working on the app, not for using
+          it: skipping really does skip, and the mocked report is a picture, not a result
+        -->
+        @if (debugTools()) {
+          <details class="settings debug">
+            <summary>Debug tools</summary>
+            <div class="debug-actions">
+              <button type="button" class="button" [disabled]="skipping()"
+                      (click)="skipCurrentStep()">
+                Skip this step
+              </button>
+              <button type="button" class="button" (click)="mockReport()">
+                Show a made-up report
+              </button>
+            </div>
+            <p class="hint">
+              <strong>Skip this step</strong> really skips it - whatever it would have done
+              does not happen, and the checklist marks it skipped rather than done.
+              <strong>Show a made-up report</strong> jumps to the end of the run and fills
+              both lists with invented entries, so their layout can be checked without
+              waiting for something to go wrong. Nothing in it happened.
+            </p>
+          </details>
         }
 
         @if (log().length) {
@@ -790,6 +1013,22 @@
             downloaded. Check your username and password and try again.
           </p>
           <p class="hint">AO3 reported: {{ error() }}</p>
+        } @else if (sessionExpired()) {
+          <p class="error">
+            <strong>Your AO3 login expired while this was running.</strong> The run stopped
+            rather than carrying on, because every restricted work after that point would
+            have failed for the same reason.
+          </p>
+          <p>
+            <strong>Nothing was lost.</strong> Everything downloaded before that is on disk
+            and indexed. Start the same run again and it carries on from what is still
+            missing - it works out what to do from your index and your folder, not from
+            where it got to, so there is nothing to pick up manually.
+          </p>
+          <p class="hint">
+            AO3 sessions do not last for ever, and a run left paused for a long time is the
+            usual way this happens.
+          </p>
         } @else {
           <p class="error">{{ error() }}</p>
         }

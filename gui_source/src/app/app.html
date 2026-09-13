@@ -58,6 +58,14 @@
   </button>
   <button
     type="button"
+    [class.current]="view() === 'history'"
+    [attr.aria-current]="view() === 'history' ? 'page' : null"
+    (click)="setView('history')"
+  >
+    History
+  </button>
+  <button
+    type="button"
     [class.current]="view() === 'faq'"
     [attr.aria-current]="view() === 'faq' ? 'page' : null"
     (click)="setView('faq')"
@@ -67,7 +75,7 @@
 </nav>
 
 <!-- the faq is something to read, not a folder to act on, so it carries no buttons -->
-@if (view() !== 'faq') {
+@if (view() !== 'faq' && view() !== 'history') {
 <div class="actions">
   @if (view() === 'bookmarks') {
     <!--
@@ -75,8 +83,8 @@
       they should be reached for. the rest are each useful for one job and confusing as a
       default, so they wait behind a disclosure rather than sitting in the way
     -->
-    <button type="button" class="button primary" (click)="dialogAction.set('sync')">
-      (Recommended) Download new bookmarks and update incomplete fics
+    <button type="button" class="button primary" (click)="dialogAction.set('quick')">
+      Quick Scan
     </button>
     <button type="button" class="button" (click)="dialogAction.set('bookmarks')">
       (Full scan) Reindex &amp; Update All
@@ -85,6 +93,9 @@
     <details class="advanced">
       <summary>Advanced options</summary>
       <div class="advanced-actions">
+        <button type="button" class="button" (click)="dialogAction.set('sync')">
+          Download new bookmarks and update incomplete fics
+        </button>
         <button type="button" class="button" (click)="dialogAction.set('update')">
           Just update any bookmarks marked as incomplete
         </button>
@@ -133,7 +144,7 @@
 }
 
 <!-- the faq is worth reading before a folder is chosen, so it is not held behind one -->
-@if (isEmpty() && view() !== 'faq') {
+@if (isEmpty() && view() !== 'faq' && view() !== 'history') {
   <section class="empty">
     <h2>Choose your downloads folder</h2>
     <p>
@@ -168,13 +179,14 @@
     />
   } @else if (!isEmpty() && !loading()) {
     <p class="notice">
-      No bookmarks indexed in this folder yet. Use
-      <strong>(Recommended) Download new bookmarks and update incomplete fics</strong> above to
-      fetch them.
+      No bookmarks indexed in this folder yet. Use <strong>Quick Scan</strong> above to
+      fetch them - with nothing indexed yet it will read your whole listing.
     </p>
   }
 } @else if (view() === 'collections') {
   <app-collections-view />
+} @else if (view() === 'history') {
+  <app-history />
 } @else {
   <app-faq />
 }
