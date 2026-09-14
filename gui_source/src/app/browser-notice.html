@@ -1,0 +1,39 @@
+<div class="backdrop" (click)="dismiss()"></div>
+
+<div class="dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+  <header>
+    <h2>This works in Chromium browsers</h2>
+    <button type="button" class="icon" (click)="dismiss()" aria-label="Close">&times;</button>
+  </header>
+
+  <section class="body">
+    @if (supported) {
+      <p>
+        Everything is saved straight into the folder you choose - your downloaded works, the
+        index, any images, and the record of each run. Nothing is uploaded anywhere, and
+        nothing is kept by this site.
+      </p>
+
+      <p class="hint">
+        Writing into a folder you picked needs the File System Access API, which
+        <strong>Chrome, Edge, Brave, Opera and Arc</strong> have. Firefox and Safari do not,
+        so downloading will not work there. Your browser supports it, so you are set.
+      </p>
+    } @else {
+      <p class="warning">
+        <strong>This browser cannot download.</strong> Saving into a folder you choose needs
+        the File System Access API, and only Chromium browsers have it -
+        <strong>Chrome, Edge, Brave, Opera or Arc</strong>. Firefox and Safari do not.
+      </p>
+
+      <p class="hint">
+        You can still open a folder and browse a library that is already there. Starting a
+        run needs one of the browsers above.
+      </p>
+    }
+  </section>
+
+  <footer>
+    <button type="button" class="button primary" (click)="dismiss()">Got it</button>
+  </footer>
+</div>

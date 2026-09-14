@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DirectoryHandle, FileHandle, readFolder } from './folder-store';
+import {
+  DirectoryHandle,
+  FileHandle,
+  readFolder,
+  removeFile,
+  streamFile,
+  writeFile,
+} from './folder-store';
 
 function file(name: string, body = ''): FileHandle {
   return {
@@ -45,5 +52,187 @@ describe('readFolder', () => {
 
   it('handles an empty folder', async () => {
     expect(await readFolder(directory('downloads', []))).toEqual([]);
+  });
+});
+
+/**
+ * A folder that can be written to, kept in memory.
+ *
+ * Nothing in jsdom implements the File System Access API, so the fake has to stand in for
+ * the parts the page relies on: creating a subfolder, creating a file in it, and only
+ * landing the bytes on close.
+ */
+function writable(written: Map<string, string>, prefix = ''): DirectoryHandle {
+  const here = prefix;
+  return {
+    kind: 'directory',
+    name: prefix || 'downloads',
+    async *values() {
+      // nothing reads a written folder back in these tests
+    },
+    async getDirectoryHandle(name: string, options?: { create?: boolean }) {
+      if (!options?.create) throw new Error('not found: ' + name);
+      return writable(written, here + name + '/');
+    },
+    async getFileHandle(name: string, options?: { create?: boolean }) {
+      if (!options?.create) throw new Error('not found: ' + name);
+      const path = here + name;
+      let pending = '';
+      return {
+        kind: 'file' as const,
+        name,
+        getFile: async () => new File([written.get(path) ?? ''], name),
+        createWritable: async () => ({
+          async write(data: BufferSource | Blob | string) {
+            pending += String(data);
+          },
+          async close() {
+            written.set(path, pending);
+          },
+        }),
+      };
+    },
+    async removeEntry(name: string) {
+      const path = here + name;
+      if (!written.has(path)) throw new Error('not found: ' + path);
+      written.delete(path);
+    },
+  };
+}
+
+describe('writing into the picked folder', () => {
+  it('writes a file at the top of the folder', async () => {
+    const written = new Map<string, string>();
+
+    await writeFile(writable(written), '111 A Work - X 2026-01-01.html', '<html>');
+
+    expect(written.get('111 A Work - X 2026-01-01.html')).toBe('<html>');
+  });
+
+  // indexing, collections, images and runs all live under the picked folder, and none of
+  // them exists the first time something is saved into it
+  it('creates the subfolders on the way', async () => {
+    const written = new Map<string, string>();
+
+    await writeFile(writable(written), 'indexing/111 A Work.json', '{"id":"111"}');
+    await writeFile(written.size ? writable(written) : writable(written), 'runs/a-run.json', '{}');
+
+    expect(written.get('indexing/111 A Work.json')).toBe('{"id":"111"}');
+    expect(written.get('runs/a-run.json')).toBe('{}');
+  });
+
+  it('lands nothing until the stream is closed', async () => {
+    const written = new Map<string, string>();
+    const handle = writable(written);
+    const folder = await handle.getFileHandle!('half.html', { create: true });
+    const stream = await folder.createWritable!();
+
+    await stream.write('partial');
+    expect(written.has('half.html')).toBe(false);
+
+    await stream.close();
+    expect(written.get('half.html')).toBe('partial');
+  });
+
+  it('removes a file, and treats one that is not there as already gone', async () => {
+    const written = new Map<string, string>([['indexing/111.json', '{}']]);
+
+    expect(await removeFile(writable(written), 'indexing/111.json')).toBe(true);
+    expect(written.has('indexing/111.json')).toBe(false);
+    expect(await removeFile(writable(written), 'indexing/nope.json')).toBe(false);
+  });
+
+  it('will not write into a browser that cannot create files', async () => {
+    // the fallback folder input gives no handle worth writing through
+    await expect(writeFile(directory('downloads', []), 'a.html', 'x')).rejects.toThrow();
+  });
+});
+
+/**
+ * A folder whose files are real `WritableStream`s, which is what `pipeTo` needs.
+ *
+ * The browser's own `createWritable` returns one, so faking anything less would test a
+ * different code path than the one that runs.
+ */
+function streamable(written: Map<string, string>, landed = new Set<string>()): DirectoryHandle {
+  return {
+    kind: 'directory',
+    name: 'downloads',
+    async *values() {
+      // nothing reads it back here
+    },
+    async getDirectoryHandle() {
+      return streamable(written, landed);
+    },
+    async getFileHandle(name: string) {
+      let buffer = '';
+      return {
+        kind: 'file' as const,
+        name,
+        getFile: async () => new File([written.get(name) ?? ''], name),
+        createWritable: async () =>
+          new WritableStream<Uint8Array>({
+            write(chunk) {
+              buffer += new TextDecoder().decode(chunk);
+            },
+            close() {
+              written.set(name, buffer);
+              landed.add(name);
+            },
+            abort() {
+              // an aborted writable discards what it had - no truncated file is left
+            },
+          }) as unknown as never,
+      };
+    },
+  };
+}
+
+function bodyOf(chunks: string[], failOn = -1): ReadableStream<Uint8Array> {
+  let at = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (at === failOn) {
+        controller.error(new Error('connection lost'));
+        return;
+      }
+      if (at >= chunks.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(new TextEncoder().encode(chunks[at++]));
+    },
+  });
+}
+
+describe('streaming a download into the picked folder', () => {
+  it('writes the whole body without ever holding it', async () => {
+    const written = new Map<string, string>();
+
+    await streamFile(streamable(written), '111 A Work.epub', bodyOf(['one', 'two', 'three']));
+
+    expect(written.get('111 A Work.epub')).toBe('onetwothree');
+  });
+
+  // the same guarantee the helper's own writes were built around: a transfer that dies
+  // partway leaves no file rather than one that looks complete and is not
+  it('leaves no file behind when the transfer fails partway', async () => {
+    const written = new Map<string, string>();
+    const landed = new Set<string>();
+
+    await expect(
+      streamFile(streamable(written, landed), '111 A Work.epub', bodyOf(['one', 'two'], 1)),
+    ).rejects.toThrow('connection lost');
+
+    expect(landed.has('111 A Work.epub')).toBe(false);
+    expect(written.has('111 A Work.epub')).toBe(false);
+  });
+
+  it('creates the subfolder on the way, as a plain write does', async () => {
+    const written = new Map<string, string>();
+
+    await streamFile(streamable(written), 'images/111 img000.png', bodyOf(['bytes']));
+
+    expect(written.get('111 img000.png')).toBe('bytes');
   });
 });

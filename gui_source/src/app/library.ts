@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { Bookmark, BookmarksExport, flattenRecord, workIdFromFilename } from './bookmarks';
 import { Collection, flattenCollection, isCollectionRecord } from './collections';
 import { DirectoryHandle, FolderStore } from './folder-store';
+import { isRunRecord } from './jobs';
 
 /**
  * Reads a downloads folder that ao3downloader wrote into.
@@ -174,6 +175,11 @@ export class Library {
     const collections: Collection[] = [];
     for (const entry of parsed) {
       if (!entry || typeof entry !== 'object') continue;
+
+      // the run history lives in a subfolder of the downloads folder, and a folder read
+      // here arrives flat - so a run record has to be recognised by shape and passed over,
+      // or it is rendered as a bookmark on the strength of carrying an id
+      if (isRunRecord(entry)) continue;
 
       // checked before the works array, since a collection also holds a list of works
       if (isCollectionRecord(entry)) {

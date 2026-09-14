@@ -29,10 +29,13 @@ DOT_SOURCE = """$envScript = Join-Path $PSScriptRoot 'powershell_source\\ao3_dow
 PYTHON_HOME = Path('powershell_source') / 'ao3_download_helper'
 PACKAGE_NAME = 'source_code'
 
-# The bundle runs the helper and nothing else, so it ships what the helper imports and
-# stops there - the console menu, its actions, and the ebook parsing only they use are all
-# left behind. Worked out by following imports rather than by keeping a list, because a
-# list goes stale the moment a module gains an import and nobody notices until it breaks.
+# The bundle runs the helper and nothing else, so it ships what the helper imports and stops
+# there. Worked out by following imports rather than by keeping a list, because a list goes
+# stale the moment a module gains an import and nobody notices until it breaks.
+#
+# Nothing is left behind any more: the console menu, its actions, and the ebook parsing only
+# they used have been deleted, so the package is exactly what the helper reaches. A name in
+# `left_behind` now means dead code, or a module that lost its last import by accident.
 HELPER_ENTRY = 'server'
 
 # read at run time through importlib.resources, so no import graph can see them

@@ -29,6 +29,11 @@
   </div>
 </header>
 
+<!-- said once, before anything else, because it decides whether any of this can work here -->
+@if (browserNotice()) {
+  <app-browser-notice (dismissed)="browserNotice.set(false)" />
+}
+
 @if (warning()) {
   <app-folder-warning (confirmed)="warningAccepted()" (cancelled)="warningCancelled()" />
 }
@@ -74,8 +79,13 @@
   </button>
 </nav>
 
-<!-- the faq is something to read, not a folder to act on, so it carries no buttons -->
-@if (view() !== 'faq' && view() !== 'history') {
+<!--
+  the faq is something to read, not a folder to act on, so it carries no buttons - and
+  nothing is offered at all until a folder is picked, because every run reads that folder
+  to work out what it already has and writes everything back into it. the panel below
+  already asks for one, so an empty button bar above it would only repeat the question.
+-->
+@if (view() !== 'faq' && view() !== 'history' && folderChosen()) {
 <div class="actions">
   @if (view() === 'bookmarks') {
     <!--

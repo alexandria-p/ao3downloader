@@ -1,15 +1,20 @@
 write doco:
 - what each button in the app does
 - what is indexing
-- EnableDebugTools=true in settings.ini
 
-update readme 
-- if you make dev changes to website, you can just hot-reload.
-- if you make dev changes to downloader process, you will need to restart the worker (by exiting uv.exe and rerunning start-application.ps1
+
+wording/terminology:
+
+* Run
+* Workflow (logic of a run)
+* Steps (stages in a workflow)
+* Settings (site configuration)
+* Options (run configuration)
+* Indexing
+
 
 ---------
 DEPLOYMENT
-for github pages - do not create downloads folder automatically. all buttons are greyed out until a downloads folder is selected  (make this a deployment option, that updates settings.ini, that is read by project)
 
 for github pages - do not bother keeping logs (make this a deployment option, that updates settings.ini, that is read by project)
 
@@ -36,8 +41,9 @@ stopped at your request. anything already saved has been kept.
 is this because 9 existing need updating, and 49 are new and arent downloaded at all??
 let's fix the output wording here. cause it is confusing AF
 
+-------
 
-
+quick scan not working as expected - not picking up new bookmarks :'( mmm...let me think how to solve without the steps (new bookmarks/latest updated) interferring with each other...
 
 ---------
 
@@ -59,33 +65,26 @@ what happens when stopped or exited mid-download?
 
 
 
+1. save the 'bookmarked series' as its own json entry
+- ensure all works in the bookmark are indexed & downloaded.
+- if work in a series was already indexed this run, do not index again
+- if a work in a series was already downloaded/updated (whether successful/failed) this run, skip - or we get caught in loops.
+- if you 'walked' here from a series
 
-Get works from all encountered series links
-If a bookmarked work belongs to a series, download the whole series too. This can take a great deal longer. Series you bookmarked directly are always downloaded either way. why cant i choose this for all download types?
-
-how to download a bookmarked series?
-
-/// bleh think this is already completed
-when you do not know for sure how many pages need indexing examples include in the quickscan (and in custom scan) - for example if we are indexing up until a date, indexing between dates, indexing only new bookmarks etc....then don't show 'fetching page X out of Y' in the console or progress bar caption -> because we dont actually know what page Y IS (ie when we will stop).
-why was data.json still built in build/config?? we do not need this file, remove anything that builds in to build/config.
-
-
-
-
-Custom option & full index 
-- do it in date order (of existing indexes, go from most recently updated first)
-- instead of page-page, have an option to re-index (and redownload, if needed) if existing index is within a last-updated date range.
+2. "Get works from all encountered series links"
+If a bookmarked work belongs to a series, download the whole series too. This can take a great deal longer. Series you bookmarked directly are always downloaded either way."
+- introduce this as an option in ALL workflows
+- walk thru, index and download every bookmark in the series, if this is selected
+- if work in a series was already indexed this run, do not index again
+- if a work in a series was already downloaded/updated (whether successful/failed) this run, skip - or we get caught in loops.
+- if you are already in a series crawl, do not trigger a series crawl when you encounter the next work in the series. finish this crawl first.
 
 
 
 
-
-
-
-
-
-
-
+in custom run, an option to ONLY index (and download) bookmarked series.
+bookmarkable_type: Series
+https://archiveofourown.org/bookmarks?bookmark_search%5Bsort_column%5D=created_at&bookmark_search%5Bother_tag_names%5D=&bookmark_search%5Bother_bookmark_tag_names%5D=&bookmark_search%5Bexcluded_tag_names%5D=&bookmark_search%5Bexcluded_bookmark_tag_names%5D=&bookmark_search%5Bwords_from%5D=&bookmark_search%5Bwords_to%5D=&bookmark_search%5Bbookmarkable_query%5D=bookmarkable_type%3A+Series&bookmark_search%5Bbookmark_query%5D=&bookmark_search%5Blanguage_id%5D=&bookmark_search%5Brec%5D=0&bookmark_search%5Bwith_notes%5D=0&commit=Sort+and+Filter&user_id=Moonlight_Streak
 
 -------------
 
@@ -97,6 +96,12 @@ upload to, and read from, dropbox link (instead of local downloads folder)
 
 filtering in-app
 make html look nice, load images into html fics.
+
+Allow indexing of user-imported files, that do not exist in your bookmarks:
+1. try and index downloaded fics (that user imports) that have no match on ao3 from fichub
+2. external works
+
+
 
 
 -----------------

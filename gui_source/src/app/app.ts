@@ -1,5 +1,6 @@
 import { Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
+import { BrowserNotice, browserNoticeSeen } from './browser-notice';
 import { CollectionsView } from './collections-view';
 import { DownloadDialog } from './download-dialog';
 import { Faq } from './faq';
@@ -15,7 +16,8 @@ export type View = 'bookmarks' | 'collections' | 'history' | 'faq';
 
 @Component({
   selector: 'app-root',
-  imports: [DecimalPipe, DownloadDialog, Faq, FolderWarning, History, WorkList, CollectionsView],
+  imports: [DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History,
+    WorkList, CollectionsView],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })
@@ -26,6 +28,15 @@ export class App {
   protected readonly view = signal<View>('bookmarks');
   /** which download dialog is open, if any */
   protected readonly dialogAction = signal<JobAction | null>(null);
+  /**
+   * Whether the one-off browser note is up.
+   *
+   * Said on the first visit and never again: writing into a folder you chose needs the
+   * File System Access API, which only Chromium browsers have. Waiting until it bites
+   * would mean saying it after a folder is picked and a run started.
+   */
+  protected readonly browserNotice = signal(!browserNoticeSeen());
+
   /** whether the naming note is up, waiting to be read before the picker opens */
   protected readonly warning = signal(false);
 
@@ -40,6 +51,16 @@ export class App {
   protected readonly folderName = this.library.folderName;
   protected readonly needsReconnect = this.library.needsReconnect;
   protected readonly canPickFolder = this.library.canPickFolder;
+
+  /**
+   * Whether a downloads folder has been chosen yet.
+   *
+   * Every run reads that folder to work out what it already has and writes everything back
+   * into it, so starting one before a folder is picked is starting a run with no idea what
+   * it is looking at. The buttons stay disabled until then rather than being hidden: a
+   * button you can see and cannot press says what is missing, where an absent one does not.
+   */
+  protected readonly folderChosen = computed(() => !!this.folderName());
 
   /**
    * Whether settings.ini has turned the debug tools on.

@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DownloadDialog } from './download-dialog';
 import {
+  AnswerChoice,
   JobAction,
   JobEvent,
   Jobs,
@@ -32,7 +33,7 @@ const CONFIG: ServerConfig = {
 class FakeJobs extends Jobs {
   started: StartRequest[] = [];
   cancelled: string[] = [];
-  answers: { jobId: string; choice: UndatedChoice; date: string }[] = [];
+  answers: { jobId: string; choice: AnswerChoice; date: string }[] = [];
   pauses: { jobId: string; paused: boolean }[] = [];
   /** set by a test that needs answering to fail, leaving the run still waiting */
   answerFails: string | null = null;
@@ -65,7 +66,7 @@ class FakeJobs extends Jobs {
     this.cancelled.push(jobId);
   }
 
-  override async answer(jobId: string, choice: UndatedChoice, date = ''): Promise<void> {
+  override async answer(jobId: string, choice: AnswerChoice, date = ''): Promise<void> {
     if (this.answerFails) throw new Error(this.answerFails);
     this.answers.push({ jobId, choice, date });
   }
@@ -300,10 +301,32 @@ describe('DownloadDialog', () => {
     expect(jobs.started[0].options.pages).toBe(0);
   });
 
-  // a quick scan works out its own floor; a slice of the listing means nothing to it
-  it('offers a quick scan no page slice', async () => {
+  /**
+   * Open the quick scan with the debug tools on.
+   *
+   * Picking your own date is a debug choice on that run - the point of it is the floor
+   * it works out for itself - so with the tools off there is nothing to choose and no
+   * options step at all.
+   */
+  async function openQuickDates() {
+    jobs.settingsOverride = { ...CONFIG.settings!, debugTools: true };
     await open('quick');
     await advanceTo('options');
+  }
+
+  // a quick scan works out its own floor; a slice of the listing means nothing to it
+  // with the date range gone there is nothing left for it to ask, and a step with nothing
+  // on it reads as one that failed to load
+  it('takes a quick scan straight past its options unless the debug tools are on', async () => {
+    await open('quick');
+    await advanceTo('filetypes');
+
+    expect(currentStep()).toBe('filetypes');
+    expect(checkbox('Choose my own date range')).toBeUndefined();
+  });
+
+  it('offers a quick scan no page slice', async () => {
+    await openQuickDates();
 
     expect(checkbox('A slice of your bookmarks listing')).toBeUndefined();
     expect(checkbox('Anything that has changed since my last run')).toBeTruthy();
@@ -865,6 +888,61 @@ describe('DownloadDialog', () => {
     });
     await fixture.whenStable();
   }
+
+  /** the quick scan's question: no run to measure from, but an index already here */
+  async function askedAboutTheFloor(count = 240, date = '2026-09-10'): Promise<void> {
+    await open('quick');
+    await advanceTo('running');
+    jobs.push!({
+      type: 'question',
+      name: 'quick-floor',
+      count,
+      date,
+      choices: ['since', 'full'],
+    });
+    await fixture.whenStable();
+  }
+
+  // more than one question can stop a run, and they go back through the same endpoint -
+  // so the panel has to be keyed on which one is being asked, not on the count
+  it('asks how far back a quick scan should go, in its own words', async () => {
+    await askedAboutTheFloor();
+
+    const said = element.querySelector('.question')?.textContent ?? '';
+    expect(said).toContain('no record of a completed scan');
+    expect(said).toContain('240');
+    expect(said).toContain('2026-09-10');
+    // and not the undated question's wording
+    expect(said).not.toContain('before file names carried a date');
+  });
+
+  it('measures back to the index date when that is what was chosen', async () => {
+    await askedAboutTheFloor();
+
+    button('Find what has changed since 2026-09-10')!.click();
+    await fixture.whenStable();
+
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'since', date: '' }]);
+    expect(element.querySelector('.question')).toBeNull();
+  });
+
+  it('reads the whole listing when that is what was chosen', async () => {
+    await askedAboutTheFloor();
+
+    button('Read my whole listing')!.click();
+    await fixture.whenStable();
+
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'full', date: '' }]);
+  });
+
+  it('still shows the undated question its own panel', async () => {
+    await askedAboutUndated();
+
+    const said = element.querySelector('.question')?.textContent ?? '';
+    expect(said).toContain('before file names carried a date');
+    expect(said).not.toContain('no record of a completed scan');
+    expect(button('Ignore and skip them')).toBeTruthy();
+  });
 
   it('asks during the run, not after it', async () => {
     // the answer decides what counts as out of date, so asking afterwards is too late
@@ -1473,19 +1551,17 @@ describe('DownloadDialog', () => {
   // a quick scan's two shapes, in its own words: the floor it works out for itself, or one
   // the user gives it
   it('offers a quick scan its own pair of coverage choices', async () => {
-    await open('quick');
-    await advanceTo('options');
+    await openQuickDates();
 
     expect(checkbox('Anything that has changed since my last run')).toBeTruthy();
-    expect(checkbox('Choose my own date range')).toBeTruthy();
+    expect(checkbox('[DEBUG] Choose my own date range')).toBeTruthy();
     // that is the custom run's wording, and it walks no slice of the listing
     expect(checkbox('A slice of your bookmarks listing')).toBeUndefined();
     expect(element.querySelector('input[name="start"]')).toBeNull();
   });
 
   it('sends a quick scan the date range it was given', async () => {
-    await open('quick');
-    await advanceTo('options');
+    await openQuickDates();
 
     checkbox('Choose my own date range')!.click();
     await fixture.whenStable();
@@ -1510,8 +1586,7 @@ describe('DownloadDialog', () => {
   // the caveats differ: measuring back to the last run and measuring back to a date you
   // picked fail in different ways, so one note cannot cover both
   it('gives a quick scan over a date range its own caveats', async () => {
-    await open('quick');
-    await advanceTo('options');
+    await openQuickDates();
 
     checkbox('Choose my own date range')!.click();
     await fixture.whenStable();
@@ -1857,9 +1932,14 @@ describe('DownloadDialog', () => {
     jobs.push!({ type: 'step', id: 'gaps', status: 'failed' });
     await fixture.whenStable();
 
-    expect(stepRows()[0].state).toBe('nothing to do');
+    expect(stepRows()[0].state).toBe('skipped');
     expect(stepRows()[0].status).not.toContain('step-failed');
+    expect(stepRows()[0].status).toContain('step-skipped');
     expect(stepRows()[1].state).toBe('failed');
+
+    // tagged on the line itself, so it reads as skipped without reading the column
+    expect(stepRows()[0].label).toContain('[SKIP]');
+    expect(stepRows()[1].label).not.toContain('[SKIP]');
   });
 
   it('counts how far through the run is', async () => {

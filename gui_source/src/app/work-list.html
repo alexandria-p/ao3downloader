@@ -1,5 +1,93 @@
+<!--
+  narrowing the listing, not searching ao3: everything here is filtered from what the folder
+  already holds, so it costs no requests and works with the helper stopped
+-->
+<details class="filters">
+  <summary>
+    Filter
+    @if (filtering()) {
+      <span class="filter-count">{{ total() | number }} of {{ totalUnfiltered() | number }}</span>
+    }
+  </summary>
+
+  <div class="filter-grid">
+    <label class="filter-field">
+      <span>Title contains</span>
+      <input
+        type="search"
+        name="titleQuery"
+        [value]="titleQuery()"
+        (input)="titleQuery.set($any($event.target).value)"
+      />
+    </label>
+
+    <label class="filter-field">
+      <span>Author contains</span>
+      <input
+        type="search"
+        name="authorQuery"
+        [value]="authorQuery()"
+        (input)="authorQuery.set($any($event.target).value)"
+      />
+    </label>
+
+    <label class="filter-field">
+      <span>Updated on AO3 from</span>
+      <input
+        type="date"
+        name="updatedFrom"
+        [value]="updatedFrom()"
+        (input)="updatedFrom.set($any($event.target).value)"
+      />
+    </label>
+
+    <label class="filter-field">
+      <span>Updated on AO3 to</span>
+      <input
+        type="date"
+        name="updatedTo"
+        [value]="updatedTo()"
+        (input)="updatedTo.set($any($event.target).value)"
+      />
+    </label>
+
+    <label class="filter-field">
+      <span>Bookmarked from</span>
+      <input
+        type="date"
+        name="bookmarkedFrom"
+        [value]="bookmarkedFrom()"
+        (input)="bookmarkedFrom.set($any($event.target).value)"
+      />
+    </label>
+
+    <label class="filter-field">
+      <span>Bookmarked to</span>
+      <input
+        type="date"
+        name="bookmarkedTo"
+        [value]="bookmarkedTo()"
+        (input)="bookmarkedTo.set($any($event.target).value)"
+      />
+    </label>
+  </div>
+
+  <p class="filter-actions">
+    <button type="button" class="button subtle" [disabled]="!filtering()" (click)="clearFilters()">
+      Clear filters
+    </button>
+    <span class="filter-hint">
+      Both ends of a date range count. A work with no date recorded is left out of a date
+      range, because there is nothing to compare it against.
+    </span>
+  </p>
+</details>
+
 <p class="listing-heading">
   {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} {{ label() }}
+  @if (filtering()) {
+    <span class="filtered-note">(filtered from {{ totalUnfiltered() | number }})</span>
+  }
   @if (owner()) {
     by <a [href]="'https://archiveofourown.org/users/' + owner()" target="_blank" rel="noopener">{{ owner() }}</a>
   }

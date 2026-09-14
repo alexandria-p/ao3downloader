@@ -1877,6 +1877,137 @@ def test_the_floor_skips_finished_runs_that_were_not_scans(fake_environment):
         assert server.quick_scan_floor(fake_environment['fileops']) == '2026-09-01'
 
 
+# region a quick scan with an index but no run to measure from
+
+def indexed(work: str, on: str) -> dict:
+    return {'id': work, 'link': f'https://archiveofourown.org/works/{work}',
+            'last_indexed': on}
+
+
+def test_the_index_offers_the_day_it_was_last_written():
+    records = [indexed('1', '2026-09-01T10:00:00'), indexed('2', '2026-09-10T12:34:56'),
+               indexed('3', '2026-08-01T09:00:00')]
+
+    assert server.newest_indexed_on(records) == '2026-09-10'
+
+
+def test_an_index_that_never_recorded_a_date_offers_nothing():
+    assert server.newest_indexed_on([{'id': '1'}, {'id': '2', 'last_indexed': ''}]) == ''
+    assert server.newest_indexed_on([]) == ''
+
+
+def asked_quick(fake_environment, index, answer):
+    """Drive a quick scan with no floor and an index in place, and answer what it asks."""
+
+    job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone')
+    asked: list[dict] = []
+    # every test through here MUST stub this, or the run blocks for half an hour
+    job.ask = lambda question, default: asked.append(question) or (answer or default)
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.runs, 'last_successful', return_value=None), \
+         patch.object(server.shared, 'read_index', return_value=index), \
+         patch.object(server, 'download_planned'):
+        server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    return asked, ao3
+
+
+def test_a_quick_scan_with_an_index_but_no_floor_stops_and_asks(fake_environment):
+    # reading the whole listing is hours on a large library, and an index already here may
+    # be perfectly recent - built by an older version, a restored backup, a lost history
+    asked, _ = asked_quick(fake_environment, [indexed('1', '2026-09-10T12:00:00')], None)
+
+    assert len(asked) == 1
+    assert asked[0]['name'] == server.QUICK_QUESTION
+    assert asked[0]['date'] == '2026-09-10'
+    assert asked[0]['count'] == 1
+
+
+def test_answering_with_the_index_date_measures_back_to_it(fake_environment):
+    _, ao3 = asked_quick(fake_environment, [indexed('1', '2026-09-10T12:00:00')],
+                         {'choice': server.QUICK_SINCE_INDEX})
+
+    assert ao3.get_metadata.call_args.kwargs['stop_before'] == '2026-09-10'
+
+
+def test_answering_with_the_whole_listing_reads_everything(fake_environment):
+    _, ao3 = asked_quick(fake_environment, [indexed('1', '2026-09-10T12:00:00')],
+                         {'choice': server.QUICK_FULL})
+
+    assert ao3.get_metadata.call_args.kwargs['stop_before'] == ''
+
+
+def test_a_stop_or_a_closed_tab_reads_everything(fake_environment):
+    # the default is the answer that cannot leave a gap: whatever goes wrong, a quick scan
+    # must not quietly decide to look at less than it should
+    job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone')
+    defaults: list[dict] = []
+    job.ask = lambda question, default: defaults.append(default) or default
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.runs, 'last_successful', return_value=None), \
+         patch.object(server.shared, 'read_index',
+                      return_value=[indexed('1', '2026-09-10T12:00:00')]), \
+         patch.object(server, 'download_planned'):
+        server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert defaults[0] == {'choice': server.QUICK_FULL}
+    assert ao3.get_metadata.call_args.kwargs['stop_before'] == ''
+
+
+def test_an_empty_index_is_not_worth_asking_about(fake_environment):
+    asked, ao3 = asked_quick(fake_environment, [], None)
+
+    assert asked == []
+    assert ao3.get_metadata.call_args.kwargs['stop_before'] == ''
+
+
+def test_a_run_that_has_a_floor_never_asks(fake_environment):
+    job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone')
+    asked: list[dict] = []
+    job.ask = lambda question, default: asked.append(question) or default
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.runs, 'last_successful',
+                      return_value={'started': '2026-09-01T12:00:00'}), \
+         patch.object(server.shared, 'read_index',
+                      return_value=[indexed('1', '2026-09-10T12:00:00')]), \
+         patch.object(server, 'download_planned'):
+        server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert asked == []
+    assert ao3.get_metadata.call_args.kwargs['stop_before'] == '2026-09-01'
+
+
+def test_what_was_chosen_goes_into_the_run_history(fake_environment):
+    job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone')
+    job.ask = lambda question, default: {'choice': server.QUICK_SINCE_INDEX}
+    job.record = MagicMock()
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.runs, 'last_successful', return_value=None), \
+         patch.object(server.shared, 'read_index',
+                      return_value=[indexed('1', '2026-09-10T12:00:00')]), \
+         patch.object(server, 'download_planned'):
+        server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    saved = job.record.choice.call_args.args[0]
+    assert saved['question'] == server.QUICK_QUESTION
+    assert saved['choice'] == server.QUICK_SINCE_INDEX
+    assert saved['date'] == '2026-09-10'
+
+# endregion
+
+
 def test_a_quick_scan_says_it_is_indexing_since_the_last_run():
     job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone')
 
@@ -2092,6 +2223,22 @@ def test_the_runs_that_only_fetch_new_bookmarks_say_so_on_the_download_step():
     scan = server.Job(server.ACTION_BOOKMARKS, ['JSON', 'HTML'], 'Someone',
                       server.resolve_options({}))
     assert dict(server.step_plan(scan))['download'] == strings.STEP_DOWNLOAD
+
+
+def test_a_scan_says_its_download_step_may_be_an_update():
+    # it indexed first, so by the time the step runs it knows which copies ao3 has moved
+    # past - those are replaced rather than skipped
+    for action in (server.ACTION_BOOKMARKS, server.ACTION_QUICK, server.ACTION_CUSTOM):
+        job = server.Job(action, ['JSON', 'HTML'], 'Someone', server.resolve_options({}))
+        assert dict(server.step_plan(job))['download'] == strings.STEP_DOWNLOAD, action
+
+
+def test_the_single_fic_run_promises_a_download_rather_than_a_maybe():
+    # it always replaces what you have, so nothing about it is conditional
+    job = server.Job(server.ACTION_WORK, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({}))
+
+    assert dict(server.step_plan(job))['download'] == strings.STEP_DOWNLOAD_ONE
 
 
 def test_only_the_combined_run_has_a_gap_pass():
@@ -2368,13 +2515,32 @@ def test_a_date_window_says_so_on_its_checklist():
     assert dict(server.step_plan(job))['index'] == strings.STEP_INDEX_WINDOW
 
 
-def test_a_window_that_skips_indexing_does_not_list_an_indexing_step():
-    # a checklist that names work the run will not do is worse than none
+def test_a_window_that_skips_indexing_still_lists_the_step_it_turned_off(fake_environment):
+    # a step the user actively turned off is worth seeing struck through, where one this
+    # workflow simply never had is only noise
     job = server.Job(server.ACTION_CUSTOM, ['JSON', 'HTML'], 'Someone',
                      server.resolve_options({'dates': True, 'reindex': False}))
+    events: list[dict] = []
+    job.steps = server.Steps(events.append, server.step_plan(job))
 
     assert [step for step, _ in server.step_plan(job)] == [
-        'login', 'read', 'check', 'update', 'report']
+        'login', 'index', 'read', 'check', 'update', 'report']
+
+    ao3 = MagicMock()
+    with patch.object(server.shared, 'read_index', return_value=[]):
+        server.run_custom_dates(job, fake_environment['fileops'], ao3, ['HTML'], None)
+
+    ao3.get_metadata.assert_not_called()
+    marks = [(e['id'], e['status']) for e in events if e['type'] == progress.STEP]
+    assert ('index', progress.STEP_SKIPPED) in marks
+
+
+def test_a_run_that_writes_no_index_lists_no_indexing_step():
+    # nothing was turned off here - json is the index, and this run writes none
+    job = server.Job(server.ACTION_CUSTOM, ['HTML'], 'Someone',
+                     server.resolve_options({'dates': True, 'reindex': False}))
+
+    assert 'index' not in [step for step, _ in server.step_plan(job)]
 
 # endregion
 

@@ -97,6 +97,17 @@ export interface JobOptions {
 export type UndatedChoice = 'stamp' | 'refresh' | 'skip';
 
 /**
+ * How far back a quick scan should reach when no run qualifies as a floor.
+ *
+ * 'since' measures back to the day the index was last written; 'full' reads the whole
+ * listing, which is what it does when there is nothing to go on at all.
+ */
+export type QuickFloorChoice = 'since' | 'full';
+
+/** anything a run may be answered with; the run only reads its own question's replies */
+export type AnswerChoice = UndatedChoice | QuickFloorChoice;
+
+/**
  * Where a step has got to.
  *
  * 'skipped' is not 'failed'. A run with no unfinished fics skips that step and nothing has
@@ -137,6 +148,28 @@ export interface RunHistory {
   failures: WorkFailure[];
   skipped: WorkFailure[];
   error: string;
+}
+
+/**
+ * Whether a json file read out of the downloads folder is one of these run records.
+ *
+ * They live in a `runs` subfolder, but a folder read through the File System Access API
+ * arrives **flat** - the paths are gone - so the only thing left to tell them apart by is
+ * their shape. Without this a run record is rendered as a bookmark: `flattenRecord` hands
+ * back anything carrying an `id`, and a run record has one.
+ *
+ * Three fields rather than one, because `id` alone is what caused the problem and `action`
+ * alone is a word a fic could plausibly use. No work or collection record carries all of
+ * `action`, `status` and `started`.
+ */
+export function isRunRecord(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const record = parsed as Record<string, unknown>;
+  return (
+    typeof record['action'] === 'string' &&
+    typeof record['status'] === 'string' &&
+    typeof record['started'] === 'string'
+  );
 }
 
 /** a work the run could not download */
@@ -199,6 +232,8 @@ export interface JobEvent {
   /** on a `question` event: which question is being asked, and how many works it concerns */
   count?: number;
   choices?: string[];
+  /** on a `question` event: the date the question is offering, where it has one */
+  date?: string;
   seconds?: number;
   until?: string;
   error?: string;
@@ -294,7 +329,7 @@ export class Jobs {
    * than swallowed, and the helper gives up on its own after a while so nothing hangs for
    * ever if this never arrives.
    */
-  async answer(jobId: string, choice: UndatedChoice, date = ''): Promise<void> {
+  async answer(jobId: string, choice: AnswerChoice, date = ''): Promise<void> {
     const response = await fetch(`${API_BASE}/api/jobs/${jobId}/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

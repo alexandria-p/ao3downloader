@@ -21,17 +21,20 @@ class FileOps:
         log_folder = os.environ.get(strings.ENV_LOG_FOLDER, '')
 
         self.logfile = os.path.join(log_folder, strings.LOG_FOLDER_NAME, strings.LOG_FILE_NAME)
-        # beside the logs, for the same reason they are there: it describes runs, not the
-        # library, and the downloads folder is read as though everything in it were a work
-        self.runsfolder = os.path.join(log_folder, strings.RUNS_FOLDER_NAME)
         self.inifile = os.path.join(config_folder, strings.INI_FILE_NAME)
         self.settingsfile = os.path.join(config_folder, strings.SETTINGS_FILE_NAME)
+        # settled before the runs folder, which hangs off it. `get_download_folder` reads
+        # settings.ini, so `inifile` has to be settled before either of them.
         self.downloadfolder = self.get_download_folder()
+        # inside the downloads folder, with the library it describes. everything that walks
+        # that folder has to skip it by name - `shared.scan_downloaded_works` does, and so
+        # does the web page, which would otherwise read a run record as a work: a record has
+        # an `id`, which is all `flattenRecord` needs to hand one back as a bookmark.
+        self.runsfolder = os.path.join(self.downloadfolder, strings.RUNS_FOLDER_NAME)
 
 
     def initialize(self) -> None:
         os.makedirs(os.path.dirname(self.logfile), exist_ok=True)
-        os.makedirs(self.runsfolder, exist_ok=True)
         # empty when config sits in the working directory, which needs no creating
         config_folder = os.path.dirname(self.inifile)
         if config_folder: os.makedirs(config_folder, exist_ok=True)
@@ -40,6 +43,10 @@ class FileOps:
         except OSError:
             print(strings.MESSAGE_DOWNLOAD_FOLDER_ERROR.format(self.downloadfolder))
             raise
+        # after the downloads folder and not before it: the runs folder is inside it now, so
+        # creating this first would turn an unusable DownloadFolder into a bare OSError from
+        # a line that says nothing about which setting is wrong
+        os.makedirs(self.runsfolder, exist_ok=True)
         if not os.path.exists(self.inifile):
             with importlib.resources.open_text(strings.SETTINGS_FOLDER_NAME, strings.INI_FILE_NAME) as f:
                 with open(self.inifile, 'w', encoding='utf-8') as ini_file:

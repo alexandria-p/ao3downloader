@@ -201,9 +201,10 @@
                      (change)="coverage.set('dates')" />
               <span>
                 @if (action() === 'quick') {
-                  Choose my own date range
+                  <!-- only reachable with the debug tools on; see picksDates -->
+                  [DEBUG] Choose my own date range
                 } @else {
-                  Works AO3 updated in a date range
+                  Choose my own date range
                 }
               </span>
             </label>
@@ -655,7 +656,46 @@
           </div>
         }
 
-        <!-- the run is stopped here until this is answered, so it comes before progress -->
+        <!--
+          the run is stopped here until this is answered, so it comes before progress.
+          more than one question can stop a run, and they are answered through the same
+          endpoint - so the panel is keyed on which one is being asked, not on the count
+        -->
+        @if (asking() && question() === 'quick-floor') {
+          <div class="question">
+            <p class="question-text">
+              There is no record of a completed scan, so this would normally read your
+              whole bookmarks listing - which on a large library takes hours.
+            </p>
+            <p class="question-text">
+              But your index already holds <strong>{{ asking() | number }}</strong>
+              {{ asking() === 1 ? 'work' : 'works' }}, last written on
+              <strong>{{ askedDate() }}</strong>. This run can measure back to that date
+              instead and only look at what AO3 has changed since.
+            </p>
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="quickScanSinceIndex()">
+                Find what has changed since {{ askedDate() }}
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="quickScanWholeListing()">
+                Read my whole listing
+              </button>
+            </div>
+
+            <p class="hint">
+              The index date says when an entry was last written, not that everything was
+              seen - so if that index was built by a run that stopped partway, anything it
+              never reached stays missed. Reading the whole listing is the thorough answer;
+              it is only slower.
+            </p>
+          </div>
+        }
+
+        <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
+        @if (question() !== 'quick-floor') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">
@@ -723,6 +763,7 @@
             }
           </div>
         }
+        }
 
         <div
           class="bar"
@@ -772,17 +813,23 @@
                   <span class="step-mark" aria-hidden="true">
                     @switch (step.status) {
                       @case ('done') { &#10003; }
-                      @case ('skipped') { &#8722; }
+                      <!-- stepped over, not ticked off: a skipped step did not happen -->
+                      @case ('skipped') { &#187; }
                       @case ('failed') { &times; }
                       @case ('running') { <span class="spinner"></span> }
                       @default { &#9203; }
                     }
                   </span>
-                  <span class="step-label">{{ step.label }}</span>
+                  <span class="step-label">
+                    @if (step.status === 'skipped') {
+                      <span class="step-skip-tag">[SKIP]</span>
+                    }
+                    {{ step.label }}
+                  </span>
                   <span class="step-state">
                     @switch (step.status) {
                       @case ('done') { done }
-                      @case ('skipped') { nothing to do }
+                      @case ('skipped') { skipped }
                       @case ('failed') { failed }
                       @case ('running') { in progress }
                       @default { waiting }

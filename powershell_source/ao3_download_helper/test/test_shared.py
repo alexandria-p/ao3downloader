@@ -521,6 +521,8 @@ def test_scan_ignores_the_metadata_folders(tmp_path):
     make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '34816549 A.json'))
     make_file(tmp_path, os.path.join(strings.COLLECTIONS_FOLDER_NAME, '111 c.json'))
     make_file(tmp_path, os.path.join(strings.IMAGE_FOLDER_NAME, '34816549 A img000.png'))
+    # the run history lives here too now, and a record is json like an index entry is
+    make_file(tmp_path, os.path.join(strings.RUNS_FOLDER_NAME, '2026-09-13T120000-ab.json'))
     make_file(tmp_path, '34816549 A 2024-12-14.html')
 
     found = shared.scan_downloaded_works(str(tmp_path), ['HTML', 'JSON', 'PNG'])

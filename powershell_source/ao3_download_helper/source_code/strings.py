@@ -11,9 +11,9 @@ COLLECTIONS_FOLDER_NAME = 'collections'
 HTML_FOLDER_NAME = 'source_code.html'
 SETTINGS_FOLDER_NAME = 'source_code.settings'
 LOG_FOLDER_NAME = 'logs'
-# one json file per run, recording what it set out to do and what became of it. beside the
-# logs rather than inside the downloads folder: it describes the run, not the library, and
-# the downloads folder is read by the web page as though everything in it were a work.
+# one json file per run, recording what it set out to do and what became of it. a subfolder
+# of the downloads folder, beside `indexing` and `collections` - so everything that walks
+# that folder has to skip it by name, exactly as it skips those.
 RUNS_FOLDER_NAME = 'runs'
 LOG_FILE_NAME = 'log.jsonl'
 SETTINGS_FILE_NAME = 'data.json'
@@ -160,6 +160,14 @@ AO3_INFO_REACHED_KNOWN = 'reached a fic you have already indexed - nothing newer
 AO3_INFO_REACHED_OLDER = 'reached a fic ao3 last updated before {} - nothing older to check'
 AO3_INFO_QUICK_FLOOR = 'indexing works ao3 has updated since your last completed run, on {}'
 AO3_INFO_QUICK_NO_FLOOR = 'no completed run on record, so this reads the whole listing'
+# no run qualifies as a floor, but the index already holds something. asked rather than
+# decided: a full listing is hours on a large library, and the date the index was last
+# written is a guess only the person who built it can judge
+AO3_INFO_QUICK_ASKING = ('no completed scan on record, but your index already holds {} works, '
+                        'last written on {}')
+AO3_INFO_QUICK_WAITING = 'waiting for you to choose how far back to go'
+AO3_INFO_QUICK_SINCE_INDEX = 'indexing works ao3 has updated since your index was last written, on {}'
+AO3_INFO_QUICK_CHOSE_FULL = 'reading the whole listing, as a first scan would'
 # sorting the bookmarks listing by when ao3 last updated each work, rather than by when it
 # was bookmarked. verified against the live site: the default order is by date bookmarked
 # and jumps about, so a walk that stops at the first older fic would stop almost at once.
@@ -231,7 +239,11 @@ STEP_INDEX_COLLECTIONS = 'Index your collections'
 STEP_INDEX_COLLECTION = 'Index this collection'
 STEP_USE_INDEX = 'Read the index already saved'
 STEP_CHECK_FILES = 'Read your existing downloaded files'
-STEP_DOWNLOAD = 'Download the works'
+# a scan indexes first, so by the time this runs it knows which copies ao3 has moved
+# past - those are replaced rather than skipped, which is why it is not just 'download'
+STEP_DOWNLOAD = 'Download or update works as necessary'
+# the single-fic run always replaces what you have, so nothing about it is conditional
+STEP_DOWNLOAD_ONE = 'Download this fic'
 # the runs that only ever fetch bookmarks added since last time say so, because on those
 # 'the works' would read as the whole library
 STEP_DOWNLOAD_NEW = 'Download newly added works'

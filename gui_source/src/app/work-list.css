@@ -5,6 +5,92 @@
  * used in two places now: the bookmarks page, and the works inside a collection.
  */
 
+/*
+ * Narrowing the listing. Collapsed by default: it is for finding one fic in a large
+ * library, not something to look at on the way to reading.
+ */
+.filters {
+  margin: 20px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.filters > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-strong);
+}
+
+.filter-count {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 14px;
+  margin: 12px 0 0;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.filter-field input {
+  padding: 5px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 4px;
+}
+
+.filter-hint {
+  color: var(--text-dim);
+  font-size: 0.76rem;
+}
+
+.filter-actions .button {
+  padding: 5px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.filter-actions .button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* said beside the count, so a short listing is never mistaken for a small library */
+.filtered-note {
+  margin-left: 6px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
 .listing-heading {
   margin: 20px 0 4px;
   font-size: 1.15rem;

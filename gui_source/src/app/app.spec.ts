@@ -82,6 +82,9 @@ function collection(name: string): Collection {
 async function render(count: number) {
   const library = TestBed.inject(Library);
   library.data.set(exportOf(count));
+  // works only ever load out of a folder that was opened, and the runs are hidden
+  // until one is - so a rendered library comes with the folder it came from
+  library.folderName.set('downloads');
 
   const fixture = TestBed.createComponent(App);
   await fixture.whenStable();
@@ -106,6 +109,14 @@ async function showCollections(
   await fixture.whenStable();
 }
 
+/** the runs only exist once a folder is picked, which these are all about */
+async function withFolder() {
+  TestBed.inject(Library).folderName.set('downloads');
+  const fixture = TestBed.createComponent(App);
+  await fixture.whenStable();
+  return fixture.nativeElement as HTMLElement;
+}
+
 describe('App', () => {
   beforeEach(async () => {
     vi.stubGlobal('scrollTo', vi.fn());
@@ -120,9 +131,7 @@ describe('App', () => {
   it('leads with the everyday run and then the thorough one', async () => {
     // the order is the recommendation: a full scan is hours, and is not what most runs
     // should be
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const element = fixture.nativeElement as HTMLElement;
+    const element = await withFolder();
 
     expect(actionLabels(element).slice(0, 2)).toEqual([
       'Quick Scan',
@@ -133,9 +142,7 @@ describe('App', () => {
   it('keeps the single-purpose runs behind advanced options', async () => {
     // each is right for exactly one job and confusing as a default, so none of them sits
     // in the way of the two that are not
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const element = fixture.nativeElement as HTMLElement;
+    const element = await withFolder();
 
     const advanced = element.querySelector('.advanced');
     expect(advanced?.querySelector('summary')?.textContent?.trim()).toBe('Advanced options');
@@ -178,9 +185,7 @@ describe('App', () => {
       },
     });
 
-    const fixture = TestBed.createComponent(App);
-    await fixture.whenStable();
-    const element = fixture.nativeElement as HTMLElement;
+    const element = await withFolder();
 
     const debug = Array.from(element.querySelectorAll('.actions button.debug')).map((b) =>
       b.textContent?.trim(),
@@ -190,6 +195,74 @@ describe('App', () => {
       '[DEBUG] Just update any bookmarks marked as incomplete',
       '[DEBUG] Just download newly added bookmarks',
     ]);
+  });
+
+  // writing into a folder you chose needs an API only Chromium has, and the moment it bites
+  // is after a folder is picked and a run started - far too late to be told
+  it('says once that this needs a Chromium browser', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const notice = element.querySelector('app-browser-notice');
+    expect(notice).toBeTruthy();
+    expect(notice?.textContent).toContain('Chromium');
+  });
+
+  it('does not say it again once it has been dismissed', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const dismiss = Array.from(
+      element.querySelectorAll<HTMLButtonElement>('app-browser-notice button'),
+    ).find((b) => b.textContent?.includes('Got it'));
+    dismiss!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('app-browser-notice')).toBeNull();
+
+    // a second visit, with whatever the first one remembered
+    const again = TestBed.createComponent(App);
+    await again.whenStable();
+    expect(
+      (again.nativeElement as HTMLElement).querySelector('app-browser-notice'),
+    ).toBeNull();
+  });
+
+  // every run reads the folder to see what is already there and writes back into it, so
+  // there is nothing sensible to offer before one is picked - and the panel below already
+  // asks for one, so an empty button bar above it would only repeat the question
+  it('offers no run at all before a downloads folder is chosen', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('.actions')).toBeNull();
+    expect(actionLabels(element)).toEqual([]);
+  });
+
+  it('shows the runs once a folder has been chosen', async () => {
+    const library = TestBed.inject(Library);
+    library.data.set(exportOf(1));
+    library.folderName.set('downloads');
+
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('.actions')).toBeTruthy();
+    expect(actionLabels(element)).toContain('Quick Scan');
+  });
+
+  it('hides the collections runs the same way', async () => {
+    // no folder: the collections tab is reachable, but there is nothing to start
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    await showCollections(fixture, element);
+
+    expect(element.querySelector('.actions')).toBeNull();
   });
 
   it('offers only the collections jobs on the collections page', async () => {
@@ -234,6 +307,9 @@ describe('App', () => {
     // collections can be indexed first, and that folder is not an empty one
     const library = TestBed.inject(Library);
     library.collections.set([collection('a')]);
+    // collections only ever load out of a folder that was opened, so this state comes with
+    // one - and without it the buttons are gated and the gate's own notice is what shows
+    library.folderName.set('downloads');
 
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   Bookmark,
   chapterCount,
+  dateStamp,
   isComplete,
   ownerFromSource,
   pageItems,
@@ -140,5 +141,31 @@ describe('symbol classes', () => {
     expect(warningClass(['Choose Not To Use Archive Warnings'])).toBe('warning-maybe');
     expect(warningClass(['Graphic Depictions Of Violence'])).toBe('warning-yes');
     expect(warningClass([])).toBe('warning-none');
+  });
+});
+
+describe('dateStamp', () => {
+  // ao3 writes the same date two ways and an index holds whichever the run that wrote it
+  // saw, so both have to end up comparable
+  it('reads the form a listing blurb uses', () => {
+    expect(dateStamp('14 Dec 2024')).toBe('2024-12-14');
+    expect(dateStamp('1 Jan 2020')).toBe('2020-01-01');
+  });
+
+  it('leaves the form a work page uses alone', () => {
+    expect(dateStamp('2024-12-14')).toBe('2024-12-14');
+  });
+
+  it('sorts correctly once normalised, which is the whole point', () => {
+    const dates = ['14 Dec 2024', '01 Feb 2025', '2024-01-30'].map(dateStamp).sort();
+    expect(dates).toEqual(['2024-01-30', '2024-12-14', '2025-02-01']);
+  });
+
+  it('gives back nothing for anything it cannot read', () => {
+    // a filter must never be the reason a listing fails to render
+    for (const junk of ['', '   ', 'sometime', '14 Xxx 2024', '2024', 'yesterday']) {
+      expect(dateStamp(junk)).toBe('');
+    }
+    expect(dateStamp(undefined as unknown as string)).toBe('');
   });
 });

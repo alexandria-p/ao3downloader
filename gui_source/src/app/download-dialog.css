@@ -317,6 +317,26 @@ legend {
   color: #7fb37f;
 }
 
+/*
+ * A step that was stepped over rather than done. Dimmed and tagged rather than
+ * coloured like a failure: nothing went wrong, the run simply had no reason to do it.
+ */
+.step-list li.step-skipped {
+  color: var(--text-dim);
+}
+
+.step-list li.step-skipped .step-mark {
+  color: #9a8fb0;
+}
+
+.step-skip-tag {
+  margin-right: 4px;
+  color: #9a8fb0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
 .step-list li.step-failed {
   color: #d08b8b;
 }

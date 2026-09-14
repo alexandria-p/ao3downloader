@@ -25,9 +25,6 @@ dependencies = [
     "tqdm>=4.67.1",
 ]
 
-[project.scripts]
-ao3downloader = "source_code:main.ao3downloader"
-
 [project.urls]
 Homepage = "https://nianeyna.dev/ao3downloader"
 Repository = "https://github.com/nianeyna/ao3downloader"

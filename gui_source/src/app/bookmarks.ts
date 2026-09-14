@@ -169,6 +169,38 @@ export function workIdFromFilename(name: string): string | null {
   return match ? match[1] : null;
 }
 
+const MONTHS = [
+  'jan', 'feb', 'mar', 'apr', 'may', 'jun',
+  'jul', 'aug', 'sep', 'oct', 'nov', 'dec',
+];
+
+/**
+ * An AO3 date turned into `YYYY-MM-DD`, or '' when it is not one.
+ *
+ * AO3 writes the same date two ways - `14 Dec 2024` on a listing blurb, `2024-12-14` on a
+ * work's own page - and an index holds whichever the run that wrote it saw. Comparing them
+ * as plain strings would order a listing date by its day number, so both are normalised to
+ * the form that sorts correctly.
+ *
+ * This is the browser's half of `parse_text.get_date_stamp`. Anything unrecognised comes
+ * back empty rather than throwing: a filter must never be the reason a listing fails to
+ * render, and a work with no readable date simply cannot be placed in a range.
+ */
+export function dateStamp(text: string): string {
+  const value = (text ?? '').trim();
+  if (!value) return '';
+
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  const listing = /^(\d{1,2})\s+([A-Za-z]{3})[a-z]*\s+(\d{4})$/.exec(value);
+  if (!listing) return '';
+
+  const month = MONTHS.indexOf(listing[2].toLowerCase());
+  if (month < 0) return '';
+  return `${listing[3]}-${String(month + 1).padStart(2, '0')}-${listing[1].padStart(2, '0')}`;
+}
+
 /** 'https://archiveofourown.org/users/Someone/bookmarks' -> 'Someone' */
 export function ownerFromSource(source: string): string {
   return /\/users\/([^/?#]+)/.exec(source ?? '')?.[1] ?? '';

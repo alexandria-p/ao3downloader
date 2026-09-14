@@ -349,7 +349,7 @@ def scan_downloaded_works(folder: str, filetypes: list[str]) -> dict[str, dict[s
     if not folder or not os.path.isdir(folder): return found
 
     skip = {strings.INDEXING_FOLDER_NAME, strings.COLLECTIONS_FOLDER_NAME,
-            strings.IMAGE_FOLDER_NAME}
+            strings.IMAGE_FOLDER_NAME, strings.RUNS_FOLDER_NAME}
     wanted = {x.upper() for x in filetypes}
 
     for subdir, dirs, files in os.walk(folder):

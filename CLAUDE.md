@@ -24,7 +24,6 @@ gui_source/                       Angular 22 app (standalone components, signals
 run_development_build.ps1         dev launcher: helper + ng serve
 generate_build_artifacts.ps1      produces build/
 powershell_source/
-  run-locally.ps1                 console launcher
   settings.ini, data.json         the config the DEV build uses
   logs/, downloads/
   ao3_download_helper/
@@ -58,7 +57,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 **4 tests in `test/test_ao3.py::test_proceed_*` fail with `UnicodeDecodeError`.** They are
 pre-existing, present on the unmodified upstream code, and caused by fixtures being read
 with the platform default codec (cp1252 on Windows). Do not chase them; do not count them
-as regressions. Current: **1097 python passed, 4 failed; 290 gui passed.**
+as regressions. Current: **1027 python passed, 4 failed; 324 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -170,9 +169,14 @@ parties and a dead image link is the most ordinary failure here.
 ### The bundle ships only what the helper imports
 
 `copy_helper_package` walks imports out from `source_code/server.py` (`HELPER_ENTRY`) with
-`ast` and copies only what it reaches. The console menu, its actions, and the ebook parsing
-only they use never enter the bundle - 14 files instead of 28. `build()` returns
-`left_behind` and the build prints it, so a module silently dropping out is visible.
+`ast` and copies only what it reaches. `build()` returns `left_behind` and the build prints
+it, so a module silently dropping out is visible.
+
+**That list is empty now, and it should stay empty.** It used to hold 14 modules - the
+console menu, its actions, and the ebook parsing only they used - and those have been
+deleted, so the package is exactly what the helper needs. A name appearing in `left_behind`
+again means either dead code worth removing or a module that lost its last import by
+accident; either way, look rather than ignore it.
 
 It follows imports rather than keeping a list on purpose: a list goes stale the moment a
 module gains an import, and the failure shows up as an ImportError in a shipped bundle
@@ -180,9 +184,8 @@ rather than at build time. There is a test for exactly that - add an import to t
 `server.py` and the new module gets shipped without anyone listing it.
 
 `HELPER_DATA` is the escape hatch for what no import graph can see: `settings/settings.ini`
-is read through `importlib.resources`, so it is named explicitly. `html/template.html` is
-**not** listed because only the console's log visualisation reads it. If you add another
-resource read that way, add it to `HELPER_DATA` or it will be missing from the bundle only.
+is read through `importlib.resources`, so it is named explicitly. If you add another resource
+read that way, add it to `HELPER_DATA` or it will be missing from the bundle only.
 
 ### Eight actions, one dispatch table
 
@@ -267,9 +270,9 @@ keeps everything it has and only its stats are rewritten, exactly as `refresh_on
 ### The update action is driven by the index
 
 `run_update` was rewritten to work from `downloads/indexing/` rather than from the ebooks on
-disk. **Do not reintroduce `update.process_file` here** - parsing a chapter count back out
-of an epub was the old way, and `update.py` now only serves the console actions
-(`updatefics`, `updateseries`, `redownload`).
+disk. **Do not reintroduce a `process_file` here** - parsing a chapter count back out of an
+epub was the old way. `update.py` was what did it, and it has been deleted along with the
+rest of the console app.
 
 The flow, in the order the ui narrates it:
 
@@ -377,10 +380,24 @@ missing or outdated and skips what is not. The ui says so on the failure.
 
 ### Every run writes itself down
 
-`runs/` sits beside `logs/` (same env var, so `build/runs` in a bundle), one json file per
-run: which button, which settings, which fics were reindexed / downloaded / updated, the
+`runs/` is a subfolder of the **downloads folder** (`downloads/runs`, wherever
+`DownloadFolder` points), one json file per run: which button, which settings, which fics were reindexed / downloaded / updated, the
 choices it stopped to ask, what it could not get, and how it ended. `GET /api/runs` reads
 them back for the history tab.
+
+**Living in the downloads folder costs two skips, and both are load-bearing.** That folder
+is read as though everything in it were a work, so `shared.scan_downloaded_works` lists
+`RUNS_FOLDER_NAME` alongside `indexing`, `collections` and `images` - a run record is json,
+and json is a requested file type on most runs. The web page needs the same protection and
+cannot use the folder name for it: a directory read through the File System Access API
+arrives **flat**, so `jobs.isRunRecord` recognises one by shape and `Library.readRecords`
+passes it over. Without that a run record renders as a bookmark, because `flattenRecord`
+hands back anything carrying an `id` and a run record has one.
+
+`FileOps.initialize` creates the runs folder **after** the downloads folder rather than
+before. Creating it first would make an unusable `DownloadFolder` fail with a bare `OSError`
+from a line that says nothing about which setting is wrong, instead of
+`MESSAGE_DOWNLOAD_FOLDER_ERROR`.
 
 **The file is written when the run starts, not when it ends.** A run killed mid-flight
 cannot write its own epitaph, so a record still saying `running` *is* the evidence that it
@@ -455,6 +472,14 @@ descending. A stop-at-first-older walk down the default listing would halt after
 two and miss nearly everything, so `get_metadata`'s `stop_before` is only sound on that
 order and says so.
 
+**The stop rule may never fire, and that is fine.** Every bookmark updated since the
+floor, or a floor older than the whole library, and nothing is ever older than it. The
+walk then ends the ordinary way - `current >= total_pages`, or no pagination at all -
+so **running out of pages is the fallback that guarantees termination**, not the date
+check. `get_next_page` always increments, so `current` always advances toward that
+bound. There is a test per case, because otherwise the only thing ending the walk would
+be a rule that is allowed not to fire.
+
 **With no completed run there is no floor, and the walk runs to the end** - `stop_before`
 is `''`, which `get_metadata` treats as no limit at all. So the first quick scan is a full
 index and download. The ui promises this in as many words, and there is a test asserting it
@@ -498,8 +523,19 @@ so every run function marks its steps without first checking whether anyone is l
 twice - while a step is a place in a plan and happens once. Only the second can drive a
 checklist.
 
-**A step a configuration makes unnecessary is left off the plan entirely**, rather than
-listed and skipped.
+**Whether an unnecessary step is listed depends on who made it unnecessary.**
+
+- **the workflow never had it** - left off the plan entirely. `new` lists no gap pass
+  because `run_new` runs none; a run writing no json lists no indexing step, because json
+  *is* the index. Listing work a run was never going to do is worse than not listing it.
+- **the user turned it off** - listed, and marked `skipped`. Ticking *skip indexing* on a
+  date-window run is a decision worth seeing reflected back, so `step_plan` keeps the step
+  and `run_custom_dates` marks it skipped as it passes. An option that silently removes a
+  line from the checklist reads as the app having forgotten it.
+
+The ui says which is which: a skipped step carries a `[SKIP]` tag on the label and is
+stepped over (`»`) rather than ticked, dimmed rather than coloured like a failure - nothing
+went wrong, the run simply had no reason to do it.
 
 **A step with nothing to do at runtime is `skipped`, never `failed`.** A run with no
 unfinished fics has not gone wrong, and the ui colours the two differently for that reason. `fail_current` marks
@@ -860,8 +896,26 @@ This was `refreshUndated` / `stampUndated` job options, decided up front and act
 the downloads. Don't put it back: the count is not known until the folder has been read, and
 by the time the downloads are done there is nothing left to act on.
 
-A test that drives `run_bookmarks` or `run_update` for real **must** stub `Job.ask` or the
-suite hangs - that is what `updating()` in `test_server.py` does.
+**There is more than one question now.** `settle_quick_floor` asks a quick scan how far
+back to go when no run qualifies as a floor but the index already holds something - a full
+listing is hours on a large library, and an index in the folder may be perfectly recent,
+built by an older version, a restored backup, or a run whose history file was lost. It is
+offered rather than taken: `last_indexed` says when an entry was last written, not that
+everything was seen, so **the default is the whole listing** - the answer that cannot leave
+a gap.
+
+`answer_job` validates against `ANSWER_CHOICES`, the union of both questions' answers. The
+run only reads the reply to the question it actually asked, so one list is enough to keep
+nonsense out at the door. The ui keys its panel on the question **name**, not on the count:
+both arrive as a `question` event with a count, and keying on that alone showed the undated
+buttons for whichever question asked last.
+
+A test that drives `run_bookmarks`, `run_update` **or `run_quick`** for real **must** stub
+`Job.ask` or the suite hangs - that is what `updating()` in `test_server.py` does, and what
+`asked_quick()` does for the quick scan. `run_quick` only reaches the question when the
+index is non-empty and no run qualifies, which is why the existing no-floor tests pass
+without stubbing: their `downloadfolder` is an empty tmp path, so `read_index` returns
+nothing and the question is never asked.
 
 ### A run can be paused, and there are exactly two places it may pause
 
@@ -941,7 +995,8 @@ onto the index.
 mode. It used to create one, and since `/api/config` reads the saved username on every page
 load, an empty `data.json` kept appearing in a bundle that is meant not to have one. The
 launcher (`ao3-env.ps1`) does not create it either. `save_setting` still creates it when
-there is something to write, which is what the console menu needs.
+there is something to write - which, now the console menu is gone, means only clearing a
+password an older console install had saved.
 
 **It also stops short of writing when asked to remove a key that is not there.**
 `FileOps.initialize` clears the saved password on every start whenever `SavePassword` is off
@@ -965,7 +1020,28 @@ an `indexes` history, so without the shape check collections render as bookmarks
 ### The works listing is one component
 
 `work-list.ts` is the whole bookmarks table, reused unchanged for the works inside a
-collection. If you touch blurb rendering, both places change - that is intentional.
+collection. If you touch blurb rendering, both places change - that is intentional, and it
+applies to the filters too: narrowing works the same way inside a collection.
+
+**The filters narrow what is already on disk.** Title and author are case-insensitive
+substring matches; the two date ranges are inclusive at both ends and compare through
+`bookmarks.dateStamp`, the browser's half of `parse_text.get_date_stamp` - ao3 writes
+`14 Dec 2024` on a listing and `2024-12-14` on a work page, and an index holds whichever the
+run that wrote it saw, so both are normalised before comparing. Nothing here reaches ao3, so
+filtering costs no requests and works with the helper stopped.
+
+Three rules worth keeping:
+
+- **filters narrow together.** Every one filled in has to match, which is what someone
+  hunting for a single fic expects.
+- **a work with no readable date is excluded by a date range, never kept.** It cannot be
+  placed, and including it would make the range a lie - the same rule
+  `works_updated_between` follows on the helper. With no date filter set it shows normally.
+- **pagination follows the filtered set, and the page resets when it changes.** `page` is a
+  `linkedSignal` sourced on `filtered` rather than on the input: staying on page 9 of a
+  result that now has one page shows an empty listing and reads as the filter having found
+  nothing. The heading says `(filtered from N)` for the same reason - a short listing must
+  not be mistaken for a small library.
 
 ## Gotchas already paid for
 

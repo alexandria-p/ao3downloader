@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from source_code import exceptions, parse_text, progress, runs, strings
+from source_code import exceptions, indexing, parse_text, progress, runs, strings
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -67,6 +67,19 @@ UNDATED_STAMP = 'stamp'
 UNDATED_REFRESH = 'refresh'
 UNDATED_SKIP = 'skip'
 UNDATED_CHOICES = (UNDATED_STAMP, UNDATED_REFRESH, UNDATED_SKIP)
+
+# What a quick scan should measure back to when no run qualifies as a floor but the index
+# already holds something. Asked rather than decided: reading the whole listing is hours on
+# a large library, and going by when the index was last written is a guess only the person
+# who built that index can judge.
+QUICK_QUESTION = 'quick-floor'
+QUICK_SINCE_INDEX = 'since'
+QUICK_FULL = 'full'
+QUICK_CHOICES = (QUICK_SINCE_INDEX, QUICK_FULL)
+
+# every choice any question may be answered with. the run reads only the answer to the
+# question it actually asked, so one list is enough to keep nonsense out at the door
+ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
            ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_CUSTOM, ACTION_QUICK)
@@ -391,7 +404,7 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         plan.append(('index', strings.STEP_INDEX_ONE))
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
-            plan.append(('download', strings.STEP_DOWNLOAD))
+            plan.append(('download', strings.STEP_DOWNLOAD_ONE))
     elif job.action == ACTION_UPDATE:
         plan.append(('read', strings.STEP_READ_INDEX))
         if downloads: plan.append(('check', strings.STEP_CHECK_FILES))
@@ -418,7 +431,10 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
             # the unfinished-fics shape rather than a scan. The walk that brings the index
             # up to date first is only there when the run was not told to skip indexing
             window = [('login', strings.STEP_LOGIN)]
-            if job.options['reindex'] and metadata:
+            # listed whenever the run could index, even when it was told not to: a step
+            # the user actively turned off is worth seeing struck through, where one this
+            # workflow simply never had is only noise. `run_custom_dates` marks it skipped
+            if metadata:
                 window.append(('index', strings.STEP_INDEX_WINDOW))
             window.extend([('read', strings.STEP_READ_WINDOW),
                            ('check', strings.STEP_CHECK_FILES),
@@ -946,8 +962,13 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         return
 
     floor = quick_scan_floor(fileops)
-    print(strings.AO3_INFO_QUICK_FLOOR.format(floor) if floor
-          else strings.AO3_INFO_QUICK_NO_FLOOR)
+    if floor:
+        print(strings.AO3_INFO_QUICK_FLOOR.format(floor))
+    else:
+        # nothing qualifies as a floor, but an index already here is worth measuring from
+        # if the user says so - see settle_quick_floor
+        floor = settle_quick_floor(job, fileops, report)
+        if not floor: print(strings.AO3_INFO_QUICK_NO_FLOOR)
 
     records: list[dict] = []
     if metadata:
@@ -985,6 +1006,66 @@ def quick_scan_floor(fileops: FileOps) -> str:
     last = runs.last_successful(fileops, match=covered_the_whole_listing)
     if not last: return ''
     return str(last.get('started') or '')[:10]
+
+
+def newest_indexed_on(records: list[dict]) -> str:
+    """The day the index was last written, as `YYYY-MM-DD`, or '' when it never was.
+
+    `last_indexed` is stamped on every entry each time a run touches it, so the newest one
+    across the whole index is the last time anything was indexed at all - which is the only
+    date the index itself can offer as a floor.
+    """
+
+    newest = ''
+    for record in records:
+        stamp = str(record.get(indexing.LAST_INDEXED) or '')[:10]
+        if len(stamp) == 10 and stamp > newest: newest = stamp
+    return newest
+
+
+def settle_quick_floor(job: Job, fileops: FileOps, report) -> str:
+    """Ask how far back to go when no run qualifies as a floor but an index exists.
+
+    A quick scan measures back to the last run that covered the whole listing. Without one
+    it reads everything - honest, but hours on a large library, and pointless if the index
+    in the folder is recent and was simply built by something this app has no record of: an
+    older version, a restored backup, a run whose history file was lost.
+
+    The index can offer a date of its own (`last_indexed`), but it is a weaker promise than
+    a completed run: it says when an entry was last written, not that everything was seen.
+    So it is offered rather than taken, and **the default is the full listing** - the answer
+    that cannot leave a gap. Whatever goes wrong here, a quick scan must not quietly decide
+    to look at less than it should.
+
+    Returns the date to index back to, or '' for the whole listing.
+    """
+
+    records = shared.read_index(fileops)
+    if not records: return ''
+
+    indexed_on = newest_indexed_on(records)
+    if not indexed_on: return ''
+
+    print(strings.AO3_INFO_QUICK_ASKING.format(len(records), indexed_on))
+    print(strings.AO3_INFO_QUICK_WAITING)
+
+    answer = job.ask(
+        {'name': QUICK_QUESTION, 'count': len(records), 'date': indexed_on,
+         'choices': list(QUICK_CHOICES)},
+        # a stop, or a closed tab, reads everything rather than guessing at less
+        {'choice': QUICK_FULL})
+    choice = answer.get('choice')
+
+    if job.record:
+        job.record.choice({'question': QUICK_QUESTION, 'count': len(records),
+                           'choice': choice, 'date': indexed_on})
+
+    if choice == QUICK_SINCE_INDEX:
+        print(strings.AO3_INFO_QUICK_SINCE_INDEX.format(indexed_on))
+        return indexed_on
+
+    print(strings.AO3_INFO_QUICK_CHOSE_FULL)
+    return ''
 
 
 def covered_the_whole_listing(record: dict) -> bool:
@@ -1394,6 +1475,10 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
         ao3.get_metadata(f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
                          job.options['workdates'], stop_before=start)
         job.steps.done('index')
+    elif metadata:
+        # asked for, and turned off - so it is shown as skipped rather than dropped
+        print(strings.AO3_INFO_USING_LAST_INDEX)
+        job.steps.skip('index')
 
     job.steps.start('read')
     progress.report(report, progress.PHASE, name=progress.SCANNING)
@@ -1843,10 +1928,10 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         choice = body.get('choice')
-        if choice not in UNDATED_CHOICES:
+        if choice not in ANSWER_CHOICES:
             # a run waiting on an answer must not be sent something it cannot act on
             self.send_json(400, {'error':
-                f"'{choice}' is not one of {', '.join(UNDATED_CHOICES)}"})
+                f"'{choice}' is not one of {', '.join(ANSWER_CHOICES)}"})
             return
 
         job.reply({'choice': choice, 'date': parse_text.get_date_stamp(body.get('date') or '')})

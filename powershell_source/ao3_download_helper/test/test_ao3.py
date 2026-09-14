@@ -1455,6 +1455,31 @@ def test_a_work_with_no_readable_date_does_not_stop_the_walk() -> None:
 
     assert [x['id'] for x in records] == ['100', '101']
 
+
+def test_a_floor_nothing_is_older_than_still_stops_at_the_end_of_the_listing() -> None:
+    # the stop rule may simply never fire - every bookmark updated since the floor, or a
+    # floor older than the whole library. running out of pages is the fallback, and without
+    # it the walk would have no reason to end
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _dated_listing(['11 Sep 2026', '10 Sep 2026'], total_pages=3)
+
+    records = ao3.get_metadata(LISTING_URL, False, stop_before='2020-01-01')
+
+    # every page fetched, and then it stopped of its own accord
+    assert repo.get_soup.call_count == 3
+    assert [x['id'] for x in records] == ['100', '101']
+
+
+def test_a_floor_nothing_is_older_than_stops_on_a_listing_of_one_page() -> None:
+    # no pagination at all: `total_pages` is None, and that has to end the walk too
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _dated_listing(['11 Sep 2026'], total_pages=1)
+
+    records = ao3.get_metadata(LISTING_URL, False, stop_before='2020-01-01')
+
+    assert repo.get_soup.call_count == 1
+    assert [x['id'] for x in records] == ['100']
+
 # endregion
 
 

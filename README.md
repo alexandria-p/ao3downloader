@@ -7,8 +7,11 @@ Download and view saved fanfic as an Angular web app. Can be ran entirely locall
 Downloads via the site go to whichever location is specified in the config/settings.ini -> DownloadFolder
 
 ## Development Build  
-settings.ini and data.json can be found in the powershell_source directory
-make sure to update the location of your downloads folder here.
+settings.ini can be found in the powershell_source directory
+EnableDebugTools=true can be set in settings.ini
+
+- if you make dev changes to website, you can just hot-reload.
+- if you make dev changes to downloader process, you will need to restart the worker (by exiting uv.exe and rerunning start-application.ps1
 
 ### Running full project on your local
 Open powershell
@@ -48,6 +51,13 @@ Leave the window open and go to http://localhost:4200.
 
 
 # Original Readme
+
+> **Out of date for this fork.** The console program described below has been removed - the
+> menu, its actions, and the ebook parsing only they used are all gone, so the install and
+> menu instructions in this section no longer apply here. What remains is the local helper
+> and the web UI documented above. This section is kept for provenance: it is the readme of
+> [the upstream project](https://github.com/nianeyna/ao3downloader) this was forked from, and
+> it still describes that project accurately.
 
 ## What is this?
 
@@ -118,7 +128,9 @@ That launches two things and then opens at <http://localhost:4200>:
 
 The helper exists because a web page cannot do this work itself. Ao3 sends no CORS headers, so a page cannot read it; a page cannot hold an ao3 login session; and downloads have to be written to your disk. The helper listens on `127.0.0.1` only - nothing outside your machine can reach it.
 
-The page has four tabs. **Bookmarks** and **Collections** each carry the buttons that fill them; **History** lists what past runs did, read back from the `runs` folder the helper writes - one json file per run, holding which button, the settings and file types it ran with, which fics it touched, and anything it could not get; **FAQ** covers what does and does not survive a download, how indexing works, and the file naming rule.
+The page has four tabs. **Bookmarks** and **Collections** each carry the buttons that fill them; **History** lists what past runs did, read back from the `runs` folder inside your downloads folder - one json file per run, holding which button, the settings and file types it ran with, which fics it touched, and anything it could not get; **FAQ** covers what does and does not survive a download, how indexing works, and the file naming rule.
+
+The listing has a **Filter** panel above it, collapsed until you want it. You can narrow by title, by author, by when AO3 last updated the work, and by when you bookmarked it. Title and author are case-insensitive and match any part of the name; both date ranges count their end days, and either end can be left empty. Everything filled in has to match. This reads what is already in your folder, so it costs no requests and works with the helper stopped - and the heading says `(filtered from N)` while a filter is on, so a short listing is never mistaken for a small library. A work whose date AO3 never recorded is left out of a date range, because there is nothing to compare it against. The same panel appears on the works inside a collection.
 
 The **Bookmarks** tab lists your indexed bookmarks and has:
 

@@ -1,6 +1,13 @@
 import { Component, OnDestroy, computed, inject, input, output, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
-import { JobAction, JobEvent, Jobs, RunStep, UndatedChoice, WorkFailure } from './jobs';
+import {
+  AnswerChoice,
+  JobAction,
+  JobEvent,
+  Jobs,
+  RunStep,
+  WorkFailure,
+} from './jobs';
 import { safeGet, safeRemove, safeSet } from './storage';
 
 type Step =
@@ -75,13 +82,6 @@ export class DownloadDialog implements OnDestroy {
 
   /** a custom run may work from the index rather than reading AO3's listing again */
   protected readonly reindex = signal(true);
-  /**
-   * Whether a custom run covers a window of time instead of a slice of the listing.
-   *
-   * The two are alternatives, not settings that combine: one picks works by where they sit
-   * in the listing and the other by when AO3 last touched them, and a run cannot both be
-   * walking a listing and not walking it.
-   */
   /**
    * What this run reaches for, as one choice rather than several flags.
    *
@@ -179,6 +179,16 @@ export class DownloadDialog implements OnDestroy {
    * usual progress.
    */
   protected readonly asking = signal(0);
+  /**
+   * Which question is being asked, so the right panel answers it.
+   *
+   * There is more than one now - undated files, and how far back a quick scan should
+   * reach - and they are answered through the same endpoint. Keying the panel on the
+   * count alone would show the undated buttons for whatever asked last.
+   */
+  protected readonly question = signal('');
+  /** the date a question is offering, where it has one */
+  protected readonly askedDate = signal('');
   /** whether the 'give them a date' half of the question is showing */
   protected readonly choosingDate = signal(false);
   protected readonly stampDate = signal(today());
@@ -248,7 +258,6 @@ export class DownloadDialog implements OnDestroy {
     () => this.action() === 'custom' && this.coverage() === 'pages',
   );
 
-  /** only a custom run may cover a window of time instead */
   /**
    * Which runs can be given a window of time instead of their usual reach.
    *
@@ -256,9 +265,16 @@ export class DownloadDialog implements OnDestroy {
    * it works out on its own. Both end up walking the listing sorted by when AO3 last
    * updated each work and stopping at the older end, which is the one shape a date range
    * can be honoured in.
+   *
+   * On a quick scan it is a **debug** choice, because the whole point of that run is the
+   * floor it works out for itself - picking your own date by hand is for testing what the
+   * window does, not for using it. With the debug tools off the quick scan has nothing
+   * left to ask, and skips its options step entirely.
    */
   protected readonly picksDates = computed(
-    () => this.action() === 'custom' || this.action() === 'quick',
+    () =>
+      this.action() === 'custom' ||
+      (this.action() === 'quick' && this.debugTools()),
   );
 
   /**
@@ -879,6 +895,8 @@ export class DownloadDialog implements OnDestroy {
         break;
       case 'question':
         // the run is blocked until this is answered, so it takes over from the progress
+        this.question.set(event.name ?? '');
+        this.askedDate.set(event.date ?? '');
         this.asking.set(event.count ?? 0);
         this.choosingDate.set(false);
         this.answering.set(false);
@@ -1040,12 +1058,13 @@ export class DownloadDialog implements OnDestroy {
    * for a second run: everything after this point - which works count as out of date, and
    * therefore what gets downloaded - depends on it.
    */
-  private async answerUndated(choice: UndatedChoice, date = ''): Promise<void> {
+  private async answerQuestion(choice: AnswerChoice, date = ''): Promise<void> {
     if (!this.jobId || this.answering()) return;
     this.answering.set(true);
     try {
       await this.jobs.answer(this.jobId, choice, date);
       this.asking.set(0);
+      this.question.set('');
     } catch (e) {
       // the run is still blocked, so this has to be said rather than swallowed
       this.answering.set(false);
@@ -1053,14 +1072,24 @@ export class DownloadDialog implements OnDestroy {
     }
   }
 
+  /** measure back to the day the index was last written */
+  protected quickScanSinceIndex(): void {
+    void this.answerQuestion('since');
+  }
+
+  /** read the whole listing, as a first scan would */
+  protected quickScanWholeListing(): void {
+    void this.answerQuestion('full');
+  }
+
   /** fetch them all again, replacing whatever is there */
   protected refreshUndatedWorks(): void {
-    void this.answerUndated('refresh');
+    void this.answerQuestion('refresh');
   }
 
   /** leave them exactly as they are */
   protected skipUndatedWorks(): void {
-    void this.answerUndated('skip');
+    void this.answerQuestion('skip');
   }
 
   protected setStampDate(value: string): void {
@@ -1079,7 +1108,7 @@ export class DownloadDialog implements OnDestroy {
    */
   protected dateUndatedWorks(): void {
     if (!this.stampDateIsValid()) return;
-    void this.answerUndated('stamp', this.stampDate());
+    void this.answerQuestion('stamp', this.stampDate());
   }
 
   /** the failed works as the text that gets saved - kept apart from the saving itself */

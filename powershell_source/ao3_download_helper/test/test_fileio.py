@@ -103,6 +103,78 @@ def test_log_folder_moves_logs_only(tmp_path, monkeypatch):
     assert fileops.inifile == strings.INI_FILE_NAME
 
 
+def test_the_run_history_sits_inside_the_downloads_folder(tmp_path, monkeypatch):
+    # with the library it describes, rather than beside the logs. everything that walks the
+    # downloads folder has to skip it by name
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(strings.ENV_CONFIG_FOLDER, raising=False)
+    monkeypatch.setenv(strings.ENV_LOG_FOLDER, 'helper')
+
+    fileops = FileOps()
+
+    assert fileops.runsfolder == os.path.join(
+        fileops.downloadfolder, strings.RUNS_FOLDER_NAME)
+    # the log folder moves the logs and nothing else
+    assert 'helper' not in fileops.runsfolder
+
+
+def test_the_run_history_follows_the_downloads_folder_setting(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, 'config')
+    os.makedirs(tmp_path / 'config')
+    (tmp_path / 'config' / strings.INI_FILE_NAME).write_text(
+        f'[{strings.INI_SECTION_NAME}]\n{strings.INI_DOWNLOAD_FOLDER} = elsewhere\n',
+        encoding='utf-8')
+
+    fileops = FileOps()
+
+    assert fileops.runsfolder == os.path.join('elsewhere', strings.RUNS_FOLDER_NAME)
+
+
+def test_a_download_folder_elsewhere_takes_the_whole_library_with_it(tmp_path, monkeypatch):
+    # the whole library hangs off this one setting, so pointing it at a folder of your own
+    # has to move every part of it - not just the works, leaving the metadata behind
+    elsewhere = tmp_path / 'My AO3 Fics'
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, 'config')
+    monkeypatch.setenv(strings.ENV_LOG_FOLDER, 'helper')
+    os.makedirs(tmp_path / 'config')
+    (tmp_path / 'config' / strings.INI_FILE_NAME).write_text(
+        f'[{strings.INI_SECTION_NAME}]\n{strings.INI_DOWNLOAD_FOLDER}={elsewhere}\n',
+        encoding='utf-8')
+
+    fileops = FileOps()
+    fileops.initialize()
+    # the three the run writes on demand, plus the work itself
+    fileops.save_json(os.path.join(strings.INDEXING_FOLDER_NAME, '111 a.json'), {'id': '111'})
+    fileops.save_json(os.path.join(strings.COLLECTIONS_FOLDER_NAME, 'c.json'), {'name': 'c'})
+    fileops.save_bytes(os.path.join(strings.IMAGE_FOLDER_NAME, '111 img.png'), b'x')
+    fileops.save_bytes('111 A Work - X 2026-01-01.html', b'<html>')
+
+    for name in (strings.INDEXING_FOLDER_NAME, strings.COLLECTIONS_FOLDER_NAME,
+                 strings.IMAGE_FOLDER_NAME, strings.RUNS_FOLDER_NAME):
+        assert (elsewhere / name).is_dir(), name
+    assert (elsewhere / '111 A Work - X 2026-01-01.html').is_file()
+    # and nothing was left in the working directory under the default name
+    assert not (tmp_path / strings.DOWNLOAD_FOLDER_NAME).exists()
+
+
+def test_a_download_folder_path_in_quotes_is_taken_as_written(tmp_path, monkeypatch):
+    # a path pasted from Explorer's "copy as path" arrives wrapped in quotes
+    elsewhere = tmp_path / 'Fics'
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, 'config')
+    os.makedirs(tmp_path / 'config')
+    (tmp_path / 'config' / strings.INI_FILE_NAME).write_text(
+        f'[{strings.INI_SECTION_NAME}]\n{strings.INI_DOWNLOAD_FOLDER}="{elsewhere}"\n',
+        encoding='utf-8')
+
+    fileops = FileOps()
+
+    assert fileops.downloadfolder == str(elsewhere)
+    assert fileops.runsfolder == os.path.join(str(elsewhere), strings.RUNS_FOLDER_NAME)
+
+
 def test_initialize_creates_both_folders(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, 'config')
@@ -114,6 +186,8 @@ def test_initialize_creates_both_folders(tmp_path, monkeypatch):
     # writing settings.ini into a folder that does not exist would fail
     assert (tmp_path / 'config' / strings.INI_FILE_NAME).exists()
     assert (tmp_path / 'helper' / strings.LOG_FOLDER_NAME).is_dir()
+    # and the run history, which now hangs off the downloads folder
+    assert (tmp_path / strings.DOWNLOAD_FOLDER_NAME / strings.RUNS_FOLDER_NAME).is_dir()
 
 
 def test_settings_are_read_back_from_the_config_folder(tmp_path, monkeypatch):

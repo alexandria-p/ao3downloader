@@ -265,6 +265,30 @@ describe('Library', () => {
     expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
   });
 
+  // the run history is a subfolder of the downloads folder, but a folder read here arrives
+  // flat - and a run record carries an `id`, which is all it takes to be rendered as a work
+  it('does not mistake a run history record for a bookmark', async () => {
+    const run = {
+      id: '2eabed206b514d24bffc95ffda1f1bf9',
+      action: 'custom',
+      actionName: 'Custom run',
+      started: '2026-09-13T17:56:09',
+      finished: null,
+      status: 'running',
+      filetypes: ['JSON', 'HTML'],
+      reindexed: [],
+    };
+    store.files = [
+      recordFile('111', 1),
+      new File([JSON.stringify(run)], '2026-09-13T175609-2eabed20.json'),
+    ];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
+  });
+
   it('ignores a json file that is corrupt rather than failing the whole folder', async () => {
     store.files = [recordFile('111', 1), new File(['{not json'], 'broken.json')];
     store.recalled = handle();
