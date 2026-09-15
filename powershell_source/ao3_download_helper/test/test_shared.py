@@ -564,7 +564,7 @@ def test_dating_an_undated_file_renames_it_where_it_sits(tmp_path):
 
     result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
-    assert result == {'renamed': 1, 'skipped': 0}
+    assert (result['renamed'], result['skipped']) == (1, 0)
     assert (tmp_path / '34816549 No Paths - Cal 2024-06-01.html').exists()
     assert not (tmp_path / '34816549 No Paths - Cal.html').exists()
 
@@ -590,7 +590,7 @@ def test_only_the_works_the_caller_named_are_dated(tmp_path):
 
     result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
-    assert result == {'renamed': 1, 'skipped': 0}
+    assert (result['renamed'], result['skipped']) == (1, 0)
     assert (tmp_path / '34816549 Asked About - Cal 2024-06-01.html').exists()
     # left exactly as it was, and not counted as skipped either - it was never in scope
     assert (tmp_path / '11111111 Not Asked About - Cal.html').exists()
@@ -603,7 +603,7 @@ def test_a_file_that_already_has_a_date_is_left_alone(tmp_path):
 
     result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
-    assert result == {'renamed': 0, 'skipped': 0}
+    assert (result['renamed'], result['skipped']) == (0, 0)
     assert (tmp_path / '34816549 No Paths - Cal 2020-01-01.html').exists()
 
 
@@ -616,7 +616,7 @@ def test_dating_never_writes_over_a_file_that_is_already_there(tmp_path):
 
     result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
 
-    assert result == {'renamed': 0, 'skipped': 1}
+    assert (result['renamed'], result['skipped']) == (0, 1)
     assert (tmp_path / '34816549 A.html').exists()
     assert (tmp_path / '34816549 A 2024-06-01.html').read_bytes() == b'x'
 
@@ -656,7 +656,7 @@ def test_a_rename_that_fails_is_counted_rather_than_raised(tmp_path):
 
     result = shared.stamp_undated_works(fo, existing, WORKS, '2024-06-01', 50)
 
-    assert result == {'renamed': 0, 'skipped': 1}
+    assert (result['renamed'], result['skipped']) == (0, 1)
     assert existing['34816549']['HTML']['date'] is None
 
 
@@ -818,3 +818,18 @@ def test_records_without_an_id_or_link_are_skipped():
     assert plan == {'stale': [], 'undated': [], 'superseded': {}}
 
 # endregion
+
+
+def test_dating_says_which_files_it_renamed_and_to_what(tmp_path):
+    # so a run's history can list them file by file, not just count them
+    make_file(tmp_path, '34816549 No Paths - Cal.html')
+    make_file(tmp_path, '34816549 No Paths - Cal.pdf')
+    existing = shared.scan_downloaded_works(str(tmp_path), ['HTML', 'PDF'])
+
+    result = shared.stamp_undated_works(real_fileops(), existing, WORKS, '2024-06-01', 50)
+
+    assert sorted(x['to'] for x in result['files']) == [
+        '34816549 No Paths - Cal 2024-06-01.html', '34816549 No Paths - Cal 2024-06-01.pdf']
+    assert {x['from'] for x in result['files']} == {
+        '34816549 No Paths - Cal.html', '34816549 No Paths - Cal.pdf'}
+    assert {x['id'] for x in result['files']} == WORKS

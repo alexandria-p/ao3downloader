@@ -16,6 +16,7 @@ interface Partial {
   authors?: string[];
   updated?: string;
   bookmarked?: string;
+  created?: string;
 }
 
 function work(given: Partial): Bookmark {
@@ -24,7 +25,7 @@ function work(given: Partial): Bookmark {
     link: `https://archiveofourown.org/works/${given.id}`,
     title: given.title ?? `Work ${given.id}`,
     authors: given.authors ?? ['Writer'],
-    date_created: null,
+    date_created: given.created ?? null,
     date_updated: given.updated ?? '01 Jan 2020',
     fandoms: ['A Fandom'],
     warnings: ['No Archive Warnings Apply'],
@@ -212,4 +213,97 @@ describe('WorkList filtering', () => {
     expect(shownTitles()).toEqual(['Findable']);
     expect(element.querySelector('.listing-heading')?.textContent).toContain('1 - 1');
   });
+
+  // region sorting
+
+  async function sortBy(value: string) {
+    const select = element.querySelector<HTMLSelectElement>('select[name="sortBy"]')!;
+    select.value = value;
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  }
+
+  it('sorts by date bookmarked, newest first', async () => {
+    await listing(LIBRARY);
+
+    await sortBy('bookmarked-desc');
+
+    // 10 Sep 2026, 05 Jan 2026, 01 Mar 2025
+    expect(shownTitles()).toEqual(['Catch and Release', 'The Dating Game', 'No Paths Are Bound']);
+  });
+
+  it('sorts by date bookmarked, oldest first', async () => {
+    await listing(LIBRARY);
+
+    await sortBy('bookmarked-asc');
+
+    expect(shownTitles()).toEqual(['No Paths Are Bound', 'The Dating Game', 'Catch and Release']);
+  });
+
+  it('sorts by date created when works have one', async () => {
+    await listing([
+      work({ id: '1', title: 'Middle', created: '10 Jun 2020' }),
+      work({ id: '2', title: 'Newest', created: '2024-01-01' }),
+      work({ id: '3', title: 'Oldest', created: '01 Jan 2010' }),
+    ]);
+
+    await sortBy('created-desc');
+    expect(shownTitles()).toEqual(['Newest', 'Middle', 'Oldest']);
+
+    await sortBy('created-asc');
+    expect(shownTitles()).toEqual(['Oldest', 'Middle', 'Newest']);
+  });
+
+  // putting blanks first on an ascending sort would bury every dated work under them
+  it('puts works without the date last, whichever way it sorts', async () => {
+    await listing([
+      work({ id: '1', title: 'Blank', bookmarked: '' }),
+      work({ id: '2', title: 'Old', bookmarked: '01 Jan 2020' }),
+      work({ id: '3', title: 'New', bookmarked: '01 Jan 2025' }),
+    ]);
+
+    await sortBy('bookmarked-asc');
+    expect(shownTitles()).toEqual(['Old', 'New', 'Blank']);
+
+    await sortBy('bookmarked-desc');
+    expect(shownTitles()).toEqual(['New', 'Old', 'Blank']);
+  });
+
+  // publication dates are only recorded by a lookup this app does not run, so on most
+  // libraries this sort has nothing to work with - and should say so
+  it('says when there is nothing to sort by, instead of doing nothing silently', async () => {
+    await listing(LIBRARY);
+
+    await sortBy('created-desc');
+
+    expect(element.querySelector('.sort-empty')?.textContent).toContain('leaves the order unchanged');
+    expect(shownTitles()).toEqual(['No Paths Are Bound', 'Catch and Release', 'The Dating Game']);
+
+    await sortBy('bookmarked-desc');
+    expect(element.querySelector('.sort-empty')).toBeNull();
+  });
+
+  it('does not call a sorted listing a filtered one', async () => {
+    await listing(LIBRARY);
+
+    await sortBy('bookmarked-desc');
+
+    expect(element.querySelector('.filtered-note')).toBeNull();
+    expect(shownCount()).toBe(3);
+  });
+
+  it('clears the sort along with the filters', async () => {
+    await listing(LIBRARY);
+    await sortBy('bookmarked-asc');
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Clear filters'))!
+      .click();
+    await fixture.whenStable();
+
+    expect(shownTitles()).toEqual(['No Paths Are Bound', 'Catch and Release', 'The Dating Game']);
+    expect(element.querySelector<HTMLSelectElement>('select[name="sortBy"]')!.value).toBe('');
+  });
+
+  // endregion
 });

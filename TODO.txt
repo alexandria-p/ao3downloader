@@ -43,7 +43,7 @@ let's fix the output wording here. cause it is confusing AF
 
 -------
 
-quick scan not working as expected - not picking up new bookmarks :'( mmm...let me think how to solve without the steps (new bookmarks/latest updated) interferring with each other...
+how to handle existing fic having multiple versions of same format, dated differently?
 
 ---------
 
@@ -90,6 +90,10 @@ https://archiveofourown.org/bookmarks?bookmark_search%5Bsort_column%5D=created_a
 
 stretch goals:
 
+if login has expired midrun....prompt the user to login and continue, or end run here.
+i could 'pick up where last run left off'....but not really im lazy.
+
+Read your existing downloads step:
 option to backdate individual (undated) files - instead of only in bulk?
 
 upload to, and read from, dropbox link (instead of local downloads folder)
@@ -101,9 +105,21 @@ Allow indexing of user-imported files, that do not exist in your bookmarks:
 1. try and index downloaded fics (that user imports) that have no match on ao3 from fichub
 2. external works
 
+Option to import from already downloaded files (if the works are on ao3, but are not indexed or in your ao3 bookmarks):
+scan user files for any works not dated and with no index,
+they must still match import pattern (name start with work id)
+allow bulk or one-by-one backdate,
+then index each work,
+and check if there are any updates.
+- when asking 'what to do' about existing files that are undated (in Read your existing downloaded files step) in any workflow (such as quick scan), allow the user 1 minute to respond before continuing with 'ignore' as an automatic choice. if this times out and the choice is automatically made, allow user to export the list at the end of the run, and recommend they use towards this new 'index old works' workflow
 
 
+update quick scan 
+-> search bookmarks?
+-> search for updates for non-bookmarks?
 
+
+maybe host on github pages, but whitelisted ONLY for me to use by ip, so that i can do it from anywhere/device and update my works on my dropbox.
 -----------------
 
 and when displaying fics, if multiple indexes for a fic exist in its json file, display the one that has a title that is not null or empty string (as may happen for anonymous fics, etc)

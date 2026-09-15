@@ -178,6 +178,59 @@ describe('History', () => {
     expect(said).toContain('2024-06-01');
   });
 
+  it('names the undated works and every file given a date', async () => {
+    await show([
+      aRun({
+        choices: [
+          { at: '2026-09-13T12:05:00', question: 'undated', choice: 'stamp',
+            date: '2024-06-01', count: 1, files: 2, works: ['111'],
+            renamed: [
+              { id: '111', from: '111 A - B.html', to: '111 A - B 2024-06-01.html' },
+              { id: '111', from: '111 A - B.pdf', to: '111 A - B 2024-06-01.pdf' },
+            ] },
+        ],
+      }),
+    ]);
+
+    const said = element.querySelector('.run-choices')?.textContent ?? '';
+    // works and files counted apart, so two formats of one work do not read as a miscount
+    expect(said).toMatch(/1\s+undated\s+work\s*\(2 files\)/);
+    expect(said).toContain('Works without a date');
+    expect(element.querySelector('.run-choices a')?.getAttribute('href')).toContain('/works/111');
+    expect(said).toContain('Files given a date');
+    expect(said).toContain('111 A - B 2024-06-01.pdf');
+  });
+
+  it('lists the old copies that could not be deleted, with both file names', async () => {
+    await show([
+      aRun({
+        keptCopies: [
+          { id: '123', link: 'https://archiveofourown.org/works/123', error: 'locked',
+            file: '123 A - B 2026-09-14.html', old: '123 A - B 2026-01-01.html' },
+        ],
+      }),
+    ]);
+
+    const said = element.querySelector('.run')?.textContent ?? '';
+    expect(said).toContain('Downloaded, but needs checking by hand');
+    expect(said).toContain('123 A - B 2026-09-14.html');
+    expect(said).toContain('123 A - B 2026-01-01.html');
+  });
+
+  it('describes the quick scan question as what it was, not as undated files', async () => {
+    await show([
+      aRun({
+        choices: [
+          { at: '2026-09-13T12:05:00', question: 'quick-floor', choice: 'full', count: 40 },
+        ],
+      }),
+    ]);
+
+    const said = element.querySelector('.run-choices')?.textContent ?? '';
+    expect(said).not.toContain('undated');
+    expect(said).toContain('the whole listing');
+  });
+
   it('lists every run it was given', async () => {
     await show([aRun({ file: 'a.json' }), aRun({ file: 'b.json' })]);
 

@@ -541,6 +541,20 @@ pre {
   background: var(--surface-2);
 }
 
+/* amber rather than red: nothing was lost, but there is something to tidy up by hand */
+.failures.kept {
+  border-color: #6b5a2a;
+  background: #2b2616;
+}
+
+.export-issues {
+  margin: 0 0 12px;
+}
+
+.export-issues .hint {
+  margin-top: 6px;
+}
+
 .failures-text {
   margin: 0 0 8px;
 }
@@ -664,3 +678,13 @@ pre {
 }
 
 /* endregion */
+
+/* the two walks of a quick scan's date range, said as the numbered steps they are */
+.walks {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.walks li {
+  margin: 0 0 4px;
+}

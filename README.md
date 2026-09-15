@@ -130,15 +130,17 @@ The helper exists because a web page cannot do this work itself. Ao3 sends no CO
 
 The page has four tabs. **Bookmarks** and **Collections** each carry the buttons that fill them; **History** lists what past runs did, read back from the `runs` folder inside your downloads folder - one json file per run, holding which button, the settings and file types it ran with, which fics it touched, and anything it could not get; **FAQ** covers what does and does not survive a download, how indexing works, and the file naming rule.
 
-The listing has a **Filter** panel above it, collapsed until you want it. You can narrow by title, by author, by when AO3 last updated the work, and by when you bookmarked it. Title and author are case-insensitive and match any part of the name; both date ranges count their end days, and either end can be left empty. Everything filled in has to match. This reads what is already in your folder, so it costs no requests and works with the helper stopped - and the heading says `(filtered from N)` while a filter is on, so a short listing is never mistaken for a small library. A work whose date AO3 never recorded is left out of a date range, because there is nothing to compare it against. The same panel appears on the works inside a collection.
+The listing has a **Filter** panel above it, collapsed until you want it. You can narrow by title, by author, by when AO3 last updated the work, and by when you bookmarked it. Title and author are case-insensitive and match any part of the name; both date ranges count their end days, and either end can be left empty. Everything filled in has to match. You can also sort by date bookmarked or date created, newest or oldest first; works with no date for that field go last either way. Date created is usually empty, because it is only recorded by a per-fic lookup this app does not run, and the panel says so when a sort has nothing to work with. This reads what is already in your folder, so it costs no requests and works with the helper stopped - and the heading says `(filtered from N)` while a filter is on, so a short listing is never mistaken for a small library. A work whose date AO3 never recorded is left out of a date range, because there is nothing to compare it against. The same panel appears on the works inside a collection.
 
 The **Bookmarks** tab lists your indexed bookmarks and has:
 
-- **Quick Scan** - a full scan that stops early. It reads your bookmarks **sorted by when AO3 last updated each work** and stops at the first fic whose last-updated date is older than the day your last qualifying scan started, then downloads and updates what it found. A fic updated on that day itself is still indexed.
+- **Quick Scan** - a full scan that stops early. It indexes in two walks, both back to the day your last qualifying scan started: first your bookmarks **sorted by date bookmarked**, stopping at the first one you bookmarked before that day - which catches old fics you have only just bookmarked - then your bookmarks **sorted by when AO3 last updated each work**, stopping at the first one last updated before that day - which catches fics you bookmarked long ago that have changed since. It then reads your existing files and downloads or updates whatever either walk found, each fic once. A fic bookmarked or updated on that day itself is still indexed. With no earlier scan to measure from, the first walk reads everything and the second is skipped.
+
+  You can also choose **which earlier scan to measure back to**, instead of the most recent one - useful if a recent scan may have missed something. The next page lists every completed full scan and quick scan to pick from; the further back you go, the longer indexing takes.
 
   Two things decide whether an earlier run counts as that mark. It has to have **finished** - one that failed, was stopped or was interrupted may have given up before reaching works updated before it started. And it has to be a run that **covered your whole listing**: a full scan, or another quick scan that was not given a date range. Every other run covers only part of your bookmarks, so it can finish perfectly while never looking at a fic AO3 updated that day, and measuring back to it would skip that fic for good. **The first time you run it, it does a full index**: there is nothing to measure back to until a run has completed, so it walks the whole listing and downloads everything missing, which on a large library takes hours. Every run after that is the quick one. What it gives up is the date: anything AO3 updated before your last completed run is never looked at, so a fic missed by an earlier run stays missed.
 
-  It can also be given **a date range of your own** instead of measuring back to your last run. The two are the same mechanism handed a different date, so they are alternatives rather than settings that combine, and the range works exactly as the custom run's does - everything updated since a date, or between two dates. The further back you reach, the longer the indexing takes.
+  With the debug tools on it can also be given **a date range of your own** instead of measuring back to a scan - everything since a date, or between two dates. It uses the same two walks, down to the older end of the range: once by date bookmarked, keeping works you bookmarked in the range, and once by date updated, keeping works AO3 updated in it. Both walks start at your newest bookmark, so works newer than the range are indexed on the way down but not downloaded. The further back the older end goes, the longer the indexing takes.
 - **(Full scan) Reindex & Update All** - the same as the console option 'download from ao3 link', pointed at `https://archiveofourown.org/users/<your username>/bookmarks`. Walks every page, reindexes every fic, and downloads whatever is missing or out of date. It is the only run that can repair a wrong index or notice a completed fic that has been added to since - and on a large library it takes hours, which it says before you start.
 
 
@@ -308,7 +310,17 @@ A run does not stop because one fic will not come down - a work can have been de
 
 When it finishes, it **names them**: how many there were, the first few with the reason each one failed, and a link to look each up on AO3. Everything else in that run was still saved.
 
-There is an **Export the list** button alongside. It saves a plain text file - one work per line, with the work number, the link and the reason, tab separated - so you can look them over or feed the numbers back in. A work is listed once however many formats failed for it.
+One **Export all issues** button at the end of the run saves a single plain text file covering every list below, with a heading for each kind and one work per line under it - the work number, the link and the reason, tab separated - so you can look them over or feed the numbers back in. A work is listed once however many formats failed for it.
+
+#### A downloaded file that is not right on disk
+
+Every file is checked straight after it is written - that it is there, at the size that was downloaded - whether it is a first download or a replacement:
+
+- **the new file is missing or the wrong size** (a full disk, or a sync or antivirus tool grabbing it) - it is **deleted**, any older copy is left where it is, and the work is reported as a **failure** with exactly what was wrong: `a new copy was downloaded, but found to have a problem so was removed`. A short file left behind would carry today's date and look up to date for ever.
+- **the older copy will not delete** (open in another program, read-only, locked by a sync tool) - both copies stay: `a new copy was downloaded, but the old copy still exists as it could not be safely deleted`.
+- **the check itself goes wrong** - nothing is removed: `a new copy was downloaded, but could not be confirmed`.
+
+The last two are listed at the end of the run as needing checking by hand (work number, the new file, any older copy, and why), go into the exported file under their own heading, and stay in that run's entry in **History**.
 
 #### Bookmarks that were never works
 
@@ -319,9 +331,9 @@ A bookmarks listing holds more than works, and none of these has a work to downl
 - **a deleted work** - the bookmark stays, the work does not
 - **something the listing will not explain**, which may have been deleted, made private, or hidden
 
-These get their own list at the end of the run, with the reason for each, and their own **Export the list** button - one row per bookmark, with the work or series number and the link where there is one. Where AO3 does not say why, it says that rather than guessing.
+These get their own list at the end of the run, with the reason for each, and their own heading in the exported file - one row per bookmark, with the work or series number and the link where there is one. Where AO3 does not say why, it says that rather than guessing.
 
-They are deliberately kept apart from the failures above. Nothing went wrong with them and running again will skip them again, so mixing the two would make a real failure look routine. **Every button ends this way**, including the ones that only index.
+They are deliberately kept apart from the failures above. Nothing went wrong with them and running again will skip them again, so mixing the two would make a real failure look routine. **Every button ends this way** - its last step is *Report any failures* - including the ones that only index and downloading a single fic by link.
 
 #### Files downloaded before this change
 

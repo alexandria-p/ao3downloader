@@ -137,11 +137,35 @@ AO3_INFO_COLLECTIONS_DONE = 'saved {} collections to {}'
 AO3_INFO_COLLECTIONS_NONE = 'no collections found for that user'
 AO3_INFO_COLLECTION_ONE = 'indexing the collection {}'
 
-INFO_REPLACED_OLD_COPY = 'replaced the older copy: {}'
-INFO_KEPT_OLD_COPY = 'kept the older copy, the new file could not be confirmed: {}'
+# one of these four is said for every file a download writes. indented to sit under the fic
+INFO_SAVED_NEW_COPY = '    new download: {}'
+# said for an outdated copy removed and for a copy written over under the same name alike
+INFO_REPLACED_OLD_COPY = '    replaced the older copy: {}'
+INFO_KEPT_OLD_COPY = '    a new copy was downloaded, but the old copy still exists as it could not be safely deleted: {}'
+# the new file failed its check and was removed. the first names the old copy still on disk;
+# the second is a first download, or a same-name overwrite, where there is no old copy left
+INFO_DAMAGED_KEPT_OLD = '    a new copy was downloaded, but found to have a problem so was removed. the old copy still exists: {}'
+INFO_DAMAGED_REMOVED = '    a new copy was downloaded, but found to have a problem so was removed: {}'
+INFO_UNCONFIRMED = '    a new copy was downloaded, but could not be confirmed: {}'
+# why, recorded with each so the run's report can say
+KEPT_NOT_DELETED = 'the older copy {} could not be deleted - it may be open in another program, read-only, or locked by a sync or antivirus tool'
+UNCONFIRMED_REASON = 'checking the downloaded file {} failed, so it was left as it is and nothing else was deleted: {}'
+DAMAGED_REASON = 'the downloaded file {} {}, so it was removed'
+DAMAGED_REASON_KEPT_OLD = 'the downloaded file {} {}, so it was removed. the older copy {} is still there'
+DAMAGED_NOT_REMOVED = ' - but removing it failed too, so delete it by hand'
+SAVED_NOT_FOUND = 'could not be found at {}'
+SAVED_WRONG_SIZE = 'was the wrong size: expected {} bytes, found {}'
+SAVED_UNREADABLE = 'could not be read back: {}'
+SAVED_FINE_ON_SECOND_LOOK = 'did not match the downloaded size when first checked'
+AO3_INFO_KEPT_COPIES = '{} works were downloaded but need checking by hand'
 ERROR_REPLACE_OLD_COPY = 'Problem removing the copy a download replaced. The old file is still there.'
 AO3_INFO_OUT_OF_DATE = '{} downloaded works have been updated on ao3 since you saved them'
-AO3_INFO_UNDATED = '{} downloaded works were saved before file names carried a date'
+AO3_INFO_UNDATED = '{} downloaded works ({} files between them) were saved before file names carried a date'
+AO3_INFO_UNDATED_WORKS = 'works with undated files: {}'
+# an index entry's field saying whether the logged-in user has bookmarked the fic: True off
+# their own bookmarks listing or a work page saying 'Edit Bookmark', False off a page saying
+# 'Bookmark', and absent when nothing has been able to tell
+BOOKMARKED_FIELD = 'bookmarked'
 AO3_INFO_CHECKING_FILES = 'checking which of these you have already downloaded'
 AO3_INFO_CHECKING_VERSIONS = 'checking which of your downloads ao3 has a newer version of'
 AO3_INFO_UNDATED_WAITING = 'waiting for you to say what to do about them'
@@ -149,7 +173,8 @@ AO3_INFO_UNDATED_REFRESH = 'treating all {} as out of date, so they will be down
 AO3_INFO_UNDATED_SKIPPED = 'leaving all {} as they are'
 AO3_INFO_UP_TO_DATE = 'everything else you have is already the current version'
 AO3_INFO_OVERWRITING = 'overwriting {} downloaded works at your request, current or not'
-AO3_INFO_STAMPED = 'dated {} existing files as {}'
+AO3_INFO_STAMPED = 'dated {} existing files, across {} works, as {}'
+AO3_INFO_STAMPED_FILE = '    renamed {} -> {}'
 AO3_INFO_FROM_INDEX = 'downloading {} works directly, without re-indexing'
 AO3_INFO_FAILED_WORKS = '{} works could not be downloaded'
 # the 'new bookmarks only' walk, which stops at the first fic it already has
@@ -160,6 +185,18 @@ AO3_INFO_REACHED_KNOWN = 'reached a fic you have already indexed - nothing newer
 AO3_INFO_REACHED_OLDER = 'reached a fic ao3 last updated before {} - nothing older to check'
 AO3_INFO_QUICK_FLOOR = 'indexing works ao3 has updated since your last completed run, on {}'
 AO3_INFO_QUICK_NO_FLOOR = 'no completed run on record, so this reads the whole listing'
+AO3_INFO_QUICK_WINDOW = 'looking for works bookmarked or updated between {} and {}'
+AO3_INFO_QUICK_IN_WINDOW = '{} works were bookmarked or updated in that date range'
+AO3_INFO_DATE_NOW = 'now'
+AO3_INFO_QUICK_CHOSEN_FLOOR = 'measuring back to the scan you chose, which started on {}'
+AO3_INFO_QUICK_CHOSEN_GONE = ('the scan you chose is no longer on record, so this falls back to '
+                              'your last completed scan')
+ERROR_NOT_A_FLOOR_RUN = ('that is not a completed full scan or quick scan, so it cannot be '
+                         'measured back to')
+AO3_INFO_QUICK_BOOKMARKED = 'indexing bookmarks you have added since {}'
+AO3_INFO_QUICK_UPDATED = 'indexing works ao3 has updated since {}'
+AO3_INFO_QUICK_UPDATED_NOT_NEEDED = ('no floor, so the first pass already read every bookmark '
+                                     '- not reading the listing a second time')
 # no run qualifies as a floor, but the index already holds something. asked rather than
 # decided: a full listing is hours on a large library, and the date the index was last
 # written is a guess only the person who built it can judge
@@ -172,6 +209,9 @@ AO3_INFO_QUICK_CHOSE_FULL = 'reading the whole listing, as a first scan would'
 # was bookmarked. verified against the live site: the default order is by date bookmarked
 # and jumps about, so a walk that stops at the first older fic would stop almost at once.
 AO3_SORT_BY_UPDATED = 'bookmark_search%5Bsort_column%5D=bookmarkable_date'
+# 'Date Bookmarked' on ao3's own sort menu - verified against the live search form, where
+# it is `created_at` beside `bookmarkable_date` for 'Date Updated'
+AO3_SORT_BY_BOOKMARKED = 'bookmark_search%5Bsort_column%5D=created_at'
 AO3_INFO_NEW_NONE = 'no new bookmarks since the last run'
 AO3_INFO_NEW_FOUND = 'found {} newly bookmarked works'
 # the gap-filling pass at the end of a combined run
@@ -233,7 +273,10 @@ ACTION_NAME_QUICK = 'Quick Scan'
 STEP_LOGIN = 'Log in to AO3'
 STEP_INDEX_ALL = 'Index every bookmark'
 STEP_INDEX_NEW = 'Index bookmarks added since last time'
+STEP_INDEX_BOOKMARKED_SINCE = 'Index bookmarks added since your last run'
 STEP_INDEX_SINCE = 'Index works AO3 has updated since your last run'
+STEP_INDEX_BOOKMARKED_WINDOW = 'Index bookmarks added in that date range'
+STEP_INDEX_UPDATED_WINDOW = 'Index works AO3 updated in that date range'
 STEP_INDEX_ONE = 'Index this fic'
 STEP_INDEX_COLLECTIONS = 'Index your collections'
 STEP_INDEX_COLLECTION = 'Index this collection'
@@ -254,7 +297,7 @@ STEP_UPDATE_WINDOW = 'Download or update each fic as necessary'
 STEP_UPDATE = 'Re-index each fic, then download or update as necessary'
 STEP_FILL_GAPS = 'Fetch any format still missing'
 STEP_IMAGES = 'Save embedded images separately'
-STEP_REPORT = 'Report anything that could not be fetched'
+STEP_REPORT = 'Report any failures'
 
 AO3_INFO_FORMAT_MISSING = '    no copy in {} - downloading now'
 AO3_INFO_FORMAT_OUTDATED = '    outdated version in {} - replacing now'
@@ -270,7 +313,12 @@ AO3_INFO_INCOMPLETE_NONE = 'the index lists no unfinished works. nothing to chec
 AO3_INFO_INCOMPLETE_GREW = '{} of them need downloading again'
 AO3_INFO_INCOMPLETE_UNCHANGED = 'none of them have changed since you last downloaded them'
 ERROR_WORK_STATS = 'Could not read the stats from that work page'
-ERROR_NOT_A_WORK_FILE = 'Ao3 answered with a page rather than the file. The work may have been deleted, made restricted, or be unavailable in that format.'
+ERROR_NOT_A_WORK_FILE = 'Ao3 answered with a page rather than the {} file ({}). The work may have been deleted, made restricted, or be unavailable in that format.'
+ERROR_NOT_A_WORK_FILE_STATUS = 'status {}'
+# a format that failed while the rest of the work's formats were still tried
+INFO_FORMAT_FAILED = '    {} could not be downloaded: {}'
+ERROR_FORMAT_FAILED = '{}: {}'
+ERROR_NOT_A_WORK_FILE_TYPE = 'status {}, but the content was a web page'
 AO3_INFO_STAMP_SKIPPED = '{} files were left as they were - a file of that name already existed'
 
 # how many entries ao3 puts on a page of a listing. only used to work out how many works

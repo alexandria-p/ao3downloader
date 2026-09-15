@@ -1,7 +1,9 @@
 """Download works from ao3."""
 
+import contextlib
 import datetime
 import os
+import sys
 import traceback
 from collections.abc import Callable
 
@@ -11,6 +13,27 @@ from source_code import exceptions, indexing, parse_soup, parse_text, progress, 
 from source_code.fileio import FileOps
 from source_code.progress import ProgressCallback
 from source_code.repo import Repository
+
+
+# what replace_superseded did about an older copy
+REPLACED = 'replaced'
+KEPT = 'kept'
+UNCONFIRMED = 'unconfirmed'
+
+
+def bookmark_state(soup) -> dict:
+    """The `bookmarked` field to write for a fic read from its own page, or nothing.
+
+    Only a page that actually says - 'Edit Bookmark' or 'Bookmark' - changes the field. When
+    it cannot tell (logged out, an unexpected page) the entry keeps whatever it had, so a
+    fic a bookmarks walk marked as yours is not unmarked by a page that could not see.
+    """
+
+    try:
+        state = parse_soup.get_bookmarked(soup)
+    except Exception:
+        return {}
+    return {} if state is None else {strings.BOOKMARKED_FIELD: state}
 
 
 class Ao3:
@@ -44,6 +67,9 @@ class Ao3:
         # records them too, but a run that leaves gaps should be able to say which ones
         # without anyone having to read a log file to find out.
         self.failures: list[dict] = []
+        # new copies that arrived while the older copy they replace could not be removed.
+        # nothing is lost, but there are now two copies, so the run names each one
+        self.kept_copies: list[dict] = []
         # bookmarks that are not works at all, so could never be indexed or downloaded.
         # kept as a list rather than a count so the run can name each one at the end
         self.skipped_works: list[dict] = []
@@ -105,7 +131,8 @@ class Ao3:
 
 
     def get_metadata(self, link: str, workdates: bool,
-                     known: set[str] | None = None, stop_before: str = '') -> list[dict]:
+                     known: set[str] | None = None, stop_before: str = '',
+                     stop_on: str = 'updated', own_bookmarks: bool = False) -> list[dict]:
         """Walk a listing and save metadata for every work on it, one file per bookmark.
 
         One request per page rather than per work, so a bookmarks list of any size is
@@ -132,6 +159,16 @@ class Ao3:
         for one. Verified against the live site: the default order is by when each work was
         bookmarked and jumps about by years, so this walk down an unsorted listing would
         stop almost immediately and miss nearly everything.
+
+        `stop_on` says which date `stop_before` is measured against: `'updated'` (the
+        work's own date, `div.header p.datetime`) or `'bookmarked'` (the bookmark's date,
+        `div.user p.datetime`). The listing has to be sorted by the same date - a
+        bookmarked stop down an updated-date listing is exactly as wrong as the reverse.
+
+        `own_bookmarks` says the listing is the logged-in user's own bookmarks, and marks
+        every work read off it `bookmarked: True`. That is the one place the answer is
+        certain - the fic is on the page because you bookmarked it. The caller says so rather
+        than this guessing from the url, because a bookmarks url does not say whose.
         """
 
         if parse_text.is_work(link):
@@ -152,6 +189,13 @@ class Ao3:
         # it was indexed, and a second save of the same fic updates rather than appends
         self.indexed_on = indexing.now()
 
+        # whether this walk can end before the listing does. a floor or a set of known works
+        # stops it wherever the first older or familiar fic happens to sit, so the listing's
+        # page count says nothing about how many pages this run will read - and 'page 3 of
+        # 80' on a walk that stops at page 4 would be a promise it never meant to keep.
+        # `total_pages` is still read and still ends the walk; it is only never *said*
+        open_ended = bool(stop_before) or known is not None
+
         records: list[dict] = []
         seen: set[str] = set()
         skipped = 0
@@ -161,15 +205,16 @@ class Ao3:
             while True:
                 self.check_cancelled()
                 current = parse_text.get_page_number(link)
-                print(strings.AO3_INFO_METADATA_FETCHING.format(str(current), str(total_pages))
-                      if total_pages else
+                shown_total = None if open_ended else total_pages
+                print(strings.AO3_INFO_METADATA_FETCHING.format(str(current), str(shown_total))
+                      if shown_total else
                       strings.AO3_INFO_METADATA_FETCHING_FIRST.format(str(current)))
                 # said before the request, so the ui names the page being fetched rather
                 # than the last one that finished. the fetch is the slow part, and a
                 # caption written only afterwards describes the wrong page for all of it
-                asking, asking_of = self.page_progress(current, total_pages)
+                asking, asking_of = self.page_progress(current, shown_total)
                 progress.report(self.progress, progress.PAGE, page=asking, total=asking_of,
-                                listingPage=current, listingTotal=total_pages, fetching=True)
+                                listingPage=current, listingTotal=shown_total, fetching=True)
                 self.fileops.write_log({'link': link, 'message': strings.INFO_STARTING_PAGE, 'level': 'debug'})
                 thesoup = self.repo.get_soup(link)
                 if total_pages is None:
@@ -203,8 +248,10 @@ class Ao3:
 
                     if stop_before:
                         # only sound on a listing sorted by this date - see the docstring
+                        selector = ('div.user p.datetime' if stop_on == 'bookmarked'
+                                    else 'div.header p.datetime')
                         updated = parse_text.get_date_stamp(parse_soup.get_text_or_empty(
-                            blurb, 'div.header p.datetime'))
+                            blurb, selector))
                         if updated and updated < stop_before:
                             print(strings.AO3_INFO_REACHED_OLDER.format(stop_before))
                             reached_known = True
@@ -220,6 +267,7 @@ class Ao3:
                         'position': position_offset + len(records) + 1,
                     }
                     document.update(parse_soup.get_blurb_metadata(blurb))
+                    if own_bookmarks: document[strings.BOOKMARKED_FIELD] = True
                     records.append(document)
                     page_records.append(document)
                 # nothing is written until the whole page has been read. a page is one unit
@@ -228,25 +276,28 @@ class Ao3:
                 # saving as each blurb was parsed made the page half-written by definition
                 for document in page_records:
                     self.save_metadata(document)
-                # the works ahead of the familiar one are still new, so they are kept and
-                # written; it is only the walking that stops here
-                if reached_known: break
-                done, of = self.page_progress(current, total_pages)
+                shown_total = None if open_ended else total_pages
+                done, of = self.page_progress(current, shown_total)
                 # two sets of numbers on purpose: the bar measures the slice being fetched,
                 # so it runs 1..n and ends full, while the words say where that actually is
                 # in the listing - 'page 42 of 80' is what you would go and look at
                 progress.report(self.progress, progress.PAGE, page=done, total=of,
-                                listingPage=current, listingTotal=total_pages,
+                                listingPage=current, listingTotal=shown_total,
                                 works=len(records))
                 # said as soon as the page is in, and before any decision to stop: this used
                 # to sit after the break checks, so the page a run ended on - the last one
                 # of the listing, or the one the page limit stopped at - never reported
                 # finishing at all
                 print(strings.AO3_INFO_METADATA_PAGE.format(
-                          str(current), str(total_pages), str(len(records)))
-                      if total_pages else
+                          str(current), str(shown_total), str(len(records)))
+                      if shown_total else
                       strings.AO3_INFO_METADATA_PAGE_ONLY.format(
                           str(current), str(len(records))))
+                # the works ahead of the familiar or older one are still new, so they were kept
+                # and written; it is only the walking that stops here. after the page has said
+                # it finished, not before - a walk stopped by a floor used to end on 'fetching
+                # page 4' and never report the page it had actually read
+                if reached_known: break
                 if not total_pages or current >= total_pages:
                     break
                 link = parse_text.get_next_page(link)
@@ -350,7 +401,7 @@ class Ao3:
             record = {'id': parse_text.get_work_number(link), 'link': link,
                       'title': page.get('title') or '', 'authors': authors}
 
-        fresh = {**record, **stats}
+        fresh = {**record, **stats, **bookmark_state(soup)}
         self.save_metadata(fresh)
         return fresh
 
@@ -375,7 +426,7 @@ class Ao3:
         if 'error' in stats:
             raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
 
-        fresh = {**record, **stats}
+        fresh = {**record, **stats, **bookmark_state(soup)}
         self.save_metadata(fresh)
         return fresh
 
@@ -440,20 +491,60 @@ class Ao3:
         log['updated'] = updated
 
         display = ' / '.join(x for x in title if x)
+        failed: list[tuple[str, Exception]] = []
         for filetype in self.filetypes:
             self.check_cancelled()
             progress.report(self.progress, progress.WORK, title=display,
                             link=record['link'], filetype=filetype,
                             phase=progress.DOWNLOADING, done=done, total=total)
-            content = self.repo.download_file(
-                parse_text.get_direct_download_link(work, filetype), filetype)
-            saved = self.fileops.save_bytes(
-                filename + parse_text.get_file_type(filetype), content)
-            self.replace_superseded(record['link'], filetype, saved, len(content))
+            with self.one_format(filetype, failed):
+                content = self.repo.download_file(
+                    parse_text.get_direct_download_link(work, filetype), filetype)
+                self.save_download(record['link'], filetype,
+                                   filename + parse_text.get_file_type(filetype), content)
 
+        # anything that did arrive is a download, even when a format beside it failed
+        if len(failed) < len(self.filetypes): self.downloaded.add(work)
+        self.raise_if_formats_failed(failed)
         log['success'] = True
-        self.downloaded.add(work)
         self.fileops.write_log(log)
+
+
+    @contextlib.contextmanager
+    def one_format(self, filetype: str, failed: list[tuple[str, Exception]]):
+        """Try one format of a work, noting a failure and carrying on to the next format.
+
+        A work used to stop at its first failing format, so a fic ao3 had no epub for never
+        got its pdf either, and the failure named only the first. Each format is a separate
+        file at its own url, so one missing says nothing about the others.
+
+        A stop and a lapsed login still end everything - every format after would fail the
+        same way, and a stop means stop.
+        """
+
+        try:
+            yield
+        except (exceptions.CancelledException, exceptions.SessionExpiredException):
+            raise
+        except Exception as e:
+            failed.append((filetype, e))
+            print(strings.INFO_FORMAT_FAILED.format(filetype, e))
+
+
+    def raise_if_formats_failed(self, failed: list[tuple[str, Exception]]) -> None:
+        """Fail the work once every format has been tried, naming each one that failed.
+
+        One exception for the lot, because a work is one entry in the failure list and a
+        work already counted as failed would not be recorded a second time. It is a
+        `SavedFileException` only if every failure was one, so a folder problem still does
+        not spend a request checking the login - but a single ao3 failure among them does.
+        """
+
+        if not failed: return
+        message = '; '.join(strings.ERROR_FORMAT_FAILED.format(ft, e) for ft, e in failed)
+        if all(isinstance(e, exceptions.SavedFileException) for _, e in failed):
+            raise exceptions.SavedFileException(message)
+        raise exceptions.DownloadException(message)
 
 
     def page_progress(self, current: int, total_pages: int | None) -> tuple[int, int | None]:
@@ -987,15 +1078,16 @@ class Ao3:
         progress.report(self.progress, progress.WORK, title=display, link=work_url,
                         phase='downloading')
 
+        failed: list[tuple[str, Exception]] = []
         for filetype in self.filetypes:
             self.check_cancelled()
             progress.report(self.progress, progress.WORK, title=display, link=work_url,
                             filetype=filetype, phase='downloading')
-            link = parse_soup.get_download_link(thesoup, filetype)
-            response = self.repo.get_book(link)
-            saved = self.fileops.save_bytes(
-                filename + parse_text.get_file_type(filetype), response)
-            self.replace_superseded(work_url, filetype, saved, len(response))
+            with self.one_format(filetype, failed):
+                link = parse_soup.get_download_link(thesoup, filetype)
+                response = self.repo.get_book(link)
+                self.save_download(work_url, filetype,
+                                   filename + parse_text.get_file_type(filetype), response)
 
         if self.images:
             self.save_images(thesoup, filename, work_url, title)
@@ -1003,11 +1095,111 @@ class Ao3:
         if self.mark:
             self.repo.mark_work_as_read(thesoup, work_url)
 
+        self.raise_if_formats_failed(failed)
+
         return True
 
 
+    def save_download(self, work_url: str, filetype: str, name: str, content: bytes) -> str:
+        """Write one downloaded format, tidy up what it replaced, and say which happened.
+
+        Both download paths come through here, so every file a run writes gets exactly one
+        line in the modal. Only a deleted older copy used to be announced - a format arriving
+        for the first time, or a copy overwritten under the same name, said nothing, and a
+        run downloading hundreds of new files looked as though it was doing nothing at all.
+        """
+
+        try:
+            existed = os.path.isfile(os.path.join(self.fileops.downloadfolder, name))
+        except Exception:
+            # only decides the wording. a folder that cannot be asked is not a failed download
+            existed = False
+
+        saved = self.fileops.save_bytes(name, content)
+        new = os.path.basename(saved) if isinstance(saved, str) else name
+        work = parse_text.get_work_number(work_url)
+        old = self.superseded.get(work_url, {}).get(filetype)
+        try:
+            # a separate older file, as opposed to the one this write has just landed on top of
+            separate = bool(old) and os.path.abspath(old) != os.path.abspath(saved)
+        except Exception:
+            separate = False
+        old_name = os.path.basename(old) if separate else ''
+
+        # the new file is checked before anything else happens, and for every download - a
+        # first download can be cut short or snatched by a sync tool as easily as a
+        # replacement can, and a short file named as current would be judged current forever
+        try:
+            intact = self.fileops.saved_intact(saved, len(content))
+        except Exception as e:
+            # cannot tell either way: leave everything where it is, and say so
+            self.log_error({'message': strings.ERROR_REPLACE_OLD_COPY, 'link': work_url}, e)
+            print(strings.INFO_UNCONFIRMED.format(new))
+            self.note_kept(work, work_url, new, old_name,
+                           strings.UNCONFIRMED_REASON.format(new, e))
+            return saved
+
+        if not intact:
+            self.discard_damaged(work_url, saved, new, old_name, len(content))
+
+        outcome, _, reason = self.replace_superseded(work_url, filetype, saved, len(content))
+
+        if outcome == REPLACED:
+            print(strings.INFO_REPLACED_OLD_COPY.format(new))
+        elif outcome == KEPT:
+            print(strings.INFO_KEPT_OLD_COPY.format(new))
+            self.note_kept(work, work_url, new, old_name, reason)
+        elif outcome == UNCONFIRMED:
+            print(strings.INFO_UNCONFIRMED.format(new))
+            self.note_kept(work, work_url, new, old_name, reason)
+        elif existed:
+            # same name, so the write itself was the replacement - which is still an update
+            if work: self.updated.add(work)
+            print(strings.INFO_REPLACED_OLD_COPY.format(new))
+        else:
+            print(strings.INFO_SAVED_NEW_COPY.format(new))
+        return saved
+
+
+    def note_kept(self, work: str | None, work_url: str, new: str, old: str,
+                  reason: str) -> None:
+        """Remember a download that arrived but needs a person to look at it.
+
+        The same {id, link, error} shape a failure has, so it reports and exports the same
+        way - plus both file names, because there may now be two copies to find.
+        """
+
+        self.kept_copies.append({'id': work or '', 'link': work_url, 'file': new,
+                                 'old': old, 'error': reason})
+
+
+    def discard_damaged(self, work_url: str, saved: str, new: str, old_name: str,
+                        size: int) -> None:
+        """Remove a download that is not on disk as it arrived, and fail the work with why.
+
+        A missing or short file must not stay: its name carries the current date, so every
+        later run would call it up to date and never fetch it again. Any older copy is left
+        exactly where it is. Raises `SavedFileException`, so the caller records a failure
+        and the work is not counted as downloaded.
+        """
+
+        problem = self.fileops.saved_problem(saved, size)
+        if not isinstance(problem, str) or not problem:
+            problem = strings.SAVED_FINE_ON_SECOND_LOOK
+        removed = self.fileops.delete_file(saved) is True
+
+        if old_name:
+            print(strings.INFO_DAMAGED_KEPT_OLD.format(old_name))
+            detail = strings.DAMAGED_REASON_KEPT_OLD.format(new, problem, old_name)
+        else:
+            print(strings.INFO_DAMAGED_REMOVED.format(new))
+            detail = strings.DAMAGED_REASON.format(new, problem)
+        if not removed: detail += strings.DAMAGED_NOT_REMOVED
+        raise exceptions.SavedFileException(detail)
+
+
     def replace_superseded(self, work_url: str, filetype: str,
-                           saved_path: str, size: int) -> None:
+                           saved_path: str, size: int) -> tuple[str | None, str]:
         """Remove the copy a download has just replaced, once it is safe to.
 
         Deliberately cautious, because the alternative is losing a file the user still has
@@ -1020,32 +1212,41 @@ class Ao3:
           - the new file is on disk, in the folder in use, at its full length
 
         Anything short of that leaves the old file exactly where it is.
+
+        Returns what happened - `REPLACED`, `KEPT` (would not delete), `UNCONFIRMED` (the new
+        file could not be vouched for) or None (nothing older to remove) - with the old
+        file's name and, when not replaced, why. It prints nothing itself, or a replacement
+        would be announced twice; `save_download` does the saying. `save_download` checks the
+        new file before calling this, so the check here is a second line of defence.
         """
 
         old = self.superseded.get(work_url, {}).get(filetype)
-        if not old: return
+        if not old: return None, '', ''
+        name = os.path.basename(old)
+        new = os.path.basename(saved_path) if isinstance(saved_path, str) else ''
 
         try:
-            if os.path.abspath(old) == os.path.abspath(saved_path): return
+            if os.path.abspath(old) == os.path.abspath(saved_path): return None, '', ''
             if not self.fileops.saved_intact(saved_path, size):
                 self.fileops.write_log({
-                    'link': work_url, 'message': strings.INFO_KEPT_OLD_COPY.format(old),
-                    'level': 'debug'})
-                return
+                    'link': work_url, 'message': strings.INFO_UNCONFIRMED.format(saved_path),
+                    'old': old, 'level': 'debug'})
+                return UNCONFIRMED, name, strings.UNCONFIRMED_REASON.format(
+                    new, strings.SAVED_FINE_ON_SECOND_LOOK)
             if self.fileops.delete_file(old):
                 # an old copy actually gone is what makes this an update rather than a
                 # first download, which is the distinction the history file records
                 work = parse_text.get_work_number(work_url)
                 if work: self.updated.add(work)
-                print(strings.INFO_REPLACED_OLD_COPY.format(os.path.basename(old)))
                 self.fileops.write_log({
                     'link': work_url, 'message': strings.INFO_REPLACED_OLD_COPY.format(old),
                     'level': 'debug'})
-            else:
-                print(strings.INFO_KEPT_OLD_COPY.format(os.path.basename(old)))
+                return REPLACED, name, ''
+            return KEPT, name, strings.KEPT_NOT_DELETED.format(name)
         except Exception as e:
             # never let tidying up an old file break a download that succeeded
             self.log_error({'message': strings.ERROR_REPLACE_OLD_COPY, 'link': work_url}, e)
+            return UNCONFIRMED, name, strings.UNCONFIRMED_REASON.format(new, e)
 
 
     def proceed(self, thesoup: BeautifulSoup) -> BeautifulSoup:
@@ -1088,6 +1289,9 @@ class Ao3:
         any other and the run carries on.
         """
 
+        # always called from an except block, so the exception being handled is the current
+        # one. a damaged file on disk says nothing about the login - don't pay to ask
+        if isinstance(sys.exc_info()[1], exceptions.SavedFileException): return
         if self.session_checked: return
         self.session_checked = True
         if self.repo.still_logged_in(): return

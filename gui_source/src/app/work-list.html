@@ -1,3 +1,26 @@
+<p class="listing-heading">
+  {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} {{ label() }}
+  @if (filtering()) {
+    <span class="filtered-note">(filtered from {{ totalUnfiltered() | number }})</span>
+  }
+  @if (owner()) {
+    by <a [href]="'https://archiveofourown.org/users/' + owner()" target="_blank" rel="noopener">{{ owner() }}</a>
+  }
+</p>
+
+@if (note()) {
+  <p class="meta-line note">{{ note() }}</p>
+}
+
+<p class="meta-line linked">
+  @if (linkedCount() > 0) {
+    {{ linkedCount() | number }} of {{ total() | number }} works have a downloaded copy in this
+    folder - click a title to open one.
+  } @else {
+    No downloaded work files in this folder, so titles open on AO3 instead.
+  }
+</p>
+
 <!--
   narrowing the listing, not searching ao3: everything here is filtered from what the folder
   already holds, so it costs no requests and works with the helper stopped
@@ -62,6 +85,21 @@
     </label>
 
     <label class="filter-field">
+      <span>Sort by</span>
+      <select
+        name="sortBy"
+        [value]="sortBy()"
+        (change)="sortBy.set($any($event.target).value)"
+      >
+        <option value="">Folder order</option>
+        <option value="bookmarked-desc">Date bookmarked, newest first</option>
+        <option value="bookmarked-asc">Date bookmarked, oldest first</option>
+        <option value="created-desc">Date created, newest first</option>
+        <option value="created-asc">Date created, oldest first</option>
+      </select>
+    </label>
+
+    <label class="filter-field">
       <span>Bookmarked to</span>
       <input
         type="date"
@@ -72,8 +110,15 @@
     </label>
   </div>
 
+  @if (sortHasNoDates()) {
+    <p class="filter-hint sort-empty">
+      None of these works has that date recorded, so this sort leaves the order unchanged.
+      Publication dates are only filled in by a per-work lookup this app does not run.
+    </p>
+  }
+
   <p class="filter-actions">
-    <button type="button" class="button subtle" [disabled]="!filtering()" (click)="clearFilters()">
+    <button type="button" class="button subtle" [disabled]="!anythingToClear()" (click)="clearFilters()">
       Clear filters
     </button>
     <span class="filter-hint">
@@ -82,29 +127,6 @@
     </span>
   </p>
 </details>
-
-<p class="listing-heading">
-  {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} {{ label() }}
-  @if (filtering()) {
-    <span class="filtered-note">(filtered from {{ totalUnfiltered() | number }})</span>
-  }
-  @if (owner()) {
-    by <a [href]="'https://archiveofourown.org/users/' + owner()" target="_blank" rel="noopener">{{ owner() }}</a>
-  }
-</p>
-
-@if (note()) {
-  <p class="meta-line note">{{ note() }}</p>
-}
-
-<p class="meta-line linked">
-  @if (linkedCount() > 0) {
-    {{ linkedCount() | number }} of {{ total() | number }} works have a downloaded copy in this
-    folder - click a title to open one.
-  } @else {
-    No downloaded work files in this folder, so titles open on AO3 instead.
-  }
-</p>
 
 <ng-container *ngTemplateOutlet="pager"></ng-container>
 

@@ -605,3 +605,18 @@ def test_initialize_fails_with_message_when_download_folder_uncreatable(fake_fil
     assert strings.MESSAGE_DOWNLOAD_FOLDER_ERROR.format(fake_fileops.downloadfolder) in capsys.readouterr().out
 
 # endregion
+
+
+# region saying what is wrong with a saved file
+
+def test_a_missing_file_is_described_by_where_it_was_expected(fake_fileops, tmp_path):
+    path = str(tmp_path / 'gone.pdf')
+    assert fake_fileops.saved_problem(path, 10) == strings.SAVED_NOT_FOUND.format(path)
+
+
+def test_a_short_file_is_described_by_both_sizes(fake_fileops, tmp_path):
+    path = tmp_path / 'short.pdf'
+    path.write_bytes(b'ab')
+    assert fake_fileops.saved_problem(str(path), 10) == strings.SAVED_WRONG_SIZE.format(10, 2)
+
+# endregion

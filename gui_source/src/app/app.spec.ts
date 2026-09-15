@@ -488,7 +488,7 @@ describe('App', () => {
     expect(said).toContain('A deleted work');
     expect(said).toContain('made private, or hidden');
     // and what the export gives you
-    expect(said).toContain('Export the list');
+    expect(said).toContain('Export all issues');
     expect(element.querySelector('app-faq .mock')).toBeTruthy();
   });
 

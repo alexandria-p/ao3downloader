@@ -68,6 +68,14 @@ class SessionExpiredException(Ao3DownloaderException):
     pass
 
 
+class SavedFileException(Ao3DownloaderException):
+    """Raised when a downloaded file is not on disk as it should be, and has been removed.
+
+    A failure of that work, recorded like any other - but a problem with the folder, not
+    with ao3, so it is no reason to spend a request asking whether the login still holds."""
+    pass
+
+
 class PausedException(Ao3DownloaderException):
     """Raised when a pause arrives while a response body is still coming down.
 

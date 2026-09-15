@@ -313,3 +313,34 @@ def test_a_caller_can_say_which_finished_runs_count(tmp_path):
     assert found['id'] == 'scan'
 
 # endregion
+
+
+def test_what_came_of_a_choice_is_added_to_it_afterwards(tmp_path):
+    record = a_record(tmp_path)
+    record.choice({'question': 'undated', 'count': 1, 'works': ['111'], 'choice': 'stamp'})
+
+    record.amend_choice({'renamed': [{'id': '111', 'from': 'a.html', 'to': 'a 2024.html'}]})
+
+    choice = written(tmp_path)[0]['choices'][0]
+    assert choice['works'] == ['111']
+    assert choice['renamed'][0]['to'] == 'a 2024.html'
+
+
+def test_amending_with_nothing_asked_does_nothing(tmp_path):
+    record = a_record(tmp_path)
+    record.amend_choice({'renamed': []})
+    assert written(tmp_path)[0]['choices'] == []
+
+
+def test_old_copies_that_would_not_go_are_kept_with_the_run(tmp_path):
+    record = a_record(tmp_path)
+    ao3 = MagicMock()
+    ao3.reindexed = ao3.downloaded = ao3.updated = set()
+    ao3.failures = ao3.skipped_works = []
+    ao3.kept_copies = [{'id': '1', 'link': 'l', 'file': 'new.html', 'old': 'old.html',
+                        'error': 'locked'}]
+
+    record.collect(ao3)
+    record.finish(runs.STATUS_SUCCESS)
+
+    assert written(tmp_path)[0]['keptCopies'][0]['file'] == 'new.html'

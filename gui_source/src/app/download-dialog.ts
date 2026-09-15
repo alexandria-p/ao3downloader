@@ -5,6 +5,7 @@ import {
   JobAction,
   JobEvent,
   Jobs,
+  RunHistory,
   RunStep,
   WorkFailure,
 } from './jobs';
@@ -14,6 +15,8 @@ type Step =
   | 'link'
   | 'filetypes'
   | 'options'
+  /** a quick scan choosing which earlier scan to measure back to */
+  | 'floor'
   | 'acknowledge'
   | 'credentials'
   | 'running'
@@ -91,7 +94,11 @@ export class DownloadDialog implements OnDestroy {
    * could. A quick scan uses the same signal for its own pair: 'all' there means back to
    * its last completed run.
    */
-  protected readonly coverage = signal<'all' | 'pages' | 'dates'>('all');
+  protected readonly coverage = signal<'all' | 'pages' | 'dates' | 'run'>('all');
+  /** the earlier scans a quick scan can be measured back to, once they have been asked for */
+  protected readonly floorRuns = signal<RunHistory[] | null>(null);
+  /** the id of the one chosen */
+  protected readonly floorRun = signal('');
   protected readonly useDates = computed(() => this.coverage() === 'dates');
   /**
    * Whether the window has a newer end as well as an older one.
@@ -170,6 +177,15 @@ export class DownloadDialog implements OnDestroy {
    * would make a real failure look routine.
    */
   protected readonly skipped = signal<WorkFailure[]>([]);
+  /**
+   * Works whose new copy arrived but needs checking: the older copy could not be safely
+   * deleted, or checking the new file itself went wrong. A new file found to be damaged is
+   * not here - it was removed, and is reported with `failures`.
+   *
+   * Nothing is lost - both copies are on disk - so this is not a failure to retry, but it
+   * is a problem the user has to go and sort out, so each one is named.
+   */
+  protected readonly keptCopies = signal<WorkFailure[]>([]);
 
   /**
    * How many undated files the run has stopped to ask about, or 0 when it is not asking.
@@ -364,7 +380,9 @@ export class DownloadDialog implements OnDestroy {
       this.picksSeries() ||
       this.picksImages() ||
       this.picksReindex() ||
-      this.picksOverwrite(),
+      this.picksOverwrite() ||
+      // it can always be pointed at an earlier scan, so it always has a choice to offer
+      this.action() === 'quick',
   );
 
   /**
@@ -448,12 +466,14 @@ export class DownloadDialog implements OnDestroy {
   protected readonly dateRange = computed(() => {
     const oldest = this.dateFrom();
     const newest = this.betweenDates() ? this.dateTo() : '';
+    // a quick scan picks by either date; a custom run's window is by date updated alone
+    const what = this.action() === 'quick' ? 'bookmarked or updated' : 'updated';
     if (!oldest) {
       return newest
-        ? `any works that were updated on or before ${newest}, however long ago`
-        : 'any works, whenever they were updated';
+        ? `any works that were ${what} on or before ${newest}, however long ago`
+        : `any works, whenever they were ${what}`;
     }
-    return `any works that were updated between ${newest || 'today'} and ${oldest}`;
+    return `any works that were ${what} between ${newest || 'today'} and ${oldest}`;
   });
 
   /**
@@ -475,11 +495,19 @@ export class DownloadDialog implements OnDestroy {
       value: this.chosenFiletypes().join(', ') || 'nothing - indexing only',
     });
 
-    if (this.picksDates() && this.useDates()) {
+    if (this.picksFloorRun()) {
+      const chosen = this.chosenFloorRun();
+      rows.push({
+        label: 'Covers',
+        value: chosen
+          ? `anything AO3 has updated since the scan that started ${chosen.started.slice(0, 10)}`
+          : 'anything AO3 has updated since the scan you chose',
+      });
+    } else if (this.picksDates() && this.useDates()) {
       rows.push({ label: 'Covers', value: this.dateRange() });
     } else if (this.picksPages()) {
       rows.push({ label: 'Covers', value: this.pageRange() });
-    } else if (this.picksDates()) {
+    } else if (this.picksDates() || this.action() === 'quick') {
       // the third choice: no slice and no window, so it reaches as far as the run can
       rows.push({
         label: 'Covers',
@@ -613,7 +641,29 @@ export class DownloadDialog implements OnDestroy {
     this.toCredentials();
   }
 
+  /** whether this run has a page for choosing which earlier scan to measure back to */
+  protected readonly picksFloorRun = computed(
+    () => this.action() === 'quick' && this.coverage() === 'run',
+  );
+
+  /** the scan chosen, for wording that names it */
+  protected readonly chosenFloorRun = computed(
+    () => this.floorRuns()?.find((run) => run.id === this.floorRun()) ?? null,
+  );
+
   protected afterOptions(): void {
+    if (this.picksFloorRun()) {
+      this.step.set('floor');
+      // asked for fresh each time: a scan may have finished since the dialog opened
+      this.floorRuns.set(null);
+      void this.jobs.loadFloorRuns().then((runs) => this.floorRuns.set(runs ?? []));
+      return;
+    }
+    this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+  }
+
+  protected afterFloor(): void {
+    if (!this.floorRun()) return;
     this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
   }
 
@@ -627,6 +677,7 @@ export class DownloadDialog implements OnDestroy {
     const earlier: Step[] = [];
     if (this.needsLink()) earlier.push('link');
     if (this.hasOptions()) earlier.push('options');
+    if (this.picksFloorRun()) earlier.push('floor');
     if (this.picksFiletypes()) earlier.push('filetypes');
     if (this.needsAcknowledgement()) earlier.push('acknowledge');
     earlier.push('credentials');
@@ -743,6 +794,7 @@ export class DownloadDialog implements OnDestroy {
     this.answering.set(false);
     this.failures.set([]);
     this.skipped.set([]);
+    this.keptCopies.set([]);
     this.steps.set([]);
 
     let jobId: string;
@@ -770,6 +822,7 @@ export class DownloadDialog implements OnDestroy {
           // an open-topped window has no newer end, so it must not carry one left behind
           // from a moment when 'between two dates' was ticked
           dateTo: this.useDates() && this.betweenDates() ? this.dateTo() : '',
+          floorRun: this.picksFloorRun() ? this.floorRun() : '',
         },
         username: this.username().trim(),
         password: this.password(),
@@ -831,8 +884,10 @@ export class DownloadDialog implements OnDestroy {
 
         // the bar measures the slice being fetched, so it runs 1..n and ends full
         if (event.total) this.percent.set(Math.round(((event.page ?? 0) / event.total) * 100));
+        // no total means the walk can stop anywhere - at a date floor, or at the first fic
+        // already indexed - so there is no 'of' to give, and '?' would read as a fault
         this.summary.set(
-          `page ${where ?? '?'} of ${outOf ?? '?'}` +
+          (outOf ? `page ${where ?? '?'} of ${outOf}` : `page ${where ?? '?'}`) +
             (event.works !== undefined ? ` - ${event.works} works so far` : ''),
         );
         break;
@@ -881,6 +936,9 @@ export class DownloadDialog implements OnDestroy {
         break;
       case 'skipped':
         this.skipped.set(event.skipped ?? []);
+        break;
+      case 'keptCopies':
+        this.keptCopies.set(event.keptCopies ?? []);
         break;
       case 'steps':
         // everything starts waiting; the helper moves each one as it reaches it
@@ -1111,47 +1169,62 @@ export class DownloadDialog implements OnDestroy {
     void this.answerQuestion('stamp', this.stampDate());
   }
 
-  /** the failed works as the text that gets saved - kept apart from the saving itself */
-  protected failureReport(): string {
-    return this.listReport(
-      this.failures(),
-      `${this.failures().length} work${this.failures().length === 1 ? '' : 's'} that could not be downloaded`,
-    );
-  }
+  /** how many entries there are across every list of issues this run reported */
+  protected readonly issueCount = computed(
+    () => this.failures().length + this.keptCopies().length + this.skipped().length,
+  );
 
-  protected skippedReport(): string {
-    return this.listReport(
-      this.skipped(),
-      `${this.skipped().length} bookmark${this.skipped().length === 1 ? '' : 's'} that are not works`,
-    );
-  }
+  /**
+   * Every issue the run reported, as the one text file that gets saved.
+   *
+   * One file with a heading per kind rather than a file per list: the lists answer different
+   * questions and stay apart on screen, but somebody saving them wants the whole account of
+   * the run in one place. A kind with nothing in it gets no heading at all.
+   */
+  protected issuesReport(): string {
+    const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+    const clean = (text: string | undefined) => (text ?? '').replace(/\s+/g, ' ');
+    const lines = [
+      '# Issues from this run',
+      `# ${new Date().toISOString()}`,
+      '# rows are tab separated',
+    ];
+    const section = (heading: string, columns: string, rows: string[]) => {
+      if (!rows.length) return;
+      lines.push('', `## ${heading}`, `# ${columns}`, ...rows);
+    };
 
-  /** one row per entry, tab separated, so it can be read or fed back in as it is */
-  private listReport(rows: WorkFailure[], heading: string): string {
-    return (
-      [
-        `# ${heading}`,
-        `# ${new Date().toISOString()}`,
-        '# work id, link, reason - tab separated',
-        ...rows.map((row) =>
-          [row.id ?? '', row.link ?? '', (row.error ?? '').replace(/\s+/g, ' ')].join('\t'),
-        ),
-      ].join('\n') + '\n'
+    section(
+      plural(this.failures().length, 'work that could not be downloaded',
+        'works that could not be downloaded'),
+      'work id, link, reason',
+      this.failures().map((row) => [row.id ?? '', row.link ?? '', clean(row.error)].join('\t')),
     );
+    section(
+      plural(this.keptCopies().length,
+        'new copy downloaded that needs checking by hand',
+        'new copies downloaded that need checking by hand'),
+      'work id, link, new file, older copy still on disk (if any), reason',
+      this.keptCopies().map((row) =>
+        [row.id ?? '', row.link ?? '', row.file ?? '', row.old ?? '', clean(row.error)].join('\t'),
+      ),
+    );
+    section(
+      plural(this.skipped().length, 'bookmark that is not a work', 'bookmarks that are not works'),
+      'work or series id, link, reason',
+      this.skipped().map((row) => [row.id ?? '', row.link ?? '', clean(row.error)].join('\t')),
+    );
+    return lines.join('\n') + '\n';
   }
 
   /**
-   * Hand the list of failed works over as a text file.
+   * Hand every issue over as a single text file.
    *
    * Done in the page rather than by the helper: it is a few lines the browser can save
    * directly, so it does not need a round trip or a second thing that writes to disk.
    */
-  protected exportFailures(): void {
-    this.saveText(this.failureReport(), 'failed-downloads', this.failures().length);
-  }
-
-  protected exportSkipped(): void {
-    this.saveText(this.skippedReport(), 'skipped-bookmarks', this.skipped().length);
+  protected exportIssues(): void {
+    this.saveText(this.issuesReport(), 'run-issues', this.issueCount());
   }
 
   private saveText(text: string, name: string, rows: number): void {

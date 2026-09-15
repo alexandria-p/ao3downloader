@@ -84,6 +84,8 @@ class RunRecord:
             'choices': [],
             'failures': [],
             'skipped': [],
+            # new copies downloaded while the older copy could not be safely deleted
+            'keptCopies': [],
             # everything the run printed, in order - the same account the modal shows,
             # kept because the modal is gone once the tab is closed
             'log': list(printed or []),
@@ -132,6 +134,20 @@ class RunRecord:
         self.data['choices'].append({'at': now(), **entry})
         self.save()
 
+    def amend_choice(self, fields: dict) -> None:
+        """Add what came of the last answer to it, once the run has acted on it.
+
+        The choice itself is written the moment it is answered, so a run that dies while
+        acting on it still shows what was decided; this fills in the outcome afterwards.
+        """
+
+        try:
+            if not self.data['choices']: return
+            self.data['choices'][-1].update(fields)
+            self.save()
+        except Exception:
+            pass
+
     def collect(self, ao3) -> None:
         """Take the fic lists off the downloader that has been gathering them."""
 
@@ -141,6 +157,8 @@ class RunRecord:
         self.data['updated'] = sorted(ao3.updated)
         self.data['failures'] = list(ao3.failures)
         self.data['skipped'] = list(ao3.skipped_works)
+        kept = getattr(ao3, 'kept_copies', None)
+        self.data['keptCopies'] = list(kept) if isinstance(kept, list) else []
 
     def finish(self, status: str, error: str = '') -> None:
         self.data['status'] = status

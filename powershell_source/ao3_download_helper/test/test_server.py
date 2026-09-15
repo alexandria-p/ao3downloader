@@ -76,7 +76,7 @@ def test_resolve_options_defaults_match_the_console_defaults():
     assert server.resolve_options(None) == {
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
         'reindex': True, 'dates': False, 'dateFrom': '', 'dateTo': '',
-        'overwrite': False,
+        'overwrite': False, 'floorRun': '',
     }
 
 
@@ -89,7 +89,7 @@ def test_resolve_options_reads_what_was_asked_for():
     assert result == {'start': 5, 'pages': 8, 'series': True, 'images': True,
                       'workdates': True, 'reindex': False, 'dates': True,
                       'dateFrom': '2026-01-01', 'dateTo': '2026-06-30',
-                      'overwrite': True}
+                      'overwrite': True, 'floorRun': ''}
 
 
 def test_a_date_that_cannot_be_read_is_no_date_at_all():
@@ -1753,20 +1753,199 @@ def test_a_quick_scan_indexes_back_to_the_last_completed_run(fake_environment):
     assert ao3.get_metadata.call_args.kwargs['stop_before'] == '2026-09-01'
 
 
-def test_a_quick_scan_asks_for_the_listing_sorted_by_when_works_were_updated(
+def quick_walks(fake_environment, floor, bookmarked=None, updated=None):
+    """Run a quick scan and hand back each listing walk it made, in order."""
+
+    job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone')
+    ao3 = MagicMock()
+    ao3.get_metadata.side_effect = [bookmarked or [], updated or []]
+    last = {'started': floor + 'T12:00:00'} if floor else None
+
+    with patch.object(server, 'Ao3', return_value=ao3),          patch.object(server.runs, 'last_successful', return_value=last),          patch.object(server, 'download_planned') as planned:
+        server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    return ao3.get_metadata.call_args_list, planned
+
+
+def test_a_quick_scan_indexes_new_bookmarks_first_by_the_date_they_were_bookmarked(
+        fake_environment):
+    # the pass the updated-date walk cannot do: a fic bookmarked yesterday that ao3 last
+    # updated years ago sits far below the floor on that listing and would never be reached
+    walks, _ = quick_walks(fake_environment, '2026-09-01')
+
+    first = walks[0]
+    assert strings.AO3_SORT_BY_BOOKMARKED in first.args[0]
+    assert first.kwargs['stop_before'] == '2026-09-01'
+    assert first.kwargs['stop_on'] == 'bookmarked'
+
+
+def test_a_quick_scan_then_indexes_what_ao3_has_changed_by_the_date_it_changed(
         fake_environment):
     # the stop rule is only sound on that order. the default listing is by date bookmarked
     # and jumps about by years, so this walk down an unsorted one would stop almost at once
+    walks, _ = quick_walks(fake_environment, '2026-09-01')
+
+    assert len(walks) == 2
+    second = walks[1]
+    assert strings.AO3_SORT_BY_UPDATED in second.args[0]
+    assert second.kwargs['stop_before'] == '2026-09-01'
+    assert second.kwargs.get('stop_on', 'updated') == 'updated'
+
+
+def test_a_quick_scan_downloads_whatever_either_walk_found_once_each(fake_environment):
+    # a fic new since the floor and also changed since it is found by both walks - that is
+    # one download, not two
+    walks, planned = quick_walks(
+        fake_environment, '2026-09-01',
+        bookmarked=[{'id': '1', 'link': 'l1'}, {'id': '2', 'link': 'l2'}],
+        updated=[{'id': '2', 'link': 'l2'}, {'id': '3', 'link': 'l3'}])
+
+    assert [x['id'] for x in planned.call_args.args[3]] == ['1', '2', '3']
+
+
+def test_a_quick_scan_with_no_floor_reads_the_listing_once_not_twice(fake_environment):
+    # with nothing to stop at, the bookmarked walk already read every bookmark, and a second
+    # full walk would cost a request per 20 works to learn nothing new
+    walks, _ = quick_walks(fake_environment, '')
+
+    assert len(walks) == 1
+    assert strings.AO3_SORT_BY_BOOKMARKED in walks[0].args[0]
+
+
+def test_a_quick_scan_lists_both_walks_on_its_checklist():
     job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone')
+
+    plan = dict(server.step_plan(job))
+    ids = [step for step, _ in server.step_plan(job)]
+    assert ids.index('bookmarked') < ids.index('index') < ids.index('check')
+    assert plan['bookmarked'] == strings.STEP_INDEX_BOOKMARKED_SINCE
+
+
+def test_only_the_quick_scan_indexes_by_date_bookmarked():
+    # the two-walk index belongs to the quick scan alone. every other run keeps the walk it
+    # had, and a quick scan given a date range is the custom run's window, not this
+    for action in server.ACTIONS:
+        ids = plan_ids(action)
+        if action == server.ACTION_QUICK:
+            assert 'bookmarked' in ids
+        else:
+            assert 'bookmarked' not in ids, action
+    # a quick scan given a date range keeps the two walks; only the custom run's window does not
+    assert 'bookmarked' in plan_ids(server.ACTION_QUICK, options={'dates': True})
+    assert 'bookmarked' not in plan_ids(server.ACTION_CUSTOM, options={'dates': True})
+
+
+def test_a_custom_date_window_still_walks_only_by_date_updated(fake_environment):
+    job = server.Job(server.ACTION_CUSTOM, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({'dates': True, 'dateFrom': '2026-01-01'}))
     ao3 = MagicMock()
     ao3.get_metadata.return_value = []
 
-    with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.runs, 'last_successful', return_value=None), \
-         patch.object(server, 'download_planned'):
+    with patch.object(server, 'Ao3', return_value=ao3),          patch.object(server.shared, 'read_index', return_value=[]),          patch.object(server, 'refresh_and_download'):
+        server.run_custom(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert ao3.get_metadata.call_count == 1
+    call = ao3.get_metadata.call_args
+    assert strings.AO3_SORT_BY_UPDATED in call.args[0]
+    assert 'stop_on' not in call.kwargs
+
+
+# region a quick scan told which earlier scan to measure back to
+
+def history(*records):
+    return [dict({'status': server.runs.STATUS_SUCCESS}, **r) for r in records]
+
+
+def test_only_completed_scans_that_covered_everything_are_offered_as_floors(fake_environment):
+    # offering a run that fails either test would let someone pick a floor with a hole behind it
+    on_record = [
+        {'id': 'scan', 'action': server.ACTION_BOOKMARKS, 'status': server.runs.STATUS_SUCCESS},
+        {'id': 'quick', 'action': server.ACTION_QUICK, 'status': server.runs.STATUS_SUCCESS},
+        {'id': 'windowed', 'action': server.ACTION_QUICK, 'status': server.runs.STATUS_SUCCESS,
+         'options': {'dates': True}},
+        {'id': 'stopped', 'action': server.ACTION_BOOKMARKS, 'status': server.runs.STATUS_STOPPED},
+        {'id': 'sync', 'action': server.ACTION_SYNC, 'status': server.runs.STATUS_SUCCESS},
+    ]
+
+    with patch.object(server.runs, 'read_runs', return_value=on_record):
+        offered = [r['id'] for r in server.floor_runs(fake_environment['fileops'])]
+
+    assert offered == ['scan', 'quick']
+
+
+def test_a_chosen_scan_gives_the_day_it_started(fake_environment):
+    on_record = history({'id': 'a', 'action': server.ACTION_BOOKMARKS,
+                         'started': '2026-03-04T09:00:00'})
+
+    with patch.object(server.runs, 'read_runs', return_value=on_record):
+        assert server.chosen_floor(fake_environment['fileops'], 'a') == '2026-03-04'
+        # a run that is not a valid floor gives nothing, however it was named
+        assert server.chosen_floor(fake_environment['fileops'], 'nope') == ''
+
+
+def test_a_quick_scan_measures_back_to_the_scan_it_was_given(fake_environment):
+    # the chosen scan wins over the latest one, and nothing is asked
+    job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({'floorRun': 'older'}))
+    job.ask = MagicMock()
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = []
+    on_record = history(
+        {'id': 'newer', 'action': server.ACTION_QUICK, 'started': '2026-09-01T12:00:00'},
+        {'id': 'older', 'action': server.ACTION_BOOKMARKS, 'started': '2026-02-01T12:00:00'})
+
+    with patch.object(server, 'Ao3', return_value=ao3),          patch.object(server.runs, 'read_runs', return_value=on_record),          patch.object(server, 'download_planned'):
         server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
 
-    assert strings.AO3_SORT_BY_UPDATED in ao3.get_metadata.call_args.args[0]
+    assert all(c.kwargs['stop_before'] == '2026-02-01' for c in ao3.get_metadata.call_args_list)
+    job.ask.assert_not_called()
+
+
+def test_a_chosen_scan_that_has_since_gone_falls_back_to_the_usual_floor(fake_environment):
+    job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({'floorRun': 'deleted'}))
+    ao3 = MagicMock()
+    ao3.get_metadata.return_value = []
+    on_record = history({'id': 'latest', 'action': server.ACTION_QUICK,
+                         'started': '2026-09-01T12:00:00'})
+
+    with patch.object(server, 'Ao3', return_value=ao3),          patch.object(server.runs, 'read_runs', return_value=on_record),          patch.object(server, 'download_planned'):
+        server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    assert ao3.get_metadata.call_args_list[0].kwargs['stop_before'] == '2026-09-01'
+
+
+def test_a_quick_scan_cannot_be_started_against_a_run_that_is_not_a_floor(fake_environment):
+    # refused at the door rather than discovered on the thread
+    sent = {}
+    handler = MagicMock()
+    handler.path = '/api/jobs'
+    handler.read_json.return_value = {
+        'action': server.ACTION_QUICK, 'username': 'Someone', 'password': 'pw',
+        'filetypes': ['JSON'], 'options': {'floorRun': 'made-up'}}
+    handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
+
+    with patch.object(server.runs, 'read_runs', return_value=[]),          patch.object(server.threading, 'Thread'):
+        server.Handler.do_POST(handler)
+
+    assert sent['status'] == 400
+    assert sent['body']['error'] == strings.ERROR_NOT_A_FLOOR_RUN
+
+
+def test_only_a_quick_scan_can_be_given_a_floor(fake_environment):
+    with patch.object(server.runs, 'read_runs', return_value=[]):
+        assert started_options(server.ACTION_BOOKMARKS, {'floorRun': 'anything'})['floorRun'] == ''
+
+# endregion
+
+
+def test_merging_walks_keeps_the_order_first_seen_and_the_newest_record():
+    merged = server.merge_by_work(
+        [{'id': '1', 'v': 'old'}, {'id': '2'}],
+        [{'id': '1', 'v': 'new'}, {'id': '3'}])
+
+    assert [x['id'] for x in merged] == ['1', '2', '3']
+    assert merged[0]['v'] == 'new'
 
 
 def test_a_quick_scan_with_no_completed_run_reads_everything(fake_environment):
@@ -2057,8 +2236,70 @@ def test_a_quick_scan_over_a_date_range_says_so_on_its_checklist():
     job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone',
                      server.resolve_options({'dates': True, 'dateFrom': '2026-01-01'}))
 
+    plan = dict(server.step_plan(job))
     assert [step for step, _ in server.step_plan(job)] == [
-        'login', 'index', 'read', 'check', 'update', 'report']
+        'login', 'bookmarked', 'index', 'check', 'download', 'report']
+    assert plan['bookmarked'] == strings.STEP_INDEX_BOOKMARKED_WINDOW
+    assert plan['index'] == strings.STEP_INDEX_UPDATED_WINDOW
+
+
+def windowed_quick(fake_environment, options, bookmarked, updated):
+    job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options(dict(options, dates=True)))
+    ao3 = MagicMock()
+    ao3.get_metadata.side_effect = [bookmarked, updated]
+
+    with patch.object(server, 'Ao3', return_value=ao3),          patch.object(server.runs, 'last_successful') as floor,          patch.object(server, 'download_planned') as planned:
+        server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
+
+    return ao3.get_metadata.call_args_list, planned, floor
+
+
+def dated_work(work, bookmarked='', updated=''):
+    return {'id': work, 'link': f'l{work}', 'date_bookmarked': bookmarked, 'date_updated': updated}
+
+
+def test_a_quick_scan_date_range_walks_by_date_bookmarked_then_by_date_updated(
+        fake_environment):
+    # the same method as the ordinary quick scan, with the range's older end as the floor
+    walks, _, floor = windowed_quick(
+        fake_environment, {'dateFrom': '2026-01-01', 'dateTo': '2026-06-30'}, [], [])
+
+    assert strings.AO3_SORT_BY_BOOKMARKED in walks[0].args[0]
+    assert walks[0].kwargs['stop_before'] == '2026-01-01'
+    assert walks[0].kwargs['stop_on'] == 'bookmarked'
+    assert strings.AO3_SORT_BY_UPDATED in walks[1].args[0]
+    assert walks[1].kwargs['stop_before'] == '2026-01-01'
+    # the range replaces the last-run floor entirely
+    floor.assert_not_called()
+
+
+def test_each_walk_keeps_only_the_works_whose_own_date_is_in_range(fake_environment):
+    # both walks start at the newest and read past the ceiling on the way down: what is
+    # above it is indexed, but only works dated inside the range are downloaded
+    _, planned, _ = windowed_quick(
+        fake_environment, {'dateFrom': '2026-01-01', 'dateTo': '2026-06-30'},
+        bookmarked=[dated_work('above', bookmarked='2026-09-01'),
+                    dated_work('b-in', bookmarked='2026-03-01', updated='2019-01-01')],
+        updated=[dated_work('also-above', updated='2026-08-01'),
+                 dated_work('u-in', bookmarked='2020-01-01', updated='2026-02-01')])
+
+    assert [x['id'] for x in planned.call_args.args[3]] == ['b-in', 'u-in']
+
+
+def test_a_date_range_with_no_older_end_reads_once_and_picks_by_either_date(fake_environment):
+    # nothing to stop at, so the first walk reads every bookmark - the updated-date half of
+    # the range is then picked out of that same walk rather than walking the listing again
+    walks, planned, _ = windowed_quick(
+        fake_environment, {'dateTo': '2026-06-30'},
+        bookmarked=[dated_work('new-bookmark', bookmarked='2026-09-01', updated='2026-09-01'),
+                    dated_work('by-bookmark', bookmarked='2026-03-01', updated='2026-09-01'),
+                    dated_work('by-update', bookmarked='2026-09-01', updated='2026-03-01')],
+        updated=[])
+
+    assert len(walks) == 1
+    assert sorted(x['id'] for x in planned.call_args.args[3]) == ['by-bookmark', 'by-update']
+
 
 # endregion
 
@@ -2762,7 +3003,7 @@ def test_run_bookmarks_indexes_every_bookmark_before_downloading_any(fake_enviro
                      [strings.AO3_DOWNLOAD_TYPE_METADATA, 'EPUB'], 'Someone')
     order = []
     ao3 = MagicMock()
-    ao3.get_metadata.side_effect = lambda *a: order.append('metadata')
+    ao3.get_metadata.side_effect = lambda *a, **k: order.append('metadata')
     ao3.download.side_effect = lambda *a: order.append('download')
 
     events = []
@@ -2880,7 +3121,7 @@ def test_run_bookmarks_skips_the_download_phase_once_cancelled(fake_environment)
                      [strings.AO3_DOWNLOAD_TYPE_METADATA, 'EPUB'], 'Someone')
     ao3 = MagicMock()
     # metadata finishes, then the user hits stop
-    ao3.get_metadata.side_effect = lambda *a: job.cancel.set()
+    ao3.get_metadata.side_effect = lambda *a, **k: job.cancel.set()
 
     with patch.object(server, 'Ao3', return_value=ao3), \
          patch.object(server.shared, 'visited', return_value=[]):
@@ -3016,5 +3257,96 @@ def test_an_unknown_action_names_what_this_helper_does_understand():
     assert 'bookmarks' in error
     # the usual cause is an old helper, not a malformed request
     assert 'older code' in error
+
+# endregion
+
+
+# region undated files are named, and so are the files dated
+
+def test_the_undated_count_says_works_and_files_apart(fake_environment, capsys):
+    # a work saved in two formats is two files - '12 works' then 'dated 24 files' read as
+    # a miscount when only one of the two numbers was ever said
+    job = asked_job({'choice': server.UNDATED_SKIP, 'date': ''})
+    folder = {'111': {'HTML': {'path': 'a.html', 'date': None},
+                      'PDF': {'path': 'a.pdf', 'date': None}}}
+
+    with patch.object(server.shared, 'plan_downloads',
+                      return_value=undated_plan([RECORDS[0]['link']])):
+        server.settle_undated(job, fake_environment['fileops'], RECORDS, folder,
+                              ['HTML', 'PDF'])
+
+    out = capsys.readouterr().out
+    assert strings.AO3_INFO_UNDATED.format(1, 2) in out
+    assert strings.AO3_INFO_UNDATED_WORKS.format('111') in out
+
+
+def test_the_history_names_the_undated_works_and_the_files_given_a_date(fake_environment,
+                                                                        capsys):
+    job = asked_job({'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
+    folder = {'111': {'HTML': {'path': 'a.html', 'date': None}}}
+    renamed = [{'id': '111', 'from': 'a.html', 'to': 'a 2024-06-01.html'}]
+
+    with patch.object(server.shared, 'plan_downloads',
+                      return_value=undated_plan([RECORDS[0]['link']])), \
+         patch.object(server.shared, 'stamp_undated_works',
+                      return_value={'renamed': 1, 'skipped': 0, 'files': renamed}):
+        server.settle_undated(job, fake_environment['fileops'], RECORDS, folder, ['HTML'])
+
+    asked = job.record.choice.call_args.args[0]
+    assert asked['works'] == ['111']
+    assert asked['files'] == 1
+    job.record.amend_choice.assert_called_once_with({'renamed': renamed, 'renameSkipped': 0})
+    out = capsys.readouterr().out
+    assert strings.AO3_INFO_STAMPED.format(1, 1, '2024-06-01') in out
+    assert strings.AO3_INFO_STAMPED_FILE.format('a.html', 'a 2024-06-01.html') in out
+
+
+def test_a_choice_not_to_date_them_records_no_renames(fake_environment):
+    job = asked_job({'choice': server.UNDATED_SKIP, 'date': ''})
+
+    with patch.object(server.shared, 'plan_downloads',
+                      return_value=undated_plan([RECORDS[0]['link']])):
+        server.settle_undated(job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
+
+    job.record.amend_choice.assert_not_called()
+
+
+def test_every_walk_down_your_bookmarks_marks_what_it_finds_as_bookmarked():
+    # the one place the answer is certain. a walk that forgot to say so would leave its
+    # fics looking as though nothing knew whether they were yours
+    import inspect
+    source = inspect.getsource(server)
+    calls = source.count('ao3.get_metadata(')
+    assert calls and source.count('own_bookmarks=True') == calls
+
+# endregion
+
+
+# region the end-of-run report
+
+def test_every_run_ends_by_reporting_any_failures():
+    # every button, including a single fic by link, gets the step
+    for action in server.ACTIONS:
+        for dates in (False, True):
+            job = MagicMock()
+            job.action = action
+            job.filetypes = ['JSON', 'HTML']
+            job.options = {**server.resolve_options(None), 'dates': dates}
+            plan = server.step_plan(job)
+            assert plan[-1] == ('report', strings.STEP_REPORT), (action, dates)
+    assert strings.STEP_REPORT == 'Report any failures'
+
+
+def test_old_copies_that_would_not_go_are_reported_with_the_failures(capsys):
+    ao3 = MagicMock()
+    ao3.skipped_works = []
+    ao3.failures = []
+    ao3.kept_copies = [{'id': '1', 'link': 'l', 'file': 'f', 'old': 'o', 'error': 'e'}]
+    events = []
+
+    server.report_failures(ao3, events.append)
+
+    assert {'type': progress.KEPT_COPIES, 'keptCopies': ao3.kept_copies} in events
+    assert strings.AO3_INFO_KEPT_COPIES.format(1) in capsys.readouterr().out
 
 # endregion

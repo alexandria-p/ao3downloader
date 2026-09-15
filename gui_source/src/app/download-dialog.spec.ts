@@ -5,6 +5,7 @@ import {
   AnswerChoice,
   JobAction,
   JobEvent,
+  RunHistory,
   Jobs,
   ServerConfig,
   StartRequest,
@@ -32,6 +33,13 @@ const CONFIG: ServerConfig = {
 
 class FakeJobs extends Jobs {
   started: StartRequest[] = [];
+  /** the scans the helper would offer as floors */
+  floorRunsOnRecord: RunHistory[] = [];
+
+  override async loadFloorRuns(): Promise<RunHistory[] | null> {
+    return this.floorRunsOnRecord;
+  }
+
   cancelled: string[] = [];
   answers: { jobId: string; choice: AnswerChoice; date: string }[] = [];
   pauses: { jobId: string; paused: boolean }[] = [];
@@ -317,13 +325,117 @@ describe('DownloadDialog', () => {
   // a quick scan works out its own floor; a slice of the listing means nothing to it
   // with the date range gone there is nothing left for it to ask, and a step with nothing
   // on it reads as one that failed to load
-  it('takes a quick scan straight past its options unless the debug tools are on', async () => {
+  // it can always be pointed at an earlier scan, so it always has an options step now - but
+  // the hand-picked date range stays a debug choice
+  it('keeps the date range off a quick scan unless the debug tools are on', async () => {
     await open('quick');
-    await advanceTo('filetypes');
+    await advanceTo('options');
 
-    expect(currentStep()).toBe('filetypes');
+    expect(currentStep()).toBe('options');
+    expect(checkbox('Choose which earlier scan to measure back to')).toBeTruthy();
     expect(checkbox('Choose my own date range')).toBeUndefined();
   });
+
+  // region choosing which earlier scan a quick scan measures back to
+
+  function scanOnRecord(id: string, started: string, action = 'quick'): RunHistory {
+    return {
+      file: `${id}.json`, id, action, actionName: action === 'quick' ? 'Quick Scan' : 'Full scan',
+      started, finished: started, status: 'success', filetypes: ['JSON'], options: {},
+      reindexed: [], downloaded: [], updated: [], choices: [], failures: [], skipped: [], error: '',
+    };
+  }
+
+  async function toFloorPage() {
+    await open('quick');
+    await advanceTo('options');
+    checkbox('Choose which earlier scan to measure back to')!.click();
+    await fixture.whenStable();
+    button('Continue')!.click();
+    await fixture.whenStable();
+  }
+
+  it('lists the scans that can be measured back to on a page of their own', async () => {
+    jobs.floorRunsOnRecord = [
+      scanOnRecord('b', '2026-09-01T12:00:00'),
+      scanOnRecord('a', '2026-03-04T09:30:00', 'bookmarks'),
+    ];
+
+    await toFloorPage();
+
+    expect(currentStep()).toBe('floor');
+    const said = element.querySelector('.floor-runs')?.textContent ?? '';
+    expect(said).toContain('2026-09-01');
+    expect(said).toContain('2026-03-04');
+    expect(said).toContain('Full scan');
+  });
+
+  it('will not go on until a scan has been chosen', async () => {
+    jobs.floorRunsOnRecord = [scanOnRecord('a', '2026-03-04T09:30:00')];
+    await toFloorPage();
+
+    expect(button('Continue')!.disabled).toBe(true);
+
+    element.querySelector<HTMLInputElement>('input[name="floorRun"]')!.click();
+    await fixture.whenStable();
+
+    expect(button('Continue')!.disabled).toBe(false);
+  });
+
+  it('sends the chosen scan with the job', async () => {
+    jobs.floorRunsOnRecord = [
+      scanOnRecord('newer', '2026-09-01T12:00:00'),
+      scanOnRecord('older', '2026-03-04T09:30:00'),
+    ];
+    await toFloorPage();
+
+    element.querySelectorAll<HTMLInputElement>('input[name="floorRun"]')[1].click();
+    await fixture.whenStable();
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.floorRun).toBe('older');
+  });
+
+  it('says so when there is no completed scan to choose', async () => {
+    jobs.floorRunsOnRecord = [];
+
+    await toFloorPage();
+
+    expect(element.querySelector('.body')?.textContent).toContain('nothing to');
+    expect(button('Continue')!.disabled).toBe(true);
+  });
+
+  it('comes back to the options from the list', async () => {
+    jobs.floorRunsOnRecord = [scanOnRecord('a', '2026-03-04T09:30:00')];
+    await toFloorPage();
+
+    button('Back')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('options');
+  });
+
+  it('names the chosen scan in the note, rather than claiming the last run', async () => {
+    jobs.floorRunsOnRecord = [scanOnRecord('a', '2026-03-04T09:30:00')];
+    await toFloorPage();
+    element.querySelector<HTMLInputElement>('input[name="floorRun"]')!.click();
+    await fixture.whenStable();
+
+    await walkToNote();
+
+    const said = element.querySelector('.dialog .body')?.textContent ?? '';
+    expect(said).toContain('since the scan you chose, which started on 2026-03-04');
+    expect(said).not.toContain('since the last successful');
+  });
+
+  it('sends no floor for a quick scan measuring back to its last run as usual', async () => {
+    await open('quick');
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.floorRun).toBe('');
+  });
+
+  // endregion
 
   it('offers a quick scan no page slice', async () => {
     await openQuickDates();
@@ -420,6 +532,8 @@ describe('DownloadDialog', () => {
       dates: false,
       dateFrom: '',
       dateTo: '',
+      // only a quick scan pointed at an earlier scan sends one
+      floorRun: '',
     });
   });
 
@@ -776,21 +890,21 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('.failures')?.textContent).toContain('7 more');
   });
 
-  it('offers to export the list', async () => {
+  it('offers one export for every issue', async () => {
     await finishWithFailures();
 
-    expect(button('Export the list')).toBeTruthy();
+    expect(button('Export all issues')).toBeTruthy();
   });
 
   it('exports the work numbers, links and reasons', async () => {
     await finishWithFailures();
 
     const report = (fixture.componentInstance as unknown as {
-      failureReport(): string;
-    }).failureReport();
+      issuesReport(): string;
+    }).issuesReport();
 
     const lines = report.trim().split('\n');
-    expect(lines[0]).toContain('2 works');
+    expect(report).toContain('## 2 works that could not be downloaded');
     expect(lines.at(-2)).toBe('111\thttps://archiveofourown.org/works/111\tdeleted');
     expect(lines.at(-1)).toBe('222\thttps://archiveofourown.org/works/222\tlocked');
   });
@@ -802,10 +916,11 @@ describe('DownloadDialog', () => {
     ]);
 
     const report = (fixture.componentInstance as unknown as {
-      failureReport(): string;
-    }).failureReport();
+      issuesReport(): string;
+    }).issuesReport();
 
-    expect(report.trim().split('\n')).toHaveLength(4);
+    expect(report.trim().split('\n').at(-1)).toBe(
+      '111\thttps://archiveofourown.org/works/111\twent wrong');
     expect(report).toContain('111\thttps://archiveofourown.org/works/111\twent wrong');
   });
 
@@ -1585,6 +1700,35 @@ describe('DownloadDialog', () => {
 
   // the caveats differ: measuring back to the last run and measuring back to a date you
   // picked fail in different ways, so one note cannot cover both
+  // the same method as the ordinary quick scan, given two dates instead of an earlier scan
+  it('explains that a quick scan date range reads by date bookmarked, then by date updated', async () => {
+    await openQuickDates();
+    checkbox('Choose my own date range')!.click();
+    await fixture.whenStable();
+    const from = element.querySelector<HTMLInputElement>('input[name="dateFrom"]')!;
+    from.value = '2026-01-01';
+    from.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    const said = element.querySelector('.body')?.textContent ?? '';
+    expect(said).toContain('by date bookmarked');
+    expect(said).toContain('by date updated');
+    expect(said).toContain('any works that were bookmarked or updated between today and 2026-01-01');
+    // the custom run's single-walk wording does not belong here
+    expect(said).not.toContain('re-read one at a time');
+  });
+
+  it('keeps the custom run date range worded as a single walk by date updated', async () => {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('Choose my own date range')!.click();
+    await fixture.whenStable();
+
+    const said = element.querySelector('.body')?.textContent ?? '';
+    expect(said).toContain('sorted by when AO3 last updated each work');
+    expect(said).not.toContain('by date bookmarked');
+  });
+
   it('gives a quick scan over a date range its own caveats', async () => {
     await openQuickDates();
 
@@ -1593,8 +1737,9 @@ describe('DownloadDialog', () => {
     await walkToNote();
 
     const said = element.querySelector('.dialog .body')?.textContent ?? '';
-    expect(said).toContain('has changed in this date range');
-    expect(said).toContain("The further back you've gone in time");
+    expect(said).toContain('bookmarked');
+    expect(said).toContain('in this date range');
+    expect(said).toContain('once by date bookmarked and once by date updated');
     expect(said).not.toContain('since the last successful run');
     expect(said).not.toContain('will not be restored by this Quick Scan');
   });
@@ -2040,15 +2185,56 @@ describe('DownloadDialog', () => {
     ]);
 
     const exportButtons = Array.from(element.querySelectorAll('button')).filter(
-      (b) => b.textContent?.trim() === 'Export the list',
+      (b) => b.textContent?.trim() === 'Export all issues',
     );
     expect(exportButtons).toHaveLength(1);
 
     const report = (fixture.componentInstance as unknown as {
-      skippedReport(): string;
-    }).skippedReport();
+      issuesReport(): string;
+    }).issuesReport();
+    expect(report).toContain('## 2 bookmarks that are not works');
     expect(report).toContain('12345\thttps://ao3/series/12345\ta series, not a single work');
     expect(report).toContain('\t\tthe work has been deleted');
+  });
+
+  it('lists old copies that could not be deleted, and puts every issue in one file', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({
+      type: 'skipped',
+      skipped: [{ id: '1', link: 'a', title: 'S', error: 'a series' }] as never,
+    });
+    jobs.push!({ type: 'failures', failures: [{ id: '2', link: 'b', error: 'timed out' }] });
+    jobs.push!({
+      type: 'keptCopies',
+      keptCopies: [{ id: '3', link: 'c', file: '3 New 2026-09-14.html',
+                     old: '3 New 2026-01-01.html', error: 'locked' }],
+    });
+    jobs.push!({ type: 'finished' });
+    await fixture.whenStable();
+
+    const kept = element.querySelector('.failures.kept')?.textContent ?? '';
+    expect(kept).toContain('checking by hand');
+    expect(kept).toContain('3 New 2026-09-14.html');
+
+    const exportButtons = Array.from(element.querySelectorAll('button')).filter(
+      (b) => b.textContent?.trim() === 'Export all issues',
+    );
+    expect(exportButtons).toHaveLength(1);
+
+    const report = (fixture.componentInstance as unknown as {
+      issuesReport(): string;
+    }).issuesReport();
+    const headings = report.split('\n').filter((x) => x.startsWith('## '));
+    expect(headings).toEqual([
+      '## 1 work that could not be downloaded',
+      '## 1 new copy downloaded that needs checking by hand',
+      '## 1 bookmark that is not a work',
+    ]);
+    // the ids sit under their own heading
+    const lines = report.split('\n');
+    expect(lines[lines.indexOf(headings[1]) + 2]).toBe(
+      '3\tc\t3 New 2026-09-14.html\t3 New 2026-01-01.html\tlocked');
   });
 
   it('keeps the two lists apart when a run has both', async () => {
@@ -2290,6 +2476,20 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
 
     expect(element.querySelector('.percent')?.textContent).toContain('25');
+  });
+
+  // a walk stopped by a date floor, or by the first fic already indexed, cannot know how
+  // many pages it will read - so a finished page has no 'of', and certainly not 'of ?'
+  it('gives no total for a page on a walk that can stop anywhere', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'page', page: 3, listingPage: 3, works: 57 });
+    await fixture.whenStable();
+
+    const said = element.querySelector('.status')?.textContent ?? '';
+    expect(said).toContain('page 3 - 57 works so far');
+    expect(said).not.toContain(' of ');
   });
 
   it('names the first page before anything knows how many there are', async () => {

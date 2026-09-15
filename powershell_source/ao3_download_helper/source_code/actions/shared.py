@@ -398,6 +398,8 @@ def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
     suffix = ' ' + stamp
     renamed = 0
     skipped = 0
+    # which files, by name, so a library renamed months ago can be traced back file by file
+    files = []
 
     for work, types in existing.items():
         if work not in works: continue
@@ -422,8 +424,10 @@ def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
             entry['path'] = new
             entry['date'] = stamp
             renamed += 1
+            files.append({'id': work, 'from': name,
+                          'to': os.path.basename(new)})
 
-    return {'renamed': renamed, 'skipped': skipped}
+    return {'renamed': renamed, 'skipped': skipped, 'files': files}
 
 
 def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],

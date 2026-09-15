@@ -618,8 +618,13 @@ def test_a_missing_work_is_refused_rather_than_saved(mock_repo):
     mock_repo.session.request.return_value = make_response(
         status_code=404, content_type='text/html', text='<html>not found</html>')
 
-    with pytest.raises(exceptions.DownloadException):
+    with pytest.raises(exceptions.DownloadException) as raised:
         mock_repo.download_file(AO3_URL, 'EPUB')
+
+    # which format, and what ao3 said - a work is reported once, on the first format that
+    # fails, so the message is the only place that says which one it was
+    assert 'EPUB file' in str(raised.value)
+    assert 'status 404' in str(raised.value)
 
 
 def test_a_page_returned_instead_of_an_ebook_is_refused(mock_repo):
@@ -627,8 +632,11 @@ def test_a_page_returned_instead_of_an_ebook_is_refused(mock_repo):
     mock_repo.session.request.return_value = make_response(
         status_code=200, content_type='text/html; charset=utf-8', text='<html>sign in</html>')
 
-    with pytest.raises(exceptions.DownloadException):
-        mock_repo.download_file(AO3_URL, 'EPUB')
+    with pytest.raises(exceptions.DownloadException) as raised:
+        mock_repo.download_file(AO3_URL, 'pdf')
+
+    assert 'PDF file' in str(raised.value)
+    assert 'content was a web page' in str(raised.value)
 
 
 def test_html_really_is_html_so_it_is_judged_on_the_status_alone(mock_repo):

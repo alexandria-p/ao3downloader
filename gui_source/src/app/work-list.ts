@@ -15,6 +15,9 @@ import {
 
 const PER_PAGE = 20;
 
+/** the orderings the filter panel offers; '' is the order the folder was read in */
+export type WorkSort = '' | 'created-desc' | 'created-asc' | 'bookmarked-desc' | 'bookmarked-asc';
+
 /**
  * A paginated listing of works, in ao3's own blurb style.
  *
@@ -51,6 +54,15 @@ export class WorkList {
   protected readonly bookmarkedFrom = signal('');
   protected readonly bookmarkedTo = signal('');
 
+  /**
+   * How the listing is ordered. Empty keeps the order the folder was read in.
+   *
+   * A work with no date for the chosen field goes **last in both directions** - it cannot
+   * be placed, and putting it first on an ascending sort would bury every dated work under
+   * a pile of blanks.
+   */
+  protected readonly sortBy = signal<WorkSort>('');
+
   protected readonly filtering = computed(
     () =>
       !!(
@@ -61,6 +73,10 @@ export class WorkList {
         this.bookmarkedFrom() ||
         this.bookmarkedTo()
       ),
+  );
+
+  /** a sort narrows nothing, so it is not 'filtering' - but it is still something to clear */
+  protected readonly anythingToClear = computed(() => this.filtering() || !!this.sortBy()
   );
 
   /**
@@ -111,8 +127,45 @@ export class WorkList {
    * goes back to page 1 - staying on page 9 of a result that now has two pages would
    * show an empty listing and look like the filter had found nothing.
    */
+  /** the filtered works, in the order asked for */
+  protected readonly sorted = computed(() => {
+    const sort = this.sortBy();
+    const works = this.filtered();
+    if (!sort) return works;
+
+    const field = sort.startsWith('created') ? 'date_created' : 'date_bookmarked';
+    const ascending = sort.endsWith('asc');
+    return works
+      .map((work, at) => ({ work, at, stamp: dateStamp(work[field] ?? '') }))
+      .sort((a, b) => {
+        if (!a.stamp !== !b.stamp) return a.stamp ? -1 : 1;
+        if (a.stamp !== b.stamp) {
+          const order = a.stamp < b.stamp ? -1 : 1;
+          return ascending ? order : -order;
+        }
+        // equal dates keep the order they were read in, so the sort is stable to look at
+        return a.at - b.at;
+      })
+      .map((x) => x.work);
+  });
+
+  /**
+   * Whether the chosen sort has nothing to sort on.
+   *
+   * Publication dates are only recorded by a per-work lookup this app does not run, so on
+   * most libraries no work has one and a date-created sort changes nothing. Saying so beats
+   * a control that silently does nothing.
+   */
+  protected readonly sortHasNoDates = computed(() => {
+    const sort = this.sortBy();
+    if (!sort) return false;
+    const field = sort.startsWith('created') ? 'date_created' : 'date_bookmarked';
+    return this.filtered().length > 0 &&
+      !this.filtered().some((work) => dateStamp(work[field] ?? ''));
+  });
+
   protected readonly page = linkedSignal<Bookmark[], number>({
-    source: this.filtered,
+    source: this.sorted,
     computation: () => 1,
   });
 
@@ -124,7 +177,7 @@ export class WorkList {
 
   protected readonly pageWorks = computed(() => {
     const start = (this.page() - 1) * PER_PAGE;
-    return this.filtered().slice(start, start + PER_PAGE);
+    return this.sorted().slice(start, start + PER_PAGE);
   });
 
   protected readonly rangeStart = computed(() =>
@@ -145,6 +198,7 @@ export class WorkList {
     this.updatedTo.set('');
     this.bookmarkedFrom.set('');
     this.bookmarkedTo.set('');
+    this.sortBy.set('');
   }
 
   // template helpers

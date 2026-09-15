@@ -91,6 +91,13 @@ export interface JobOptions {
   /** inclusive ends of that window, YYYY-MM-DD; empty means no limit at that end */
   dateFrom: string;
   dateTo: string;
+  /**
+   * A quick scan's chosen floor: the id of an earlier completed scan to measure back to.
+   *
+   * Only the id is sent. The helper reads the date off that run's own record and refuses
+   * one that is not a valid floor, so a request can never invent a date.
+   */
+  floorRun: string;
 }
 
 /** what to do about downloaded files that carry no date, asked part way through a run */
@@ -130,6 +137,22 @@ export interface RunStep {
  */
 export type RunStatus = 'running' | 'success' | 'failed' | 'stopped';
 
+/** something a run stopped to ask, what was answered, and what came of it */
+export interface RunChoice {
+  at: string;
+  question: string;
+  choice: string;
+  date?: string;
+  /** how many works the question was about */
+  count?: number;
+  /** how many files those works held between them - a work in two formats is two files */
+  files?: number;
+  /** the work numbers the question was about */
+  works?: string[];
+  /** the files given a date, when that was the answer */
+  renamed?: { id: string; from: string; to: string }[];
+}
+
 /** one past run, as the helper wrote it down */
 export interface RunHistory {
   file: string;
@@ -144,9 +167,11 @@ export interface RunHistory {
   reindexed: string[];
   downloaded: string[];
   updated: string[];
-  choices: { at: string; question: string; choice: string; date?: string; count?: number }[];
+  choices: RunChoice[];
   failures: WorkFailure[];
   skipped: WorkFailure[];
+  /** new copies downloaded while the old copy could not be deleted - absent on older runs */
+  keptCopies?: WorkFailure[];
   error: string;
 }
 
@@ -185,6 +210,10 @@ export interface WorkFailure {
    * link to identify it by, so without the title there would be nothing on the row at all.
    */
   title?: string;
+  /** a kept copy only: the name of the file that was just downloaded */
+  file?: string;
+  /** a kept copy only: the name of the older copy still on disk */
+  old?: string;
 }
 
 export interface JobEvent {
@@ -224,6 +253,8 @@ export interface JobEvent {
   failures?: WorkFailure[];
   /** on a `skipped` event: bookmarks that were never works, and why each one was not */
   skipped?: WorkFailure[];
+  /** on a `keptCopies` event: new copies downloaded while the old copy could not be deleted */
+  keptCopies?: WorkFailure[];
   /** on a `steps` event: the checklist this run intends to work through */
   steps?: { id: string; label: string }[];
   /** on a `step` event: which step changed, and to what */
@@ -290,6 +321,22 @@ export class Jobs {
    * something to read, and a page that shows an error where a list should be is less
    * useful than one that says the helper is not running.
    */
+  /**
+   * The earlier runs a quick scan may be told to measure back to, newest first.
+   *
+   * Asked of the helper rather than filtered here, so the rule for what counts as a floor
+   * lives in one place - the same place that enforces it when the run starts.
+   */
+  async loadFloorRuns(): Promise<RunHistory[] | null> {
+    try {
+      const response = await fetch(`${API_BASE}/api/runs/floors`);
+      if (!response.ok) throw new Error(String(response.status));
+      return ((await response.json()) as { runs: RunHistory[] }).runs ?? [];
+    } catch {
+      return null;
+    }
+  }
+
   async loadRuns(): Promise<RunHistory[] | null> {
     try {
       const response = await fetch(`${API_BASE}/api/runs`);

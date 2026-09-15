@@ -57,7 +57,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 **4 tests in `test/test_ao3.py::test_proceed_*` fail with `UnicodeDecodeError`.** They are
 pre-existing, present on the unmodified upstream code, and caused by fixtures being read
 with the platform default codec (cp1252 on Windows). Do not chase them; do not count them
-as regressions. Current: **1027 python passed, 4 failed; 324 gui passed.**
+as regressions. Current: **1085 python passed, 4 failed; 345 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -218,8 +218,8 @@ the user acknowledge - and the note can be turned off, because a warning on the 
 are meant to use routinely is one they otherwise learn to click past.
 
 `run_sync` is the three passes in order, on **one** `Ao3` so every failure lands in the same
-list and is reported once: `index_new_bookmarks` → `download_planned` →
-`update_incomplete` → `fill_missing_formats`. The order is load-bearing - the gap check is
+list and is reported once: `index_new_bookmarks` â†’ `download_planned` â†’
+`update_incomplete` â†’ `fill_missing_formats`. The order is load-bearing - the gap check is
 told which works the first two already handled, or it would fetch them again.
 
 **The gap pass belongs to the combined run alone.** It used to run after a full scan, a
@@ -276,7 +276,7 @@ rest of the console app.
 
 The flow, in the order the ui narrates it:
 
-1. `shared.read_index` → `shared.incomplete_works`, off disk, no requests at all
+1. `shared.read_index` â†’ `shared.incomplete_works`, off disk, no requests at all
    (`scanning`)
 2. `shared.scan_downloaded_works` - what is already in the folder for those works
    (`checking_files`)
@@ -461,9 +461,26 @@ which is exactly the date-range quick scan.
 
 ### A quick scan stops where ao3 stopped changing things
 
-`run_quick` walks the bookmarks listing **sorted by when ao3 last updated each work**
-(`strings.AO3_SORT_BY_UPDATED`) and stops at the first work older than
-`quick_scan_floor` - the day the last successful run started.
+`run_quick` indexes in **two walks**, both back to the same floor (`quick_scan_floor`, the
+day the last qualifying run started), and downloads whatever either one found:
+
+1. the listing **sorted by date bookmarked** (`AO3_SORT_BY_BOOKMARKED`, `created_at`),
+   stopping at the first bookmark made before the floor (`stop_on='bookmarked'`, which
+   reads `div.user p.datetime`)
+2. the listing **sorted by date updated** (`AO3_SORT_BY_UPDATED`, `bookmarkable_date`),
+   stopping at the first work ao3 last updated before the floor (`div.header p.datetime`)
+
+**Each walk catches what the other cannot.** A fic bookmarked yesterday that ao3 last
+updated in 2019 sits far below the floor on the updated-date listing, so walk 2 never
+reaches it; a fic bookmarked years ago that was updated yesterday sits far below it on the
+bookmarked listing, so walk 1 never does. Both sort names were verified against ao3's own
+search form. `merge_by_work` joins the two by work number, so a fic both walks found is
+downloaded once.  With **no floor** the first walk already reads every bookmark, so the
+second is skipped at runtime rather than paying to read the whole listing twice.
+
+One side effect to know about: `position` and `source` are identity fields that `merge`
+overwrites on every save, so a fic both walks found keeps the values from walk 2, whose
+order is the updated-date one rather than the listing's own.
 
 **The sort is not optional, and this was verified against the live site.** The default
 bookmarks listing is ordered by when each work was *bookmarked* and jumps about by years
@@ -480,6 +497,15 @@ check. `get_next_page` always increments, so `current` always advances toward th
 bound. There is a test per case, because otherwise the only thing ending the walk would
 be a rule that is allowed not to fire.
 
+**The floor can be picked by hand.** The options step offers *Choose which earlier scan to
+measure back to*, and a `floor` page lists the candidates from `GET /api/runs/floors`. That
+list is `floor_runs` - the same rule `quick_scan_floor` applies to the latest run, applied to
+all of them - so what the page offers and what the helper accepts cannot drift apart. Only the
+run's **id** travels (`floorRun`): `chosen_floor` reads the date off that run's own record, and
+`do_POST` answers 400 for an id that is not a valid floor, so a request can never invent one.
+The option is clamped away for every other action. A chosen run whose history file vanishes
+between the start and the run falls back to the usual rules rather than guessing at a date.
+
 **With no completed run there is no floor, and the walk runs to the end** - `stop_before`
 is `''`, which `get_metadata` treats as no limit at all. So the first quick scan is a full
 index and download. The ui promises this in as many words, and there is a test asserting it
@@ -492,12 +518,18 @@ afternoon cannot tell it apart from a work updated that morning. A blurb with no
 date never stops the walk, because it cannot be judged and stopping on it would cut the run
 short.
 
-**A quick scan can be given a date range instead.** `run_quick` branches to
-`run_custom_dates` before it works anything out, because the two are the same mechanism given
-a different number: measuring back to the last completed run and measuring back to a date the
-user picked both end as `stop_before` on the sorted listing. Measuring back to both would
-mean measuring back to neither, so they are alternatives and the ui offers them as a pair of
-radios.
+**A quick scan can be given a date range instead** (a debug option), and it keeps the quick
+scan's **two walks** rather than borrowing the custom run's window. The range's older end
+becomes the floor both walks stop at, and `works_dated_between` then keeps, from each walk,
+only the works whose *own* date - bookmarked for walk 1, updated for walk 2 - falls between
+the two ends. A listing cannot be entered at a date, so both walks start at the newest
+bookmark and read past the ceiling on the way down: what lies above it is indexed but not
+downloaded. With no older end the first walk reads everything, and the updated-date half of
+the range is picked out of that same walk instead of walking the listing a second time.
+
+`run_custom_dates` is the **custom run's** alone now - one walk by date updated, then a
+per-fic pass over the index. `step_plan` sends only `ACTION_CUSTOM` down that branch; a
+quick scan with dates keeps the quick scan's checklist with window-worded labels.
 
 Its acknowledgement branches on that choice, and has to: the default shape can do a full
 index on its first run and cannot restore what an earlier run missed, while a date range
@@ -534,7 +566,7 @@ checklist.
   line from the checklist reads as the app having forgotten it.
 
 The ui says which is which: a skipped step carries a `[SKIP]` tag on the label and is
-stepped over (`»`) rather than ticked, dimmed rather than coloured like a failure - nothing
+stepped over (`Â»`) rather than ticked, dimmed rather than coloured like a failure - nothing
 went wrong, the run simply had no reason to do it.
 
 **A step with nothing to do at runtime is `skipped`, never `failed`.** A run with no
@@ -649,6 +681,19 @@ also carries no `works` count, since the only count available would be the previ
 On the first page it carries no total either: the total is read off that page, so nothing
 knows it yet, and the ui says "fetching page 1" rather than "page 1 of ?".
 
+**A walk that can stop early never states a total.** A date floor (`stop_before`) or a set of
+already-indexed works (`known`) ends the walk wherever the first older or familiar fic sits,
+so the listing's page count is not the number of pages the run will read. `get_metadata`
+marks such a walk `open_ended` and sends `None` for `total`/`listingTotal` and drops the
+`of Y` from its lines - `finished page 3. 57 works so far`, not `of 80` on a walk that stops
+at page 4. The bar stays indeterminate for the same reason. `total_pages` is still read and
+still ends the walk; it is only never *said*. A walk with nothing to stop it early - a full
+scan, or a quick scan with no floor - really does read every page, so it keeps its total.
+
+The stopping page also reports finishing: `reached_known` breaks **after** the page's
+`finished` line and event, not before, so a walk stopped by a floor no longer ends on
+`fetching page 4` with nothing to say the page was read.
+
 `get_metadata` keeps `source` as the bare listing url rather than the page it began on
 (`source` is an identity field, so a page suffix there would look like a different listing),
 and offsets `position` by `(start - 1) * AO3_LISTING_PAGE_SIZE`. Without that offset a run
@@ -710,7 +755,7 @@ too. An entry from an earlier run cannot say whether ao3 has moved on since - se
 The picks are ordered by `newest_first`, because a window is usually opened to catch up on
 what moved most recently and a stopped run should have finished the fics that mattered most.
 
-`step_plan` gives the window its own steps (`login → index → read → check → update →
+`step_plan` gives the window its own steps (`login â†’ index â†’ read â†’ check â†’ update â†’
 report`) rather than reusing the indexing plan, since three of the scan's steps never run,
 and drops the `index` step when the run will not do one. An empty window is **skipped, not
 failed** - no fic updated in that range is an answer, not an error.
@@ -738,6 +783,34 @@ back to the same request and earned another break of the same length, forever. E
 in the request path (`extra_wait`, retry backoff, the 429 pause) goes through `wait`, and
 there is a cancel check at the top of the request loop. When `cancelled is None` (the
 console, which has no stop button) `wait` does one plain sleep - some tests depend on that.
+
+### Whether a fic is bookmarked is only written when something actually knows
+
+Index entries carry `bookmarked` (`strings.BOOKMARKED_FIELD`). There are exactly two
+sources, and the field is **absent**, never `False`, when neither has spoken:
+
+- **a walk down your own bookmarks listing** writes `True` for every fic on it. Every
+  `get_metadata` call in `server.py` passes `own_bookmarks=True`, and a test counts them - the
+  caller says so because a bookmarks url does not say whose bookmarks they are.
+- **a work page** (`index_one_work`, `refresh_one` - the single-fic run, the update pass, the
+  gap pass) reads the navigation's bookmark link through `parse_soup.get_bookmarked`: `Edit
+  Bookmark` is `True`, `Bookmark` is `False`. Both wordings are in the logged-in fixtures.
+  No link (logged out, an unexpected page) is `None`, and `ao3.bookmark_state` then writes
+  nothing, so a page that could not see the button never unmarks a fic.
+
+It is a snapshot field, not identity: unbookmarking a fic is a real change worth a history
+entry.
+
+### The undated question names works, and dating names files
+
+`settle_undated` counts **works** (the question is about works) but a work saved in two
+formats is two files, so it says both - `12 works (24 files)` - and prints the work numbers.
+Without that, `dated 24 files` straight after `12 works` read as a miscount. The run
+record's choice carries `works` and `files` when asked, and `RunRecord.amend_choice` adds
+`renamed` (`{id, from, to}` per file, from `stamp_undated_works`'s `files`) once the renames
+are done - the choice is written first so a run that dies mid-rename still shows the answer.
+The history tab lists both, and describes the quick-floor question as itself rather than as
+undated files.
 
 ### Versioned json
 
@@ -859,6 +932,55 @@ skipping `indexing/`, `collections/` and `images/`) rather than trusting the log
 `shared.plan_downloads` turns that plus the index into `{stale, undated, superseded}`.
 Undated files are counted but never refetched unless `refreshUndated` is set, which only
 the ui's post-run offer does - it is a full re-download of a library.
+
+**Every file a download writes is announced, once.** Both download paths
+(`download_one_indexed` and `try_download`) save through `Ao3.save_download`, which prints
+exactly one line naming only the **new** file: `INFO_SAVED_NEW_COPY` (`new download:`),
+`INFO_REPLACED_OLD_COPY` (`replaced the older copy:` - said both for an outdated copy deleted
+and for a copy written over under the same name, which also counts in `updated`), or
+`INFO_KEPT_OLD_COPY`. Only the deleted-copy case used to print, so a run bringing down
+hundreds of new formats looked idle. `replace_superseded` returns
+`(REPLACED | KEPT | None, old name, reason)` and prints nothing itself, or a replacement
+would be said twice. Call `save_download`, never `save_bytes`, for a work's file - a test
+reads both methods' source to hold that.
+
+**A failing format does not stop the work's other formats.** Both download loops wrap each
+format in `Ao3.one_format`, which notes the failure (`INFO_FORMAT_FAILED`) and carries on;
+`raise_if_formats_failed` then fails the work once, with every failed format named
+(`EPUB: ...; PDF: ...`). Each format is its own file at its own url, so ao3 lacking an epub
+says nothing about the pdf - which used to be abandoned unasked. A stop and a lapsed login
+still end everything. The work goes into `downloaded` if any format arrived, but its log entry
+is **not** `success`, because `shared.visited` skips logged successes and the missing format
+would never be fetched again. The combined exception is a `SavedFileException` only when every
+failure was one, so a single ao3 failure among them still gets the login check.
+`repo.download_file` names the format and the status in its own message too.
+
+**Every saved file is checked, first download or not, and there are three ways it can go
+wrong.** `save_download` calls `saved_intact` itself, before `replace_superseded`:
+
+1. **the new file is missing or short** - `discard_damaged` deletes it, prints
+   `INFO_DAMAGED_KEPT_OLD` (naming the older copy still there) or `INFO_DAMAGED_REMOVED`, and
+   raises `SavedFileException` with `fileops.saved_problem`'s detail (not found at the path,
+   or expected/found sizes). Every download caller already turns an exception into
+   `record_failure`, so it becomes an ordinary failure and the work is not counted as
+   downloaded. It is deleted rather than kept because its name carries the current date - a
+   short file left behind would be judged up to date by every later run. **This covers first
+   downloads and same-name overwrites too**, which were never checked before. `check_session`
+   returns early for this exception (read off `sys.exc_info()`): a folder problem says
+   nothing about the login, and asking costs a request.
+2. **the older copy will not delete** - `KEPT`, `INFO_KEPT_OLD_COPY`, `KEPT_NOT_DELETED`.
+3. **the check itself raises** - `UNCONFIRMED`, `INFO_UNCONFIRMED`, nothing removed.
+
+2 and 3 go into `Ao3.kept_copies` as `{id, link, file, old, error}` (`old` empty for a first
+download) - reported as a `keptCopies` event, stored by `RunRecord.collect`, listed in
+History as "needs checking by hand", amber rather than red. `replace_superseded` still
+checks `saved_intact` as a second line of defence and answers `UNCONFIRMED` if it fails.
+
+**The end-of-run export is one file.** `issuesReport()` writes a `## heading` per kind
+(failures, kept copies, bookmarks that are not works) with tab-separated rows under each, and
+leaves out a kind with nothing in it; one `Export all issues` button replaces the per-list
+buttons. The step that does the reporting is `STEP_REPORT` = `Report any failures`, and it is
+the last step of **every** plan - there is a test over `ACTIONS` asserting it.
 
 ### A run can stop and ask a question
 
@@ -1037,6 +1159,12 @@ Three rules worth keeping:
 - **a work with no readable date is excluded by a date range, never kept.** It cannot be
   placed, and including it would make the range a lie - the same rule
   `works_updated_between` follows on the helper. With no date filter set it shows normally.
+- **sorting is not filtering.** Date bookmarked and date created each sort either way, with
+  undated works **last in both directions** - first on an ascending sort would bury every dated
+  work under blanks. A sort does not show `(filtered from N)`, because it hides nothing.
+  `date_created` is only filled by a per-work lookup the app does not run, so on a real library
+  it is empty everywhere (0 of 1,482 when checked) - `sortHasNoDates` says so on screen rather
+  than leaving a control that silently does nothing.
 - **pagination follows the filtered set, and the page resets when it changes.** `page` is a
   `linkedSignal` sourced on `filtered` rather than on the input: staying on page 9 of a
   result that now has one page shows an empty listing and reads as the filter having found

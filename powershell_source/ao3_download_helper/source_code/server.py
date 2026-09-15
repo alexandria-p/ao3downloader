@@ -171,6 +171,9 @@ def resolve_options(requested) -> dict:
         'dates': bool(given.get('dates')),
         'dateFrom': parse_text.get_date_stamp(given.get('dateFrom') or ''),
         'dateTo': parse_text.get_date_stamp(given.get('dateTo') or ''),
+        # a quick scan told which earlier scan to measure back to, by that run's id. only the
+        # id travels: the date is read off the run's own record, so a request cannot invent one
+        'floorRun': str(given.get('floorRun') or '').strip(),
     }
 
 
@@ -426,7 +429,9 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
     else:
         # a full scan, a quick scan and a custom run differ only in where the walk stops
         indexing = job.action != ACTION_CUSTOM or job.options['reindex']
-        if job.action in (ACTION_CUSTOM, ACTION_QUICK) and job.options['dates']:
+        # the custom run's window is its own shape; a quick scan's window keeps the quick
+        # scan's two walks, so it falls through to the branch below
+        if job.action == ACTION_CUSTOM and job.options['dates']:
             # a window of time chooses from the index and re-reads each one it picked -
             # the unfinished-fics shape rather than a scan. The walk that brings the index
             # up to date first is only there when the run was not told to skip indexing
@@ -442,7 +447,14 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
                            ('report', strings.STEP_REPORT)])
             return window
         if job.action == ACTION_QUICK:
-            plan.append(('index', strings.STEP_INDEX_SINCE))
+            # two walks: new bookmarks by the date they were bookmarked, then changed fics
+            # by the date ao3 updated them - see run_quick
+            if job.options['dates']:
+                plan.append(('bookmarked', strings.STEP_INDEX_BOOKMARKED_WINDOW))
+                plan.append(('index', strings.STEP_INDEX_UPDATED_WINDOW))
+            else:
+                plan.append(('bookmarked', strings.STEP_INDEX_BOOKMARKED_SINCE))
+                plan.append(('index', strings.STEP_INDEX_SINCE))
         elif indexing and metadata:
             plan.append(('index', strings.STEP_INDEX_ALL))
         else:
@@ -582,7 +594,7 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         job.steps.start('index')
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
-        records = ao3.get_metadata(link, job.options['workdates'])
+        records = ao3.get_metadata(link, job.options['workdates'], own_bookmarks=True)
         job.steps.done('index')
     else:
         job.steps.skip('index')
@@ -648,7 +660,8 @@ def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[di
     print(strings.AO3_INFO_INDEXING_NEW)
 
     known = shared.indexed_work_ids(fileops)
-    records = ao3.get_metadata(bookmarks_link(job), job.options['workdates'], known=known)
+    records = ao3.get_metadata(bookmarks_link(job), job.options['workdates'], known=known,
+                               own_bookmarks=True)
 
     print(strings.AO3_INFO_NEW_FOUND.format(len(records)) if records
           else strings.AO3_INFO_NEW_NONE)
@@ -956,33 +969,119 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     # the run record reads its fic lists off this when the run ends
     job.ao3 = ao3
 
-    if job.options['dates']:
-        run_custom_dates(job, fileops, ao3, downloadtypes, report)
-        report_failures(ao3, report)
-        return
+    # a date range gives both walks their floor directly, and a ceiling too; otherwise the
+    # floor comes from an earlier scan
+    window = bool(job.options['dates'])
+    ceiling = job.options['dateTo'] if window else ''
 
-    floor = quick_scan_floor(fileops)
-    if floor:
-        print(strings.AO3_INFO_QUICK_FLOOR.format(floor))
+    # the user may have picked the scan to measure back to, in which case nothing is worked
+    # out or asked
+    floor = chosen_floor(fileops, job.options['floorRun']) if job.options.get('floorRun') else ''
+    if window:
+        floor = job.options['dateFrom']
+        print(strings.AO3_INFO_QUICK_WINDOW.format(floor or strings.AO3_INFO_DATE_ANY,
+                                                    ceiling or strings.AO3_INFO_DATE_NOW))
+    elif floor:
+        print(strings.AO3_INFO_QUICK_CHOSEN_FLOOR.format(floor))
     else:
-        # nothing qualifies as a floor, but an index already here is worth measuring from
-        # if the user says so - see settle_quick_floor
-        floor = settle_quick_floor(job, fileops, report)
-        if not floor: print(strings.AO3_INFO_QUICK_NO_FLOOR)
+        if job.options.get('floorRun'):
+            # it was checked when the run was started, so this is a history file removed in
+            # between. falling back to the usual rules beats guessing at a date
+            print(strings.AO3_INFO_QUICK_CHOSEN_GONE)
+        floor = quick_scan_floor(fileops)
+        if floor:
+            print(strings.AO3_INFO_QUICK_FLOOR.format(floor))
+        else:
+            # nothing qualifies as a floor, but an index already here is worth measuring from
+            # if the user says so - see settle_quick_floor
+            floor = settle_quick_floor(job, fileops, report)
+            if not floor: print(strings.AO3_INFO_QUICK_NO_FLOOR)
 
     records: list[dict] = []
     if metadata:
-        job.steps.start('index')
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
-        link = f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}'
-        records = ao3.get_metadata(link, job.options['workdates'], stop_before=floor)
-        job.steps.done('index')
+
+        # 1. new bookmarks, newest bookmarked first, back to the floor. this is the pass the
+        # updated-date walk cannot do: a fic bookmarked yesterday that ao3 last updated in
+        # 2019 sits far below the floor on that listing and would never be reached
+        job.steps.start('bookmarked')
+        print(strings.AO3_INFO_QUICK_BOOKMARKED.format(floor or strings.AO3_INFO_DATE_ANY))
+        by_bookmarked = ao3.get_metadata(
+            f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_BOOKMARKED}',
+            job.options['workdates'], stop_before=floor, stop_on='bookmarked',
+            own_bookmarks=True)
+        job.steps.done('bookmarked')
+
+        # 2. fics ao3 has changed since the floor, newest updated first - the ones already
+        # bookmarked before it, which the first pass stopped short of
+        by_updated: list[dict] = []
+        if not floor:
+            # with nothing to stop at, the first pass read every bookmark already. a second
+            # full walk would cost a request per 20 works to learn nothing new
+            print(strings.AO3_INFO_QUICK_UPDATED_NOT_NEEDED)
+            job.steps.skip('index')
+        elif not job.cancel.is_set():
+            job.steps.start('index')
+            print(strings.AO3_INFO_QUICK_UPDATED.format(floor))
+            by_updated = ao3.get_metadata(
+                f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
+                job.options['workdates'], stop_before=floor, own_bookmarks=True)
+            job.steps.done('index')
+
+        if window:
+            # a listing cannot be entered at a date, so both walks start at the newest and read
+            # past the ceiling on the way down. what lands above it is indexed but not taken:
+            # each walk keeps only the works whose own date - the one it walked by - is in range
+            if not floor:
+                # the first walk read everything, so the updated-date half comes from it too
+                by_updated = by_bookmarked
+            by_bookmarked = works_dated_between(by_bookmarked, 'date_bookmarked', floor, ceiling)
+            by_updated = works_dated_between(by_updated, 'date_updated', floor, ceiling)
+
+        # either scan may have found a fic; the other may have found it too
+        records = merge_by_work(by_bookmarked, by_updated)
+        if window: print(strings.AO3_INFO_QUICK_IN_WINDOW.format(len(records)))
     else:
+        job.steps.skip('bookmarked')
         job.steps.skip('index')
 
     download_planned(job, fileops, ao3, records, downloadtypes, report)
     report_failures(ao3, report)
+
+
+def works_dated_between(records: list[dict], field: str, start: str, end: str) -> list[dict]:
+    """The records whose `field` date falls inside a window, both ends counting.
+
+    An empty end means no limit there. A record with no readable date for that field is left
+    out rather than guessed at - the same rule `works_updated_between` follows, because it
+    cannot be placed in the window.
+    """
+
+    chosen = []
+    for record in records:
+        stamp = parse_text.get_date_stamp(record.get(field) or '')
+        if not stamp: continue
+        if start and stamp < start: continue
+        if end and stamp > end: continue
+        chosen.append(record)
+    return chosen
+
+
+def merge_by_work(*passes: list[dict]) -> list[dict]:
+    """Every record from several walks, once each, in the order first seen.
+
+    Keyed on the work number, falling back to the link: the same fic found by two walks is
+    one download, not two. The later walk's record wins, because it was read more recently.
+    """
+
+    merged: dict[str, dict] = {}
+    for records in passes:
+        for record in records:
+            key = str(record.get('id') or record.get('link') or '')
+            if not key: continue
+            merged[key] = record
+    return list(merged.values())
 
 
 def quick_scan_floor(fileops: FileOps) -> str:
@@ -1068,6 +1167,29 @@ def settle_quick_floor(job: Job, fileops: FileOps, report) -> str:
     return ''
 
 
+def floor_runs(fileops: FileOps) -> list[dict]:
+    """Every earlier run a quick scan may be told to measure back to, newest first.
+
+    The same rule `quick_scan_floor` applies to the latest one, applied to all of them: it
+    finished, and it reached every work ao3 had updated by the time it started. Offering a
+    run that fails either test would let the user pick a floor with a hole behind it.
+    """
+
+    return [record for record in runs.read_runs(fileops)
+            if record.get('status') == runs.STATUS_SUCCESS
+            and covered_the_whole_listing(record)]
+
+
+def chosen_floor(fileops: FileOps, run_id: str) -> str:
+    """The day a chosen earlier scan started, or '' when it is not a run that can be one."""
+
+    if not run_id: return ''
+    for record in floor_runs(fileops):
+        if str(record.get('id') or '') == run_id:
+            return str(record.get('started') or '')[:10]
+    return ''
+
+
 def covered_the_whole_listing(record: dict) -> bool:
     """Whether a finished run reached every work ao3 had updated by the time it started.
 
@@ -1121,7 +1243,8 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     if job.options['reindex'] and metadata:
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
-        records = ao3.get_metadata(bookmarks_link(job), job.options['workdates'])
+        records = ao3.get_metadata(bookmarks_link(job), job.options['workdates'],
+                                   own_bookmarks=True)
     else:
         print(strings.AO3_INFO_USING_LAST_INDEX)
         records = shared.read_index(fileops)
@@ -1173,7 +1296,18 @@ def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: di
     undated = shared.plan_downloads(records, existing, filetypes)['undated']
     if not undated: return False, 0
 
-    print(strings.AO3_INFO_UNDATED.format(len(undated)))
+    # exactly the works the question is about, and no others. `existing` is the whole
+    # downloads folder; `undated` is the handful of it this run is dealing with
+    links = set(undated)
+    works = {str(x['id']) for x in records if x.get('id') and x.get('link') in links}
+    ids = sorted(works, key=lambda x: (len(x), x))
+    # the question counts works, but a work saved in two formats is two files - so both
+    # numbers are said, or 'dated 24 files' after '12 works' reads like a miscount
+    files = sum(1 for work in works
+                for entry in (existing.get(work) or {}).values() if entry.get('date') is None)
+
+    print(strings.AO3_INFO_UNDATED.format(len(undated), files))
+    print(strings.AO3_INFO_UNDATED_WORKS.format(', '.join(ids)))
     print(strings.AO3_INFO_UNDATED_WAITING)
 
     answer = job.ask(
@@ -1186,21 +1320,23 @@ def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: di
     # be explained by looking at what was asked and what was answered
     if job.record:
         job.record.choice({'question': UNDATED_QUESTION, 'count': len(undated),
+                           'files': files, 'works': ids,
                            'choice': choice, 'date': answer.get('date') or ''})
 
     if choice == UNDATED_STAMP and answer.get('date'):
         maximum = fileops.get_ini_value_integer(
             strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
-        # exactly the works the question was asked about, and no others. `existing` is the
-        # whole downloads folder; `undated` is the handful of it this run is dealing with
-        links = set(undated)
-        works = {str(x['id']) for x in records
-                 if x.get('id') and x.get('link') in links}
         result = shared.stamp_undated_works(fileops, existing, works, answer['date'],
                                             maximum)
-        print(strings.AO3_INFO_STAMPED.format(result['renamed'], answer['date']))
+        renamed = result.get('files') or []
+        print(strings.AO3_INFO_STAMPED.format(
+            result['renamed'], len({x['id'] for x in renamed}), answer['date']))
+        for item in renamed:
+            print(strings.AO3_INFO_STAMPED_FILE.format(item['from'], item['to']))
         if result['skipped']:
             print(strings.AO3_INFO_STAMP_SKIPPED.format(result['skipped']))
+        if job.record:
+            job.record.amend_choice({'renamed': renamed, 'renameSkipped': result['skipped']})
         # they carry a date now, so the ordinary rule judges them from here on
         return False, result['renamed']
 
@@ -1473,7 +1609,7 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
         # the whole index is read below rather than just what came back here: a fic in the
         # window that is no longer bookmarked is still one the window asked for
         ao3.get_metadata(f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
-                         job.options['workdates'], stop_before=start)
+                         job.options['workdates'], stop_before=start, own_bookmarks=True)
         job.steps.done('index')
     elif metadata:
         # asked for, and turned off - so it is shown as skipped rather than dropped
@@ -1682,6 +1818,14 @@ def report_failures(ao3: Ao3, report) -> None:
         print(strings.AO3_INFO_SKIPPED_WORKS.format(len(ao3.skipped_works)))
         progress.report(report, progress.SKIPPED, skipped=ao3.skipped_works)
 
+    # a third list: the download worked, but the file it replaced is still there. nothing is
+    # lost, so it is not a failure to retry - but there are two copies now, and a number
+    # alone would leave nobody able to find which
+    kept = getattr(ao3, 'kept_copies', None)
+    if isinstance(kept, list) and kept:
+        print(strings.AO3_INFO_KEPT_COPIES.format(len({x['id'] for x in kept})))
+        progress.report(report, progress.KEPT_COPIES, keptCopies=kept)
+
     if not ao3.failures: return
     print(strings.AO3_INFO_FAILED_WORKS.format(len(ao3.failures)))
     progress.report(report, progress.FAILURES, failures=ao3.failures)
@@ -1767,6 +1911,11 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
+        if self.path == '/api/runs/floors':
+            # the runs a quick scan may be told to measure back to, for the modal's list
+            self.send_json(200, {'runs': floor_runs(FileOps())})
+            return
+
         if self.path == '/api/runs':
             # read off disk each time rather than kept in memory: the helper is restarted
             # far more often than the history is looked at, and the files are the record
@@ -1833,6 +1982,12 @@ class Handler(BaseHTTPRequestHandler):
         # into what a run may actually do - a stray flag must not make a routine run
         # re-fetch a whole library
         if action not in OVERWRITE_ACTIONS: options['overwrite'] = False
+        # a chosen floor is the quick scan's alone, and has to name a run that can be one -
+        # refused here rather than discovered on the thread, so a bad pick is a straight answer
+        if action != ACTION_QUICK: options['floorRun'] = ''
+        if options['floorRun'] and not chosen_floor(FileOps(), options['floorRun']):
+            self.send_json(400, {'error': strings.ERROR_NOT_A_FLOOR_RUN})
+            return
         # a custom run told to skip indexing writes no json, because json is the index
         indexing_run = options['reindex'] or action != ACTION_CUSTOM
         filetypes = resolve_filetypes(body.get('filetypes'), force=indexing_run)

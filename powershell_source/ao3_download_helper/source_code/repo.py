@@ -199,15 +199,21 @@ class Repository:
 
         response = self.my_request('GET', url)
 
+        # the format is named in the error: a work is recorded as a failure once, on the
+        # first format that fails, so without it nobody could tell whether it was the epub
+        # that ao3 lacks or every format at once
+        shown = filetype.upper()
         if response.status_code != codes['ok']:
-            raise exceptions.DownloadException(strings.ERROR_NOT_A_WORK_FILE)
+            raise exceptions.DownloadException(strings.ERROR_NOT_A_WORK_FILE.format(
+                shown, strings.ERROR_NOT_A_WORK_FILE_STATUS.format(response.status_code)))
 
         # html is the one format where a page and a file look alike, so it is judged on the
         # status alone; for the rest, html coming back means something went wrong
-        if filetype.upper() != 'HTML':
+        if shown != 'HTML':
             content_type = (response.headers.get('Content-Type') or '').lower()
             if 'text/html' in content_type:
-                raise exceptions.DownloadException(strings.ERROR_NOT_A_WORK_FILE)
+                raise exceptions.DownloadException(strings.ERROR_NOT_A_WORK_FILE.format(
+                    shown, strings.ERROR_NOT_A_WORK_FILE_TYPE.format(response.status_code)))
 
         return response.content
 

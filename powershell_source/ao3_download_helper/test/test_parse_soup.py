@@ -904,3 +904,24 @@ def test_get_series_mobi_returns_empty_when_label_missing():
     assert parse_soup.get_series_mobi(soup) == []
 
 # endregion
+
+
+# region whether you have bookmarked the work on this page
+
+def test_a_work_you_have_bookmarked_says_edit_bookmark(fixture_soup):
+    assert parse_soup.get_bookmarked(fixture_soup('explicitWorkLoggedIn')) is True
+
+
+def test_a_work_you_have_not_bookmarked_says_bookmark(fixture_soup):
+    assert parse_soup.get_bookmarked(fixture_soup('lockedWorkLoggedIn')) is False
+
+
+def test_a_logged_out_page_cannot_say_either_way(fixture_soup):
+    # unknown, never 'not bookmarked': the button is missing because nobody is logged in
+    assert parse_soup.get_bookmarked(fixture_soup('explicitWorkLoggedOut')) is None
+
+
+def test_a_page_with_no_bookmark_button_cannot_say_either_way():
+    assert parse_soup.get_bookmarked(BeautifulSoup('<div></div>', 'html.parser')) is None
+
+# endregion

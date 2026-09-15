@@ -383,10 +383,18 @@ browser, and only if you tick the box.
 
 ### Bookmarks
 
-**Quick Scan** is a full scan that stops early. It reads your bookmarks **sorted by when ao3
-last updated each work** and stops at the first fic whose last-updated date is older than the
-day your last qualifying scan started, then downloads and updates what it found. A fic
-updated on that day itself is still indexed.
+**Quick Scan** is a full scan that stops early. It indexes in two walks, both back to the
+day your last qualifying scan started: first your bookmarks **sorted by date bookmarked**,
+stopping at the first one bookmarked before that day - which catches old fics you have only
+just bookmarked - then your bookmarks **sorted by when ao3 last updated each work**, stopping
+at the first one updated before that day - which catches fics bookmarked long ago that have
+changed since. It then reads your existing files and downloads or updates whatever either
+walk found, each fic once. With no earlier scan to measure from, the first walk reads
+everything and the second is skipped.
+
+You can also choose **which earlier scan to measure back to** instead of the most recent one -
+useful if a recent scan may have missed something. The next page lists every completed full
+scan and quick scan to pick from; the further back you go, the longer indexing takes.
 
 Two things decide whether an earlier run counts as that mark. It has to have **finished** -
 one that failed, was stopped or was interrupted may have given up before reaching works
@@ -401,11 +409,12 @@ everything missing - which on a large library is hours. Every run after that is 
 one. What it gives up is the date: anything ao3 updated before that mark is never looked at,
 so a fic missed by an earlier run stays missed.
 
-It can also be given **a date range of your own** instead of measuring back to your last run.
-The two are the same mechanism handed a different date, so they are alternatives rather than
-settings that combine, and the range works exactly as the custom run's does - everything
-updated since a date, or between two dates. The further back you reach, the longer the
-indexing takes.
+With the debug tools on it can also be given **a date range of your own** instead of
+measuring back to a scan - everything since a date, or between two dates. It uses the same
+two walks, down to the older end of the range: once by date bookmarked, keeping works you
+bookmarked in the range, and once by date updated, keeping works ao3 updated in it. Both
+walks start at your newest bookmark, so works newer than the range are indexed on the way
+down but not downloaded. The further back the older end goes, the longer the indexing takes.
 
 **(Full scan) Reindex & Update All** reads `/users/<you>/bookmarks`, writes a json index entry
 for every work on it, then downloads the works themselves. Anything already downloaded and
@@ -638,18 +647,25 @@ never lose the copy you have until the one replacing it is confirmed on disk.
 A run does not stop because one fic will not come down - it may have been deleted, made
 restricted, or never existed in the format you asked for. Those are skipped, and when the
 run finishes it names them: how many, the first few with the reason, and a link to each.
-An **Export the list** button saves them as plain text - one work per line, with the work
-number, link and reason - so the numbers can be fed back in. A work is listed once however
-many formats failed for it.
+One **Export all issues** button saves every list as a single plain text file, under a
+heading per kind - one work per line, with the work number, link and reason - so the numbers
+can be fed back in. A work is listed once however many formats failed for it.
+
+Every downloaded file is checked straight after it is written. One that is missing or the
+wrong size is deleted and reported as a failure with the reason, leaving any older copy
+alone. If the older copy will not delete, or the check itself goes wrong, nothing is removed
+and the work is listed as needing checking by hand - at the end of the run, in the exported
+file, and in History.
 
 A second list covers **bookmarks that were never works at all**: a series bookmarked as a
 series, a work hosted somewhere other than ao3, or one that has since been deleted. Each is
 named with the reason the listing gave - and where the listing does not say, it says so
-rather than guessing - with its own **Export the list** button. These are kept apart from
+rather than guessing - under its own heading in the exported file. These are kept apart from
 the failures above on purpose. Nothing went wrong with them and running again will skip them
 again, so mixing the two would make a real failure look routine.
 
-Every button ends this way, including the ones that only index.
+Every button ends this way - its last step is *Report any failures* - including the ones
+that only index and downloading a single fic by link.
 
 Works saved before names carried a date cannot be judged: nothing records which version
 they are. **The run stops and asks what to do about them before it downloads anything** -

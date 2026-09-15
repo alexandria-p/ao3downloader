@@ -1133,7 +1133,60 @@ def test_a_work_that_fails_is_remembered_with_its_number():
 
     assert ao3.failures == [{'id': '111',
                              'link': 'https://archiveofourown.org/works/111',
-                             'error': 'gone'}]
+                             'error': 'EPUB: gone'}]
+
+
+def test_a_format_that_fails_does_not_stop_the_formats_after_it(capsys):
+    # each format is a separate file at its own url; ao3 lacking the epub says nothing
+    # about the pdf, which used to be abandoned without being asked for
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB', 'PDF', 'HTML'])
+    repo.download_file.side_effect = lambda url, ft: (
+        (_ for _ in ()).throw(exceptions.DownloadException('no epub')) if ft == 'EPUB'
+        else b'file')
+
+    ao3.download_indexed([_record('111')])
+
+    assert [c.args[1] for c in repo.download_file.call_args_list] == ['EPUB', 'PDF', 'HTML']
+    assert fileops.save_bytes.call_count == 2
+    # still a failure, naming only the format that failed, and the work still counts as
+    # downloaded for what did arrive
+    assert ao3.failures[0]['error'] == 'EPUB: no epub'
+    assert '111' in ao3.downloaded
+    assert strings.INFO_FORMAT_FAILED.format('EPUB', 'no epub') in capsys.readouterr().out
+
+
+def test_every_format_that_failed_is_named_in_the_one_failure():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB', 'PDF', 'HTML'])
+    repo.download_file.side_effect = lambda url, ft: (
+        b'file' if ft == 'HTML'
+        else (_ for _ in ()).throw(exceptions.DownloadException(f'no {ft.lower()}')))
+
+    ao3.download_indexed([_record('111')])
+
+    assert ao3.failures[0]['error'] == 'EPUB: no epub; PDF: no pdf'
+
+
+def test_a_work_with_a_failed_format_is_not_logged_as_fully_downloaded():
+    # the log is what the long way round uses to skip works; a success there would mean the
+    # missing format was never fetched again
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB', 'HTML'])
+    repo.download_file.side_effect = lambda url, ft: (
+        b'file' if ft == 'HTML'
+        else (_ for _ in ()).throw(exceptions.DownloadException('no epub')))
+
+    ao3.download_indexed([_record('111')])
+
+    assert not any(c.args[0].get('success') for c in fileops.write_log.call_args_list)
+
+
+def test_a_stop_during_one_format_still_stops_the_rest():
+    ao3, repo, fileops = make_ao3(filetypes=['EPUB', 'PDF'])
+    repo.download_file.side_effect = exceptions.CancelledException('stop')
+
+    ao3.download_indexed([_record('111')])
+
+    assert repo.download_file.call_count == 1
+    assert ao3.failures == []
 
 
 def test_a_work_is_only_listed_once_however_many_formats_failed():
@@ -1454,6 +1507,91 @@ def test_a_work_with_no_readable_date_does_not_stop_the_walk() -> None:
     records = ao3.get_metadata(LISTING_URL, False, stop_before='2026-09-01')
 
     assert [x['id'] for x in records] == ['100', '101']
+
+
+def _bookmarked_listing(pairs: list[tuple[str, str]]) -> BeautifulSoup:
+    """A listing whose blurbs carry (updated, bookmarked) dates, the way a bookmarks page does."""
+
+    blurbs = ''.join(
+        f'<li id="bookmark_{n}" class="bookmark blurb group work-{n}">'
+        f'<div class="header module"><h4 class="heading"><a href="/works/{n}">W{n}</a> by '
+        f'<a href="/users/a/pseuds/a" rel="author">A</a></h4>'
+        f'<p class="datetime">{updated}</p></div>'
+        f'<div class="user module group"><p class="datetime">{bookmarked}</p></div></li>'
+        for n, (updated, bookmarked) in enumerate(pairs, start=100))
+    return BeautifulSoup(
+        f'<ol class="bookmark index group">{blurbs}</ol>'
+        '<ol class="pagination actions"><li>1</li></ol>', 'html.parser')
+
+
+def test_a_bookmarked_walk_stops_on_the_bookmark_date_not_the_update_date() -> None:
+    # a fic bookmarked yesterday but last updated years ago is new to the library, and
+    # stopping on its update date would throw it away
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _bookmarked_listing([
+        ('01 Jan 2019', '12 Sep 2026'),   # old fic, new bookmark: kept
+        ('11 Sep 2026', '01 Mar 2025'),   # bookmarked before the floor: the walk stops here
+        ('10 Sep 2026', '01 Feb 2025'),
+    ])
+
+    records = ao3.get_metadata(LISTING_URL, False, stop_before='2026-09-01',
+                               stop_on='bookmarked')
+
+    assert [x['id'] for x in records] == ['100']
+
+
+def test_an_updated_walk_still_stops_on_the_update_date() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _bookmarked_listing([
+        ('11 Sep 2026', '01 Jan 2019'),   # changed since the floor, bookmarked long ago: kept
+        ('01 Jan 2019', '12 Sep 2026'),   # updated before the floor: the walk stops here
+    ])
+
+    records = ao3.get_metadata(LISTING_URL, False, stop_before='2026-09-01')
+
+    assert [x['id'] for x in records] == ['100']
+
+
+def _page_lines(capsys) -> list[str]:
+    return [line for line in capsys.readouterr().out.splitlines() if 'page' in line]
+
+
+def test_a_walk_with_a_floor_never_claims_to_know_how_many_pages_it_will_read(capsys) -> None:
+    # the floor ends it wherever the first older fic sits, so the listing's page count is not
+    # the run's - 'finished page 1 of 3' on a walk that stops at page 1 promises two more pages
+    events: list[dict] = []
+    ao3, repo, _ = make_ao3()
+    ao3.progress = events.append
+    repo.get_soup.return_value = _dated_listing(['11 Sep 2026', '01 Jan 2020'], total_pages=3)
+
+    ao3.get_metadata(LISTING_URL, False, stop_before='2026-09-01')
+
+    lines = _page_lines(capsys)
+    assert any(line.startswith('finished page 1.') for line in lines), lines
+    assert not any(' of ' in line for line in lines), lines
+    pages = [e for e in events if e['type'] == 'page']
+    assert all(e['listingTotal'] is None and e['total'] is None for e in pages)
+
+
+def test_a_walk_that_stops_at_a_known_fic_does_not_give_a_total_either(capsys) -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _listing_soup(['111', '222'], total_pages=9)
+
+    ao3.get_metadata(LISTING_URL, False, known={'222'})
+
+    assert not any(' of ' in line for line in _page_lines(capsys))
+
+
+def test_a_walk_that_reads_the_whole_listing_still_says_of_how_many(capsys) -> None:
+    # with nothing to stop it early, the page count really is how many pages it will read
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _dated_listing(['11 Sep 2026'], total_pages=2)
+
+    ao3.get_metadata(LISTING_URL, False)
+
+    lines = _page_lines(capsys)
+    assert 'fetching page 2 of 2' in lines
+    assert any(line.startswith('finished page 2 of 2.') for line in lines), lines
 
 
 def test_a_floor_nothing_is_older_than_still_stops_at_the_end_of_the_listing() -> None:
@@ -2066,5 +2204,262 @@ def test_a_truncated_new_file_leaves_the_old_one_where_it_is(tmp_path):
     ao3.replace_superseded(WORK, 'HTML', str(new), 2048)
 
     assert old.exists()
+
+# endregion
+
+
+# region every file a download writes is announced
+#
+# only a deleted older copy used to say anything, so a run fetching new formats looked idle
+
+def saving_for_real(tmp_path):
+    ao3, repo, fileops = make_ao3()
+    fileops.downloadfolder = str(tmp_path)
+    fileops.save_bytes.side_effect = lambda n, c: FileOps.save_bytes(fileops, n, c)
+    fileops.saved_intact.side_effect = lambda p, n: FileOps.saved_intact(fileops, p, n)
+    fileops.saved_problem.side_effect = lambda p, n: FileOps.saved_problem(fileops, p, n)
+    fileops.delete_file.side_effect = lambda p: FileOps.delete_file(fileops, p)
+    return ao3
+
+
+def outdated_copy(ao3, tmp_path):
+    old = tmp_path / '123 A 2024-01-01.html'
+    old.write_bytes(b'old')
+    ao3.superseded = {WORK: {'HTML': str(old)}}
+    return old
+
+
+def shortened_on_disk(ao3):
+    """A save that lands short, as a full disk or a sync tool grabbing the file would leave."""
+    real = ao3.fileops.save_bytes.side_effect
+    ao3.fileops.save_bytes.side_effect = lambda n, c: real(n, c[:2])
+
+
+def test_a_format_arriving_for_the_first_time_says_new_download(tmp_path, capsys):
+    ao3 = saving_for_real(tmp_path)
+
+    ao3.save_download(WORK, 'PDF', '123 A 2024-12-14.pdf', b'new')
+
+    assert strings.INFO_SAVED_NEW_COPY.format('123 A 2024-12-14.pdf') in capsys.readouterr().out
+    assert ao3.updated == set()
+    assert ao3.kept_copies == []
+
+
+def test_an_outdated_copy_replaced_names_only_the_new_file_once(tmp_path, capsys):
+    ao3 = saving_for_real(tmp_path)
+    old = outdated_copy(ao3, tmp_path)
+
+    ao3.save_download(WORK, 'HTML', '123 A 2024-12-14.html', b'new copy')
+
+    out = capsys.readouterr().out
+    assert out.count(strings.INFO_REPLACED_OLD_COPY.format('123 A 2024-12-14.html')) == 1
+    assert '2024-01-01' not in out
+    assert not old.exists()
+    assert '123' in ao3.updated
+
+
+def test_a_copy_overwritten_under_the_same_name_reads_the_same_as_a_replacement(tmp_path,
+                                                                               capsys):
+    ao3 = saving_for_real(tmp_path)
+    (tmp_path / '123 A 2024-12-14.html').write_bytes(b'damaged')
+
+    ao3.save_download(WORK, 'HTML', '123 A 2024-12-14.html', b'fresh')
+
+    assert strings.INFO_REPLACED_OLD_COPY.format('123 A 2024-12-14.html') \
+        in capsys.readouterr().out
+    assert '123' in ao3.updated
+
+
+# 1. the new file is not on disk as it arrived
+
+def test_a_short_replacement_is_removed_and_fails_the_work_leaving_the_old_copy(tmp_path,
+                                                                                capsys):
+    ao3 = saving_for_real(tmp_path)
+    old = outdated_copy(ao3, tmp_path)
+    shortened_on_disk(ao3)
+
+    with pytest.raises(exceptions.SavedFileException) as raised:
+        ao3.save_download(WORK, 'HTML', '123 A 2024-12-14.html', b'new copy')
+
+    assert old.exists()
+    assert not (tmp_path / '123 A 2024-12-14.html').exists()
+    assert strings.INFO_DAMAGED_KEPT_OLD.format('123 A 2024-01-01.html') \
+        in capsys.readouterr().out
+    # the detail says exactly what was wrong, for the failure report
+    assert strings.SAVED_WRONG_SIZE.format(8, 2) in str(raised.value)
+    assert '123 A 2024-01-01.html' in str(raised.value)
+    assert ao3.kept_copies == [] and '123' not in ao3.updated
+
+
+def test_a_short_first_download_is_removed_too(tmp_path, capsys):
+    # a first download can land short as easily as a replacement, and a short file named
+    # as current would be called up to date by every later run
+    ao3 = saving_for_real(tmp_path)
+    shortened_on_disk(ao3)
+
+    with pytest.raises(exceptions.SavedFileException):
+        ao3.save_download(WORK, 'PDF', '123 A 2024-12-14.pdf', b'new copy')
+
+    assert not (tmp_path / '123 A 2024-12-14.pdf').exists()
+    assert strings.INFO_DAMAGED_REMOVED.format('123 A 2024-12-14.pdf') in capsys.readouterr().out
+
+
+def test_a_file_that_vanished_after_saving_says_where_it_was_looked_for(tmp_path):
+    ao3 = saving_for_real(tmp_path)
+    real = ao3.fileops.save_bytes.side_effect
+
+    def snatched(name, content):
+        path = real(name, content)
+        os.remove(path)   # a sync tool moving it away straight after
+        return path
+    ao3.fileops.save_bytes.side_effect = snatched
+
+    with pytest.raises(exceptions.SavedFileException) as raised:
+        ao3.save_download(WORK, 'PDF', '123 A 2024-12-14.pdf', b'new copy')
+
+    assert 'could not be found at' in str(raised.value)
+
+
+def test_a_damaged_file_that_will_not_delete_says_to_remove_it_by_hand(tmp_path):
+    ao3 = saving_for_real(tmp_path)
+    shortened_on_disk(ao3)
+    ao3.fileops.delete_file.side_effect = lambda p: False
+
+    with pytest.raises(exceptions.SavedFileException) as raised:
+        ao3.save_download(WORK, 'PDF', '123 A 2024-12-14.pdf', b'new copy')
+
+    assert strings.DAMAGED_NOT_REMOVED in str(raised.value)
+
+
+def test_a_damaged_file_fails_the_work_without_asking_whether_the_login_lapsed(tmp_path):
+    # a problem in the folder says nothing about ao3; the check would cost a request
+    ao3 = saving_for_real(tmp_path)
+    shortened_on_disk(ao3)
+    ao3.repo.download_file.return_value = b'new copy'
+    record = {'id': '123', 'link': WORK, 'title': 'A', 'date_updated': '2024-12-14'}
+    ao3.filetypes = ['PDF']
+
+    ao3.download_indexed([record])
+
+    ao3.repo.still_logged_in.assert_not_called()
+    assert ao3.failures[0]['id'] == '123'
+    assert strings.SAVED_WRONG_SIZE.format(8, 2) in ao3.failures[0]['error']
+    assert '123' not in ao3.downloaded
+
+
+# 2. the older copy will not delete
+
+def test_an_older_copy_that_would_not_delete_is_announced_and_listed(tmp_path, capsys):
+    ao3 = saving_for_real(tmp_path)
+    ao3.fileops.delete_file.side_effect = lambda p: False
+    outdated_copy(ao3, tmp_path)
+
+    ao3.save_download(WORK, 'HTML', '123 A 2024-12-14.html', b'new copy')
+
+    assert strings.INFO_KEPT_OLD_COPY.format('123 A 2024-12-14.html') in capsys.readouterr().out
+    assert ao3.kept_copies == [{'id': '123', 'link': WORK, 'file': '123 A 2024-12-14.html',
+                                'old': '123 A 2024-01-01.html',
+                                'error': strings.KEPT_NOT_DELETED.format(
+                                    '123 A 2024-01-01.html')}]
+    # not an update: the old copy is still sitting there
+    assert '123' not in ao3.updated
+
+
+# 3. checking the new file errors
+
+def test_a_check_that_errors_leaves_everything_and_lists_why(tmp_path, capsys):
+    ao3 = saving_for_real(tmp_path)
+    old = outdated_copy(ao3, tmp_path)
+    ao3.fileops.saved_intact.side_effect = OSError('drive went away')
+
+    ao3.save_download(WORK, 'HTML', '123 A 2024-12-14.html', b'new copy')
+
+    assert old.exists() and (tmp_path / '123 A 2024-12-14.html').exists()
+    assert strings.INFO_UNCONFIRMED.format('123 A 2024-12-14.html') in capsys.readouterr().out
+    assert 'drive went away' in ao3.kept_copies[0]['error']
+    assert ao3.kept_copies[0]['old'] == '123 A 2024-01-01.html'
+
+
+def test_a_check_that_errors_on_a_first_download_is_listed_the_same_way(tmp_path, capsys):
+    ao3 = saving_for_real(tmp_path)
+    ao3.fileops.saved_intact.side_effect = OSError('drive went away')
+
+    ao3.save_download(WORK, 'PDF', '123 A 2024-12-14.pdf', b'new copy')
+
+    assert strings.INFO_UNCONFIRMED.format('123 A 2024-12-14.pdf') in capsys.readouterr().out
+    assert ao3.kept_copies[0]['old'] == ''
+
+
+def test_both_download_paths_announce_what_they_save():
+    # the indexed path and the work-page path each used to call save_bytes directly
+    import inspect
+    for method in (Ao3.download_one_indexed, Ao3.try_download):
+        source = inspect.getsource(method)
+        assert 'save_download(' in source and 'save_bytes(' not in source
+# endregion
+
+
+# region whether the fic is bookmarked
+
+def _page_with_bookmark_button(text: str) -> BeautifulSoup:
+    return BeautifulSoup(
+        str(_work_page_soup()) +
+        f'<ul><li class="bookmark"><a class="bookmark_form_placement_open" '
+        f'href="#bookmark-form">{text}</a></li></ul>', 'html.parser')
+
+
+def test_a_walk_down_your_own_bookmarks_marks_every_fic_bookmarked() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _dated_listing(['11 Sep 2026'], total_pages=1)
+
+    records = ao3.get_metadata(LISTING_URL, False, own_bookmarks=True)
+
+    assert records and all(x['bookmarked'] is True for x in records)
+
+
+def test_a_walk_not_known_to_be_your_bookmarks_says_nothing_about_it() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _dated_listing(['11 Sep 2026'], total_pages=1)
+
+    records = ao3.get_metadata(LISTING_URL, False)
+
+    assert records and all('bookmarked' not in x for x in records)
+
+
+def test_a_fic_indexed_from_its_own_page_is_bookmarked_when_it_says_edit_bookmark() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _page_with_bookmark_button('Edit Bookmark')
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        record = ao3.index_one_work('https://archiveofourown.org/works/111')
+
+    assert record['bookmarked'] is True
+
+
+def test_a_refreshed_fic_you_have_since_unbookmarked_says_so() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _page_with_bookmark_button('Bookmark')
+    existing = {'id': '111', 'link': 'https://archiveofourown.org/works/111',
+                'bookmarked': True}
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        record = ao3.refresh_one(existing)
+
+    assert record['bookmarked'] is False
+
+
+def test_a_page_that_cannot_tell_leaves_the_field_as_it_was() -> None:
+    # a work page with no bookmark button (logged out, say) must not unmark a fic a
+    # bookmarks walk has already said is yours - and must not invent an answer for a new one
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _work_page_soup()
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        kept = ao3.refresh_one({'id': '111', 'link': 'https://archiveofourown.org/works/111',
+                                'bookmarked': True})
+        fresh = ao3.index_one_work('https://archiveofourown.org/works/222')
+
+    assert kept['bookmarked'] is True
+    assert 'bookmarked' not in fresh
 
 # endregion

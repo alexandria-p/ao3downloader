@@ -145,6 +145,24 @@ class FileOps:
             return False
 
 
+    def saved_problem(self, path: str, expected_size: int) -> str:
+        """What is wrong with a file `saved_intact` said no to, in words for a report.
+
+        Asked only after that answer, so a file that is fine in between is described as
+        such rather than invented a fault for.
+        """
+
+        try:
+            if not os.path.isfile(path):
+                return strings.SAVED_NOT_FOUND.format(path)
+            size = os.path.getsize(path)
+            if size != expected_size:
+                return strings.SAVED_WRONG_SIZE.format(expected_size, size)
+            return strings.SAVED_FINE_ON_SECOND_LOOK
+        except OSError as e:
+            return strings.SAVED_UNREADABLE.format(e)
+
+
     def rename_file(self, old: str, new: str) -> bool:
         """Rename a file, reporting whether it worked.
 

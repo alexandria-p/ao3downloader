@@ -171,7 +171,7 @@
           the two are alternatives, not settings that combine: one picks works by where
           they sit in the listing, the other by when AO3 last touched them
         -->
-        @if (picksDates()) {
+        @if (picksDates() || action() === 'quick') {
           <fieldset>
             <legend>What this run covers</legend>
 
@@ -194,21 +194,38 @@
                        (change)="coverage.set('pages')" />
                 <span>A slice of your bookmarks listing</span>
               </label>
+            } @else {
+              <!-- the next page lists the scans that can be measured back to -->
+              <label class="check">
+                <input type="radio" name="coverage" [checked]="coverage() === 'run'"
+                       (change)="coverage.set('run')" />
+                <span>Choose which earlier scan to measure back to</span>
+              </label>
             }
 
-            <label class="check">
-              <input type="radio" name="coverage" [checked]="coverage() === 'dates'"
-                     (change)="coverage.set('dates')" />
-              <span>
-                @if (action() === 'quick') {
-                  <!-- only reachable with the debug tools on; see picksDates -->
-                  [DEBUG] Choose my own date range
-                } @else {
-                  Choose my own date range
-                }
-              </span>
-            </label>
+            @if (picksDates()) {
+              <label class="check">
+                <input type="radio" name="coverage" [checked]="coverage() === 'dates'"
+                       (change)="coverage.set('dates')" />
+                <span>
+                  @if (action() === 'quick') {
+                    <!-- only reachable with the debug tools on; see picksDates -->
+                    [DEBUG] Choose my own date range
+                  } @else {
+                    Choose my own date range
+                  }
+                </span>
+              </label>
+            }
           </fieldset>
+
+          @if (picksFloorRun()) {
+            <p class="hint">
+              Measures back to the day a completed full scan or quick scan started, instead of
+              the most recent one - useful when a recent scan may have missed something. The
+              further back you go, the longer indexing takes. You pick the scan on the next page.
+            </p>
+          }
         }
 
         @if (picksDates() && useDates()) {
@@ -248,7 +265,37 @@
             Both ends count. This run will fetch <strong>{{ dateRange() }}</strong>.
           </p>
 
-          @if (reindex()) {
+          @if (action() === 'quick') {
+            <!--
+              the quick scan's own method, given two dates instead of an earlier scan: both
+              walks run from the newest bookmark down to the older end of the range
+            -->
+            <p class="hint">
+              Indexing reads your bookmarks twice, newest first, each time down to
+              @if (dateFrom()) {
+                <strong>{{ dateFrom() }}</strong>:
+              } @else {
+                the very end - there is no <em>on or after</em> date to stop at, so it
+                <strong>reads the whole listing</strong>, once:
+              }
+            </p>
+            <ol class="hint walks">
+              <li>
+                <strong>by date bookmarked</strong> - picking up works you bookmarked in the
+                range, however long ago AO3 last updated them
+              </li>
+              <li>
+                <strong>by date updated</strong> - picking up works AO3 updated in the range,
+                however long ago you bookmarked them
+              </li>
+            </ol>
+            <p class="hint">
+              Both walks start at your newest bookmark, so anything newer than the range is
+              indexed on the way down but not downloaded. Whatever either walk picked is then
+              checked against your files, and anything missing or behind is downloaded - each
+              fic once.
+            </p>
+          } @else if (reindex()) {
             <p class="hint">
               Indexing reads your bookmarks sorted by when AO3 last updated each work, and
               @if (dateFrom()) {
@@ -267,10 +314,12 @@
             </p>
           }
 
-          <p class="hint">
-            Whichever fics it picks are then re-read one at a time, newest first, and
-            anything missing or behind is downloaded.
-          </p>
+          @if (action() !== 'quick') {
+            <p class="hint">
+              Whichever fics it picks are then re-read one at a time, newest first, and
+              anything missing or behind is downloaded.
+            </p>
+          }
         }
 
         @if (picksPages()) {
@@ -378,6 +427,48 @@
       </footer>
     }
 
+    <!--
+      step 2b: which earlier scan a quick scan measures back to. only the scans that can be a
+      floor are listed - completed, and covering the whole listing - and the helper says
+      which those are, so the rule lives in one place
+    -->
+    @if (step() === 'floor') {
+      <section class="body">
+        <p>Choose the scan to measure back to. This run indexes everything changed since it started.</p>
+
+        @if (floorRuns() === null) {
+          <p class="hint">Reading your scan history...</p>
+        } @else if (floorRuns()!.length === 0) {
+          <p class="warning">
+            There is no completed full scan or quick scan on record yet, so there is nothing to
+            measure back to. Go back and choose another option.
+          </p>
+        } @else {
+          <fieldset class="floor-runs">
+            <legend>Completed scans</legend>
+            @for (run of floorRuns(); track run.id) {
+              <label class="check">
+                <input type="radio" name="floorRun" [value]="run.id"
+                       [checked]="floorRun() === run.id"
+                       (change)="floorRun.set(run.id)" />
+                <span>
+                  <strong>{{ run.started.slice(0, 10) }}</strong>
+                  {{ run.actionName || run.action }}
+                  <span class="dim">- started {{ run.started.slice(11, 16) }}@if (run.finished) {, finished {{ run.finished.slice(0, 10) }} {{ run.finished.slice(11, 16) }}}</span>
+                </span>
+              </label>
+            }
+          </fieldset>
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="backFrom('floor')">Back</button>
+        <button type="button" class="button primary" [disabled]="!floorRun()" (click)="afterFloor()">
+          Continue
+        </button>
+      </footer>
+    }
+
     <!-- step 2a: what this particular run cannot do, read before logging in for it -->
     @if (step() === 'acknowledge') {
       <section class="body">
@@ -458,15 +549,25 @@
               to the last run and measuring back to a date you picked fail differently
             -->
             @if (useDates()) {
-              <p>Scans for and updates anything that has changed in this date range.</p>
+              <p>
+                Scans for and updates any work you <strong>bookmarked</strong>, or AO3
+                <strong>updated</strong>, in this date range - reading your bookmarks once by
+                date bookmarked and once by date updated.
+              </p>
 
               <p class="warning">
-                The further back you've gone in time, the longer it will take to index.
+                The further back the older end of the range goes, the longer it will take to
+                index. Both walks start at your newest bookmark whatever the newer end is.
               </p>
             } @else {
               <p>
-                Scans for and updates anything that has changed since the last successful
-                run.
+                @if (chosenFloorRun(); as chosen) {
+                  Scans for and updates anything that has changed since the scan you chose,
+                  which started on {{ chosen.started.slice(0, 10) }}.
+                } @else {
+                  Scans for and updates anything that has changed since the last successful
+                  run.
+                }
               </p>
 
               <p class="warning">
@@ -999,13 +1100,34 @@
             @if (failures().length > 5) {
               <p class="hint">and {{ failures().length - 5 | number }} more.</p>
             }
-            <button type="button" class="button" (click)="exportFailures()">
-              Export the list
-            </button>
-            <p class="hint">
-              Saves a text file of the work numbers, links and reasons - one per line, so
-              you can feed them back in or look them up.
+          </div>
+        }
+
+        <!--
+          the download worked, so this is not a failure to retry - but the old copy is still
+          on disk beside the new one, and only the user can sort that out
+        -->
+        @if (keptCopies().length) {
+          <div class="failures kept">
+            <p class="failures-text">
+              <strong>{{ keptCopies().length | number }}</strong>
+              {{ keptCopies().length === 1 ? 'new copy was' : 'new copies were' }} downloaded
+              but {{ keptCopies().length === 1 ? 'needs' : 'need' }} checking by hand - either
+              the old copy could not be safely deleted, or the new file could not be confirmed.
+              Nothing was removed for these: check the new file opens, then delete any older
+              copy yourself.
             </p>
+            <ul class="failed-list">
+              @for (item of keptCopies().slice(0, 5); track $index) {
+                <li>
+                  <a [href]="item.link" target="_blank" rel="noopener">{{ item.id || item.link }}</a>
+                  <span class="reason">{{ item.file }} - {{ item.error }}</span>
+                </li>
+              }
+            </ul>
+            @if (keptCopies().length > 5) {
+              <p class="hint">and {{ keptCopies().length - 5 | number }} more.</p>
+            }
           </div>
         }
 
@@ -1040,12 +1162,18 @@
             @if (skipped().length > 5) {
               <p class="hint">and {{ skipped().length - 5 | number }} more.</p>
             }
-            <button type="button" class="button" (click)="exportSkipped()">
-              Export the list
+          </div>
+        }
+
+        @if (issueCount()) {
+          <div class="export-issues">
+            <button type="button" class="button" (click)="exportIssues()">
+              Export all issues
             </button>
             <p class="hint">
-              Saves a text file of the work or series numbers, links and reasons - one per
-              line, so you can go and look at them.
+              Saves one text file with every issue above, under a heading for each kind - the
+              work numbers, links and reasons, one per line, so you can feed them back in or
+              look them up.
             </p>
           </div>
         }

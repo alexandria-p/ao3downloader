@@ -277,6 +277,24 @@ def get_work_stats(soup: BeautifulSoup) -> dict:
     return stats
 
 
+def get_bookmarked(soup: BeautifulSoup) -> bool | None:
+    """Whether the logged-in user has bookmarked the work on this page, if the page says.
+
+    Ao3 puts one bookmark link in a work's navigation, and its wording is the only signal:
+    'Edit Bookmark' when you already have one, 'Bookmark' when you do not (both seen in
+    the logged-in fixtures). A logged-out page has no link at all, and neither does a page
+    that is not a work - those answer None, meaning unknown, never False: saying a fic is
+    not bookmarked because the session could not see the button would be a lie.
+    """
+
+    link = soup.select_one('li.bookmark a.bookmark_form_placement_open')
+    if link is None: return None
+    text = ' '.join(link.get_text().split()).lower()
+    if text == 'edit bookmark': return True
+    if text == 'bookmark': return False
+    return None
+
+
 def get_updated_date(soup: BeautifulSoup) -> str:
     """The date a work page says it was last updated on.
 
