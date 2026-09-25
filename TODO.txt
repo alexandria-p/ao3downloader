@@ -45,6 +45,10 @@ let's fix the output wording here. cause it is confusing AF
 
 how to handle existing fic having multiple versions of same format, dated differently?
 
+
+indexes, downloads still being saved to /build, instead of selected /downloads folder.
+
+
 ---------
 
 PAUSE ISSUES
