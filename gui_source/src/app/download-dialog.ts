@@ -10,7 +10,8 @@ import {
   WorkFailure,
 } from './jobs';
 import { safeGet, safeRemove, safeSet } from './storage';
-import { StorageChoice } from './storage-choice';
+import { Library } from './library';
+import { LibraryStore, StorageRequest } from './library-store';
 
 type Step =
   | 'link'
@@ -53,7 +54,7 @@ const MAX_LOG = 200;
 })
 export class DownloadDialog implements OnDestroy {
   private readonly jobs = inject(Jobs);
-  private readonly storage = inject(StorageChoice);
+  private readonly library = inject(Library);
 
   readonly action = input.required<JobAction>();
   readonly closed = output<void>();
@@ -214,6 +215,15 @@ export class DownloadDialog implements OnDestroy {
   protected readonly answering = signal(false);
 
   private jobId: string | null = null;
+  /** the library this run was started in, which its requests are carried out against */
+  private runStore: LibraryStore | null = null;
+  /**
+   * Requests already taken on, by id. A page that reconnects is sent again whatever it had
+   * not answered, so the same request can arrive twice; it is done once.
+   */
+  private readonly handledStorage = new Set<string>();
+  /** requests are done one after another, in the order the run asked for them */
+  private storageQueue: Promise<void> = Promise.resolve();
   private stop: (() => void) | null = null;
   private unloadGuard: ((event: BeforeUnloadEvent) => void) | null = null;
 
@@ -566,7 +576,8 @@ export class DownloadDialog implements OnDestroy {
     const config = await this.jobs.loadConfig();
     if (!config) return;
 
-    this.folder.set(this.storage.dropboxFolderLabel() ?? config.downloadFolder);
+    // the library the page has open is where everything goes - the helper has none of its own
+    this.folder.set(this.library.store()?.label ?? '');
     // the defaults are a starting point, not a rule: only `forced` cannot be unticked
     this.selected.set([...(config.defaults ?? config.forced)]);
     this.step.set(this.firstStep());
@@ -659,7 +670,7 @@ export class DownloadDialog implements OnDestroy {
       // asked for fresh each time: a scan may have finished since the dialog opened
       this.floorRuns.set(null);
       void this.jobs
-        .loadFloorRuns(this.storage.dropboxLibrary())
+        .loadFloorRuns(this.library.store())
         .then((runs) => this.floorRuns.set(runs ?? []));
       return;
     }
@@ -803,10 +814,7 @@ export class DownloadDialog implements OnDestroy {
 
     let jobId: string;
     try {
-      const storage = this.storage.dropboxLibrary();
       jobId = await this.jobs.start({
-        // only present for a Dropbox library, so a local run's request is unchanged
-        ...(storage ? { storage } : {}),
         action: this.action(),
         filetypes: this.chosenFiletypes(),
         options: {
@@ -845,6 +853,10 @@ export class DownloadDialog implements OnDestroy {
     }
 
     this.jobId = jobId;
+    // the run reads and writes through this library for as long as it lasts, even if the
+    // page is switched to another one meanwhile - a run half in each would be no use
+    this.runStore = this.library.store();
+    this.handledStorage.clear();
     this.holdUnloadGuard();
     this.stop = this.jobs.stream(
       jobId,
@@ -853,10 +865,26 @@ export class DownloadDialog implements OnDestroy {
     );
   }
 
+  /**
+   * Carry out one thing the helper needs done to the library. The page holds the library,
+   * so every file a run reads or writes comes through here.
+   */
+  private doForHelper(request: StorageRequest): void {
+    const jobId = this.jobId;
+    const store = this.runStore;
+    if (!jobId || !store || this.handledStorage.has(request.id)) return;
+    this.handledStorage.add(request.id);
+    this.storageQueue = this.storageQueue.then(() =>
+      this.jobs.answerStorage(jobId, request, store),
+    );
+  }
+
   private onEvent(event: JobEvent): void {
     switch (event.type) {
+      case 'storage':
+        this.doForHelper(event as unknown as StorageRequest);
+        break;
       case 'started':
-        if (event.folder) this.folder.set(event.folder);
         this.append('starting');
         break;
       case 'phase':

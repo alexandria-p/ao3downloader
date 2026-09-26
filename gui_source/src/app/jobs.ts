@@ -1,5 +1,5 @@
 import { Injectable, signal } from '@angular/core';
-import { DropboxStorageRequest } from './dropbox';
+import { LibraryStore, StorageRequest, answerStorage, readRunHistory } from './library-store';
 
 /**
  * Talks to the local helper (ao3downloader.server) that actually performs downloads.
@@ -29,7 +29,6 @@ export type JobAction =
 export interface ServerSettings {
   /** which settings.ini is in force - not obvious, and worth being able to check */
   file: string;
-  downloadFolder: string;
   extraWaitTime: number;
   /** how every downloaded file is named. fixed, not a setting - shown so it can be read */
   fileNamePattern: string;
@@ -49,7 +48,6 @@ export interface ServerSettings {
 }
 
 export interface ServerConfig {
-  downloadFolder: string;
   username: string;
   filetypes: string[];
   /** ticked and locked: produced whatever the request says */
@@ -291,8 +289,6 @@ export interface StartRequest {
   password: string;
   /** the collection to index, for the one action that works from a link */
   url?: string;
-  /** the Dropbox library to run in; absent means the downloads folder on this computer */
-  storage?: DropboxStorageRequest;
 }
 
 const API_BASE = 'http://127.0.0.1:4400';
@@ -330,9 +326,16 @@ export class Jobs {
    * Asked of the helper rather than filtered here, so the rule for what counts as a floor
    * lives in one place - the same place that enforces it when the run starts.
    */
-  async loadFloorRuns(storage?: DropboxStorageRequest | null): Promise<RunHistory[] | null> {
+  async loadFloorRuns(store: LibraryStore | null): Promise<RunHistory[] | null> {
+    if (!store) return null;
     try {
-      const response = await askAboutLibrary('/api/runs/floors', storage);
+      // the history is read out of the library here; which of it qualifies is the helper's
+      // rule, so it is asked rather than decided twice
+      const response = await fetch(`${API_BASE}/api/runs/floors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runs: await readRunHistory(store) }),
+      });
       if (!response.ok) throw new Error(String(response.status));
       return ((await response.json()) as { runs: RunHistory[] }).runs ?? [];
     } catch {
@@ -340,13 +343,40 @@ export class Jobs {
     }
   }
 
-  async loadRuns(storage?: DropboxStorageRequest | null): Promise<RunHistory[] | null> {
+  /**
+   * Every run written down in the library, newest first - read straight out of it, so the
+   * history is there with the helper stopped. Null when no library is open.
+   */
+  async loadRuns(store: LibraryStore | null): Promise<RunHistory[] | null> {
+    if (!store) return null;
     try {
-      const response = await askAboutLibrary('/api/runs', storage);
-      if (!response.ok) throw new Error(String(response.status));
-      return ((await response.json()) as { runs: RunHistory[] }).runs ?? [];
+      return await readRunHistory(store);
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Do one thing the helper asked of the library, and tell it how that went.
+   *
+   * A write's bytes are collected from the helper only now, as a stream, so a large epub
+   * goes from the helper to the folder without being held whole. An answer that cannot be
+   * delivered is left for the helper to notice - it gives up on a page it cannot hear from.
+   */
+  async answerStorage(jobId: string, request: StorageRequest, store: LibraryStore): Promise<void> {
+    const answer = await answerStorage(store, request, async () => {
+      const response = await fetch(`${API_BASE}/api/jobs/${jobId}/blobs/${request.id}`);
+      if (!response.ok) throw new Error(`could not collect the file (${response.status})`);
+      return response;
+    });
+    try {
+      await fetch(`${API_BASE}/api/jobs/${jobId}/storage/${request.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(answer),
+      });
+    } catch {
+      // the helper has gone; the stream closing says so
     }
   }
 
@@ -451,20 +481,4 @@ export class Jobs {
 
     return () => source.close();
   }
-}
-
-/**
- * Read something the helper keeps in the library - the run history, the scans a quick scan
- * can measure back to.
- *
- * A local library is a plain GET. A Dropbox one is a POST, because the session has to go
- * with it and belongs in a body, never in a url where it could end up in a log.
- */
-function askAboutLibrary(path: string, storage?: DropboxStorageRequest | null): Promise<Response> {
-  if (!storage) return fetch(`${API_BASE}${path}`);
-  return fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ storage }),
-  });
 }

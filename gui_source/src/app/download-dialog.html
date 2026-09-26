@@ -440,8 +440,11 @@
           <p class="hint">Reading your scan history...</p>
         } @else if (floorRuns()!.length === 0) {
           <p class="warning">
-            There is no completed full scan or quick scan on record yet, so there is nothing to
-            measure back to. Go back and choose another option.
+            Nothing on record can be measured back to yet. Only a finished
+            <strong>full scan</strong>, or a finished <strong>quick scan with no date range</strong>,
+            counts: a quick scan given a date range stopped at that date instead of checking
+            everything before it. Go back and choose another option - a quick scan with no date
+            range will become the first one you can pick.
           </p>
         } @else {
           <fieldset class="floor-runs">

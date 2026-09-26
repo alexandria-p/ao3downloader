@@ -4,7 +4,6 @@
 INVALID_FILENAME_CHARACTERS = r'<>:"/\|?*.' + ''.join(chr(i) for i in range(32))
 TIMESTAMP_FORMAT = '%m/%d/%Y, %H:%M:%S'
 
-DOWNLOAD_FOLDER_NAME = 'downloads'
 IMAGE_FOLDER_NAME = 'images'
 INDEXING_FOLDER_NAME = 'indexing'
 COLLECTIONS_FOLDER_NAME = 'collections'
@@ -42,7 +41,6 @@ INI_DEBUG_LOGGING = 'EnableDebugLogging'
 INI_DEBUG_TOOLS = 'EnableDebugTools'
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
-INI_DOWNLOAD_FOLDER = 'DownloadFolder'
 
 INI_DEFAULT_NAME_LENGTH = 50
 
@@ -196,15 +194,10 @@ AO3_INFO_DATE_NOW = 'now'
 AO3_INFO_QUICK_CHOSEN_FLOOR = 'measuring back to the scan you chose, which started on {}'
 AO3_INFO_QUICK_CHOSEN_GONE = ('the scan you chose is no longer on record, so this falls back to '
                               'your last completed scan')
-ERROR_NOT_A_FLOOR_RUN = ('that is not a completed full scan or quick scan, so it cannot be '
-                         'measured back to')
-# the web page signs in to dropbox and hands the helper the session for each run
-ERROR_DROPBOX_SIGNED_OUT = ('Dropbox would not renew this session ({}). Sign out of Dropbox in '
-                            'the page and sign in again.')
-ERROR_DROPBOX_FOLDER_GONE = ('the Dropbox folder {} is not there any more - it may have been '
-                             'moved to the trash. Choose another folder in the page.')
-ERROR_DROPBOX_INCOMPLETE = ('a Dropbox run needs the app key, the session and the folder; '
-                            'sign in to Dropbox again in the page')
+# the web page holds the library, so a run that loses the page loses its folder
+ERROR_PAGE_GONE = ('the page holding your library was closed or lost its connection, so the '
+                   'run could not reach your files. Keep the page open while a run is going; '
+                   'starting the run again picks up where this one stopped.')
 AO3_INFO_QUICK_BOOKMARKED = 'indexing bookmarks you have added since {}'
 AO3_INFO_QUICK_UPDATED = 'indexing works ao3 has updated since {}'
 AO3_INFO_QUICK_UPDATED_NOT_NEEDED = ('no floor, so the first pass already read every bookmark '
@@ -422,7 +415,6 @@ MESSAGE_RETRY = 'Retrying {} request. Attempt {}. {} seconds until next attempt.
 MESSAGE_SUCCESS = 'Successful {} request with status code {}'
 MESSAGE_WELCOME = 'welcome to ao3downloader!\nthe script has been initialized in the following directory:\n\t{}\nif you would like to change any settings, you may do so by entering\n\'{}\' to quit this menu and then editing the file \'{}\'\n(located at the above folder path) before running the script again.\n'
 MESSAGE_DOWNLOAD_FOLDER = 'downloads will be saved to:\n\t{}\n'
-MESSAGE_DOWNLOAD_FOLDER_ERROR = 'could not create the download folder: {}\nplease check the \'' + INI_DOWNLOAD_FOLDER + '\' setting in ' + INI_FILE_NAME
 MESSAGE_EXIT = '\nexiting'
 MESSAGE_INI_FILE_CHANGED = 'the options available in ' + INI_FILE_NAME + ' have changed. a copy of the new default settings file has been saved as {}. please review the changes and update ' + INI_FILE_NAME + ' accordingly.'
 MESSAGE_INI_DIFFERENCES = 'the following differences were found:\n'

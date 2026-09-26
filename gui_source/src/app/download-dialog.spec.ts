@@ -1,7 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DownloadDialog } from './download-dialog';
-import { StorageChoice } from './storage-choice';
+import { Library } from './library';
+import { LibraryStore, StorageRequest } from './library-store';
 import {
   AnswerChoice,
   JobAction,
@@ -14,14 +15,12 @@ import {
 } from './jobs';
 
 const CONFIG: ServerConfig = {
-  downloadFolder: 'my_downloads',
   username: 'Someone',
   filetypes: ['AZW3', 'EPUB', 'MOBI', 'PDF', 'HTML', 'JSON'],
   forced: ['JSON'],
   defaults: ['JSON', 'HTML'],
   settings: {
     file: 'C:\\app\\config\\settings.ini',
-    downloadFolder: 'C:\\app\\my_downloads',
     extraWaitTime: 15,
     fileNamePattern: '{worknum} {title} - {author} {date updated}',
     fileNameLength: 50,
@@ -31,6 +30,24 @@ const CONFIG: ServerConfig = {
     debugLogging: false,
   },
 };
+
+/** a library that is open, as far as the dialog needs one */
+function fakeStore(label: string): LibraryStore {
+  const nothing = async () => {
+    throw new Error('not used here');
+  };
+  return {
+    label,
+    check: async () => {},
+    list: nothing,
+    read: nothing,
+    write: nothing,
+    size: nothing,
+    delete: nothing,
+    rename: nothing,
+    mkdir: nothing,
+  };
+}
 
 class FakeJobs extends Jobs {
   started: StartRequest[] = [];
@@ -69,6 +86,16 @@ class FakeJobs extends Jobs {
   override async start(request: StartRequest): Promise<string> {
     this.started.push(request);
     return 'job-1';
+  }
+
+  /** the storage requests the dialog carried out, and the library it used for each */
+  storageAnswered: [string, LibraryStore][] = [];
+  override async answerStorage(
+    _jobId: string,
+    request: StorageRequest,
+    store: LibraryStore,
+  ): Promise<void> {
+    this.storageAnswered.push([request.id, store]);
   }
 
   override async cancel(jobId: string): Promise<void> {
@@ -230,34 +257,44 @@ describe('DownloadDialog', () => {
     expect(jobs.started[0].filetypes).toEqual(['JSON']);
   });
 
-  it('sends a local run exactly as before, with no storage in it', async () => {
+  it('tells the helper nothing about where the library is', async () => {
+    // the page holds the library and does the reading and writing; the helper only asks
     await open('bookmarks');
     await advanceTo('running');
-    expect('storage' in jobs.started[0]).toBe(false);
+    expect(Object.keys(jobs.started[0]).sort()).toEqual(
+      ['action', 'filetypes', 'options', 'password', 'url', 'username'].filter(
+        (key) => key in jobs.started[0],
+      ),
+    );
+    expect(JSON.stringify(jobs.started[0])).not.toMatch(/storage|refresh|dropbox/i);
   });
 
-  it('hands a run the dropbox session and folder when dropbox is the library', async () => {
-    const storage = {
-      kind: 'dropbox' as const,
-      appKey: 'app-key',
-      refreshToken: 'refresh-1',
-      folderId: 'id:fics',
-      folderPath: '/Fics',
-    };
-    TestBed.configureTestingModule({
-      providers: [
-        {
-          provide: StorageChoice,
-          useValue: { dropboxLibrary: () => storage, dropboxFolderLabel: () => 'Dropbox: /Fics' },
-        },
-      ],
-    });
+  it('says files go to the library the page has open', async () => {
+    TestBed.inject(Library).store.set(fakeStore('Dropbox app folder'));
+    await open('bookmarks');
+    await advanceTo('running');
+    expect(element.querySelector('.chosen')?.textContent).toContain('Dropbox app folder');
+  });
+
+  it('carries out what the helper asks, once each, in the library the run started in', async () => {
+    const store = fakeStore('My Fics');
+    TestBed.inject(Library).store.set(store);
     await open('bookmarks');
     await advanceTo('running');
 
-    expect(jobs.started[0].storage).toEqual(storage);
-    // and says where the files are going, before the helper has said anything
-    expect(element.textContent).toContain('Dropbox: /Fics');
+    const request = { type: 'storage', id: 'r1', op: 'read', path: 'indexing/1.json' };
+    jobs.push!(request as unknown as JobEvent);
+    // a page that reconnects is sent unanswered requests again
+    jobs.push!(request as unknown as JobEvent);
+    // switching library mid-run does not move the run
+    TestBed.inject(Library).store.set(fakeStore('Somewhere else'));
+    jobs.push!({ type: 'storage', id: 'r2', op: 'list', path: 'works' } as unknown as JobEvent);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(jobs.storageAnswered.map(([id, used]) => [id, used.label])).toEqual([
+      ['r1', 'My Fics'],
+      ['r2', 'My Fics'],
+    ]);
   });
 
   it('says what unticking the rest buys, where the choice is made', async () => {
@@ -432,7 +469,11 @@ describe('DownloadDialog', () => {
 
     await toFloorPage();
 
-    expect(element.querySelector('.body')?.textContent).toContain('nothing to');
+    const text = element.querySelector('.body')?.textContent ?? '';
+    expect(text).toContain('Nothing on record can be measured back to');
+    // says which runs would count, since a date-range quick scan on record does not
+    expect(text).toContain('full scan');
+    expect(text).toContain('quick scan with no date range');
     expect(button('Continue')!.disabled).toBe(true);
   });
 
@@ -1453,12 +1494,14 @@ describe('DownloadDialog', () => {
   // region running
 
   it('shows what the run was asked to do', async () => {
+    TestBed.inject(Library).store.set(fakeStore('my_downloads'));
     await open('bookmarks');
     await advanceTo('running');
 
     const chosen = element.querySelector('.chosen')?.textContent ?? '';
     expect(chosen).toContain('JSON');
     expect(chosen).toContain('HTML');
+    // the library the page has open - the helper has none of its own to name
     expect(chosen).toContain('my_downloads');
   });
 

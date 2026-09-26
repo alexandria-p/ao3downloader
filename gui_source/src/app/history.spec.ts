@@ -57,11 +57,12 @@ describe('History', () => {
     expect(element.querySelector('.run')).toBeNull();
   });
 
-  it('tells a missing helper apart from an empty history', async () => {
-    // one means start the app again, the other means go and run something
+  it('tells no library open apart from an empty history', async () => {
+    // the history is read out of the library, so without one there is nothing to read -
+    // which is not the same as a library nothing has been run in yet
     await show(null);
 
-    expect(element.textContent).toContain("helper isn't running");
+    expect(element.textContent).toContain('Open a library');
     expect(element.textContent).not.toContain('No runs recorded yet');
   });
 

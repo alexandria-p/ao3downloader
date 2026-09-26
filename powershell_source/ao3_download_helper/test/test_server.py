@@ -940,8 +940,8 @@ def test_read_settings_says_which_settings_file_is_in_force(tmp_path):
     result = server.read_settings(fileops)
 
     assert result['file'] == os.path.abspath(str(tmp_path / 'config' / 'settings.ini'))
-    # relative in the ini, absolute here, so there is no doubt where fics land
-    assert os.path.isabs(result['downloadFolder'])
+    # there is no download folder to report: the library is whichever one the page has open
+    assert 'downloadFolder' not in result
 
 # endregion
 
@@ -1958,8 +1958,9 @@ def test_a_chosen_scan_that_has_since_gone_falls_back_to_the_usual_floor(fake_en
     assert ao3.get_metadata.call_args_list[0].kwargs['stop_before'] == '2026-09-01'
 
 
-def test_a_quick_scan_cannot_be_started_against_a_run_that_is_not_a_floor(fake_environment):
-    # refused at the door rather than discovered on the thread
+def test_a_chosen_floor_is_checked_by_the_run_once_it_can_read_the_history(fake_environment):
+    # the history is in the library, which only the page can reach - so the request cannot
+    # judge the floor, and a run given one that does not qualify falls back and says so
     sent = {}
     handler = MagicMock()
     handler.path = '/api/jobs'
@@ -1968,11 +1969,11 @@ def test_a_quick_scan_cannot_be_started_against_a_run_that_is_not_a_floor(fake_e
         'filetypes': ['JSON'], 'options': {'floorRun': 'made-up'}}
     handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
 
-    with patch.object(server.runs, 'read_runs', return_value=[]),          patch.object(server.threading, 'Thread'):
+    with patch.object(server.threading, 'Thread'):
         server.Handler.do_POST(handler)
 
-    assert sent['status'] == 400
-    assert sent['body']['error'] == strings.ERROR_NOT_A_FLOOR_RUN
+    assert sent['status'] == 202
+    assert sent['body']['options']['floorRun'] == 'made-up'
 
 
 def test_only_a_quick_scan_can_be_given_a_floor(fake_environment):

@@ -13,8 +13,8 @@
       - in a generated build (a folder containing web/), it serves those prebuilt files
 
     Everything runs from the python project folder, so the settings.ini, data.json and
-    logs/ there are the ones that get used. Where fics are saved is the DownloadFolder
-    setting inside settings.ini.
+    logs/ there are the ones that get used. Where fics are saved is the library opened in
+    the page - a folder on this computer, or the Dropbox app folder.
 
 .PARAMETER Sync
     Reinstall python dependencies before starting.

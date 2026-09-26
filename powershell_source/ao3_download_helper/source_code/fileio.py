@@ -24,24 +24,31 @@ class FileOps:
         self.logfile = os.path.join(log_folder, strings.LOG_FOLDER_NAME, strings.LOG_FILE_NAME)
         self.inifile = os.path.join(config_folder, strings.INI_FILE_NAME)
         self.settingsfile = os.path.join(config_folder, strings.SETTINGS_FILE_NAME)
-        # settled before the runs folder, which hangs off it. `get_download_folder` reads
-        # settings.ini, so `inifile` has to be settled before either of them.
+        # the library a run reads and writes: the one the web page has open, handed in as
+        # `PageStorage`. there is no DownloadFolder setting any more - the page picks the
+        # folder, and only the page can reach it. a FileOps made with no storage is for the
+        # helper's own settings and log, and has no library at all.
         #
-        # a run writing to Dropbox is handed its storage, and the downloads folder is then
-        # that storage's root - `DownloadFolder` in settings.ini is not read at all. every
-        # path in the library is still built by joining onto this, so nothing that builds
-        # one has to know which kind of folder it is
-        self.storage = storage or LocalStorage(self.get_download_folder())
-        # inside the downloads folder, with the library it describes. everything that walks
-        # that folder has to skip it by name - `shared.scan_downloaded_works` does, and so
-        # does the web page, which would otherwise read a run record as a work: a record has
-        # an `id`, which is all `flattenRecord` needs to hand one back as a bookmark.
-        self.runsfolder = os.path.join(self.downloadfolder, strings.RUNS_FOLDER_NAME)
+        # every path in the library is still built by joining onto `downloadfolder`, so
+        # nothing that builds one has to know where the library really is
+        self.storage = storage
 
 
     @property
     def downloadfolder(self) -> str:
-        return self.storage.root
+        return self.storage.root if self.storage else ''
+
+
+    @property
+    def runsfolder(self) -> str:
+        """Where run history is kept - inside the library, beside what it describes.
+
+        Everything that walks the library has to skip it by name - `shared.scan_downloaded_works`
+        does, and so does the web page, which would otherwise read a run record as a work: a
+        record has an `id`, which is all `flattenRecord` needs to hand one back as a bookmark.
+        """
+
+        return os.path.join(self.downloadfolder, strings.RUNS_FOLDER_NAME)
 
 
     @property
@@ -53,8 +60,10 @@ class FileOps:
 
     @downloadfolder.setter
     def downloadfolder(self, folder: str) -> None:
-        # pointing a local library somewhere else; a Dropbox folder is chosen in the page
-        self.storage.root = folder
+        # a plain folder, for code handed a path - the tests, mostly. a run's library comes
+        # from the page
+        if self.storage is None: self.storage = LocalStorage(folder)
+        else: self.storage.root = folder
 
 
     def initialize(self) -> None:
@@ -62,17 +71,12 @@ class FileOps:
         # empty when config sits in the working directory, which needs no creating
         config_folder = os.path.dirname(self.inifile)
         if config_folder: os.makedirs(config_folder, exist_ok=True)
-        try:
+        if self.storage is not None:
+            # the page set the library up when it opened it; this is a check it is still
+            # reachable, and a repair if a folder has been deleted since
             self.storage.ensure_root()
-        except OSError:
-            print(strings.MESSAGE_DOWNLOAD_FOLDER_ERROR.format(self.downloadfolder))
-            raise
-        # after the downloads folder and not before it: these are inside it, so creating them
-        # first would turn an unusable DownloadFolder into a bare OSError from a line that
-        # says nothing about which setting is wrong. Dropbox makes a folder as a file is
-        # written into it, so there this does nothing - the page sets that library up
-        for name in strings.LIBRARY_FOLDER_NAMES:
-            self.storage.make_dirs(os.path.join(self.downloadfolder, name))
+            for name in strings.LIBRARY_FOLDER_NAMES:
+                self.storage.make_dirs(os.path.join(self.downloadfolder, name))
         if not os.path.exists(self.inifile):
             with importlib.resources.open_text(strings.SETTINGS_FOLDER_NAME, strings.INI_FILE_NAME) as f:
                 with open(self.inifile, 'w', encoding='utf-8') as ini_file:
@@ -331,13 +335,6 @@ class FileOps:
         except FileNotFoundError:
             pass
         return logs
-
-
-    def get_download_folder(self) -> str:
-        folder = self.get_ini_value(strings.INI_DOWNLOAD_FOLDER, strings.DOWNLOAD_FOLDER_NAME, raw=True)
-        folder = parse_text.normalize_path_input(folder)
-        if not folder: return strings.DOWNLOAD_FOLDER_NAME
-        return os.path.expanduser(os.path.expandvars(folder))
 
 
     def get_ini_value(self, key: str, fallback: str, raw: bool = False) -> str:

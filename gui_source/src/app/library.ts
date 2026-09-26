@@ -5,6 +5,7 @@ import { APP_FOLDER_PATH, DropboxFile, DropboxSession } from './dropbox';
 import { DirectoryHandle, FolderStore } from './folder-store';
 import { isRunRecord } from './jobs';
 import { LibrarySetup, SetupTarget, WORKS_FOLDER } from './library-setup';
+import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
 import { unzip } from './unzip';
 
 /**
@@ -48,26 +49,40 @@ export class Library {
   readonly loading = signal(false);
   /** a folder is remembered but the browser wants the permission confirmed again */
   readonly needsReconnect = signal(false);
+  /**
+   * The library that is open and can be written to, or null. A run reads and writes
+   * through this and nothing else - the helper asks, the page does it - and the history
+   * page reads the run records out of it.
+   */
+  readonly store = signal<LibraryStore | null>(null);
 
-  private readonly store = inject(FolderStore);
+  private readonly folders = inject(FolderStore);
   private readonly dropbox = inject(DropboxSession);
   private readonly setup = inject(LibrarySetup);
 
   /** which library is on screen, so switching back to a local folder clears Dropbox's */
   private showing: 'local' | 'dropbox' | null = null;
-  /** bumped per Dropbox read, so a slow read finishing after a switch is thrown away */
+  /**
+   * Bumped every time the page switches library, local or Dropbox. Every read notes the
+   * number it started under and throws its result away if it has changed by the time it
+   * finishes - a large folder takes seconds to read, and a switch made meanwhile must not
+   * have the old library land on top of the new one.
+   */
   private generation = 0;
 
-  readonly canPickFolder = this.store.supported();
+  readonly canPickFolder = this.folders.supported();
 
   private handle: DirectoryHandle | null = null;
 
   /** Show the folder on this computer: reopen the remembered one if it can still be read. */
   async showLocal(): Promise<void> {
-    if (this.showing === 'dropbox') this.clearLibrary();
+    if (this.showing === 'dropbox') {
+      // Dropbox's library, and the means of writing to it, go with it
+      this.clearLibrary();
+      this.store.set(null);
+    }
     this.showing = 'local';
-    this.generation++;
-    await this.restore();
+    await this.restore(++this.generation);
   }
 
   /**
@@ -81,15 +96,21 @@ export class Library {
     this.showing = 'dropbox';
     const generation = ++this.generation;
     this.clearLibrary();
+    // the local folder is not what a run would write to now; Dropbox's replaces it once open
+    this.store.set(null);
     this.error.set('');
 
     const folder = this.dropbox.folder();
-    if (!folder || this.dropbox.status() !== 'signed-in') return;
+    if (!folder || this.dropbox.status() !== 'signed-in') {
+      this.store.set(null);
+      return;
+    }
 
     this.loading.set(true);
     try {
       await this.setup.prepare(this.dropboxTarget(), APP_FOLDER_PATH);
       if (generation !== this.generation) return;
+      this.store.set(new DropboxLibraryStore(this.dropbox));
       const files = await this.dropbox.listFiles(folder.path);
       if (generation !== this.generation) return;
 
@@ -133,52 +154,56 @@ export class Library {
   }
 
   /** Called at startup: reopen the remembered folder if it can still be read. */
-  async restore(): Promise<void> {
-    const handle = await this.store.recall();
-    if (!handle) return;
+  async restore(generation = this.generation): Promise<void> {
+    const handle = await this.folders.recall();
+    if (!handle || generation !== this.generation) return;
 
     this.handle = handle;
     this.folderName.set(handle.name);
 
-    if ((await this.store.permission(handle, false)) !== 'granted') {
-      // asking needs a click behind it, so surface a button instead
+    if ((await this.folders.permission(handle, false)) !== 'granted') {
+      if (generation !== this.generation) return;
+      // asking needs a click behind it, so surface a button instead - and until then this
+      // folder cannot be written to, so it is no library for a run
       this.needsReconnect.set(true);
+      this.store.set(null);
       return;
     }
-    await this.readHandle(handle);
+    await this.readHandle(handle, generation);
   }
 
   /** Pick a folder and remember it. */
   async pickFolder(): Promise<void> {
     let handle: DirectoryHandle;
     try {
-      handle = await this.store.pick();
+      handle = await this.folders.pick();
     } catch {
       return; // the picker was dismissed
     }
     this.handle = handle;
     this.folderName.set(handle.name);
     this.needsReconnect.set(false);
-    await this.store.remember(handle);
-    await this.readHandle(handle);
+    await this.folders.remember(handle);
+    await this.readHandle(handle, this.generation);
   }
 
   /** Confirm permission for the remembered folder, from a click. */
   async reconnect(): Promise<void> {
     if (!this.handle) return;
-    if ((await this.store.permission(this.handle, true)) !== 'granted') {
+    if ((await this.folders.permission(this.handle, true)) !== 'granted') {
       this.error.set('Permission to read that folder was declined.');
       return;
     }
     this.needsReconnect.set(false);
-    await this.readHandle(this.handle);
+    await this.readHandle(this.handle, this.generation);
   }
 
   async forget(): Promise<void> {
-    await this.store.forget();
+    await this.folders.forget();
     this.handle = null;
     this.folderName.set('');
     this.needsReconnect.set(false);
+    this.store.set(null);
     this.clearLibrary();
   }
 
@@ -238,28 +263,37 @@ export class Library {
     await this.ingest(files);
   }
 
-  private async readHandle(handle: DirectoryHandle): Promise<void> {
+  /**
+   * Set a local folder up and read it - unless the page has switched library by the time
+   * any step of that finishes, in which case nothing of it is kept.
+   */
+  private async readHandle(handle: DirectoryHandle, generation: number): Promise<void> {
+    const current = () => generation === this.generation;
     this.loading.set(true);
     try {
       try {
         await this.setup.prepare(this.localTarget(handle), handle.name);
       } catch (error) {
+        if (!current()) return;
         this.error.set(
           `Could not set up ${handle.name}. ` + (error instanceof Error ? error.message : ''),
         );
         return;
       }
+      if (!current()) return;
+      this.store.set(new LocalLibraryStore(handle));
       // the index can be anywhere it has ever been written, so all of it is read for json;
       // works only ever come from works/
-      const everything = await this.store.read(handle);
-      const works = await this.store.readSubfolder(handle, WORKS_FOLDER);
+      const everything = await this.folders.read(handle);
+      const works = await this.folders.readSubfolder(handle, WORKS_FOLDER);
+      if (!current()) return;
       // not strict: this folder has just been set up as a library, so an empty one is new,
       // not the wrong folder
       await this.ingestRecords(jsonOf(everything), this.mapHtmlFiles(works), false);
     } catch {
-      this.error.set(`Could not read ${handle.name}.`);
+      if (current()) this.error.set(`Could not read ${handle.name}.`);
     } finally {
-      this.loading.set(false);
+      if (current()) this.loading.set(false);
     }
   }
 
@@ -279,14 +313,14 @@ export class Library {
 
   private localTarget(handle: DirectoryHandle): SetupTarget {
     return {
-      topLevel: () => this.store.topLevel(handle),
-      makeFolder: (name) => this.store.makeFolder(handle, name),
+      topLevel: () => this.folders.topLevel(handle),
+      makeFolder: (name) => this.folders.makeFolder(handle, name),
       moveToWorks: async (names, progress) => {
         let moved = 0;
         const notMoved: string[] = [];
         for (const [i, name] of names.entries()) {
           try {
-            if (await this.store.moveIntoSubfolder(handle, name, WORKS_FOLDER)) moved++;
+            if (await this.folders.moveIntoSubfolder(handle, name, WORKS_FOLDER)) moved++;
             else notMoved.push(name);
           } catch {
             notMoved.push(name);
@@ -322,9 +356,8 @@ export class Library {
       if (jsonFiles.length === 0 && !strict) return;
       if (jsonFiles.length === 0) {
         this.error.set(
-          'No json files in that folder. Pick the folder ao3downloader saves into - the ' +
-            'DownloadFolder from settings.ini - which should hold your .json metadata files ' +
-            'alongside your downloaded works.',
+          'No json files in that folder. Pick the folder your library lives in - the one ' +
+            'holding the indexing and works folders.',
         );
         return;
       }

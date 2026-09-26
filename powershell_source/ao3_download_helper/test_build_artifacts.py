@@ -256,7 +256,7 @@ def test_strip_setting_keeps_a_file_that_does_not_have_it():
 def test_build_seeds_config_in_its_own_folder(fake_root):
     result = build_artifacts.build(fake_root, skip_web=True)
 
-    assert 'DownloadFolder' in (config_dir(fake_root) / 'settings.ini').read_text(encoding='utf-8')
+    assert 'ExtraWaitTime' in (config_dir(fake_root) / 'settings.ini').read_text(encoding='utf-8')
     assert result['config_created'] == ['settings.ini']
     # and not at the top level, where an older bundle put them
     assert not (bundle(fake_root) / 'settings.ini').exists()
@@ -309,9 +309,11 @@ def test_build_documents_the_file_layout_and_naming_every_time(fake_root):
     build_artifacts.build(fake_root, skip_web=True)
 
     readme = (bundle(fake_root) / 'README.md').read_text(encoding='utf-8')
-    for folder in (strings.INDEXING_FOLDER_NAME, strings.IMAGE_FOLDER_NAME,
-                   strings.COLLECTIONS_FOLDER_NAME):
-        assert f'<downloads>/{folder}/' in readme, folder
+    # every folder a library is set up with, works/ included
+    for folder in strings.LIBRARY_FOLDER_NAMES:
+        assert f'`{folder}/`' in readme, folder
+    # and that the page holds the library, which is why it has to stay open
+    assert 'keep the page open while a run is going' in readme
     # the naming is fixed rather than a setting, so the readme has to state it outright
     assert strings.FILE_NAME_PATTERN in readme
     assert strings.DATE_STAMP_PLACEHOLDER in readme

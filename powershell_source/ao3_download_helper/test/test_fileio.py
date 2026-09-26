@@ -118,61 +118,19 @@ def test_the_run_history_sits_inside_the_downloads_folder(tmp_path, monkeypatch)
     assert 'helper' not in fileops.runsfolder
 
 
-def test_the_run_history_follows_the_downloads_folder_setting(tmp_path, monkeypatch):
+def test_a_helper_with_no_library_has_no_downloads_folder(tmp_path, monkeypatch):
+    # there is no DownloadFolder setting any more: a run's library is the one the web page
+    # has open. a FileOps made without one is for the helper's own settings and log
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, 'config')
-    os.makedirs(tmp_path / 'config')
-    (tmp_path / 'config' / strings.INI_FILE_NAME).write_text(
-        f'[{strings.INI_SECTION_NAME}]\n{strings.INI_DOWNLOAD_FOLDER} = elsewhere\n',
-        encoding='utf-8')
-
-    fileops = FileOps()
-
-    assert fileops.runsfolder == os.path.join('elsewhere', strings.RUNS_FOLDER_NAME)
-
-
-def test_a_download_folder_elsewhere_takes_the_whole_library_with_it(tmp_path, monkeypatch):
-    # the whole library hangs off this one setting, so pointing it at a folder of your own
-    # has to move every part of it - not just the works, leaving the metadata behind
-    elsewhere = tmp_path / 'My AO3 Fics'
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, 'config')
-    monkeypatch.setenv(strings.ENV_LOG_FOLDER, 'helper')
-    os.makedirs(tmp_path / 'config')
-    (tmp_path / 'config' / strings.INI_FILE_NAME).write_text(
-        f'[{strings.INI_SECTION_NAME}]\n{strings.INI_DOWNLOAD_FOLDER}={elsewhere}\n',
-        encoding='utf-8')
+    (tmp_path / strings.INI_FILE_NAME).write_text(
+        f'[{strings.INI_SECTION_NAME}]\nDownloadFolder=elsewhere\n', encoding='utf-8')
 
     fileops = FileOps()
     fileops.initialize()
-    # the three the run writes on demand, plus the work itself
-    fileops.save_json(os.path.join(strings.INDEXING_FOLDER_NAME, '111 a.json'), {'id': '111'})
-    fileops.save_json(os.path.join(strings.COLLECTIONS_FOLDER_NAME, 'c.json'), {'name': 'c'})
-    fileops.save_bytes(os.path.join(strings.IMAGE_FOLDER_NAME, '111 img.png'), b'x')
-    fileops.save_bytes('111 A Work - X 2026-01-01.html', b'<html>')
 
-    for name in (strings.INDEXING_FOLDER_NAME, strings.COLLECTIONS_FOLDER_NAME,
-                 strings.IMAGE_FOLDER_NAME, strings.RUNS_FOLDER_NAME):
-        assert (elsewhere / name).is_dir(), name
-    assert (elsewhere / '111 A Work - X 2026-01-01.html').is_file()
-    # and nothing was left in the working directory under the default name
-    assert not (tmp_path / strings.DOWNLOAD_FOLDER_NAME).exists()
-
-
-def test_a_download_folder_path_in_quotes_is_taken_as_written(tmp_path, monkeypatch):
-    # a path pasted from Explorer's "copy as path" arrives wrapped in quotes
-    elsewhere = tmp_path / 'Fics'
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, 'config')
-    os.makedirs(tmp_path / 'config')
-    (tmp_path / 'config' / strings.INI_FILE_NAME).write_text(
-        f'[{strings.INI_SECTION_NAME}]\n{strings.INI_DOWNLOAD_FOLDER}="{elsewhere}"\n',
-        encoding='utf-8')
-
-    fileops = FileOps()
-
-    assert fileops.downloadfolder == str(elsewhere)
-    assert fileops.runsfolder == os.path.join(str(elsewhere), strings.RUNS_FOLDER_NAME)
+    assert fileops.downloadfolder == ''
+    # an old settings.ini that still names a folder makes nothing there
+    assert not (tmp_path / 'elsewhere').exists()
 
 
 def test_initialize_creates_both_folders(tmp_path, monkeypatch):
@@ -186,8 +144,6 @@ def test_initialize_creates_both_folders(tmp_path, monkeypatch):
     # writing settings.ini into a folder that does not exist would fail
     assert (tmp_path / 'config' / strings.INI_FILE_NAME).exists()
     assert (tmp_path / 'helper' / strings.LOG_FOLDER_NAME).is_dir()
-    # and the run history, which now hangs off the downloads folder
-    assert (tmp_path / strings.DOWNLOAD_FOLDER_NAME / strings.RUNS_FOLDER_NAME).is_dir()
 
 
 def test_settings_are_read_back_from_the_config_folder(tmp_path, monkeypatch):
@@ -462,86 +418,6 @@ def test_get_ini_value_raw_tolerates_percent_signs(fake_fileops):
 # endregion
 
 
-# region get_download_folder
-
-def _write_download_folder(fake_fileops, value: str) -> None:
-    _write_ini(fake_fileops, f'[settings]\n{strings.INI_DOWNLOAD_FOLDER}={value}\n')
-
-
-def test_get_download_folder_returns_default_when_key_missing(fake_fileops):
-    _write_ini(fake_fileops, '[settings]\n')
-
-    assert fake_fileops.get_download_folder() == strings.DOWNLOAD_FOLDER_NAME
-
-
-def test_get_download_folder_returns_default_when_value_blank(fake_fileops):
-    _write_download_folder(fake_fileops, '')
-
-    assert fake_fileops.get_download_folder() == strings.DOWNLOAD_FOLDER_NAME
-
-
-def test_get_download_folder_returns_default_when_value_is_quotes_only(fake_fileops):
-    _write_download_folder(fake_fileops, '""')
-
-    assert fake_fileops.get_download_folder() == strings.DOWNLOAD_FOLDER_NAME
-
-
-def test_get_download_folder_keeps_relative_path_relative(fake_fileops):
-    _write_download_folder(fake_fileops, os.path.join('my fics', 'ao3'))
-
-    assert fake_fileops.get_download_folder() == os.path.join('my fics', 'ao3')
-
-
-def test_get_download_folder_returns_absolute_path_verbatim(fake_fileops, tmp_path):
-    _write_download_folder(fake_fileops, str(tmp_path / 'elsewhere'))
-
-    assert fake_fileops.get_download_folder() == str(tmp_path / 'elsewhere')
-
-
-def test_get_download_folder_strips_enclosing_quotes(fake_fileops):
-    _write_download_folder(fake_fileops, '"my fics"')
-
-    assert fake_fileops.get_download_folder() == 'my fics'
-
-
-def test_get_download_folder_tolerates_percent_signs(fake_fileops):
-    _write_download_folder(fake_fileops, '50% fics')
-
-    assert fake_fileops.get_download_folder() == '50% fics'
-
-
-def test_get_download_folder_expands_home_directory(fake_fileops, tmp_path, monkeypatch):
-    # cover both the posix (HOME) and windows (USERPROFILE) lookups
-    monkeypatch.setenv('HOME', str(tmp_path))
-    monkeypatch.setenv('USERPROFILE', str(tmp_path))
-    _write_download_folder(fake_fileops, '~/fics')
-
-    assert fake_fileops.get_download_folder() == str(tmp_path) + '/fics'
-
-
-def test_get_download_folder_expands_environment_variables(fake_fileops, tmp_path, monkeypatch):
-    monkeypatch.setenv('AO3DL_TEST_FOLDER', str(tmp_path))
-    _write_download_folder(fake_fileops, '$AO3DL_TEST_FOLDER/fics')
-
-    assert fake_fileops.get_download_folder() == str(tmp_path) + '/fics'
-
-
-def test_fileops_reads_download_folder_from_ini_on_construction(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    with open(strings.INI_FILE_NAME, 'w', encoding='utf-8') as f:
-        f.write(f'[settings]\n{strings.INI_DOWNLOAD_FOLDER}=custom folder\n')
-
-    assert FileOps().downloadfolder == 'custom folder'
-
-
-def test_fileops_uses_default_download_folder_when_no_ini(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-
-    assert FileOps().downloadfolder == strings.DOWNLOAD_FOLDER_NAME
-
-# endregion
-
-
 # region initialize
 
 def test_initialize_creates_nested_download_folder(fake_fileops, tmp_path, monkeypatch):
@@ -564,7 +440,7 @@ def test_initialize_succeeds_when_download_folder_already_exists(fake_fileops, t
     assert os.path.isdir(fake_fileops.downloadfolder)
 
 
-def test_initialize_fails_with_message_when_download_folder_uncreatable(fake_fileops, tmp_path, monkeypatch, capsys):
+def test_initialize_raises_when_the_library_cannot_be_made(fake_fileops, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_ini(fake_fileops, '[settings]\n')
     blocker = tmp_path / 'blocker'
@@ -574,7 +450,16 @@ def test_initialize_fails_with_message_when_download_folder_uncreatable(fake_fil
     with pytest.raises(OSError):
         fake_fileops.initialize()
 
-    assert strings.MESSAGE_DOWNLOAD_FOLDER_ERROR.format(fake_fileops.downloadfolder) in capsys.readouterr().out
+
+def test_initialize_makes_every_folder_a_library_is_expected_to_have(fake_fileops, tmp_path,
+                                                                      monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_ini(fake_fileops, '[settings]\n')
+    fake_fileops.downloadfolder = str(tmp_path / 'library')
+
+    fake_fileops.initialize()
+
+    assert sorted(os.listdir(tmp_path / 'library')) == sorted(strings.LIBRARY_FOLDER_NAMES)
 
 # endregion
 

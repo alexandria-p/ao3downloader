@@ -25,6 +25,10 @@ REFRESH = 'refresh'
 # a run stops here and waits for an answer before going on. the ui replies through
 # /api/jobs/<id>/answer; a cancel releases the wait so nothing can hang on it.
 QUESTION = 'question'
+# a request for the web page to read or write the library - the page owns the folder, so
+# every file a run touches goes through one of these. never kept in the job's history: a
+# page reconnecting must not be handed old writes to do again
+STORAGE = 'storage'
 # the steps this run intends to take, sent once at the start, and then one of these per
 # change as it works through them. kept separate from PHASE: a phase says what kind of work
 # is happening and repeats (a combined run downloads twice), while a step is a place in a

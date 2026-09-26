@@ -402,3 +402,44 @@ async function until(condition: () => boolean): Promise<void> {
   for (let i = 0; i < 50 && !condition(); i++) await new Promise((r) => setTimeout(r, 0));
   expect(condition()).toBe(true);
 }
+
+describe('Library, switching between a local folder and Dropbox', () => {
+  it('does not let a slow local read land on top of the Dropbox library', async () => {
+    // switch to this computer, then straight back to Dropbox before the local folder has
+    // finished reading - which takes seconds on a large one
+    let finishLocalRead: () => void = () => {};
+    const localRead = new Promise<void>((resolve) => (finishLocalRead = resolve));
+    const localFolder = {
+      supported: () => true,
+      recall: async () => ({ kind: 'directory', name: 'downloads' }),
+      permission: async () => 'granted',
+      topLevel: async () => ({
+        folders: ['indexing', 'collections', 'images', 'runs', 'works'],
+        files: [],
+      }),
+      read: async () => {
+        await localRead;
+        return [new File([record('999', 1)], '999 Local.json')];
+      },
+      readSubfolder: async () => [],
+    };
+    const dropbox = new FakeDropbox();
+    dropbox.files = { '/indexing/111 One.json': record('111', 1) };
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: DropboxSession, useValue: dropbox },
+        { provide: FolderStore, useValue: localFolder },
+      ],
+    });
+    const library = TestBed.inject(Library);
+
+    const local = library.showLocal();
+    await new Promise((r) => setTimeout(r, 0));
+    await library.showDropbox();
+    finishLocalRead();
+    await local;
+
+    expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
+    expect(library.store()?.label).toBe('Dropbox app folder');
+  });
+});

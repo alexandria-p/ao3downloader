@@ -88,12 +88,12 @@ export class App {
   protected readonly folderChosen = computed(() => !!this.folderName());
 
   /**
-   * Whether the run buttons are offered: once there is a folder for the run to read and
-   * write. For Dropbox that is the app folder, so being signed in is all it takes.
+   * Whether the run buttons are offered: once there is a library open that the page can
+   * write to. A run reads and writes through the page, so a folder that is only
+   * remembered - waiting on a reconnect - is not enough, and neither is a Dropbox sign-in
+   * whose folder has not finished opening.
    */
-  protected readonly canRun = computed(() =>
-    this.mode() === 'local' ? this.folderChosen() : this.dropboxStatus() === 'signed-in',
-  );
+  protected readonly canRun = computed(() => !!this.library.store());
 
   /**
    * Whether settings.ini has turned the debug tools on.

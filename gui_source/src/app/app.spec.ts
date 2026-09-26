@@ -80,12 +80,32 @@ function collection(name: string): Collection {
   };
 }
 
+/** a library open and writable, as the page has once a folder is picked and set up */
+function openLibrary(label = 'downloads'): void {
+  const library = TestBed.inject(Library);
+  library.folderName.set(label);
+  const nothing = async () => {
+    throw new Error('not used here');
+  };
+  library.store.set({
+    label,
+    check: async () => {},
+    list: nothing,
+    read: nothing,
+    write: nothing,
+    size: nothing,
+    delete: nothing,
+    rename: nothing,
+    mkdir: nothing,
+  });
+}
+
 async function render(count: number) {
   const library = TestBed.inject(Library);
   library.data.set(exportOf(count));
   // works only ever load out of a folder that was opened, and the runs are hidden
   // until one is - so a rendered library comes with the folder it came from
-  library.folderName.set('downloads');
+  openLibrary();
 
   const fixture = TestBed.createComponent(App);
   await fixture.whenStable();
@@ -112,7 +132,7 @@ async function showCollections(
 
 /** the runs only exist once a folder is picked, which these are all about */
 async function withFolder() {
-  TestBed.inject(Library).folderName.set('downloads');
+  openLibrary();
   const fixture = TestBed.createComponent(App);
   await fixture.whenStable();
   return fixture.nativeElement as HTMLElement;
@@ -167,14 +187,12 @@ describe('App', () => {
 
   it('offers the single-pass runs in red, marked as debug, when they are turned on', async () => {
     TestBed.inject(Jobs).config.set({
-      downloadFolder: 'downloads',
       username: '',
       filetypes: ['JSON', 'HTML'],
       forced: ['JSON'],
       defaults: ['JSON', 'HTML'],
       settings: {
         file: 'C:\\app\\config\\settings.ini',
-        downloadFolder: 'downloads',
         extraWaitTime: 15,
         fileNamePattern: '{worknum} {title} - {author} {date updated}',
         fileNameLength: 50,
@@ -242,10 +260,10 @@ describe('App', () => {
     expect(actionLabels(element)).toEqual([]);
   });
 
-  it('shows the runs once a folder has been chosen', async () => {
+  it('shows the runs once a folder has been chosen and opened', async () => {
     const library = TestBed.inject(Library);
     library.data.set(exportOf(1));
-    library.folderName.set('downloads');
+    openLibrary();
 
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
@@ -253,6 +271,21 @@ describe('App', () => {
 
     expect(element.querySelector('.actions')).toBeTruthy();
     expect(actionLabels(element)).toContain('Quick Scan');
+  });
+
+  it('offers no run for a folder that is only remembered, waiting on a reconnect', async () => {
+    // a run writes through the page, and the page cannot write there until access is confirmed
+    const library = TestBed.inject(Library);
+    library.folderName.set('downloads');
+    library.needsReconnect.set(true);
+
+    const element = await (async () => {
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      return fixture.nativeElement as HTMLElement;
+    })();
+
+    expect(actionLabels(element)).toEqual([]);
   });
 
   it('hides the collections runs the same way', async () => {
@@ -633,10 +666,10 @@ describe('App', () => {
     expect(actionLabels(element)).toContain('Quick Scan');
   });
 
-  it('offers no run with dropbox chosen, since runs cannot save there yet', async () => {
-    // a run would still write to the folder on this computer while the page said dropbox
+  it('offers no run in dropbox until its folder is open', async () => {
+    // the local folder is not where a run would write any more, and dropbox is not signed in
     const fixture = TestBed.createComponent(App);
-    TestBed.inject(Library).folderName.set('downloads');
+    openLibrary();
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
 
@@ -649,7 +682,7 @@ describe('App', () => {
 
   it('remembers the local folder underneath a switch to dropbox and back', async () => {
     const fixture = TestBed.createComponent(App);
-    TestBed.inject(Library).folderName.set('downloads');
+    openLibrary();
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
 
@@ -658,8 +691,8 @@ describe('App', () => {
     storageButton(element, 'This computer').click();
     await fixture.whenStable();
 
+    // still the folder that reopens - switching never forgets it
     expect(element.querySelector('.topbar .source')?.textContent).toContain('downloads');
-    expect(actionLabels(element)).toContain('Quick Scan');
   });
 
   it('says where to put the app key when this copy has no dropbox app', async () => {
@@ -681,12 +714,15 @@ describe('App', () => {
 
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
+    // what opening the app folder leaves behind, once it is set up
+    openLibrary('Dropbox app folder');
+    fixture.detectChanges();
     const element = fixture.nativeElement as HTMLElement;
 
     const source = element.querySelector('.topbar .source');
     expect(source?.textContent).toContain('/Apps/ao3-downloader');
     expect(source?.getAttribute('title')).toContain('me@example.com');
-    // a session is everything a run needs, so the runs are offered
+    // the library is open, which is everything a run needs
     expect(actionLabels(element)).toContain('Quick Scan');
     const labels = Array.from(element.querySelectorAll('.topbar button')).map((b) =>
       b.textContent?.trim(),

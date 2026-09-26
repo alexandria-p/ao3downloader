@@ -525,17 +525,23 @@ listed, by work number, with a link to ao3.
 
 ## Where downloads go
 
-Whatever `DownloadFolder` in `config/settings.ini` says. A relative path is resolved from
-this folder, so the default `downloads` means `./downloads` here.
+Into the library you open in the page: a folder you choose on this computer, or your
+Dropbox app folder. The page reads and writes that library itself - the helper asks it to,
+file by file - so **keep the page open while a run is going**. If it is closed, the run
+stops and says why; starting it again picks up where it stopped.
 
-Inside it:
+There is no `DownloadFolder` setting any more. `downloads/` here is only where earlier
+versions saved; open it in the page if that is where your library is.
+
+Opening a library makes sure it has these, creating any that are missing:
 
 | Path | What lands there |
 | --- | --- |
-| `<downloads>/indexing/` | One json file per bookmark - the index. |
-| `<downloads>/` | The works themselves: html, epub, pdf and so on. |
-| `<downloads>/images/` | Images embedded in works, if you asked for them. |
-| `<downloads>/collections/` | One json file per collection, if you have synced them. |
+| `indexing/` | One json file per bookmark - the index. |
+| `works/` | The works themselves: html, epub, pdf and so on. |
+| `images/` | Images embedded in works, if you asked for them. |
+| `collections/` | One json file per collection, if you have synced them. |
+| `runs/` | One json file per run - the history tab. |
 
 ## How files are named, and how they get linked together
 

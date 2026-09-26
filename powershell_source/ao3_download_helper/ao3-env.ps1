@@ -3,8 +3,8 @@
     Shared setup for run-local.ps1 and run-gui.ps1.
 
 .DESCRIPTION
-    ao3downloader resolves settings.ini, data.json, logs/ and a relative DownloadFolder
-    against the working directory. Both launchers therefore have to run from the root of
+    ao3downloader resolves settings.ini, data.json and logs/ against the working
+    directory. Both launchers therefore have to run from the root of
     this working copy and use the config sitting there. Keeping that in one place is what
     stops the two scripts from drifting apart.
 #>
@@ -53,7 +53,7 @@ function Get-Ao3Root {
 
 function Get-Ao3Runtime {
     <#
-        Where settings.ini, data.json, logs\ and a relative DownloadFolder live.
+        Where settings.ini, data.json and logs\ live.
 
         In the working copy the python project sits one level below them, in
         ao3_download_helper. A generated build is flat, so the two are the same folder.
@@ -156,14 +156,8 @@ function Initialize-Ao3Config {
         Write-Step "data.json:    $dataFile"
     }
 
-    # show where fics will land, since that is the other thing settings.ini decides
-    if (Test-Path $settingsFile) {
-        $match = Select-String -Path $settingsFile -Pattern '^\s*DownloadFolder\s*=\s*(.*)$' |
-            Select-Object -First 1
-        if ($match) {
-            Write-Step "downloads:    $($match.Matches.Groups[1].Value.Trim()) (set in settings.ini)"
-        }
-    }
+    # where fics land is not a setting: it is whichever library the page has open
+    Write-Step 'downloads:    the folder you open in the page (keep it open during a run)'
 }
 
 function Invoke-Ao3Sync {

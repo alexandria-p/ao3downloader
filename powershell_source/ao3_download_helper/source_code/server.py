@@ -15,6 +15,7 @@ import os
 import queue
 import socket
 import threading
+import time
 import traceback
 import uuid
 from collections.abc import Callable
@@ -25,7 +26,7 @@ from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
 from source_code.repo import Repository
-from source_code.storage import DropboxClient, DropboxStorage
+from source_code.storage import PageStorage
 
 
 HOST = '127.0.0.1'
@@ -55,6 +56,19 @@ ACTION_QUICK = 'quick'
 # how long a run waits between checks for an answer to a question it has asked. short
 # enough that a stop is noticed quickly, long enough not to spin.
 ANSWER_POLL_SECONDS = 0.25
+
+# how often the event stream says something even when the run has not, so a page that has
+# gone away is noticed - a write to a closed connection is the only way to find out
+STREAM_HEARTBEAT_SECONDS = 10
+
+# how long a run waits for the page to answer a request about the library. long, because a
+# large file on its way to Dropbox can take minutes; a page that has gone is caught sooner
+# by PAGE_GRACE_SECONDS
+STORAGE_TIMEOUT_SECONDS = 15 * 60
+
+# how long a run carries on waiting with no page connected at all. a page reconnecting after
+# a blip is given this long to come back before the run gives up on it
+PAGE_GRACE_SECONDS = 30
 
 # how long a question waits altogether before giving up and taking its default. a browser
 # tab closed without stopping the run would otherwise leave this thread waiting for an
@@ -203,8 +217,6 @@ def read_settings(fileops: FileOps) -> dict:
 
     return {
         'file': os.path.abspath(fileops.inifile),
-        # a real path for a local library, `Dropbox: /Fics` for one kept there
-        'downloadFolder': fileops.describe(fileops.downloadfolder),
         'extraWaitTime': fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0),
         # not a setting any more, but still worth showing: it is how every file is named,
         # and the date on the end is what later runs read to spot an outdated copy
@@ -236,56 +248,19 @@ def settings_for_record(fileops: FileOps) -> dict:
         return {}
 
 
-def storage_request(body) -> dict | None:
-    """Which library a request is about: None for the local downloads folder, or the
-    Dropbox folder the web page signed in to.
-
-    The page does the signing in - the helper never sees a Dropbox password, and needs no
-    app secret, because a PKCE session renews with the app key alone. What arrives is the
-    refresh token, the app key and the folder, and **they are kept in memory for the run and
-    nowhere else**: not in the history file, not in an event, not in data.json. Raises
-    ValueError for a request that names Dropbox without everything it needs.
-    """
-
-    requested = body.get('storage') if isinstance(body, dict) else None
-    if not isinstance(requested, dict): return None
-    kind = requested.get('kind') or 'local'
-    if kind == 'local': return None
-    if kind != 'dropbox': raise ValueError(f"unknown storage '{kind}'")
-
-    spec = {name: str(requested.get(name) or '').strip()
-            for name in ('appKey', 'refreshToken', 'folderId', 'folderPath')}
-    if not spec['appKey'] or not spec['refreshToken']:
-        raise ValueError(strings.ERROR_DROPBOX_INCOMPLETE)
-    # '' is the app folder itself; anything else is a path inside it
-    if spec['folderPath'] and not spec['folderPath'].startswith('/'):
-        raise ValueError(strings.ERROR_DROPBOX_INCOMPLETE)
-    return spec
-
-
-def open_library(spec: dict | None) -> FileOps:
-    """The FileOps for a library: the local downloads folder, or the Dropbox one.
-
-    Opening a Dropbox library makes a request - it finds the folder by id, so a folder
-    renamed since the page last looked is followed rather than recreated - which is why a
-    run calls this on its own thread, where a failure becomes a failed run.
-    """
-
-    if not spec: return FileOps()
-    client = DropboxClient(spec['appKey'], spec['refreshToken'])
-    return FileOps(storage=DropboxStorage.connect(client, spec['folderId'], spec['folderPath']))
-
-
 class Job:
     """One download run, executing on its own thread and publishing progress events."""
 
     def __init__(self, action: str, filetypes: list[str], username: str,
-                 options: dict | None = None, url: str = '',
-                 storage: dict | None = None) -> None:
+                 options: dict | None = None, url: str = '') -> None:
         self.id = uuid.uuid4().hex
-        # which library the run reads and writes; None is the local downloads folder. holds
-        # a Dropbox session when there is one, so it is never emitted or recorded
-        self.storage = storage
+        # requests to the page about the library that have not been answered yet, by id, and
+        # the bytes waiting for the page to collect for each write. see `storage_call`
+        self.storage_pending: dict[str, dict] = {}
+        self.blobs: dict[str, bytes] = {}
+        # event streams open to a page right now, and when the last one closed
+        self.listeners = 0
+        self.last_listener = time.monotonic()
         self.action = action
         self.filetypes = filetypes
         self.username = username
@@ -361,6 +336,75 @@ class Job:
 
         self.answer = answer or {}
         self.answered.set()
+
+    # region the library, through the page
+
+    def storage_call(self, op: str, args: dict, content: bytes | None = None) -> dict:
+        """Ask the page to do one thing to the library, and wait for it to be done.
+
+        The page owns the folder, so this is how every file a run touches is read or
+        written. The request goes out on the event stream and the answer comes back to
+        `POST /api/jobs/<id>/storage/<request>`. Bytes to write are not put in the event -
+        the page collects them from `GET /api/jobs/<id>/blobs/<request>`, so a large epub
+        does not travel as text.
+
+        **A stop does not cut this short.** A write the run has started is finished, and the
+        history file written as a run stops has to be written too; the run notices the stop
+        at its next checkpoint as usual. What does end the wait is the page going away: with
+        no page connected for `PAGE_GRACE_SECONDS`, nothing will ever answer, and the run
+        fails saying so rather than hanging.
+        """
+
+        request = uuid.uuid4().hex
+        event = {'type': progress.STORAGE, 'id': request, 'op': op, **args}
+        if content is not None:
+            self.blobs[request] = content
+            event['blob'] = True
+        done = threading.Event()
+        with self.lock:
+            self.storage_pending[request] = {'event': event, 'done': done, 'answer': {}}
+        self.events.put(event)
+
+        waited = 0.0
+        try:
+            while not done.wait(ANSWER_POLL_SECONDS):
+                waited += ANSWER_POLL_SECONDS
+                if waited >= STORAGE_TIMEOUT_SECONDS or self.page_gone():
+                    raise OSError(strings.ERROR_PAGE_GONE)
+            with self.lock:
+                return self.storage_pending[request]['answer']
+        finally:
+            with self.lock:
+                self.storage_pending.pop(request, None)
+            self.blobs.pop(request, None)
+
+    def storage_reply(self, request: str, answer: dict) -> bool:
+        """The page's answer to one request. False when nothing is waiting for it."""
+
+        with self.lock:
+            pending = self.storage_pending.get(request)
+            if not pending: return False
+            pending['answer'] = answer if isinstance(answer, dict) else {}
+        pending['done'].set()
+        return True
+
+    def unanswered(self) -> list[dict]:
+        """Requests the page has not answered - sent again to a page that reconnects."""
+
+        with self.lock:
+            return [x['event'] for x in self.storage_pending.values()]
+
+    def page_gone(self) -> bool:
+        with self.lock:
+            return (self.listeners == 0
+                    and time.monotonic() - self.last_listener > PAGE_GRACE_SECONDS)
+
+    def page_connected(self, connected: bool) -> None:
+        with self.lock:
+            self.listeners += 1 if connected else -1
+            self.last_listener = time.monotonic()
+
+    # endregion
 
 
     def finish(self) -> None:
@@ -540,14 +584,13 @@ def run_job(job: Job, password: str) -> None:
     stream = LineStream(lambda line: job.emit({'type': progress.MESSAGE, 'text': line}))
 
     try:
-        fileops = open_library(job.storage)
+        # the library is the page's: every file goes through it
+        fileops = FileOps(storage=PageStorage(job))
         fileops.initialize()
         with contextlib.redirect_stdout(stream):
             with Repository(fileops, progress=report, cancelled=job.cancel.is_set,
                             held=job.held.is_set) as repo:
-                # said as a person would read it - a real path, or `Dropbox: /Fics`
                 job.emit({'type': progress.STARTED, 'action': job.action,
-                          'folder': fileops.describe(fileops.downloadfolder),
                           'filetypes': job.filetypes, 'options': job.options})
                 # the checklist goes out before anything happens, so the ui can show what
                 # is still to come rather than only what has already been done
@@ -1218,15 +1261,25 @@ def settle_quick_floor(job: Job, fileops: FileOps, report) -> str:
 
 
 def floor_runs(fileops: FileOps) -> list[dict]:
-    """Every earlier run a quick scan may be told to measure back to, newest first.
+    """Every earlier run in the library a quick scan may measure back to, newest first."""
+
+    return floors_among(runs.read_runs(fileops))
+
+
+def floors_among(records: list[dict]) -> list[dict]:
+    """The runs among `records` a quick scan may be told to measure back to.
 
     The same rule `quick_scan_floor` applies to the latest one, applied to all of them: it
     finished, and it reached every work ao3 had updated by the time it started. Offering a
     run that fails either test would let the user pick a floor with a hole behind it.
+
+    Takes the records rather than reading them because the page owns the library: it reads
+    the run history itself and asks this which of it qualifies, so the rule lives here once.
     """
 
-    return [record for record in runs.read_runs(fileops)
-            if record.get('status') == runs.STATUS_SUCCESS
+    return [record for record in records
+            if isinstance(record, dict)
+            and record.get('status') == runs.STATUS_SUCCESS
             and covered_the_whole_listing(record)]
 
 
@@ -1956,7 +2009,6 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/config':
             fileops = FileOps()
             self.send_json(200, {
-                'downloadFolder': fileops.downloadfolder,
                 'username': fileops.get_setting(strings.SETTING_USERNAME) or '',
                 'filetypes': strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES_WITH_METADATA,
                 'forced': FORCED_FILETYPES,
@@ -1965,47 +2017,33 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        if self.path in ('/api/runs', '/api/runs/floors'):
-            self.send_runs(None)
-            return
 
         if self.path.startswith('/api/jobs/') and self.path.endswith('/events'):
             self.stream_events(self.path.split('/')[3])
             return
 
+        if self.path.startswith('/api/jobs/') and '/blobs/' in self.path:
+            parts = self.path.split('/')
+            self.send_blob(parts[3], parts[5])
+            return
+
         self.send_json(404, {'error': 'not found'})
 
-    def send_runs(self, spec: dict | None) -> None:
-        """The run history, or the runs a quick scan may measure back to.
-
-        Read from the library each time rather than kept in memory: the helper is restarted
-        far more often than the history is looked at, and the files are the record. A
-        Dropbox library is asked for by POST, because its session travels in the body -
-        never in a url, where it could end up in a log.
-        """
-
-        try:
-            fileops = open_library(spec)
-        except Exception as e:
-            self.send_json(502, {'error': str(e)})
-            return
-        if self.path == '/api/runs/floors':
-            # the runs a quick scan may be told to measure back to, for the modal's list
-            self.send_json(200, {'runs': floor_runs(fileops)})
-        else:
-            self.send_json(200, {'runs': runs.read_runs(fileops)})
-
     def do_POST(self) -> None:
-        if self.path in ('/api/runs', '/api/runs/floors'):
+        if self.path == '/api/runs/floors':
+            # the page reads the run history out of the library it holds, and asks which of
+            # those runs a quick scan may measure back to
             try:
-                spec = storage_request(self.read_json())
-            except ValueError as e:
-                self.send_json(400, {'error': str(e)})
-                return
+                records = self.read_json().get('runs')
             except Exception:
                 self.send_json(400, {'error': 'invalid json'})
                 return
-            self.send_runs(spec)
+            self.send_json(200, {'runs': floors_among(records if isinstance(records, list) else [])})
+            return
+
+        if self.path.startswith('/api/jobs/') and '/storage/' in self.path:
+            parts = self.path.split('/')
+            self.storage_reply(parts[3], parts[5])
             return
 
         if self.path.startswith('/api/jobs/') and self.path.endswith('/cancel'):
@@ -2054,12 +2092,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {'error': 'username and password are required'})
             return
 
-        try:
-            storage = storage_request(body)
-        except ValueError as e:
-            self.send_json(400, {'error': str(e)})
-            return
-
         options = resolve_options(body.get('options'))
         # the option only means anything on the runs that offer it. the ui never sends it
         # otherwise, but the rule belongs here, where what arrives in a request is turned
@@ -2069,15 +2101,8 @@ class Handler(BaseHTTPRequestHandler):
         # a chosen floor is the quick scan's alone, and has to name a run that can be one -
         # refused here rather than discovered on the thread, so a bad pick is a straight answer
         if action != ACTION_QUICK: options['floorRun'] = ''
-        if options['floorRun']:
-            try:
-                floor = chosen_floor(open_library(storage), options['floorRun'])
-            except Exception as e:
-                self.send_json(502, {'error': str(e)})
-                return
-            if not floor:
-                self.send_json(400, {'error': strings.ERROR_NOT_A_FLOOR_RUN})
-                return
+        # a chosen floor is checked by the run, once it can read the history through the page:
+        # one that turns out not to qualify falls back to the usual rules and says so
         # a custom run told to skip indexing writes no json, because json is the index
         indexing_run = options['reindex'] or action != ACTION_CUSTOM
         filetypes = resolve_filetypes(body.get('filetypes'), force=indexing_run)
@@ -2097,7 +2122,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {'error': strings.ERROR_NOT_A_COLLECTION})
                 return
 
-        job = Job(action, filetypes, username, options, url, storage=storage)
+        job = Job(action, filetypes, username, options, url)
         with Handler.jobs_lock:
             Handler.jobs[job.id] = job
 
@@ -2183,6 +2208,37 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(202, {'answered': True})
 
 
+    def storage_reply(self, job_id: str, request: str) -> None:
+        with Handler.jobs_lock:
+            job = Handler.jobs.get(job_id)
+        if not job:
+            self.send_json(404, {'error': 'no such job'})
+            return
+        try:
+            answer = self.read_json()
+        except Exception:
+            answer = {'error': 'the page sent an answer that could not be read'}
+        if not job.storage_reply(request, answer):
+            self.send_json(404, {'error': 'nothing is waiting for that'})
+            return
+        self.send_json(202, {'received': True})
+
+    def send_blob(self, job_id: str, request: str) -> None:
+        """The bytes of one write, for the page to put in the library."""
+
+        with Handler.jobs_lock:
+            job = Handler.jobs.get(job_id)
+        content = job.blobs.get(request) if job else None
+        if content is None:
+            self.send_json(404, {'error': 'nothing to collect'})
+            return
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/octet-stream')
+        self.send_header('Content-Length', str(len(content)))
+        self.cors()
+        self.end_headers()
+        self.wfile.write(content)
+
     def stream_events(self, job_id: str) -> None:
         with Handler.jobs_lock:
             job = Handler.jobs.get(job_id)
@@ -2200,16 +2256,30 @@ class Handler(BaseHTTPRequestHandler):
         # anything that happened before this connection opened
         with job.lock:
             backlog = list(job.history)
+        job.page_connected(True)
         try:
             for event in backlog:
                 self.write_event(event)
+            # a request about the library that a page which went away never answered - this
+            # page is the only one that can. it may also still be in the queue, so the page
+            # does each request once, by id
+            for event in job.unanswered():
+                self.write_event(event)
             while True:
-                event = job.events.get()
+                try:
+                    event = job.events.get(timeout=STREAM_HEARTBEAT_SECONDS)
+                except queue.Empty:
+                    # nothing to say, but saying it is how a closed page is found out
+                    self.wfile.write(b': still here\n\n')
+                    self.wfile.flush()
+                    continue
                 if event is None: break
                 if event in backlog: continue
                 self.write_event(event)
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass # the page navigated away
+        finally:
+            job.page_connected(False)
 
     def write_event(self, event: dict) -> None:
         self.wfile.write(f'data: {json.dumps(event)}\n\n'.encode('utf-8'))

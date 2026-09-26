@@ -2,7 +2,6 @@ import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   APP_FOLDER,
-  APP_FOLDER_LABEL,
   DROPBOX_KEY,
   DropboxBrowser,
   DropboxSession,
@@ -252,7 +251,6 @@ describe('DropboxSession', () => {
     const dropbox = session();
     await dropbox.restore();
     expect(dropbox.folder()).toBeNull();
-    expect(dropbox.runStorage()).toBeNull();
   });
 
   // endregion
@@ -480,49 +478,5 @@ describe('StorageChoice', () => {
     expect(load().mode()).toBe('local');
     load().set('dropbox');
     expect(load().mode()).toBe('dropbox');
-  });
-
-  it('hands the helper no dropbox library while this computer is the choice', () => {
-    const choice = load();
-    TestBed.inject(DropboxSession).status.set('signed-in');
-
-    expect(choice.dropboxLibrary()).toBeNull();
-    expect(choice.dropboxFolderLabel()).toBeNull();
-  });
-
-  it('hands over nothing until there is a session', () => {
-    const choice = load();
-    choice.set('dropbox');
-    expect(choice.dropboxLibrary()).toBeNull();
-  });
-});
-
-describe('what a run is handed', () => {
-  it('is the session, the app key and the app folder', async () => {
-    const browser = new FakeBrowser();
-    browser.stored.set('dropbox-session', {
-      refreshToken: 'refresh-1',
-      account: { id: 'dbid:me', name: 'Me', email: 'me@example.com' },
-    });
-    TestBed.resetTestingModule();
-    TestBed.configureTestingModule({
-      providers: [
-        { provide: DropboxBrowser, useValue: browser },
-        { provide: DROPBOX_KEY, useValue: 'app-key' },
-      ],
-    });
-    localStorage.setItem('ao3.storageMode', 'dropbox');
-    await TestBed.inject(DropboxSession).restore();
-
-    const choice = TestBed.inject(StorageChoice);
-    expect(choice.dropboxLibrary()).toEqual({
-      kind: 'dropbox',
-      appKey: 'app-key',
-      refreshToken: 'refresh-1',
-      folderId: '',
-      folderPath: '',
-    });
-    expect(choice.dropboxFolderLabel()).toBe(APP_FOLDER_LABEL);
-    localStorage.clear();
   });
 });

@@ -204,18 +204,13 @@
     <section class="empty">
       <h2>Choose your downloads folder</h2>
       <p>
-        Pick the <strong>whole folder</strong> ao3downloader saves into - the one named by
-        <code>DownloadFolder</code> in <code>settings.ini</code>. It should be the directory holding
-        both your <code>.json</code> metadata files and your downloaded <code>.html</code> works.
+        Pick the folder your library lives in - or an empty one to start a new library. Every run
+        saves into the folder you pick here: the index, your downloaded works in
+        <code>works</code>, and the run history.
       </p>
       <p class="hint">
-        Pick the directory itself, not individual files. Reading the whole folder is what pairs each
-        bookmark with its downloaded copy, so clicking a title opens the fic instead of sending you
-        to AO3. Nothing leaves your computer - the files are read here in the browser.
-      </p>
-      <p class="hint">
-        No json files yet? Run ao3downloader, choose option <code>a</code>, and pick the
-        <code>JSON</code> file type - add <code>HTML</code> too if you want the works themselves.
+        Pick the folder itself, not files inside it. Nothing leaves your computer - the page reads
+        and writes the folder here in the browser, and keeps it open while a run is going.
       </p>
       @if (canPickFolder) {
         <p class="hint">

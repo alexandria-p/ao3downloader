@@ -64,21 +64,6 @@ export interface DropboxFolder {
   name: string;
 }
 
-/**
- * What the helper is handed to write a run into Dropbox.
- *
- * The refresh token goes because a run can outlast any one access token and has to renew
- * its own; the app key goes because renewing a PKCE session needs it and nothing else. The
- * helper keeps these in memory for the run and writes them nowhere.
- */
-export interface DropboxStorageRequest {
-  kind: 'dropbox';
-  appKey: string;
-  refreshToken: string;
-  folderId: string;
-  folderPath: string;
-}
-
 /** one file in the library, as a recursive listing describes it */
 export interface DropboxFile {
   name: string;
@@ -303,19 +288,6 @@ export class DropboxSession {
     this.status.set(this.appKey ? 'signed-out' : 'unconfigured');
   }
 
-  /** The session and folder for a run, or null when there is not both to hand over. */
-  runStorage(): DropboxStorageRequest | null {
-    const folder = this.folder();
-    if (this.status() !== 'signed-in' || !this.refreshToken || !folder) return null;
-    return {
-      kind: 'dropbox',
-      appKey: this.appKey,
-      refreshToken: this.refreshToken,
-      folderId: folder.id,
-      folderPath: folder.path,
-    };
-  }
-
   // region the way back from dropbox.com
 
   private async completeSignIn(): Promise<void> {
@@ -394,9 +366,10 @@ export class DropboxSession {
 
   /**
    * Every file below `path`, in one recursive listing - a page per 2,000 entries rather
-   * than a call per folder. A folder that is not there is an empty library, not an error.
+   * than a call per folder - or only those directly in it. A folder that is not there is
+   * an empty library, not an error.
    */
-  async listFiles(path: string): Promise<DropboxFile[]> {
+  async listFiles(path: string, recursive = true): Promise<DropboxFile[]> {
     type Entry = {
       '.tag': string;
       name: string;
@@ -408,7 +381,7 @@ export class DropboxSession {
     const files: DropboxFile[] = [];
     let page: Page;
     try {
-      page = await this.call<Page>('files/list_folder', { path, recursive: true, limit: 2000 });
+      page = await this.call<Page>('files/list_folder', { path, recursive, limit: 2000 });
     } catch (error) {
       if (error instanceof DropboxError && error.summary.startsWith('path/not_found')) return [];
       throw error;
@@ -498,6 +471,56 @@ export class DropboxSession {
     }
     return { moved, notMoved };
   }
+
+  // region writing the library, for a run
+
+  /**
+   * Put one file in place, replacing whatever is there. Answers the size Dropbox says it
+   * stored, which is what a run checks a download arrived whole against.
+   *
+   * One request, which Dropbox takes up to 150 MB in; a fic is far below that.
+   */
+  async upload(path: string, content: Blob): Promise<number> {
+    const response = await this.send(CONTENT_URL + 'files/upload', (token) => ({
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/octet-stream',
+        'Dropbox-API-Arg': apiArg({ path, mode: 'overwrite', autorename: false, mute: true }),
+      },
+      body: content,
+    }));
+    const meta = (await response.json()) as { size?: number };
+    return meta.size ?? content.size;
+  }
+
+  /** A file's size, or null when there is no file there. */
+  async fileSize(path: string): Promise<number | null> {
+    try {
+      const meta = await this.call<{ '.tag': string; size?: number }>('files/get_metadata', { path });
+      return meta['.tag'] === 'file' ? (meta.size ?? 0) : null;
+    } catch (error) {
+      if (error instanceof DropboxError && /not_found/.test(error.summary)) return null;
+      throw error;
+    }
+  }
+
+  /** Move a file to the Dropbox trash, where it can still be restored. One already gone is fine. */
+  async deleteFile(path: string): Promise<void> {
+    try {
+      await this.call('files/delete_v2', { path });
+    } catch (error) {
+      if (error instanceof DropboxError && /not_found/.test(error.summary)) return;
+      throw error;
+    }
+  }
+
+  /** Rename a file. A name already taken is refused - nothing is written over. */
+  async moveFile(from: string, to: string): Promise<void> {
+    await this.call('files/move_v2', { from_path: from, to_path: to, autorename: false });
+  }
+
+  // endregion
 
   /** One file's contents. */
   async download(path: string): Promise<Blob> {
