@@ -47,6 +47,13 @@ INI_DEBUG_LOGGING = 'EnableDebugLogging'
 INI_DEBUG_TOOLS = 'EnableDebugTools'
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
+# a hosted helper: every request needs the passcode, whose value is an environment variable
+INI_REQUIRE_PASSCODE = 'RequirePasscode'
+# the address of the page (e.g. https://someone.github.io) allowed to call a hosted helper
+INI_PAGE_ORIGIN = 'PageOrigin'
+# where the page finds its helper. read by the page's build, not by the helper
+INI_HELPER_URL = 'HelperUrl'
+INI_DEFAULT_HELPER_URL = 'http://127.0.0.1:4400'
 
 INI_DEFAULT_NAME_LENGTH = 50
 

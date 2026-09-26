@@ -54,6 +54,23 @@ npm --prefix GUI start
 Then open http://localhost:4200.
 
 
+## Hosting your own copy on the web
+
+You can put the app on the web for yourself alone: the page on GitHub Pages, the helper on
+Render. It asks for a passcode before anything works, and your AO3 login is encrypted on its
+way to the helper. Everyone else should run the app on their own computer, which needs none
+of this. [HOSTING.md](HOSTING.md) walks through the setup.
+
+Three settings in `settings.ini` control it:
+
+- `HelperUrl` - where the page finds the helper. `http://127.0.0.1:4400` unless hosted.
+- `RequirePasscode` - `true` makes the helper refuse every request without the passcode, and
+  the page ask for it. The passcode itself is never in this file.
+- `PageOrigin` - the address of the page allowed to use a hosted helper.
+
+The deploy workflow writes all three from GitHub variables, so you don't edit them by hand
+for a hosted copy.
+
 # Original Readme
 
 > **Out of date for this fork.** The console program described below has been removed - the

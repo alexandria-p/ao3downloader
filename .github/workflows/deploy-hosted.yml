@@ -1,0 +1,209 @@
+name: deploy hosted app
+
+# One person's own hosted copy: the helper on Render, the page on GitHub Pages under /app/.
+# HOSTING.md is the full setup - what to create on Render, and every variable and secret
+# below. Run by hand from the Actions tab.
+#
+# Nothing secret is written into anything this builds. settings.ini (baked into a public
+# image) and app-config.json (published on a public website) carry only the helper's
+# address, the passcode flag and the public key. The passcode and the private key go
+# straight from GitHub secrets to Render's environment variables.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-hosted
+  cancel-in-progress: false
+
+jobs:
+  settings:
+    name: write settings.ini and the page's config
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: write the files
+        working-directory: powershell_source/ao3_download_helper
+        env:
+          HELPER_URL: ${{ vars.HELPER_URL }}
+          # a hosted helper will not start without it, so it is on unless turned off
+          REQUIRE_PASSCODE: ${{ vars.REQUIRE_PASSCODE || 'true' }}
+          PAGE_ORIGIN: ${{ vars.PAGE_ORIGIN }}
+          OWNER: ${{ github.repository_owner }}
+          # read only to derive the public key for the page; never written anywhere
+          AO3DOWNLOADER_PRIVATE_KEY: ${{ secrets.AO3DOWNLOADER_PRIVATE_KEY }}
+        run: |
+          # the pages site's own address, unless one is given. a browser sends it lowercase
+          export PAGE_ORIGIN="${PAGE_ORIGIN:-https://${OWNER,,}.github.io}"
+          uv sync --frozen
+          uv run --no-sync python deploy_config.py settings --out hosted-settings.ini
+          uv run --no-sync python deploy_config.py page-config --settings hosted-settings.ini --out app-config.json
+
+      - name: keep them for the next jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-config
+          path: |
+            powershell_source/ao3_download_helper/hosted-settings.ini
+            powershell_source/ao3_download_helper/app-config.json
+          retention-days: 1
+
+  helper:
+    name: build the helper and deploy it to render
+    needs: settings
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: fetch settings.ini
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-config
+          path: powershell_source/ao3_download_helper
+
+      - name: name the image
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ao3downloader-helper" >> "$GITHUB_ENV"
+
+      - name: log in to the github container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: powershell_source/ao3_download_helper
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+
+      - name: check the render secrets are there
+        # after the push, not before: render can only be pointed at an image that exists, so
+        # the very first run publishes it and then stops here, saying what is still to do
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          AO3DOWNLOADER_PASSCODE: ${{ secrets.AO3DOWNLOADER_PASSCODE }}
+        run: |
+          missing=0
+          for name in RENDER_API_KEY RENDER_SERVICE_ID RENDER_DEPLOY_HOOK AO3DOWNLOADER_PASSCODE; do
+            if [ -z "${!name}" ]; then echo "::error::the $name secret is not set - see HOSTING.md"; missing=1; fi
+          done
+          if [ "$missing" = 1 ]; then
+            echo "::notice::the image is published as ${IMAGE}:latest - create the render service from it, set the secrets, and run this again"
+          fi
+          exit $missing
+
+      - name: hand render the secrets
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          AO3DOWNLOADER_PASSCODE: ${{ secrets.AO3DOWNLOADER_PASSCODE }}
+          AO3DOWNLOADER_PRIVATE_KEY: ${{ secrets.AO3DOWNLOADER_PRIVATE_KEY }}
+        run: |
+          # one variable at a time: replacing the whole list would also delete anything
+          # set by hand on render. jq does the quoting, since the key runs over many lines
+          for name in AO3DOWNLOADER_PASSCODE AO3DOWNLOADER_PRIVATE_KEY; do
+            jq -n --arg value "${!name}" '{value: $value}' | curl --fail-with-body -sS -o /dev/null \
+              -X PUT "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/${name}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}" \
+              -H 'Content-Type: application/json' \
+              --data @-
+            echo "set $name on render"
+          done
+
+      - name: deploy this image
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          # the exact image just pushed, by its commit, rather than whatever :latest is by then
+          image=$(jq -rn --arg v "${IMAGE}:${GITHUB_SHA}" '$v | @uri')
+          curl --fail-with-body -sS -o /dev/null -X POST "${RENDER_DEPLOY_HOOK}&imgURL=${image}"
+          echo "render is deploying ${IMAGE}:${GITHUB_SHA}"
+
+  pages:
+    name: build the page and publish it to github pages
+    # after the helper, so a new page never goes out ahead of the helper it expects
+    needs: [settings, helper]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}app/
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: gui_source/package-lock.json
+
+      - name: configure pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: build
+        working-directory: gui_source
+        env:
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+        run: |
+          npm ci
+          npx ng build --base-href "${BASE_PATH}/app/" --output-path ../pages-build
+
+      - name: fetch the page's config
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-config
+          path: deploy-config
+
+      - name: assemble the site
+        run: |
+          mkdir -p site
+          mv pages-build/browser site/app
+          # replaces the default one, which points at a helper on this computer
+          cp deploy-config/app-config.json site/app/app-config.json
+          # the site's root has nothing of its own, so it sends visitors to the app
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=app/">
+          <title>AO3 Library</title>
+          <a href="app/">AO3 Library</a>
+          HTML
+
+      - name: upload
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+      - name: deploy
+        id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,41 @@
+<div class="backdrop"></div>
+
+<form class="dialog" role="dialog" aria-modal="true" aria-labelledby="passcode-title" (submit)="submit($event)">
+  <header>
+    <h2 id="passcode-title">This page is passcode protected</h2>
+  </header>
+
+  <section class="body">
+    <p>
+      This copy of the app belongs to one person and needs a passcode. Once it is accepted it
+      is remembered in this browser.
+    </p>
+
+    <label class="field">
+      <span>Passcode</span>
+      <input
+        name="passcode"
+        type="password"
+        autocomplete="current-password"
+        [value]="passcode()"
+        (input)="passcode.set($any($event.target).value)"
+        [disabled]="checking()"
+      />
+    </label>
+
+    @if (problem()) {
+      <p class="problem" role="alert">{{ problem() }}</p>
+    }
+
+    <p class="hint">
+      Want to use this app yourself? Download it and run it on your own computer - that copy
+      needs no passcode.
+    </p>
+  </section>
+
+  <footer>
+    <button type="submit" class="button primary" [disabled]="!passcode() || checking()">
+      {{ checking() ? 'Checking...' : 'Unlock' }}
+    </button>
+  </footer>
+</form>

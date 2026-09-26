@@ -4,8 +4,10 @@ A browser cannot reach ao3 (no CORS headers), cannot hold an ao3 login session, 
 read the ebook files on disk that the update scan needs. So the page asks this instead, and
 this calls the same code the console menu calls.
 
-It listens on the loopback interface only, so nothing outside this machine can reach it,
-and it holds the ao3 password just long enough to log in - it is never written anywhere.
+By default it listens on the loopback interface only, so nothing outside this machine can
+reach it, and it holds the ao3 password just long enough to log in - it is never written
+anywhere. It can also be hosted on a server for one person's own use, and then it answers
+nobody without a passcode and takes the login only encrypted - see `access.py`.
 """
 
 import contextlib
@@ -21,7 +23,7 @@ import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from source_code import exceptions, indexing, parse_soup, parse_text, progress, runs, strings
+from source_code import access, exceptions, indexing, parse_soup, parse_text, progress, runs, strings
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -31,6 +33,10 @@ from source_code.storage import PageStorage
 
 HOST = '127.0.0.1'
 DEFAULT_PORT = 4400
+# a hosted helper listens on all interfaces, on the port its host names. `PORT` is the name
+# Render and most other hosts use
+ENV_HOST = 'AO3DOWNLOADER_HOST'
+ENV_PORT = 'PORT'
 
 # a full walk of the whole bookmarks listing. thorough and slow.
 ACTION_BOOKMARKS = 'bookmarks'
@@ -2712,6 +2718,20 @@ def runners() -> dict:
     }
 
 
+def page_may_call(origin: str, hosted_page: str) -> bool:
+    """Whether a page at this origin may read this helper's answers.
+
+    The page on this computer always may - the angular dev server is on a different port,
+    so it counts as another origin. The one published elsewhere may when settings.ini names
+    it (`PageOrigin`), compared exactly: a prefix test would let
+    `https://someone.github.io.example.com` through.
+    """
+
+    if origin.startswith('http://localhost:') or origin.startswith('http://127.0.0.1:'):
+        return True
+    return bool(hosted_page) and origin == hosted_page
+
+
 class Handler(BaseHTTPRequestHandler):
     jobs: dict[str, Job] = {}
     jobs_lock = threading.Lock()
@@ -2725,13 +2745,36 @@ class Handler(BaseHTTPRequestHandler):
 
     def cors(self) -> None:
         origin = self.headers.get('Origin', '')
-        # the angular dev server is a different port, so it counts as another origin.
-        # only ever reflect a loopback origin back.
-        if origin.startswith('http://localhost:') or origin.startswith('http://127.0.0.1:'):
+        if page_may_call(origin, access.page_origin(FileOps())):
             self.send_header('Access-Control-Allow-Origin', origin)
             self.send_header('Vary', 'Origin')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        # Authorization carries the passcode of a hosted helper
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        # a page published on the web calling a helper on this computer: chrome asks the
+        # helper whether it agrees to be reached from a public site before it lets the page
+        if self.headers.get('Access-Control-Request-Private-Network') == 'true':
+            self.send_header('Access-Control-Allow-Private-Network', 'true')
+
+    def admitted(self) -> bool:
+        """Whether this request may go any further, answering it if not.
+
+        Only a helper with `RequirePasscode` on asks anything. A request without the passcode
+        is told 401 when it comes from the page - so the page can ask for the passcode - and
+        404 when it comes from anywhere else, the same answer as a path that does not exist,
+        so a stranger probing the address learns nothing about what is there. The Origin
+        header can be written by anyone outside a browser; all that buys is the word 401.
+        """
+
+        fileops = FileOps()
+        if not access.passcode_required(fileops): return True
+        if access.passcode_matches(self.headers.get('Authorization'), access.configured_passcode()):
+            return True
+        if page_may_call(self.headers.get('Origin', ''), access.page_origin(fileops)):
+            self.send_json(401, {'error': 'this helper needs its passcode', 'passcode': True})
+        else:
+            self.send_json(404, {'error': 'not found'})
+        return False
 
     def send_json(self, status: int, body: dict) -> None:
         payload = json.dumps(body).encode('utf-8')
@@ -2755,6 +2798,13 @@ class Handler(BaseHTTPRequestHandler):
     # endregion
 
     def do_GET(self) -> None:
+        if not self.admitted(): return
+
+        if self.path == '/api/auth':
+            # nothing to say beyond having got this far: the page asks this to check a passcode
+            self.send_json(200, {'ok': True})
+            return
+
         if self.path == '/api/config':
             fileops = FileOps()
             self.send_json(200, {
@@ -2785,6 +2835,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(404, {'error': 'not found'})
 
     def do_POST(self) -> None:
+        if not self.admitted(): return
+
         if self.path == '/api/runs/floors':
             # the page reads the run history out of the library it holds, and asks which of
             # those runs a quick scan may measure back to
@@ -2853,8 +2905,11 @@ class Handler(BaseHTTPRequestHandler):
                 'it is running older code - close its window and start the application again.'})
             return
 
-        username = (body.get('username') or '').strip()
-        password = body.get('password') or ''
+        try:
+            username, password = access.login_from(body)
+        except access.AccessError as e:
+            self.send_json(400, {'error': str(e)})
+            return
         if not username or not password:
             self.send_json(400, {'error': 'username and password are required'})
             return
@@ -3082,9 +3137,51 @@ def already_listening(host: str, port: int, timeout: float = 0.5) -> bool:
         return probe.connect_ex((host, port)) == 0
 
 
-def serve(port: int = DEFAULT_PORT) -> None:
-    if already_listening(HOST, port):
-        print(f'could not start: something is already listening on {HOST}:{port}.')
+def is_loopback(host: str) -> bool:
+    return host == 'localhost' or host == '::1' or host.startswith('127.')
+
+
+def startup_problem(host: str, fileops: FileOps) -> str:
+    """Why this helper must not start as configured, or '' when it may.
+
+    Every one of these fails closed. A helper told to want a passcode and not given one
+    would otherwise accept nobody or - worse, depending on how the check was written -
+    everybody; and one listening beyond this computer without a passcode would hand any
+    stranger the ao3 login of whoever used it last.
+    """
+
+    required = access.passcode_required(fileops)
+    if required and not access.configured_passcode():
+        return (f'{strings.INI_REQUIRE_PASSCODE} is on in settings.ini, but no passcode is '
+                f'set. Put it in the {access.ENV_PASSCODE} environment variable.')
+    if not is_loopback(host):
+        if not required:
+            return (f'refusing to listen on {host}, which other computers can reach, with '
+                    f'{strings.INI_REQUIRE_PASSCODE} off. Turn it on in settings.ini and set '
+                    f'{access.ENV_PASSCODE}.')
+        if not access.configured_private_key():
+            return (f'refusing to listen on {host} without {access.ENV_PRIVATE_KEY}: a hosted '
+                    'helper only takes the ao3 login encrypted.')
+    try:
+        access.private_key()
+    except ValueError as e:
+        return str(e)
+    return ''
+
+
+def serve(port: int | None = None, host: str | None = None) -> None:
+    host = host or os.environ.get(ENV_HOST) or HOST
+    port = port or int(os.environ.get(ENV_PORT) or DEFAULT_PORT)
+
+    problem = startup_problem(host, FileOps())
+    if problem:
+        print(f'could not start: {problem}')
+        raise SystemExit(1)
+
+    # asking 0.0.0.0 whether anything is there means asking this computer
+    probe = HOST if host in ('0.0.0.0', '::', '') else host
+    if already_listening(probe, port):
+        print(f'could not start: something is already listening on {host}:{port}.')
         print('that is almost always an ao3downloader helper left running from an earlier')
         print('session. close its window, or stop it with:')
         print(f'    powershell -c "Get-NetTCPConnection -LocalPort {port} -State Listen | '
@@ -3093,8 +3190,11 @@ def serve(port: int = DEFAULT_PORT) -> None:
         print('helper, which has its own settings and may be running older code.')
         raise SystemExit(1)
 
-    httpd = ThreadingHTTPServer((HOST, port), Handler)
-    print(f'ao3downloader local api listening on http://{HOST}:{port}')
+    httpd = ThreadingHTTPServer((host, port), Handler)
+    print(f'ao3downloader local api listening on http://{host}:{port}')
+    if access.passcode_required(FileOps()):
+        print('every request needs the passcode; logins are only taken encrypted'
+              if access.configured_private_key() else 'every request needs the passcode')
     print('this window has to stay open while the web ui is running.')
     try:
         httpd.serve_forever()

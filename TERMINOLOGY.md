@@ -74,9 +74,16 @@ the same thing in conversation.
 ## The app
 
 - **The page** [web app, site, Angular app] - the Angular app you use in the browser; it owns the library.
-- **Helper** [local helper, server, python] - the local program on `127.0.0.1:4400` that talks to AO3.
+- **Helper** [local helper, server, python] - the program that talks to AO3: on `127.0.0.1:4400` normally, or on Render for a hosted copy.
+- **Hosted copy** [hosted helper, GitHub Pages copy, Render] - one person's copy on the web: the page on GitHub Pages under `/app/`, the helper on Render. Set up by `HOSTING.md`, deployed by the `deploy hosted app` workflow.
+- **Passcode** - what a hosted copy asks for before anything works. Checked by the helper, remembered by the browser once accepted. Its value is a secret (`AO3DOWNLOADER_PASSCODE`); `RequirePasscode` in settings.ini only turns it on.
+- **Passcode window** [passcode gate, passcode popup] - the window a passcode-protected page opens with, and comes back to if the helper refuses the saved passcode.
+- **Sealed login** [encrypted login, credentials] - the AO3 username and password, encrypted by the page with the helper's public key. Good for five minutes and one use.
+- **Key pair** [public key, private key] - the RSA keys a login is sealed and opened with. The private key is a secret on the helper (`AO3DOWNLOADER_PRIVATE_KEY`); the public key is built into the page.
+- **Page config** [app-config.json] - the page's own small config: where the helper is (`HelperUrl`), whether to ask for a passcode, and the public key. Public, so it never holds a secret.
 - **Library store** [PageStorage, the page's storage] - how the helper reads and writes the library: it asks the page, which does it.
 - **Setting** [config] - the properties in the config/settings.ini file which are used by the Page and Helper (for example, it specifies the length of cooldown in seconds between each request to AO3)
+- **Hosting settings** - `HelperUrl` (where the page finds the helper), `RequirePasscode` and `PageOrigin` (the page allowed to call a hosted helper). The deploy workflow writes them from GitHub variables.
 
 ---
 
