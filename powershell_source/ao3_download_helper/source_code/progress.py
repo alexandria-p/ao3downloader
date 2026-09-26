@@ -45,6 +45,8 @@ STEP_RUNNING = 'running'
 STEP_DONE = 'done'
 STEP_SKIPPED = 'skipped'
 STEP_FAILED = 'failed'
+# a resumed run's step that the run it picks up from had already finished
+STEP_EARLIER = 'earlier'
 
 # works the run could not download, sent once at the end so the gaps can be named
 FAILURES = 'failures'

@@ -91,7 +91,7 @@ def test_resolve_options_defaults_match_the_console_defaults():
     assert server.resolve_options(None) == {
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
         'reindex': True, 'dates': False, 'dateFrom': '', 'dateTo': '',
-        'overwrite': False, 'floorRun': '', 'nonBookmarks': False,
+        'overwrite': False, 'floorRun': '', 'nonBookmarks': False, 'resume': '',
     }
 
 
@@ -104,7 +104,8 @@ def test_resolve_options_reads_what_was_asked_for():
     assert result == {'start': 5, 'pages': 8, 'series': True, 'images': True,
                       'workdates': True, 'reindex': False, 'dates': True,
                       'dateFrom': '2026-01-01', 'dateTo': '2026-06-30',
-                      'overwrite': True, 'floorRun': '', 'nonBookmarks': True}
+                      'overwrite': True, 'floorRun': '', 'nonBookmarks': True,
+                      'resume': ''}
 
 
 def test_a_date_that_cannot_be_read_is_no_date_at_all():
@@ -357,8 +358,10 @@ def test_run_bookmarks_targets_the_users_own_bookmarks_page(fake_environment):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     ao3.get_metadata.assert_called_once()
+    # sorted by date bookmarked by name, not trusted to ao3's default: finding where a
+    # resumed run stopped goes by that date
     assert ao3.get_metadata.call_args.args[0] == \
-        'https://archiveofourown.org/users/Someone/bookmarks'
+        'https://archiveofourown.org/users/Someone/bookmarks?' + strings.AO3_SORT_BY_BOOKMARKED
 
 
 def test_run_bookmarks_keeps_json_away_from_the_downloader(fake_environment):
@@ -3370,8 +3373,10 @@ def test_every_walk_down_your_bookmarks_marks_what_it_finds_as_bookmarked():
     # fics looking as though nothing knew whether they were yours
     import inspect
     source = inspect.getsource(server)
-    calls = source.count('ao3.get_metadata(')
-    assert calls and source.count('own_bookmarks=True') == calls
+    # a walk goes through walk_listing, which hands its arguments on to get_metadata - so
+    # that call and walk_listing's own definition are the two not counted
+    calls = source.count('ao3.get_metadata(') - 1 + source.count('walk_listing(') - 1
+    assert calls > 1 and source.count('own_bookmarks=True') == calls
 
 # endregion
 

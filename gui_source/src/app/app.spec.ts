@@ -273,6 +273,37 @@ describe('App', () => {
     expect(actionLabels(element)).toContain('Quick Scan');
   });
 
+  it('checks the run history for interrupted runs, with a spinner, before a run window opens',
+    async () => {
+      const library = TestBed.inject(Library);
+      library.data.set(exportOf(1));
+      openLibrary();
+      let finish: (settled: number) => void = () => undefined;
+      const settle = vi.spyOn(TestBed.inject(Jobs), 'settleInterrupted').mockImplementation(
+        () => new Promise<number>((resolve) => (finish = resolve)),
+      );
+
+      const fixture = TestBed.createComponent(App);
+      await fixture.whenStable();
+      const element = fixture.nativeElement as HTMLElement;
+      Array.from(element.querySelectorAll<HTMLButtonElement>('.actions button'))
+        .find((b) => b.textContent?.includes('Quick Scan'))!.click();
+      fixture.detectChanges();
+
+      expect(settle).toHaveBeenCalledTimes(1);
+      expect(element.querySelector('.checking-runs')?.textContent).toContain(
+        'Checking your run history',
+      );
+      expect(element.querySelector('app-download-dialog')).toBeNull();
+
+      finish(0);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(element.querySelector('.checking-runs')).toBeNull();
+      expect(element.querySelector('app-download-dialog')).toBeTruthy();
+    });
+
   it('offers no run for a folder that is only remembered, waiting on a reconnect', async () => {
     // a run writes through the page, and the page cannot write there until access is confirmed
     const library = TestBed.inject(Library);

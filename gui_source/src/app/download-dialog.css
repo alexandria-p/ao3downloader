@@ -317,6 +317,15 @@ legend {
   color: #7fb37f;
 }
 
+/* done, but by the attempt a resumed run picks up from - ticked, and dimmed to say so */
+.step-list li.step-earlier {
+  color: var(--text-dim);
+}
+
+.step-list li.step-earlier .step-mark {
+  color: #7fb37f;
+}
+
 /*
  * A step that was stepped over rather than done. Dimmed and tagged rather than
  * coloured like a failure: nothing went wrong, the run simply had no reason to do it.
@@ -688,3 +697,27 @@ pre {
 .walks li {
   margin: 0 0 4px;
 }
+
+/* a group of options with no box of its own - here so it can be disabled as one */
+fieldset.bare {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+fieldset.bare:disabled {
+  opacity: 0.5;
+}
+
+/* an unfinished run that cannot be picked up, listed so it can say why */
+.floor-runs .unavailable {
+  opacity: 0.6;
+  cursor: help;
+}
+
+.floor-runs .hint {
+  display: block;
+  margin: 2px 0 0;
+}
+

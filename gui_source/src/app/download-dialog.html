@@ -203,6 +203,14 @@
               </label>
             }
 
+            @if (action() === 'custom') {
+              <label class="check">
+                <input type="radio" name="coverage" [checked]="coverage() === 'resume'"
+                       (change)="coverage.set('resume')" />
+                <span>[EXPERIMENTAL] Pick up where an earlier run left off</span>
+              </label>
+            }
+
             @if (picksDates()) {
               <label class="check">
                 <input type="radio" name="coverage" [checked]="coverage() === 'dates'"
@@ -218,6 +226,15 @@
               </label>
             }
           </fieldset>
+
+          @if (resuming()) {
+            <p class="hint">
+              Carries on a full scan, quick scan or custom run that was stopped, failed, or
+              interrupted - as that run, with its settings, so everything else here is taken
+              from it. You pick the run on the next page. A custom run over a slice of pages
+              cannot be resumed.
+            </p>
+          }
 
           @if (picksFloorRun()) {
             <p class="hint">
@@ -321,6 +338,9 @@
             </p>
           }
         }
+
+        <!-- a resumed run's settings are the earlier run's, so none of these is a choice -->
+        <fieldset class="bare" [disabled]="resuming()">
 
         @if (picksPages()) {
           <label class="field">
@@ -437,6 +457,8 @@
           </p>
         }
 
+        </fieldset>
+
       </section>
       <footer>
         <button type="button" class="button subtle" (click)="backFrom('options')">
@@ -474,7 +496,8 @@
                        [checked]="floorRun() === run.id"
                        (change)="floorRun.set(run.id)" />
                 <span>
-                  <strong>{{ run.started.slice(0, 10) }}</strong>
+                  <!-- the day its reach began: for a resumed run, its first attempt's -->
+                  <strong>{{ baselineOf(run).slice(0, 10) }}</strong>
                   {{ run.actionName || run.action }}
                   <span class="dim">- started {{ run.started.slice(11, 16) }}@if (run.finished) {, finished {{ run.finished.slice(0, 10) }} {{ run.finished.slice(11, 16) }}}</span>
                 </span>
@@ -486,6 +509,61 @@
       <footer>
         <button type="button" class="button subtle" (click)="backFrom('floor')">Back</button>
         <button type="button" class="button primary" [disabled]="!floorRun()" (click)="afterFloor()">
+          Continue
+        </button>
+      </footer>
+    }
+
+    <!--
+      step 2c: which unfinished run a custom run picks up. the helper says which can be, so
+      the rule lives in one place; the ones that cannot are listed, greyed, saying why
+    -->
+    @if (step() === 'resume') {
+      <section class="body">
+        <p class="warning">
+          <strong>[EXPERIMENTAL]</strong> Picks the run up where it left off, as that run, with
+          its settings. See RESUMING.md for exactly what each step does when resumed.
+        </p>
+
+        @if (resumableRuns() === null) {
+          <p class="hint">Reading your run history...</p>
+        } @else if (resumableRuns()!.length === 0) {
+          <p class="warning">
+            There are no unfinished full scans, quick scans or custom runs to pick up.
+          </p>
+        } @else {
+          <fieldset class="floor-runs">
+            <legend>Unfinished runs</legend>
+            @for (run of resumableRuns(); track run.id) {
+              <label class="check" [class.unavailable]="!run.resumable"
+                     [title]="run.resumable ? '' : run.reason">
+                <input type="radio" name="resumeRun" [value]="run.id"
+                       [disabled]="!run.resumable"
+                       [checked]="resumeRun() === run.id"
+                       (change)="resumeRun.set(run.id)" />
+                <span>
+                  <strong>{{ run.actionName || run.action }}</strong>
+                  <span class="dim">
+                    - started {{ run.started.slice(0, 10) }} {{ run.started.slice(11, 16) }},
+                    {{ run.status }}
+                    @if (run.progress?.stepLabel) { at <em>{{ run.progress!.stepLabel }}</em>}
+                  </span>
+                  @if (!run.resumable) {
+                    <span class="hint">{{ run.reason }}</span>
+                  }
+                  @for (warning of run.warnings; track $index) {
+                    <span class="hint warn">{{ warning }}</span>
+                  }
+                </span>
+              </label>
+            }
+          </fieldset>
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="backFrom('resume')">Back</button>
+        <button type="button" class="button primary" [disabled]="!chosenResume()?.resumable"
+                (click)="afterResume()">
           Continue
         </button>
       </footer>
@@ -976,6 +1054,7 @@
                   <span class="step-mark" aria-hidden="true">
                     @switch (step.status) {
                       @case ('done') { &#10003; }
+                      @case ('earlier') { &#10003; }
                       <!-- stepped over, not ticked off: a skipped step did not happen -->
                       @case ('skipped') { &#187; }
                       @case ('failed') { &times; }
@@ -992,6 +1071,7 @@
                   <span class="step-state">
                     @switch (step.status) {
                       @case ('done') { done }
+                      @case ('earlier') { done in the earlier run }
                       @case ('skipped') { skipped }
                       @case ('failed') { failed }
                       @case ('running') { in progress }

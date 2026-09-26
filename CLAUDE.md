@@ -58,7 +58,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1174 python passed; 455 gui passed.**
+Current: **1199 python passed; 471 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -459,6 +459,34 @@ skip that fic permanently.
 The predicate takes the whole record rather than a set of action names because whether a run
 covered everything depends on the options it ran with, not only on which button it was -
 which is exactly the date-range quick scan.
+
+### A run can be resumed, and says how far it got [EXPERIMENTAL]
+
+`RESUMING.md` (project root) is the full account; this is what not to break.
+
+- **`baseline` is what floors measure back to**, not `started` - `runs.baseline_of`, used by
+  `quick_scan_floor` and `chosen_floor`. It is set in `begin_record` the moment the login
+  works, and a resumed run copies its **first** attempt's, so a finished resume measures back
+  to when that chain first looked at ao3. Older records fall back to `started`.
+- **`interrupted` is written by the page, never the helper.** `Jobs.settleInterrupted` marks a
+  `running` record the helper does not list in `GET /api/jobs` - which is every one of them
+  when the helper is not running. The app runs it (with a spinner) before any run window
+  opens.
+- **A run saves `progress` as it goes** (`RunRecord.checkpoint`, written at once, never
+  batched - a batched checkpoint is one an interrupted run never writes). Walks go through
+  `walk_listing`, which records each page's last bookmark (the **anchor**) via
+  `Ao3.on_page`; `Ao3.walk_finished` says whether a walk reached its natural end, because
+  `get_metadata` swallows its own errors and returns what it had.
+- **Listings sorted by date bookmarked resume from the anchor** (`find_anchor` goes by the
+  page's dates to choose a direction); **listings sorted by date updated always restart** -
+  an updated fic jumps to the top, so no place in them holds. That is why the full scan and
+  the custom run now ask for `AO3_SORT_BY_BOOKMARKED` by name: the search depends on it.
+- **After indexing, nothing needs tracking.** The saved `scope` is re-checked and downloaded;
+  what already arrived is current, so the ordinary rules skip it.
+- **`prepare_resume` replaces the job's action, file types and options** with the earlier
+  run's before the checklist is built, so a resumed quick scan is a quick scan whatever the
+  page sent. Recorded answers are reused through `Job.prior_answers`, inside `Job.ask`.
+- **A custom run over a slice is refused** (`resume_problem`): page numbers move.
 
 ### A quick scan stops where ao3 stopped changing things
 

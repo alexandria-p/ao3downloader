@@ -1,7 +1,12 @@
-import { Component, effect, inject, signal, untracked } from '@angular/core';
+import { Component, effect, inject, signal, untracked, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { Jobs, RunHistory, RunRemoval } from './jobs';
 import { Library } from './library';
+
+/** why a custom run over a slice of the listing is never offered for resuming */
+export const SLICE_CANNOT_RESUME =
+  'A custom run over a slice of your bookmarks listing cannot be resumed: bookmarks added or ' +
+  'removed since move every page, so the same page numbers no longer hold the same bookmarks.';
 
 /**
  * What past runs did, read back from the helper's run files.
@@ -48,9 +53,18 @@ export class History {
     return (run.removals ?? []).filter((x) => x.status !== 'removed');
   }
 
+  /** a run to pick up where it left off, in a custom run */
+  readonly resume = output<string>();
+
   protected async load(): Promise<void> {
     this.loading.set(true);
-    const found = await this.jobs.loadRuns(this.library.store());
+    let found = await this.jobs.loadRuns(this.library.store());
+    // a run the history calls 'running' that the helper is not working on was interrupted:
+    // marked so, and read again. only asked when there is one, which is seldom
+    if (found?.some((run) => run.status === 'running') &&
+        (await this.jobs.settleInterrupted(this.library.store()))) {
+      found = await this.jobs.loadRuns(this.library.store());
+    }
     this.unavailable.set(found === null);
     this.runs.set(found ?? []);
     this.loading.set(false);
@@ -70,6 +84,8 @@ export class History {
         return 'Stopped';
       case 'failed':
         return 'Failed';
+      case 'running':
+        return 'Running';
       default:
         return 'Interrupted';
     }
@@ -92,6 +108,27 @@ export class History {
     if (options['series']) said.push('all works from encountered series');
     if (options['images']) said.push('save images separately');
     return said;
+  }
+
+  /**
+   * Whether a run can be picked up where it left off, or why not - the page's quick answer
+   * for the button. The helper checks again, properly, when the run starts.
+   */
+  protected resumeProblem(run: RunHistory): string | null {
+    if (!['bookmarks', 'quick', 'custom'].includes(run.action)) return null;
+    if (run.status === 'success' || run.status === 'running') return null;
+    const options = run.options ?? {};
+    if (run.action === 'custom' && !options['dates'] &&
+        (Number(options['pages'] ?? 0) || Number(options['start'] ?? 1) > 1)) {
+      return SLICE_CANNOT_RESUME;
+    }
+    if (!run.progress) return 'This run is from before runs saved their progress.';
+    return '';
+  }
+
+  /** the other run of a resume, by id, for the link either way */
+  protected runById(id: string | null | undefined): RunHistory | undefined {
+    return id ? this.runs().find((run) => run.id === id) : undefined;
   }
 
   protected workLink(id: string): string {

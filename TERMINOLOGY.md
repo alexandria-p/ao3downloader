@@ -23,12 +23,17 @@ the same thing in conversation.
 ## Reading AO3
 
 - **Run** [job] - one use of a workflow, from pressing Start to its report.
-- **Step** [checklist item] - one stage of a run, shown ticked, skipped or failed in the run window.
+- **Step** [checklist item] - one stage of a run, shown ticked, skipped, failed, or *done in the earlier run* (a resumed run's step its earlier attempt finished) in the run window.
 - **Option** [checkbox, configuration] - a choice made before a run starts.
 - **Question** - something a run stops to ask part-way through (undated files, older copies, how far back to go).
 - **Scan** - can be used either to describe a scan workflow (full or quick), or to describe reading the library's existing files (the check step).
 - **Cleanup** - the step that removes older copies you chose to remove.
 - **Report** - the end-of-run lists of what failed, was skipped, or needs checking.
+- **Interrupted** - a run that never wrote its ending (the page closed, the helper stopped). The page marks its history file `interrupted` once the helper confirms it is not working on it.
+- **Resume** [pick up where it left off, re-attempt] - carry on a stopped, failed or interrupted scan as that same workflow, with its settings. See `RESUMING.md`. [EXPERIMENTAL]
+- **Baseline** - the moment a run's AO3 login succeeded; a resumed run keeps its first attempt's. What a quick scan measures back to.
+- **Progress** [checkpoint] - what a run saves in its history file as it goes, so it can be resumed: its step, each walk's page and last bookmark, series walked, and its scope.
+- **Scope** - every work a run covers, saved as its file check starts; a run resumed after that point works from it without indexing.
 
 
 ## What happens in a run
@@ -38,7 +43,9 @@ the same thing in conversation.
 - **Page** [listing page] - one page of a listing (20 blurbs). Not to be confused with "the page", the web app.
 - **Blurb** - one entry on a listing: a work's (or series') summary box.
 - **Walk** - reading a listing page by page from the first, to index what is on it.
-- **Floor** - the date a quick scan walks back to: the day the last qualifying scan started.
+- **Floor** - the date a quick scan walks back to: the day of the last qualifying scan's baseline.
+- **Ceiling** - the newest date a walk keeps works from. A resumed quick scan's by-date-updated walk keeps works updated up to its first attempt's baseline.
+- **Anchor** - the last bookmark a walk saved; a resumed walk finds it again to know where to carry on.
 - **Series walkthrough** [walking a series] - reading a series' own AO3 page to index every work in it.
 - **Marked for walkthrough** - a series queued, during indexing, to be walked once indexing is over.
 - **Crawl** [the long way round] - the old download path that re-reads the listing and opens each work's page; now only a fallback.
@@ -145,7 +152,7 @@ With a date range, steps 2 and 3 read "…in that date range".
 
 - **Programmatic name:** `custom`
 - **Options:**
-  - What it covers: *all bookmarks*, *a slice of your bookmarks listing* (start page, number of pages), or *choose my own date range* (from, and optionally to)
+  - What it covers: *all bookmarks*, *a slice of your bookmarks listing* (start page, number of pages), *[EXPERIMENTAL] pick up where an earlier run left off* (then runs as that run's own workflow and settings, which are greyed out - see `RESUMING.md`), or *choose my own date range* (from, and optionally to)
   - *Skip indexing* - work from the index already saved (JSON is then off)
   - *Overwrite existing downloads, even if there has been no update*
   - *Save embedded images separately*
@@ -184,7 +191,8 @@ Used by: every workflow.
 
 ### Index every bookmark
 Used by: full scan; custom run (all bookmarks or a slice).
-- Walks your bookmarks listing page by page, one request per 20 bookmarks.
+- Walks your bookmarks listing page by page, sorted by date bookmarked, one request per 20 bookmarks.
+- **Resumed:** carries on from the page holding the last bookmark the earlier attempt saved.
 - Writes an index entry for every work, series bookmark and external work; marks every one `bookmarked: true`.
 - Marks series bookmarks for walkthrough, and the series of each work when the series option is on.
 - **Custom run:** a slice walks only the pages asked for.
@@ -198,12 +206,14 @@ Used by: custom run, when skipping indexing.
 Used by: quick scan.
 - Walks your bookmarks sorted by date bookmarked, stopping at the floor.
 - With no floor, reads everything, which makes the next step unnecessary.
+- **Resumed:** carries on from where the earlier attempt stopped, as the full scan's walk does; skipped if that attempt finished it.
 - **Date range:** stops at the range's start date, and keeps only works bookmarked in the range.
 
 ### Index works AO3 has updated since your last run
 Used by: quick scan.
 - Walks your bookmarks sorted by date updated, stopping at the floor.
 - Skipped when the previous step already read everything.
+- **Resumed:** always walked again from the top, keeping only works updated up to the first attempt's baseline.
 - **Date range:** stops at the range's start, and keeps only works updated in the range.
 
 ### Index works AO3 has updated since that date

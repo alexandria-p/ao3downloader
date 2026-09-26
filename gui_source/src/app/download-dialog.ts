@@ -4,8 +4,11 @@ import {
   AnswerChoice,
   JobAction,
   JobEvent,
+  JobOptions,
   Jobs,
+  ResumableRun,
   RunHistory,
+  baselineOf,
   RunStep,
   WorkFailure,
 } from './jobs';
@@ -19,6 +22,8 @@ type Step =
   | 'options'
   /** a quick scan choosing which earlier scan to measure back to */
   | 'floor'
+  /** a custom run choosing which unfinished run to pick up where it left off */
+  | 'resume'
   | 'acknowledge'
   | 'credentials'
   | 'running'
@@ -57,6 +62,8 @@ export class DownloadDialog implements OnDestroy {
   private readonly library = inject(Library);
 
   readonly action = input.required<JobAction>();
+  /** a run to open set to resume - from the history's Resume button */
+  readonly resumeFrom = input('');
   readonly closed = output<void>();
 
   protected readonly step = signal<Step>('filetypes');
@@ -99,7 +106,21 @@ export class DownloadDialog implements OnDestroy {
    * could. A quick scan uses the same signal for its own pair: 'all' there means back to
    * its last completed run.
    */
-  protected readonly coverage = signal<'all' | 'pages' | 'dates' | 'run'>('all');
+  protected readonly coverage = signal<'all' | 'pages' | 'dates' | 'run' | 'resume'>('all');
+  /**
+   * A custom run picking up where an unfinished run left off. It then runs as that run -
+   * its workflow, file types and options - so nothing else on the way in is a choice.
+   */
+  protected readonly resuming = computed(
+    () => this.action() === 'custom' && this.coverage() === 'resume',
+  );
+  /** the unfinished runs on offer, once they have been asked for */
+  protected readonly resumableRuns = signal<ResumableRun[] | null>(null);
+  /** the id of the one chosen */
+  protected readonly resumeRun = signal('');
+  protected readonly chosenResume = computed(
+    () => this.resumableRuns()?.find((run) => run.id === this.resumeRun()) ?? null,
+  );
   /** the earlier scans a quick scan can be measured back to, once they have been asked for */
   protected readonly floorRuns = signal<RunHistory[] | null>(null);
   /** the id of the one chosen */
@@ -474,6 +495,7 @@ export class DownloadDialog implements OnDestroy {
     const chosen: string[] = [];
     // only what this run was actually offered: showing back a setting it cannot act on
     // would read as a promise it is not going to keep
+    if (this.resuming()) chosen.push('picking up an earlier run');
     if (this.picksDates() && this.useDates()) chosen.push(this.dateRange());
     if (this.picksPages()) chosen.push(this.pageRange());
     if (this.workdates()) chosen.push('look up publication dates');
@@ -531,12 +553,21 @@ export class DownloadDialog implements OnDestroy {
       value: this.chosenFiletypes().join(', ') || 'nothing - indexing only',
     });
 
-    if (this.picksFloorRun()) {
+    if (this.resuming()) {
+      const chosen = this.chosenResume();
+      rows.push({
+        label: 'Covers',
+        value: chosen
+          ? `picks up where the ${chosen.actionName} that started ` +
+            `${chosen.started.slice(0, 16).replace('T', ' ')} left off, with its settings`
+          : 'picks up where an earlier run left off',
+      });
+    } else if (this.picksFloorRun()) {
       const chosen = this.chosenFloorRun();
       rows.push({
         label: 'Covers',
         value: chosen
-          ? `anything AO3 has updated since the scan that started ${chosen.started.slice(0, 10)}`
+          ? `anything AO3 has updated since the scan that started ${baselineOf(chosen).slice(0, 10)}`
           : 'anything AO3 has updated since the scan you chose',
       });
     } else if (this.picksDates() && this.useDates()) {
@@ -618,6 +649,10 @@ export class DownloadDialog implements OnDestroy {
     // the defaults are a starting point, not a rule: only `forced` cannot be unticked
     this.selected.set([...(config.defaults ?? config.forced)]);
     this.step.set(this.firstStep());
+    if (this.resumeFrom() && this.action() === 'custom') {
+      this.coverage.set('resume');
+      this.resumeRun.set(this.resumeFrom());
+    }
 
     const remembered = safeGet(REMEMBER_KEY) === 'true';
     this.remember.set(remembered);
@@ -643,23 +678,30 @@ export class DownloadDialog implements OnDestroy {
    * indexes, off when it does not - so it is locked either way rather than only when on.
    */
   protected isLocked(filetype: string): boolean {
+    // a resumed run downloads what the run it picks up was downloading
+    if (this.resuming()) return true;
     if (this.picksReindex() && filetype === METADATA) return true;
     return this.isForced(filetype);
   }
 
   protected isSelected(filetype: string): boolean {
+    if (this.resuming()) return (this.chosenResume()?.filetypes ?? []).includes(filetype);
     if (this.picksReindex() && filetype === METADATA) return this.reindex();
     return this.selected().includes(filetype);
   }
 
   /** how many steps are behind this run, for the panel's summary line */
   protected readonly stepsDone = computed(
-    () => this.steps().filter((x) => x.status === 'done' || x.status === 'skipped').length,
+    () =>
+      this.steps().filter(
+        (x) => x.status === 'done' || x.status === 'skipped' || x.status === 'earlier',
+      ).length,
   );
 
   /** why this type is locked, in a word, or '' when it is not */
   protected lockedBecause(filetype: string): string {
     if (!this.isLocked(filetype)) return '';
+    if (this.resuming()) return 'from the earlier run';
     if (this.picksReindex() && filetype === METADATA) {
       return this.reindex() ? 'with indexing' : 'not indexing';
     }
@@ -682,10 +724,13 @@ export class DownloadDialog implements OnDestroy {
    * rather than the helper being left to guess which of them meant it.
    */
   protected readonly chosenFiletypes = computed(() => {
+    if (this.resuming()) return this.chosenResume()?.filetypes ?? [];
     if (!this.picksReindex()) return this.selected();
     const rest = this.selected().filter((x) => x !== METADATA);
     return this.reindex() ? [METADATA, ...rest] : rest;
   });
+
+  protected readonly baselineOf = baselineOf;
 
   protected afterFiletypes(): void {
     this.toCredentials();
@@ -702,6 +747,15 @@ export class DownloadDialog implements OnDestroy {
   );
 
   protected afterOptions(): void {
+    if (this.resuming()) {
+      this.step.set('resume');
+      // asked for fresh each time: a run may have been interrupted since the dialog opened
+      this.resumableRuns.set(null);
+      void this.jobs
+        .loadResumableRuns(this.library.store())
+        .then((runs) => this.resumableRuns.set(runs ?? []));
+      return;
+    }
     if (this.picksFloorRun()) {
       this.step.set('floor');
       // asked for fresh each time: a scan may have finished since the dialog opened
@@ -712,6 +766,22 @@ export class DownloadDialog implements OnDestroy {
       return;
     }
     this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+  }
+
+  /**
+   * On with the run chosen. Its options are shown back in the (greyed-out) boxes, so the
+   * settings panel and the options page say what the run will actually do.
+   */
+  protected afterResume(): void {
+    const chosen = this.chosenResume();
+    if (!chosen?.resumable) return;
+    const options = chosen.options ?? {};
+    this.series.set(!!options['series']);
+    this.images.set(!!options['images']);
+    this.overwrite.set(!!options['overwrite']);
+    this.nonBookmarks.set(!!options['nonBookmarks']);
+    this.reindex.set(options['reindex'] !== false);
+    this.step.set('filetypes');
   }
 
   protected afterFloor(): void {
@@ -730,6 +800,7 @@ export class DownloadDialog implements OnDestroy {
     if (this.needsLink()) earlier.push('link');
     if (this.hasOptions()) earlier.push('options');
     if (this.picksFloorRun()) earlier.push('floor');
+    if (this.resuming()) earlier.push('resume');
     if (this.picksFiletypes()) earlier.push('filetypes');
     if (this.needsAcknowledgement()) earlier.push('acknowledge');
     earlier.push('credentials');
@@ -852,8 +923,10 @@ export class DownloadDialog implements OnDestroy {
 
     let jobId: string;
     try {
+      // a resumed run is started as the run it picks up - a quick scan stays a quick scan
+      const resumed = this.resuming() ? this.chosenResume() : null;
       jobId = await this.jobs.start({
-        action: this.action(),
+        action: resumed ? (resumed.action as JobAction) : this.action(),
         filetypes: this.chosenFiletypes(),
         options: {
           // a slice is only sent by the run that asked for one. the inputs keep whatever
@@ -878,7 +951,9 @@ export class DownloadDialog implements OnDestroy {
           // from a moment when 'between two dates' was ticked
           dateTo: this.useDates() && this.betweenDates() ? this.dateTo() : '',
           floorRun: this.picksFloorRun() ? this.floorRun() : '',
-        },
+          // the helper takes everything else from that run's own record
+          resume: resumed ? resumed.id : '',
+        } satisfies JobOptions,
         username: this.username().trim(),
         password: this.password(),
         url: this.needsLink() ? this.collectionUrl().trim() : undefined,

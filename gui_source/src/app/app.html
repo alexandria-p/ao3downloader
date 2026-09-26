@@ -138,10 +138,10 @@
       they should be reached for. the rest are each useful for one job and confusing as a
       default, so they wait behind a disclosure rather than sitting in the way
     -->
-    <button type="button" class="button primary" (click)="dialogAction.set('quick')">
+    <button type="button" class="button primary" (click)="openRun('quick')">
       Quick Scan
     </button>
-    <button type="button" class="button" (click)="dialogAction.set('bookmarks')">
+    <button type="button" class="button" (click)="openRun('bookmarks')">
       (Full scan) Reindex &amp; Update All
     </button>
 
@@ -155,29 +155,29 @@
           debug control, so nobody reaches for one by habit
         -->
         @if (debugTools()) {
-          <button type="button" class="button debug" (click)="dialogAction.set('sync')">
+          <button type="button" class="button debug" (click)="openRun('sync')">
             [DEBUG] Download new bookmarks and update incomplete fics
           </button>
-          <button type="button" class="button debug" (click)="dialogAction.set('update')">
+          <button type="button" class="button debug" (click)="openRun('update')">
             [DEBUG] Just update any bookmarks marked as incomplete
           </button>
-          <button type="button" class="button debug" (click)="dialogAction.set('new')">
+          <button type="button" class="button debug" (click)="openRun('new')">
             [DEBUG] Just download newly added bookmarks
           </button>
         }
-        <button type="button" class="button" (click)="dialogAction.set('work')">
+        <button type="button" class="button" (click)="openRun('work')">
           Download/update a specific fic
         </button>
-        <button type="button" class="button" (click)="dialogAction.set('custom')">
+        <button type="button" class="button" (click)="openRun('custom')">
           Custom run
         </button>
       </div>
     </details>
   } @else {
-    <button type="button" class="button primary" (click)="dialogAction.set('collections')">
+    <button type="button" class="button primary" (click)="openRun('collections')">
       Index my collections
     </button>
-    <button type="button" class="button" (click)="dialogAction.set('collection')">
+    <button type="button" class="button" (click)="openRun('collection')">
       Index collection by URL
     </button>
   }
@@ -185,7 +185,19 @@
 }
 
 @if (dialogAction(); as action) {
-  <app-download-dialog [action]="action" (closed)="dialogAction.set(null)" />
+  <app-download-dialog [action]="action" [resumeFrom]="resumeFrom()"
+                       (closed)="dialogAction.set(null); resumeFrom.set('')" />
+}
+
+<!--
+  before a run window opens, runs the history still calls 'running' are checked against the
+  helper - so one that was interrupted is marked so, and can be offered for resuming
+-->
+@if (checkingRuns()) {
+  <div class="checking-runs" role="status">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>Checking your run history...</span>
+  </div>
 }
 
 @if (mode() === 'local') {
@@ -280,7 +292,7 @@
 } @else if (view() === 'collections') {
   <app-collections-view />
 } @else if (view() === 'history') {
-  <app-history />
+  <app-history (resume)="resumeRun($event)" />
 } @else {
   <app-faq />
 }

@@ -7,6 +7,7 @@ import {
   AnswerChoice,
   JobAction,
   JobEvent,
+  ResumableRun,
   RunHistory,
   Jobs,
   ServerConfig,
@@ -56,6 +57,21 @@ class FakeJobs extends Jobs {
 
   override async loadFloorRuns(): Promise<RunHistory[] | null> {
     return this.floorRunsOnRecord;
+  }
+
+  /** the unfinished runs the helper would offer for resuming */
+  resumableOnRecord: ResumableRun[] = [];
+
+  override async loadResumableRuns(): Promise<ResumableRun[] | null> {
+    return this.resumableOnRecord;
+  }
+
+  /** how many times the history was checked for interrupted runs */
+  settles = 0;
+
+  override async settleInterrupted(): Promise<number> {
+    this.settles++;
+    return 0;
   }
 
   cancelled: string[] = [];
@@ -419,6 +435,17 @@ describe('DownloadDialog', () => {
     };
   }
 
+  it('dates a scan by when its reach began, which for a resumed scan is its first attempt',
+    async () => {
+      jobs.floorRunsOnRecord = [
+        { ...scanOnRecord('b', '2026-09-02T12:00:00'), baseline: '2026-08-30T08:00:00' },
+      ];
+      await toFloorPage();
+
+      const said = element.querySelector('.floor-runs')?.textContent ?? '';
+      expect(said).toContain('2026-08-30');
+    });
+
   async function toFloorPage() {
     await open('quick');
     await advanceTo('options');
@@ -612,6 +639,8 @@ describe('DownloadDialog', () => {
       dateTo: '',
       // only a quick scan pointed at an earlier scan sends one
       floorRun: '',
+      // only a custom run picking up an earlier run sends one
+      resume: '',
     });
   });
 
@@ -2781,6 +2810,116 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
 
     expect(element.querySelector('.success')?.textContent).toContain('Finished');
+  });
+
+  // endregion
+
+  // region picking up an earlier run
+
+  function unfinished(over: Partial<ResumableRun> = {}): ResumableRun {
+    return {
+      file: 'r.json', id: 'r1', action: 'quick', actionName: 'Quick Scan',
+      started: '2026-09-20T21:15:00', finished: null, status: 'interrupted',
+      filetypes: ['JSON', 'PDF'], options: { series: true, nonBookmarks: true },
+      reindexed: [], downloaded: [], updated: [], choices: [], failures: [], skipped: [],
+      error: '', progress: { step: 'download', stepLabel: 'Download or update works as necessary' },
+      resumable: true, reason: '', warnings: [], ...over,
+    };
+  }
+
+  async function toResumePage() {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('Pick up where an earlier run left off')!.click();
+    await fixture.whenStable();
+    button('Continue')!.click();
+    await fixture.whenStable();
+  }
+
+  it('offers picking up an earlier run as an experimental choice on a custom run only',
+    async () => {
+      await open('custom');
+      await advanceTo('options');
+      expect(checkbox('[EXPERIMENTAL] Pick up where an earlier run left off')).toBeDefined();
+
+      fixture.destroy();
+      await open('quick');
+      await advanceTo('options');
+      expect(checkbox('Pick up where an earlier run left off')).toBeUndefined();
+    });
+
+  it('greys out every other option once resuming is chosen', async () => {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('Pick up where an earlier run left off')!.click();
+    await fixture.whenStable();
+
+    for (const label of ['Skip indexing', 'Overwrite existing downloads',
+                         'Get all works from encountered series']) {
+      // disabled by the fieldset around them, which the property does not reflect
+      expect(checkbox(label)!.matches(':disabled')).toBe(true);
+    }
+  });
+
+  it('lists the unfinished runs, and says why one cannot be picked up', async () => {
+    jobs.resumableOnRecord = [
+      unfinished({ warnings: ['It has already been resumed once.'] }),
+      unfinished({ id: 'r2', action: 'custom', actionName: 'Custom run', resumable: false,
+                   reason: 'A custom run over a slice of your bookmarks listing cannot be resumed' }),
+    ];
+    await toResumePage();
+
+    expect(currentStep()).toBe('resume');
+    const said = element.querySelector('.floor-runs')?.textContent ?? '';
+    expect(said).toContain('Quick Scan');
+    expect(said).toContain('Download or update works as necessary');
+    expect(said).toContain('It has already been resumed once.');
+
+    const [ok, slice] = element.querySelectorAll<HTMLInputElement>('input[name="resumeRun"]');
+    expect(ok.disabled).toBe(false);
+    expect(slice.disabled).toBe(true);
+    // said on hover, and in words beside it
+    expect(slice.closest('label')!.title).toContain('cannot be resumed');
+    expect(button('Continue')!.disabled).toBe(true);
+  });
+
+  it('starts the run as the one it picks up, with that run\'s file types', async () => {
+    jobs.resumableOnRecord = [unfinished()];
+    await toResumePage();
+    element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.click();
+    await fixture.whenStable();
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    // the file types are the earlier run's, and cannot be changed
+    expect(currentStep()).toBe('filetypes');
+    const pdf = Array.from(element.querySelectorAll<HTMLLabelElement>('label'))
+      .find((l) => l.textContent?.includes('PDF'))!.querySelector('input')!;
+    expect(pdf.checked).toBe(true);
+    expect(pdf.disabled).toBe(true);
+
+    await advanceTo('running');
+
+    const started = jobs.started[0];
+    // a quick scan stays a quick scan
+    expect(started.action).toBe('quick');
+    expect(started.filetypes).toEqual(['JSON', 'PDF']);
+    expect(started.options.resume).toBe('r1');
+  });
+
+  it('opens set to resume a run picked from the history', async () => {
+    jobs.resumableOnRecord = [unfinished()];
+    fixture = TestBed.createComponent(DownloadDialog);
+    fixture.componentRef.setInput('action', 'custom');
+    fixture.componentRef.setInput('resumeFrom', 'r1');
+    await fixture.whenStable();
+    element = fixture.nativeElement as HTMLElement;
+    await advanceTo('options');
+
+    expect(checkbox('Pick up where an earlier run left off')!.checked).toBe(true);
+    button('Continue')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.checked).toBe(true);
   });
 
   // endregion

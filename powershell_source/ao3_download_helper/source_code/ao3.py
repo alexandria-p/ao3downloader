@@ -94,6 +94,16 @@ class Ao3:
         # set while the marked series are walked: a work met there does not mark its own
         # series, which would only mark the series being walked
         self.walking_series = False
+        # told after each listing page is written, and after each series is walked, so a
+        # run can save how far it got - see server.walk_listing. None when nobody asks
+        self.on_page = None
+        self.on_series = None
+        # whether the last listing walk reached its natural end - the last page, a page
+        # limit, a floor or a known fic - rather than being stopped or failing partway
+        self.walk_finished = False
+        # set by server.walk_listing when a resumed run took a walk's works from the earlier
+        # attempt rather than walking it again
+        self.walk_skipped = False
         self.downloaded: set[str] = set()
         self.updated: set[str] = set()
         # work numbers seen on this run's listing that ao3 will not serve a file for yet,
@@ -210,6 +220,7 @@ class Ao3:
         seen: set[str] = set()
         skipped = 0
         total_pages = None
+        self.walk_finished = False
 
         try:
             while True:
@@ -314,6 +325,17 @@ class Ao3:
                     self.mark_series(document['id'], document.get('title'), bookmark=document)
                 for document in page_records:
                     self.mark_series_of(document)
+                if self.on_page:
+                    # the last bookmark on the page, and the date the listing is sorted by, so
+                    # a resumed run can find this place again however the pages have moved
+                    blurbs = parse_soup.get_blurbs(thesoup)
+                    anchor = None
+                    if blurbs and parse_soup.get_blurb_id(blurbs[-1]):
+                        anchor = {'id': parse_soup.get_blurb_id(blurbs[-1]),
+                                  'date': parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                                      blurbs[-1], 'div.user p.datetime'))}
+                    self.on_page(current, anchor, [str(d['id']) for d in page_records
+                                                   if d.get('id')])
                 shown_total = None if open_ended else total_pages
                 done, of = self.page_progress(current, shown_total)
                 # two sets of numbers on purpose: the bar measures the slice being fetched,
@@ -335,12 +357,13 @@ class Ao3:
                 # and written; it is only the walking that stops here. after the page has said
                 # it finished, not before - a walk stopped by a floor used to end on 'fetching
                 # page 4' and never report the page it had actually read
-                if reached_known: break
-                if not total_pages or current >= total_pages:
+                if reached_known or not total_pages or current >= total_pages:
+                    self.walk_finished = True
                     break
                 link = parse_text.get_next_page(link)
                 if self.pages and parse_text.get_page_number(link) == self.pages + 1:
                     if self.debug: self.fileops.write_log({'link': link, 'message': strings.INFO_PAGE_LIMIT_REACHED, 'level': 'debug'})
+                    self.walk_finished = True
                     break
         except exceptions.CancelledException:
             # everything written so far stays on disk; this is not an error
@@ -996,7 +1019,10 @@ class Ao3:
             for marked in list(self.series_marked.values()):
                 self.check_cancelled()
                 if marked['id'] in self.series_read: continue
-                indexed.extend(self.index_series(marked))
+                works = self.index_series(marked)
+                indexed.extend(works)
+                if self.on_series:
+                    self.on_series(marked['id'], [str(w['id']) for w in works if w.get('id')])
         except exceptions.CancelledException:
             # what was indexed stays indexed; the run notices the stop and ends
             print(strings.INFO_CANCELLED)

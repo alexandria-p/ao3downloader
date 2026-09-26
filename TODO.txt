@@ -7,26 +7,6 @@ ask claude to help with how to configure this for github pages, and that for eve
 
 maybe host on github pages, but whitelisted ONLY for me to use by ip, so that i can do it from anywhere/device and update my works on my dropbox.
 
------------
-
-starting
-indexing: saving a json file for every bookmark before downloading any works
-finished page 1 of 80. 20 works so far
-finished page 2 of 80. 40 works so far
-skipped 2 bookmarks that are not works (series, external works, or deleted works)
-generating list of work links that are already in the downloads folder (will be skipped)
-checking which of these you have already downloaded
-checking which of your downloads ao3 has a newer version of
-9 downloaded works have been updated on ao3 since you saved them
-downloading works
-downloading 58 works straight from the index, without walking the listing again
-stopping at your request...
-stopped at your request. anything already saved has been kept.
-
-
-is this because 9 existing need updating, and 49 are new and arent downloaded at all??
-let's fix the output wording here. cause it is confusing AF
-
 
 ---------
 
@@ -47,9 +27,6 @@ what happens when stopped or exited mid-download?
 
 stretch goals:
 
-handle interrupted run.
-
-how to mark a run as interrupted (eg if you load the run files, and notice that there are any that say active but are not active in the helper or page
 
 
 if login has expired midrun....prompt the user to login and continue, or end run here.

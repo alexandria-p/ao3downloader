@@ -43,6 +43,10 @@ export class App {
   protected readonly view = signal<View>('bookmarks');
   /** which download dialog is open, if any */
   protected readonly dialogAction = signal<JobAction | null>(null);
+  /** the run a custom run opens set to resume, when opened from the history */
+  protected readonly resumeFrom = signal('');
+  /** set while the run history is checked for interrupted runs, before a window opens */
+  protected readonly checkingRuns = signal(false);
   /**
    * Whether the one-off browser note is up.
    *
@@ -57,6 +61,28 @@ export class App {
 
   /** the fallback picker, for browsers with no directory picker of their own */
   private readonly folderInput = viewChild<ElementRef<HTMLInputElement>>('folderInput');
+
+  /**
+   * Open a run's window, once any run the history still calls 'running' has been checked
+   * against the helper. A run left 'running' by a page that closed or a helper that stopped
+   * is marked interrupted first, so what the window offers - resuming it - is up to date.
+   */
+  protected async openRun(action: JobAction): Promise<void> {
+    if (this.checkingRuns()) return;
+    this.checkingRuns.set(true);
+    try {
+      await this.jobs.settleInterrupted(this.library.store());
+    } finally {
+      this.checkingRuns.set(false);
+    }
+    this.dialogAction.set(action);
+  }
+
+  /** from the history: a custom run, set to pick up where that run left off */
+  protected resumeRun(runId: string): void {
+    this.resumeFrom.set(runId);
+    void this.openRun('custom');
+  }
 
   protected readonly data = this.library.data;
   protected readonly collections = this.library.collections;

@@ -28,11 +28,51 @@
           @if (run.finished) { &ndash; {{ when(run.finished) }} }
         </p>
 
-        @if (run.status === 'running') {
+        @if (run.status === 'interrupted') {
           <p class="hint">
-            This run never reported finishing, so it was most likely interrupted - the app
-            closed, or the helper stopped. Anything it had already saved is still on disk.
+            This run never reported finishing - the page was closed, or the helper stopped.
+            Anything it had already saved is still on disk.
           </p>
+        }
+
+        @if (run.progress?.stepLabel && run.status !== 'success') {
+          <p class="hint">Got as far as: <strong>{{ run.progress!.stepLabel }}</strong></p>
+        }
+
+        @if (run.resumes) {
+          <p class="hint">
+            Picks up where
+            @if (runById(run.resumes); as earlier) {
+              the run from {{ when(earlier.started) }}
+            } @else {
+              an earlier run
+            }
+            left off, and measures from when the first attempt logged in
+            ({{ when(run.baseline ?? null) }}).
+          </p>
+        }
+        @if (run.resumedBy) {
+          <p class="hint">
+            Resumed by
+            @if (runById(run.resumedBy); as later) {
+              the run from {{ when(later.started) }}.
+            } @else {
+              a later run.
+            }
+          </p>
+        }
+
+        @if (resumeProblem(run) !== null) {
+          <div class="run-resume">
+            <button type="button" class="button" [disabled]="resumeProblem(run) !== ''"
+                    [title]="resumeProblem(run) || 'Pick this run up where it left off, in a custom run'"
+                    (click)="resume.emit(run.id)">
+              Resume [EXPERIMENTAL]
+            </button>
+            @if (resumeProblem(run)) {
+              <span class="hint">{{ resumeProblem(run) }}</span>
+            }
+          </div>
         }
 
         @if (run.error) {

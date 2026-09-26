@@ -27,9 +27,18 @@ function aRun(over: Partial<RunHistory> = {}): RunHistory {
 
 class FakeJobs extends Jobs {
   runs: RunHistory[] | null = [];
+  /** the runs the helper says it is not working on - marked interrupted when settled */
+  settles = 0;
 
   override async loadRuns(): Promise<RunHistory[] | null> {
     return this.runs;
+  }
+
+  override async settleInterrupted(): Promise<number> {
+    this.settles++;
+    const running = (this.runs ?? []).filter((run) => run.status === 'running');
+    for (const run of running) run.status = 'interrupted';
+    return running.length;
   }
 }
 
@@ -77,11 +86,59 @@ describe('History', () => {
   });
 
   it('calls a run that never reported finishing interrupted', async () => {
-    // the record is written when a run starts, so no ending is the evidence
+    // the record is written when a run starts, so no ending is the evidence - once the
+    // helper confirms it is not still working on it
     await show([aRun({ status: 'running', finished: null })]);
+    await fixture.whenStable();
+    fixture.detectChanges();
 
+    expect(jobs.settles).toBe(1);
     expect(element.querySelector('.run-status')?.textContent?.trim()).toBe('Interrupted');
-    expect(element.textContent).toContain('most likely interrupted');
+    expect(element.textContent).toContain('never reported finishing');
+  });
+
+  it('does not ask the helper about runs when none is left running', async () => {
+    await show([aRun()]);
+    expect(jobs.settles).toBe(0);
+  });
+
+  it('offers to resume an unfinished scan, and says where it got to', async () => {
+    const emitted: string[] = [];
+    await show([aRun({ action: 'quick', status: 'stopped',
+                       progress: { step: 'download', stepLabel: 'Download or update works' } })]);
+    fixture.componentInstance.resume.subscribe((id) => emitted.push(id));
+
+    expect(element.textContent).toContain('Got as far as: Download or update works');
+    const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
+    expect(button.disabled).toBe(false);
+    button.click();
+    expect(emitted).toEqual(['abc']);
+  });
+
+  it('explains why a custom run over a slice cannot be resumed', async () => {
+    await show([aRun({ action: 'custom', status: 'failed', progress: {},
+                       options: { pages: 5, start: 1 } })]);
+
+    const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain('same page numbers no longer hold the same bookmarks');
+  });
+
+  it('offers nothing to resume for a finished run, or one that is not a scan', async () => {
+    await show([aRun({ action: 'quick' }), aRun({ id: 'x', file: 'x.json', status: 'failed' })]);
+    expect(element.querySelector('.run-resume')).toBeNull();
+  });
+
+  it('links a resumed run and the run it picked up, both ways', async () => {
+    await show([
+      aRun({ id: 'later', file: 'b.json', action: 'quick', started: '2026-09-14T09:00:00',
+             resumes: 'abc', baseline: '2026-09-13T12:01:00' }),
+      aRun({ action: 'quick', status: 'interrupted', resumedBy: 'later', progress: {} }),
+    ]);
+
+    const said = (element.textContent ?? '').replace(/\s+/g, ' ');
+    expect(said).toContain('Picks up where the run from');
+    expect(said).toContain('Resumed by the run from');
   });
 
   it('does not call a stopped run a failure', async () => {

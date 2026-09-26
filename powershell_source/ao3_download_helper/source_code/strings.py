@@ -558,3 +558,40 @@ FAILED_LOGIN_NO_TOKEN = 'could not find authenticity token field in login form'
 FAILED_LOGIN_NO_TOKEN_VALUE = 'authenticity token field was empty'
 
 # endregion
+
+
+# region resuming an earlier run - see RESUMING.md
+
+AO3_INFO_RESUMING = 'resuming the {} that started {} - it stopped at: {}'
+AO3_INFO_RESUME_NO_STEP = 'before its first step'
+AO3_INFO_RESUME_ANSWER = 'using the answer the earlier attempt was given: {}'
+AO3_INFO_RESUME_SCOPE = ('the earlier attempt had finished indexing - checking and downloading '
+                         'its {} works')
+AO3_INFO_RESUME_WALK_DONE = 'the earlier attempt finished this walk - taking its works from the index'
+AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: it is sorted by '
+                              'date updated, so nothing in it stays in place between attempts')
+AO3_INFO_RESUME_LOOKING = 'looking for where the earlier attempt stopped: page {}'
+AO3_INFO_RESUME_FOUND = 'found it on page {} - carrying on from there'
+AO3_INFO_RESUME_ANCHOR_LOST = ('could not find where the earlier attempt stopped, so this walk '
+                               'starts again from the first page')
+AO3_INFO_RESUME_SERIES_DONE = 'the earlier attempt walked every marked series already'
+AO3_INFO_RESUME_NON_BOOKMARKS_DONE = 'the earlier attempt already checked every non-bookmark'
+AO3_INFO_RESUME_FLOOR = 'measuring back to {}, as the earlier attempt did'
+AO3_INFO_RESUME_CEILING = ('keeping works ao3 updated up to {}, when the first attempt started: '
+                           '{} of them')
+AO3_INFO_RESUME_UPDATE_DONE = 'the earlier attempt already finished {} of these fics'
+
+RESUME_NOT_FOUND = 'That run is not in this library\'s history.'
+RESUME_WRONG_ACTION = 'Only full scans, quick scans and custom runs can be resumed.'
+RESUME_SLICE = ('A custom run over a slice of your bookmarks listing cannot be resumed: '
+                'bookmarks added or removed since move every page, so the same page numbers '
+                'no longer hold the same bookmarks.')
+RESUME_FINISHED = 'That run finished - there is nothing to resume.'
+RESUME_STILL_RUNNING = 'That run is still going.'
+RESUME_TOO_OLD = ('That run is from before runs saved their progress, so there is nothing to '
+                  'pick up from. Start it again instead.')
+RESUME_ALREADY_RESUMED = 'It has already been resumed once.'
+RESUME_NEWER_SCAN = ('A full or quick scan has finished since, so resuming this one will mostly '
+                     'go over ground already covered.')
+
+# endregion

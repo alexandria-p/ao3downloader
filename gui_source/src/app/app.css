@@ -247,3 +247,35 @@
 }
 
 /* endregion */
+
+/* the moment between pressing a run's button and its window opening */
+.checking-runs {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg, #000) 55%, transparent);
+  color: var(--text-strong, inherit);
+  font-weight: 600;
+}
+
+.checking-runs .spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: checking-spin 0.8s linear infinite;
+}
+
+@keyframes checking-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checking-runs .spinner { animation-duration: 2.4s; }
+}
+

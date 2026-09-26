@@ -21,7 +21,7 @@ import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from source_code import exceptions, indexing, parse_text, progress, runs, strings
+from source_code import exceptions, indexing, parse_soup, parse_text, progress, runs, strings
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -123,6 +123,14 @@ OVERWRITE_ACTIONS = (ACTION_BOOKMARKS, ACTION_CUSTOM)
 # a custom run told to skip indexing has ruled out.
 NON_BOOKMARK_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
 
+# The runs that can be picked up where an earlier attempt left off - see RESUMING.md. The
+# three scans; the rest are short enough that starting again is the resume.
+RESUME_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
+
+# How many pages a resumed walk looks through for the last bookmark the earlier attempt
+# saved, before giving up and starting that walk from the first page.
+ANCHOR_SEARCH_PAGES = 6
+
 # json is always produced, so the ui shows it ticked and locked. it is what the web page
 # reads, and it costs nothing extra: the metadata comes off the listing page that has to be
 # fetched anyway, rather than one request per work.
@@ -208,6 +216,9 @@ def resolve_options(requested) -> dict:
         # a quick scan told which earlier scan to measure back to, by that run's id. only the
         # id travels: the date is read off the run's own record, so a request cannot invent one
         'floorRun': str(given.get('floorRun') or '').strip(),
+        # the earlier run to pick up from, by id. like the floor, only the id travels: what
+        # the run does is read off that run's own record, and its settings replace these
+        'resume': str(given.get('resume') or '').strip(),
     }
 
 
@@ -312,6 +323,12 @@ class Job:
         self.answer: dict = {}
         self.history: list[dict] = []
         self.lock = threading.Lock()
+        # the run this one picks up from - see `prepare_resume` - and the answers it gave to
+        # the questions it asked, by question name, which are used rather than asked again
+        self.resume: dict | None = None
+        self.prior_answers: dict[str, dict] = {}
+        # the moment the login succeeded, or the first attempt's when resuming
+        self.baseline = ''
 
     def emit(self, event: dict) -> None:
         with self.lock:
@@ -328,6 +345,12 @@ class Job:
         the option that changes nothing.
         """
 
+        prior = self.prior_answers.get(str(question.get('name') or ''))
+        if prior is not None:
+            # a resumed run does not ask again what the attempt before it was already told
+            print(strings.AO3_INFO_RESUME_ANSWER.format(prior.get('choice')))
+            return dict(prior)
+
         self.answer = {}
         self.answered.clear()
         self.emit({'type': progress.QUESTION, **question})
@@ -340,6 +363,18 @@ class Job:
             waited += ANSWER_POLL_SECONDS
 
         return self.answer or default
+
+
+    def progress(self) -> dict:
+        """How far this run has got, as its history file records it."""
+        return self.record.data.setdefault('progress', {}) if self.record else {}
+
+    def earlier_progress(self) -> dict:
+        """How far the run this one resumes had got; empty when it resumes nothing."""
+        return (self.resume or {}).get('progress') or {}
+
+    def checkpoint(self, **fields) -> None:
+        if self.record: self.record.checkpoint(**fields)
 
 
     def skipping(self) -> bool:
@@ -446,10 +481,12 @@ class Steps:
     unfinished fics has not gone wrong.
     """
 
-    def __init__(self, report, plan: list[tuple[str, str]]) -> None:
+    def __init__(self, report, plan: list[tuple[str, str]], on_start=None) -> None:
         self.report = report
         self.plan = plan
         self.current: str | None = None
+        # told which step is starting, so the history file says where an interrupted run was
+        self.on_start = on_start
         progress.report(report, progress.STEPS,
                         steps=[{'id': i, 'label': label} for i, label in plan])
 
@@ -459,6 +496,12 @@ class Steps:
     def start(self, step: str) -> None:
         self.current = step
         self._set(step, progress.STEP_RUNNING)
+        if self.on_start: self.on_start(step, dict(self.plan).get(step, step))
+
+    def earlier(self, step: str) -> None:
+        """A resumed run's step that the attempt it picks up from had already finished."""
+        if self.current == step: self.current = None
+        self._set(step, progress.STEP_EARLIER)
 
     def done(self, step: str) -> None:
         if self.current == step: self.current = None
@@ -638,6 +681,9 @@ def run_job(job: Job, password: str) -> None:
         # the library is the page's: every file goes through it
         fileops = FileOps(storage=PageStorage(job))
         fileops.initialize()
+        # before anything is announced: a resumed run takes the earlier run's workflow, file
+        # types and options, so the checklist and the history file describe that run
+        if job.options.get('resume'): prepare_resume(job, fileops)
         with contextlib.redirect_stdout(stream):
             with Repository(fileops, progress=report, cancelled=job.cancel.is_set,
                             held=job.held.is_set) as repo:
@@ -645,7 +691,8 @@ def run_job(job: Job, password: str) -> None:
                           'filetypes': job.filetypes, 'options': job.options})
                 # the checklist goes out before anything happens, so the ui can show what
                 # is still to come rather than only what has already been done
-                job.steps = Steps(report, step_plan(job))
+                job.steps = Steps(report, step_plan(job), on_start=lambda step, label:
+                                  job.checkpoint(step=step, stepLabel=label))
 
                 # announced separately so the ui can show it is waiting, and say whether
                 # the credentials worked before anything else starts
@@ -666,6 +713,7 @@ def run_job(job: Job, password: str) -> None:
                                             settings=settings_for_record(fileops))
                 repo.login(job.username, password)
                 print(strings.AO3_INFO_LOGGED_IN)
+                begin_record(job, fileops)
                 progress.report(report, progress.AUTHENTICATED, username=job.username)
                 job.steps.done('login')
 
@@ -700,6 +748,258 @@ def run_job(job: Job, password: str) -> None:
         job.finish()
 
 
+def prepare_resume(job: Job, fileops: FileOps) -> None:
+    """Take on the earlier run this one picks up from: its workflow, file types and options,
+    how far it got, and the answers it was given.
+
+    Refused, before anything starts, when that run cannot be resumed - `resume_problem`
+    says why in words the page shows.
+    """
+
+    earlier = runs.find_run(fileops, job.options['resume'])
+    problem = resume_problem(earlier, active_job_ids(exclude=job.id))
+    if problem: raise exceptions.Ao3DownloaderException(problem)
+
+    job.action = earlier['action']
+    job.filetypes = list(earlier.get('filetypes') or [])
+    job.options = {**resolve_options(earlier.get('options')), 'resume': earlier['id']}
+    job.resume = {
+        'id': earlier['id'],
+        'file': earlier.get('file') or '',
+        'first': earlier.get('resumesFirst') or earlier['id'],
+        'baseline': earlier.get('baseline') or '',
+        'progress': json.loads(json.dumps(earlier.get('progress') or {})),
+    }
+    job.prior_answers = {str(c['question']): {k: v for k, v in c.items()
+                                               if k in ('choice', 'date')}
+                         for c in earlier.get('choices') or []
+                         if isinstance(c, dict) and c.get('question') and c.get('choice')}
+    print(strings.AO3_INFO_RESUMING.format(
+        earlier.get('actionName') or earlier['action'],
+        str(earlier.get('started') or '')[:16].replace('T', ' '),
+        (earlier.get('progress') or {}).get('stepLabel') or strings.AO3_INFO_RESUME_NO_STEP))
+
+
+def begin_record(job: Job, fileops: FileOps) -> None:
+    """Once the login has worked: set the run's baseline, and, when resuming, start from the
+    earlier run's progress and tell that run it has been picked up.
+
+    The baseline is the moment the login succeeded - what a later quick scan measures back
+    to. A resumed run keeps the **first** attempt's, because it is finishing that run's work:
+    anything changed since then is for the next scan to find.
+    """
+
+    resume = job.resume
+    job.baseline = (resume or {}).get('baseline') or runs.now()
+    if not job.record: return
+    if resume:
+        job.record.data['progress'] = json.loads(json.dumps(resume['progress']))
+        job.record.logged_in(job.baseline, resumes=resume['id'], first=resume['first'])
+        if resume.get('file'): runs.amend_run(fileops, resume['file'], {'resumedBy': job.id})
+    else:
+        job.record.logged_in(job.baseline)
+
+
+def active_job_ids(exclude: str = '') -> set[str]:
+    """The runs this helper is working on right now."""
+
+    with Handler.jobs_lock:
+        return {job_id for job_id, job in Handler.jobs.items()
+                if not job.done.is_set() and job_id != exclude}
+
+
+def resume_problem(record: dict | None, active: set[str]) -> str:
+    """Why a run cannot be picked up from, or '' when it can."""
+
+    if not record: return strings.RESUME_NOT_FOUND
+    if record.get('action') not in RESUME_ACTIONS: return strings.RESUME_WRONG_ACTION
+    options = record.get('options') or {}
+    if record.get('action') == ACTION_CUSTOM and not options.get('dates') and \
+            (int(options.get('pages') or 0) or int(options.get('start') or 1) > 1):
+        return strings.RESUME_SLICE
+    if record.get('status') == runs.STATUS_SUCCESS: return strings.RESUME_FINISHED
+    if record.get('status') == runs.STATUS_RUNNING and record.get('id') in active:
+        return strings.RESUME_STILL_RUNNING
+    if not isinstance(record.get('progress'), dict): return strings.RESUME_TOO_OLD
+    return ''
+
+
+def resumable_among(records: list[dict], active: set[str]) -> list[dict]:
+    """The unfinished scans among `records`, each saying whether it can be resumed and, if
+    it can, anything worth knowing first. Newest first, as given."""
+
+    found = []
+    for index, record in enumerate(records):
+        if not isinstance(record, dict): continue
+        if record.get('action') not in RESUME_ACTIONS: continue
+        if record.get('status') == runs.STATUS_SUCCESS: continue
+        problem = resume_problem(record, active)
+        warnings = []
+        if record.get('resumedBy'): warnings.append(strings.RESUME_ALREADY_RESUMED)
+        # a later scan that finished has most likely covered what this one had left
+        if any(isinstance(x, dict) and x.get('status') == runs.STATUS_SUCCESS
+               and covered_the_whole_listing(x) for x in records[:index]):
+            warnings.append(strings.RESUME_NEWER_SCAN)
+        found.append({**record, 'resumable': not problem, 'reason': problem,
+                      'warnings': warnings})
+    return found
+
+
+def records_by_id(fileops: FileOps, ids) -> list[dict]:
+    """The index entries for these work numbers, in the order given; ones the index no
+    longer holds are left out."""
+
+    wanted = [str(x) for x in ids or []]
+    if not wanted: return []
+    by_id = {str(r.get('id') or ''): r for r in shared.read_index(fileops)}
+    return [by_id[x] for x in dict.fromkeys(wanted) if x in by_id]
+
+
+def resumed_scope(job: Job, fileops: FileOps) -> list[dict] | None:
+    """The works a resumed run covers, when the run it picks up from had already settled
+    them - got as far as checking its files. None when it had not."""
+
+    scope = job.earlier_progress().get('scope')
+    if scope is None: return None
+    print(strings.AO3_INFO_RESUME_SCOPE.format(len(scope)))
+    job.checkpoint(scope=list(scope))
+    return records_by_id(fileops, scope)
+
+
+def save_scope(job: Job, records: list[dict]) -> None:
+    """Record which works this run covers, as it starts checking files - what a resumed
+    run goes on to check and download without indexing again."""
+
+    job.checkpoint(scope=[str(r['id']) for r in records if r.get('id')])
+
+
+def mark_earlier(job: Job, *steps: str) -> None:
+    """Mark steps the resumed run's earlier attempt finished - the ones this plan has."""
+
+    planned = {step for step, _ in job.steps.plan}
+    for step in steps:
+        if step in planned: job.steps.earlier(step)
+
+
+def restore_series(job: Job, ao3: Ao3) -> None:
+    """Give a resumed run the series the earlier attempt had marked, and the ones it had
+    already walked, so neither is lost nor walked twice."""
+
+    earlier = job.earlier_progress()
+    for marked in earlier.get('seriesMarked') or []:
+        if isinstance(marked, dict) and marked.get('id'):
+            ao3.series_marked.setdefault(str(marked['id']), {
+                'id': str(marked['id']), 'title': marked.get('title') or '',
+                'bookmark': marked.get('bookmark')})
+    for series_id in earlier.get('seriesDone') or []:
+        ao3.series_read.setdefault(str(series_id), [])
+
+
+def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
+                 anchored: bool, **kwargs) -> list[dict]:
+    """Walk one listing through `get_metadata`, saving how far it gets - and, when resuming,
+    carrying on from where the earlier attempt stopped.
+
+    `name` tells this run's walks apart (`all`, `bookmarked`, `updated`). A walk the earlier
+    attempt finished is not walked again: its works are taken from the index. One it did
+    not finish is picked up from the page it stopped on when `anchored` - a listing sorted by
+    date bookmarked, where the last bookmark it saved can be found again (`find_anchor`).
+    A listing sorted by date updated is walked again from the first page: a fic ao3 updated
+    since moves to the top, so no place in it stays put.
+
+    Returns the works the walk covers, in both attempts. Whether it was walked at all this
+    time is left on `ao3.walk_skipped`, for the caller's checklist.
+    """
+
+    walks = job.progress().setdefault('walks', {})
+    earlier = (job.earlier_progress().get('walks') or {}).get(name) if job.resume else None
+    carried: list[str] = []
+    start = ao3.start
+    ao3.walk_skipped = False
+
+    if earlier and earlier.get('done'):
+        print(strings.AO3_INFO_RESUME_WALK_DONE)
+        walks[name] = earlier
+        job.checkpoint(walks=walks)
+        ao3.walk_skipped = True
+        return records_by_id(fileops, earlier.get('works'))
+    if earlier and anchored and earlier.get('anchor') and earlier.get('page'):
+        page = find_anchor(ao3, link, int(earlier['page']), earlier['anchor'])
+        if page:
+            ao3.start = page
+            carried = [str(x) for x in earlier.get('works') or []]
+        else:
+            print(strings.AO3_INFO_RESUME_ANCHOR_LOST)
+    elif earlier and not anchored:
+        print(strings.AO3_INFO_RESUME_WALK_AGAIN)
+
+    state = {'page': None, 'anchor': None, 'done': False, 'works': list(carried)}
+
+    def on_page(page: int, anchor: dict | None, works: list[str]) -> None:
+        state['page'] = page
+        if anchor: state['anchor'] = anchor
+        state['works'].extend(x for x in works if x not in state['works'])
+        walks[name] = state
+        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()))
+
+    ao3.on_page = on_page
+    try:
+        records = ao3.get_metadata(link, job.options['workdates'], **kwargs)
+    finally:
+        ao3.on_page = None
+        ao3.start = start
+    if ao3.walk_finished and not job.cancel.is_set():
+        state['done'] = True
+        walks[name] = state
+        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()))
+    return merge_by_work(records_by_id(fileops, carried), records)
+
+
+def find_anchor(ao3: Ao3, link: str, page: int, anchor: dict) -> int | None:
+    """The page of a listing sorted by date bookmarked that now holds `anchor`, the last
+    bookmark an earlier attempt saved - or None when it cannot be found nearby.
+
+    Pages move between attempts: bookmarks added since push everything down, and ones
+    removed pull it up. The listing is in date order, so each page says which way to look -
+    everything on it newer than the bookmark means it is further down, everything older
+    means further up. A page that straddles the bookmark's day is searched either side.
+    """
+
+    wanted = str(anchor.get('id') or '')
+    date = str(anchor.get('date') or '')
+    if not wanted: return None
+
+    tried: set[int] = set()
+    total = None
+    current = max(1, page)
+    while len(tried) < ANCHOR_SEARCH_PAGES:
+        if total and current > total: current = total
+        if current < 1 or current in tried: break
+        print(strings.AO3_INFO_RESUME_LOOKING.format(current))
+        soup = ao3.repo.get_soup(parse_text.set_page_number(link, current))
+        tried.add(current)
+        if total is None:
+            total = parse_soup.get_total_pages(soup) or 1
+            if current > total:
+                current = total
+                continue
+        blurbs = parse_soup.get_blurbs(soup)
+        if any(parse_soup.get_blurb_id(b) == wanted for b in blurbs):
+            print(strings.AO3_INFO_RESUME_FOUND.format(current))
+            return current
+        dates = [d for d in (parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+            b, 'div.user p.datetime')) for b in blurbs) if d]
+        if date and dates and min(dates) > date:
+            current += 1
+        elif date and dates and max(dates) < date:
+            current -= 1
+        else:
+            nearby = [x for x in (current + 1, current - 1) if x >= 1 and x not in tried]
+            if not nearby: break
+            current = nearby[0]
+    return None
+
+
 def close_record(job: Job, status: str, error: str = '') -> None:
     """Finish this run's history file, whatever happened to the run.
 
@@ -723,7 +1023,7 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     bookmarks added since the last one.
     """
 
-    link = f'{strings.AO3_BASE_URL}/users/{job.username}/bookmarks'
+    link = sorted_bookmarks_link(job)
     metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
 
@@ -738,15 +1038,23 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     # the run record reads its fic lists off this when the run ends
     job.ao3 = ao3
 
+    restore_series(job, ao3)
+
     # indexing first: every bookmark gets its json before any work is downloaded, so an
     # interrupted run still leaves a complete index of what is bookmarked.
     records: list[dict] = []
-    if metadata:
+    scoped = resumed_scope(job, fileops)
+    if scoped is not None:
+        # the earlier attempt got as far as checking its files: nothing left to index
+        records = scoped
+        mark_earlier(job, 'index', 'series', 'nonbookmarks')
+    elif metadata:
         job.steps.start('index')
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
-        records = ao3.get_metadata(link, job.options['workdates'], own_bookmarks=True)
-        job.steps.done('index')
+        records = walk_listing(job, fileops, ao3, 'all', link, anchored=True,
+                               own_bookmarks=True)
+        mark_earlier(job, 'index') if ao3.walk_skipped else job.steps.done('index')
         records = merge_by_work(records,
                                 index_series_and_non_bookmarks(job, fileops, ao3, report))
     else:
@@ -755,6 +1063,7 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
     if downloadtypes and not job.cancel.is_set():
         job.steps.start('check')
+        save_scope(job, records)
         # the index is what says how recently each work was updated, so this can only be
         # judged once indexing has run
         plan = plan_refresh(job, fileops, records, downloadtypes, report)
@@ -815,16 +1124,38 @@ def index_marked_series(job: Job, ao3: Ao3, report) -> list[dict]:
     step is skipped - a run with no series to walk has not gone wrong.
     """
 
+    # a resumed run carries on from the series the earlier attempt had already walked
+    earlier = job.earlier_progress() if job.resume else {}
+    done = [str(x) for x in earlier.get('seriesDone') or []]
+    walked = [str(x) for x in earlier.get('seriesWorks') or []]
+    carried = records_by_id(ao3.fileops, walked) if walked else []
+
     if job.cancel.is_set() or not ao3.series_marked:
         if not job.cancel.is_set(): print(strings.AO3_INFO_SERIES_NONE)
         job.steps.skip('series')
-        return []
+        return carried
+    if done and all(series_id in ao3.series_read for series_id in ao3.series_marked):
+        print(strings.AO3_INFO_RESUME_SERIES_DONE)
+        mark_earlier(job, 'series')
+        return carried
+
+    def on_series(series_id: str, works: list[str]) -> None:
+        done.append(series_id)
+        walked.extend(works)
+        job.checkpoint(seriesDone=done, seriesWorks=walked,
+                       seriesMarked=list(ao3.series_marked.values()))
+
     job.steps.start('series')
+    job.checkpoint(seriesMarked=list(ao3.series_marked.values()))
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_SERIES_STEP.format(len(ao3.series_marked)))
-    works = ao3.walk_marked_series()
+    ao3.on_series = on_series
+    try:
+        works = ao3.walk_marked_series()
+    finally:
+        ao3.on_series = None
     job.steps.done('series')
-    return works
+    return merge_by_work(carried, works)
 
 
 def index_series_and_non_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[dict]:
@@ -901,15 +1232,27 @@ def update_non_bookmarks(job: Job, ao3: Ao3, found: list[dict], report) -> list[
 
     left = newest_first([record for record in found
                          if str(record.get('id') or '') not in ao3.reindexed])
+    # a resumed run does not re-read the ones the earlier attempt already had
+    before = [str(x) for x in (job.earlier_progress().get('nonBookmarksDone') or [])] \
+        if job.resume else []
+    carried = [record for record in left if str(record.get('id') or '') in before]
+    left = [record for record in left if str(record.get('id') or '') not in before]
+    finished = list(before)
     if job.cancel.is_set() or not left:
-        if not job.cancel.is_set(): print(strings.AO3_INFO_NON_BOOKMARKS_NONE_LEFT)
-        job.steps.skip('nonbookmarks')
-        return []
+        if job.cancel.is_set():
+            job.steps.skip('nonbookmarks')
+        elif carried:
+            print(strings.AO3_INFO_RESUME_NON_BOOKMARKS_DONE)
+            mark_earlier(job, 'nonbookmarks')
+        else:
+            print(strings.AO3_INFO_NON_BOOKMARKS_NONE_LEFT)
+            job.steps.skip('nonbookmarks')
+        return carried
 
     job.steps.start('nonbookmarks')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_NON_BOOKMARKS_READING.format(len(left)))
-    fresh: list[dict] = []
+    fresh: list[dict] = list(carried)
     for done, record in enumerate(left, start=1):
         if job.cancel.is_set(): break
         if job.skipping():
@@ -931,12 +1274,24 @@ def update_non_bookmarks(job: Job, ao3: Ao3, found: list[dict], report) -> list[
         except Exception as e:
             ao3.record_failure(link, e)
             ao3.log_error({'link': link}, e)
+        finished.append(str(record.get('id') or ''))
+        job.checkpoint(nonBookmarksDone=finished)
     job.steps.done('nonbookmarks')
     return fresh
 
 
 def bookmarks_link(job: Job) -> str:
     return f'{strings.AO3_BASE_URL}/users/{job.username}/bookmarks'
+
+
+def sorted_bookmarks_link(job: Job) -> str:
+    """Your bookmarks, newest bookmarked first - asked for by name.
+
+    It is also ao3's default order, but a run that may be resumed has to be sure of it:
+    finding where an earlier attempt stopped goes by the date each bookmark was made.
+    """
+
+    return f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_BOOKMARKED}'
 
 
 def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[dict]:
@@ -976,6 +1331,7 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
         return
 
     job.steps.start('check')
+    save_scope(job, records)
     plan = plan_refresh(job, fileops, records, downloadtypes, report, overwrite)
     # an out-of-date copy is not 'already downloaded', so it must not be skipped
     visited = shared.already_downloaded(plan['existing'], downloadtypes, records, plan['stale'])
@@ -1264,16 +1620,36 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
               progress=report, cancelled=job.cancel.is_set)
     # the run record reads its fic lists off this when the run ends
     job.ao3 = ao3
+    restore_series(job, ao3)
+
+    scoped = resumed_scope(job, fileops)
+    if scoped is not None:
+        # the earlier attempt got as far as checking its files: nothing left to index
+        mark_earlier(job, 'bookmarked', 'index', 'series', 'nonbookmarks')
+        download_planned(job, fileops, ao3, scoped, downloadtypes, report)
+        finish_run(job, fileops, ao3, report)
+        return
 
     # a date range gives both walks their floor directly, and a ceiling too; otherwise the
     # floor comes from an earlier scan
     window = bool(job.options['dates'])
     ceiling = job.options['dateTo'] if window else ''
+    earlier = job.earlier_progress()
+    if job.resume and job.baseline:
+        # a resumed scan finishes the first attempt's work, which reached up to the moment
+        # it logged in. anything changed since is the next scan's to find
+        started = job.baseline[:10]
+        ceiling = min(ceiling, started) if ceiling else started
 
     # the user may have picked the scan to measure back to, in which case nothing is worked
     # out or asked
     floor = chosen_floor(fileops, job.options['floorRun']) if job.options.get('floorRun') else ''
-    if window:
+    if job.resume and 'floor' in earlier:
+        # the floor the first attempt measured back to, not one worked out afresh - the runs
+        # on record have changed since, and this is still that run
+        floor = str(earlier.get('floor') or '')
+        print(strings.AO3_INFO_RESUME_FLOOR.format(floor or strings.AO3_INFO_DATE_ANY))
+    elif window:
         floor = job.options['dateFrom']
         print(strings.AO3_INFO_QUICK_WINDOW.format(floor or strings.AO3_INFO_DATE_ANY,
                                                     ceiling or strings.AO3_INFO_DATE_NOW))
@@ -1292,6 +1668,7 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             # if the user says so - see settle_quick_floor
             floor = settle_quick_floor(job, fileops, report)
             if not floor: print(strings.AO3_INFO_QUICK_NO_FLOOR)
+    job.checkpoint(floor=floor)
 
     records: list[dict] = []
     if metadata:
@@ -1303,11 +1680,10 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         # 2019 sits far below the floor on that listing and would never be reached
         job.steps.start('bookmarked')
         print(strings.AO3_INFO_QUICK_BOOKMARKED.format(floor or strings.AO3_INFO_DATE_ANY))
-        by_bookmarked = ao3.get_metadata(
-            f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_BOOKMARKED}',
-            job.options['workdates'], stop_before=floor, stop_on='bookmarked',
-            own_bookmarks=True)
-        job.steps.done('bookmarked')
+        by_bookmarked = walk_listing(
+            job, fileops, ao3, 'bookmarked', sorted_bookmarks_link(job), anchored=True,
+            stop_before=floor, stop_on='bookmarked', own_bookmarks=True)
+        mark_earlier(job, 'bookmarked') if ao3.walk_skipped else job.steps.done('bookmarked')
 
         # 2. fics ao3 has changed since the floor, newest updated first - the ones already
         # bookmarked before it, which the first pass stopped short of
@@ -1320,10 +1696,12 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         elif not job.cancel.is_set():
             job.steps.start('index')
             print(strings.AO3_INFO_QUICK_UPDATED.format(floor))
-            by_updated = ao3.get_metadata(
-                f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
-                job.options['workdates'], stop_before=floor, own_bookmarks=True)
-            job.steps.done('index')
+            # never picked up partway, even when resuming: a fic ao3 updated since moves to
+            # the top of this listing, so no page of it stays where it was
+            by_updated = walk_listing(
+                job, fileops, ao3, 'updated', f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
+                anchored=False, stop_before=floor, own_bookmarks=True)
+            mark_earlier(job, 'index') if ao3.walk_skipped else job.steps.done('index')
 
         if window:
             # a listing cannot be entered at a date, so both walks start at the newest and read
@@ -1334,6 +1712,11 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
                 by_updated = by_bookmarked
             by_bookmarked = works_dated_between(by_bookmarked, 'date_bookmarked', floor, ceiling)
             by_updated = works_dated_between(by_updated, 'date_updated', floor, ceiling)
+        elif job.resume and ceiling:
+            # walked again from the top, so it read past the first attempt's start on the
+            # way down. only what ao3 updated up to then is this run's to download
+            by_updated = works_dated_between(by_updated, 'date_updated', floor, ceiling)
+            print(strings.AO3_INFO_RESUME_CEILING.format(ceiling, len(by_updated)))
 
         # either scan may have found a fic; the other may have found it too
         records = merge_by_work(by_bookmarked, by_updated)
@@ -1403,7 +1786,8 @@ def quick_scan_floor(fileops: FileOps) -> str:
 
     last = runs.last_successful(fileops, match=covered_the_whole_listing)
     if not last: return ''
-    return str(last.get('started') or '')[:10]
+    # when its reach began: the moment its login worked, or its first attempt's if resumed
+    return runs.baseline_of(last)[:10]
 
 
 def newest_indexed_on(records: list[dict]) -> str:
@@ -1495,7 +1879,7 @@ def chosen_floor(fileops: FileOps, run_id: str) -> str:
     if not run_id: return ''
     for record in floor_runs(fileops):
         if str(record.get('id') or '') == run_id:
-            return str(record.get('started') or '')[:10]
+            return runs.baseline_of(record)[:10]
     return ''
 
 
@@ -1548,19 +1932,33 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         finish_run(job, fileops, ao3, report)
         return
 
+    restore_series(job, ao3)
+    scoped = resumed_scope(job, fileops)
+    if scoped is not None:
+        # the earlier attempt got as far as checking its files: nothing left to index
+        records = scoped
+        mark_earlier(job, 'index', 'series', 'nonbookmarks')
+        download_planned(job, fileops, ao3, records, downloadtypes, report)
+        if job.options['images']: save_images(job, fileops, ao3, records, report)
+        finish_run(job, fileops, ao3, report)
+        return
+
     job.steps.start('index')
+    walked = False
     if job.options['reindex'] and metadata:
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
-        records = ao3.get_metadata(bookmarks_link(job), job.options['workdates'],
-                                   own_bookmarks=True)
+        records = walk_listing(job, fileops, ao3, 'all', sorted_bookmarks_link(job),
+                               anchored=True, own_bookmarks=True)
+        walked = not ao3.walk_skipped
     else:
         print(strings.AO3_INFO_USING_LAST_INDEX)
         records = shared.read_index(fileops)
         print(strings.AO3_INFO_INDEXED_COUNT.format(len(records)))
         # not re-read, but what each entry says about its series is enough to walk them
         for record in records: ao3.mark_series_of(record)
-    job.steps.done('index')
+        walked = True
+    job.steps.done('index') if walked else mark_earlier(job, 'index')
 
     records = merge_by_work(records, index_series_and_non_bookmarks(job, fileops, ao3, report))
     download_planned(job, fileops, ao3, records, downloadtypes, report)
@@ -1950,6 +2348,7 @@ def refresh_and_download(job: Job, fileops: FileOps, ao3: Ao3, records: list[dic
     # carries no date. asked now, before a single request, because the answer decides which
     # copies count as behind.
     records = newest_first(records)
+    save_scope(job, records)
     existing: dict = {}
     refresh_undated = False
     overwrite = bool(job.options.get('overwrite'))
@@ -1983,12 +2382,19 @@ def refresh_and_download(job: Job, fileops: FileOps, ao3: Ao3, records: list[dic
     checked = 0
     fetched = 0
     skipped_step = False
+    # a resumed run does not go over the fics the earlier attempt already finished
+    before = {str(x) for x in (job.earlier_progress().get('updateDone') or [])} \
+        if job.resume else set()
+    finished = sorted(before)
+    if before: print(strings.AO3_INFO_RESUME_UPDATE_DONE.format(
+        len([r for r in records if str(r.get('id') or '') in before])))
     for record in records:
         if job.cancel.is_set(): break
         if job.skipping():
             print(strings.AO3_INFO_STEP_SKIPPED)
             skipped_step = True
             break
+        if str(record.get('id') or '') in before: continue
         checked += 1
         try:
             fetched += update_one_work(ao3, record, existing, downloadtypes, maximum,
@@ -1997,6 +2403,8 @@ def refresh_and_download(job: Job, fileops: FileOps, ao3: Ao3, records: list[dic
         except exceptions.CancelledException:
             # a stop is not a failed run; what has been written so far stays written
             break
+        finished.append(str(record.get('id') or ''))
+        job.checkpoint(updateDone=finished)
 
     print(strings.AO3_INFO_UPDATE_DONE.format(checked, fetched))
     # a step that was abandoned must not claim to have finished
@@ -2028,16 +2436,30 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
     end = job.options['dateTo']
     metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
 
+    restore_series(job, ao3)
+    scoped = resumed_scope(job, fileops)
+    if scoped is not None:
+        # the earlier attempt got as far as checking its files: nothing left to index
+        mark_earlier(job, 'index', 'read', 'series', 'nonbookmarks')
+        if scoped:
+            refresh_and_download(job, fileops, ao3, scoped, downloadtypes, report)
+        else:
+            job.steps.skip('check')
+            job.steps.skip('update')
+        return
+
     if job.options['reindex'] and metadata:
         job.steps.start('index')
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_DATE_INDEXING.format(start) if start
               else strings.AO3_INFO_DATE_NO_FLOOR)
         # the whole index is read below rather than just what came back here: a fic in the
-        # window that is no longer bookmarked is still one the window asked for
-        ao3.get_metadata(f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
-                         job.options['workdates'], stop_before=start, own_bookmarks=True)
-        job.steps.done('index')
+        # window that is no longer bookmarked is still one the window asked for. walked again
+        # from the top when resuming, as every listing sorted by date updated is
+        walk_listing(job, fileops, ao3, 'updated',
+                     f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}', anchored=False,
+                     stop_before=start, own_bookmarks=True)
+        mark_earlier(job, 'index') if ao3.walk_skipped else job.steps.done('index')
     elif metadata:
         # asked for, and turned off - so it is shown as skipped rather than dropped
         print(strings.AO3_INFO_USING_LAST_INDEX)
@@ -2345,6 +2767,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
 
+        if self.path == '/api/jobs':
+            # which runs are really going, so the page can tell an interrupted run's record -
+            # still saying 'running' - from one that is
+            self.send_json(200, {'active': sorted(active_job_ids())})
+            return
+
         if self.path.startswith('/api/jobs/') and self.path.endswith('/events'):
             self.stream_events(self.path.split('/')[3])
             return
@@ -2366,6 +2794,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {'error': 'invalid json'})
                 return
             self.send_json(200, {'runs': floors_among(records if isinstance(records, list) else [])})
+            return
+
+        if self.path == '/api/runs/resumable':
+            # the same arrangement: the page reads the history, the rule for what can be
+            # resumed is the helper's
+            try:
+                records = self.read_json().get('runs')
+            except Exception:
+                self.send_json(400, {'error': 'invalid json'})
+                return
+            self.send_json(200, {'runs': resumable_among(
+                records if isinstance(records, list) else [], active_job_ids())})
             return
 
         if self.path.startswith('/api/jobs/') and '/storage/' in self.path:
@@ -2425,6 +2865,8 @@ class Handler(BaseHTTPRequestHandler):
         # into what a run may actually do - a stray flag must not make a routine run
         # re-fetch a whole library
         if action not in OVERWRITE_ACTIONS: options['overwrite'] = False
+        # the scans alone can be resumed; the run itself checks the one named can be
+        if action not in RESUME_ACTIONS: options['resume'] = ''
         # the same for checking non-bookmarks, which costs a request per work outside a series
         if action not in NON_BOOKMARK_ACTIONS: options['nonBookmarks'] = False
         # a chosen floor is the quick scan's alone, and has to name a run that can be one -

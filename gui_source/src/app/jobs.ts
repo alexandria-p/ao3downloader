@@ -103,6 +103,11 @@ export interface JobOptions {
    * one that is not a valid floor, so a request can never invent a date.
    */
   floorRun: string;
+  /**
+   * The earlier run to pick up where it left off, by id. The helper reads that run's own
+   * record and takes its workflow, file types and options from it - see RESUMING.md.
+   */
+  resume?: string;
 }
 
 /** what to do about downloaded files that carry no date, asked part way through a run */
@@ -140,7 +145,7 @@ export interface RunRemoval {
  * 'skipped' is not 'failed'. A run with no unfinished fics skips that step and nothing has
  * gone wrong, so the two must not look alike.
  */
-export type StepStatus = 'waiting' | 'running' | 'done' | 'skipped' | 'failed';
+export type StepStatus = 'waiting' | 'running' | 'done' | 'skipped' | 'failed' | 'earlier';
 
 /** one step of the checklist a run publishes before it starts */
 export interface RunStep {
@@ -153,9 +158,11 @@ export interface RunStep {
  * How a past run ended.
  *
  * `running` is also what an **interrupted** run is left as: the record is written when a
- * run starts, and a run killed mid-flight never gets to write its ending.
+ * run starts, and a run killed mid-flight never gets to write its ending. The page turns
+ * that into `interrupted` once the helper confirms it is not working on it - see
+ * `Jobs.settleInterrupted`.
  */
-export type RunStatus = 'running' | 'success' | 'failed' | 'stopped';
+export type RunStatus = 'running' | 'success' | 'failed' | 'stopped' | 'interrupted';
 
 /** something a run stopped to ask, what was answered, and what came of it */
 export interface RunChoice {
@@ -195,6 +202,33 @@ export interface RunHistory {
   /** older copies marked for removal, and what became of each - absent on older runs */
   removals?: RunRemoval[];
   error: string;
+  /**
+   * The moment the login succeeded - what a later quick scan measures back to. A resumed
+   * run carries its first attempt's. Absent on older runs, whose `started` stands in.
+   */
+  baseline?: string | null;
+  /** the run this one picked up from, and the first attempt of that chain */
+  resumes?: string | null;
+  resumesFirst?: string | null;
+  /** the run that later picked this one up */
+  resumedBy?: string;
+  /** how far the run got, as it saved it - see RESUMING.md */
+  progress?: { step?: string; stepLabel?: string } & Record<string, unknown>;
+}
+
+/** an unfinished run, as offered for resuming */
+export interface ResumableRun extends RunHistory {
+  /** whether it can be picked up at all */
+  resumable: boolean;
+  /** why not, when it cannot */
+  reason: string;
+  /** things worth knowing before picking it up */
+  warnings: string[];
+}
+
+/** when a run's reach began: its baseline, or its start on runs from before baselines */
+export function baselineOf(run: RunHistory): string {
+  return run.baseline || run.started;
 }
 
 /**
@@ -365,6 +399,74 @@ export class Jobs {
       });
       if (!response.ok) throw new Error(String(response.status));
       return ((await response.json()) as { runs: RunHistory[] }).runs ?? [];
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The runs the helper is working on right now, or null when it cannot be asked.
+   */
+  async activeJobs(): Promise<string[] | null> {
+    try {
+      const response = await fetch(`${API_BASE}/api/jobs`);
+      if (!response.ok) throw new Error(String(response.status));
+      return ((await response.json()) as { active?: string[] }).active ?? [];
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Mark the runs that were interrupted as such, and return how many there were.
+   *
+   * A run's record says `running` until the run writes its ending, and one that never got
+   * the chance - the page was closed, the helper stopped - says it for ever. Any that the
+   * helper is not working on right now were interrupted. With the helper not running at
+   * all, nothing can be, so every one of them was. Whatever cannot be read or rewritten is
+   * left as it is: this is a correction, never worth failing over.
+   */
+  async settleInterrupted(store: LibraryStore | null): Promise<number> {
+    if (!store) return 0;
+    let settled = 0;
+    try {
+      const running = (await readRunHistory(store)).filter((run) => run.status === 'running');
+      if (!running.length) return 0;
+      const active = new Set((await this.activeJobs()) ?? []);
+      for (const run of running) {
+        if (active.has(run.id)) continue;
+        const path = `runs/${run.file}`;
+        try {
+          const record = JSON.parse((await store.read(path)) ?? '') as Record<string, unknown>;
+          if (record['status'] !== 'running') continue;
+          record['status'] = 'interrupted';
+          await store.write(path, new Response(JSON.stringify(record, null, 2)));
+          settled++;
+        } catch {
+          continue;
+        }
+      }
+    } catch {
+      return settled;
+    }
+    return settled;
+  }
+
+  /**
+   * The unfinished scans that could be picked up, newest first, each saying whether it can
+   * be and what to know first. The rule is the helper's, so it is asked, as for floors.
+   */
+  async loadResumableRuns(store: LibraryStore | null): Promise<ResumableRun[] | null> {
+    if (!store) return null;
+    try {
+      await this.settleInterrupted(store);
+      const response = await fetch(`${API_BASE}/api/runs/resumable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runs: await readRunHistory(store) }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      return ((await response.json()) as { runs: ResumableRun[] }).runs ?? [];
     } catch {
       return null;
     }

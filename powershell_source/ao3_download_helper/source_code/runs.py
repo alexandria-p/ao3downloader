@@ -22,6 +22,9 @@ STATUS_RUNNING = 'running'
 STATUS_SUCCESS = 'success'
 STATUS_FAILED = 'failed'
 STATUS_STOPPED = 'stopped'
+# a run that never wrote its ending - the page left, or the helper stopped - once the page
+# has checked the helper is not still working on it. the helper never writes this itself
+STATUS_INTERRUPTED = 'interrupted'
 
 # How much of the console output one record keeps, and how often it reaches disk.
 #
@@ -97,7 +100,33 @@ class RunRecord:
             # says so rather than silently beginning in the middle
             'logTrimmed': 0,
             'error': '',
+            # the moment the login succeeded - what a later quick scan measures back to. a
+            # resumed run carries the first attempt's, since it is finishing that run's work
+            'baseline': None,
+            # the run this one picks up from, and the first attempt of the chain it belongs to
+            'resumes': None,
+            'resumesFirst': None,
+            # how far the run got, written as it goes, so it can be resumed - see RESUMING.md
+            'progress': {},
         }
+        self.save()
+
+    def logged_in(self, baseline: str, resumes: str | None = None,
+                  first: str | None = None) -> None:
+        self.data['baseline'] = baseline
+        if resumes:
+            self.data['resumes'] = resumes
+            self.data['resumesFirst'] = first or resumes
+        self.save()
+
+    def checkpoint(self, **fields) -> None:
+        """Record how far the run has got. Written straight away: a checkpoint that waits
+        for a batch is one an interrupted run never gets to write."""
+
+        try:
+            self.data['progress'].update(fields)
+        except Exception:
+            return
         self.save()
 
     def save(self) -> None:
@@ -213,6 +242,34 @@ def read_runs(fileops, limit: int = 100, with_log: bool = False) -> list[dict]:
             continue
         if len(found) >= limit: break
     return found
+
+
+def baseline_of(record: dict) -> str:
+    """When a run's reach begins: the moment its login succeeded, or - for a resumed run -
+    the first attempt's. Older records have no baseline, and their start is the nearest."""
+
+    return str(record.get('baseline') or record.get('started') or '')
+
+
+def find_run(fileops, run_id: str) -> dict | None:
+    """One run's record by its id, with the name of the file it is in."""
+
+    if not run_id: return None
+    for record in read_runs(fileops, limit=100000):
+        if str(record.get('id') or '') == run_id: return record
+    return None
+
+
+def amend_run(fileops, name: str, fields: dict) -> None:
+    """Add fields to another run's record - how a run it resumed is told so."""
+
+    try:
+        path = os.path.join(fileops.runsfolder, name)
+        record = json.loads(fileops.read_text(path))
+        record.update(fields)
+        fileops.write_text(path, json.dumps(record, indent=2))
+    except Exception:
+        pass
 
 
 def last_successful(fileops, match=None) -> dict | None:
