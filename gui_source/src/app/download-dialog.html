@@ -756,6 +756,15 @@
           </p>
         }
 
+        <!-- straight under the sign-in, so a run sitting still says why before anything else -->
+        @if (paused(); as pause) {
+          <p class="warning pause">
+            AO3 has asked us to slow down, so the download is paused for
+            {{ pause.seconds }} seconds@if (pause.until) { , resuming around {{ pause.until }}}.
+            This is normal - nothing has gone wrong, and it will carry on by itself.
+          </p>
+        }
+
         @if (phaseLabel() && phase() !== 'authenticating') {
           <p class="phase">
             <span class="step">Step</span>
@@ -1037,14 +1046,6 @@
           </details>
         }
 
-        @if (paused(); as pause) {
-          <p class="warning pause">
-            AO3 has asked us to slow down, so the download is paused for
-            {{ pause.seconds }} seconds@if (pause.until) { , resuming around {{ pause.until }}}.
-            This is normal - nothing has gone wrong, and it will carry on by itself.
-          </p>
-        }
-
         <!--
           kept separate from AO3's own pause above, which looks the same and is nothing
           alike: that one ends by itself, this one ends only when you say so
@@ -1055,6 +1056,11 @@
             allowed to finish, so nothing is half-written, and nothing new will be started
             until you press Resume. You can still stop the run from here.
           </p>
+        }
+
+        @if (log().length) {
+          <pre class="log">@for (line of log(); track $index) {{{ line }}
+}</pre>
         }
 
         <!--
@@ -1081,11 +1087,6 @@
               waiting for something to go wrong. Nothing in it happened.
             </p>
           </details>
-        }
-
-        @if (log().length) {
-          <pre class="log">@for (line of log(); track $index) {{{ line }}
-}</pre>
         }
       </section>
       <footer>
