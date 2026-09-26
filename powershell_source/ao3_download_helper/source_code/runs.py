@@ -98,9 +98,9 @@ class RunRecord:
 
     def save(self) -> None:
         try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, 'w', encoding='utf-8') as f:
-                json.dump(self.data, f, indent=2)
+            # through the library's own storage, so a run writing to Dropbox keeps its
+            # history there too, beside the works it describes
+            self.fileops.write_text(self.path, json.dumps(self.data, indent=2))
             self.unsaved = 0
         except Exception:
             # a note about the run is not worth taking the run down for
@@ -180,14 +180,16 @@ def read_runs(fileops, limit: int = 100, with_log: bool = False) -> list[dict]:
     """
 
     folder = fileops.runsfolder
-    if not os.path.isdir(folder): return []
+    try:
+        names = fileops.list_files(folder)
+    except Exception:
+        return []
 
     found: list[dict] = []
-    for name in sorted(os.listdir(folder), reverse=True):
+    for name in sorted(names, reverse=True):
         if not name.lower().endswith('.json'): continue
         try:
-            with open(os.path.join(folder, name), encoding='utf-8') as f:
-                record = json.load(f)
+            record = json.loads(fileops.read_text(os.path.join(folder, name)))
             if isinstance(record, dict):
                 record['file'] = name
                 if not with_log:

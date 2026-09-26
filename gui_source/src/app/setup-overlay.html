@@ -1,0 +1,41 @@
+@if (setup.state() !== 'idle') {
+  <div
+    class="cover"
+    [attr.role]="setup.state() === 'asking' ? 'alertdialog' : 'status'"
+    aria-modal="true"
+    aria-live="polite"
+    [attr.aria-busy]="setup.state() === 'working'"
+  >
+    <div class="panel">
+      @if (setup.state() === 'working') {
+        <div class="spinner" aria-hidden="true"></div>
+        <h2>{{ setup.message() }}</h2>
+        <p>{{ setup.detail() }}</p>
+        @if (setup.progress(); as progress) {
+          <p class="count">{{ progress.done | number }} of {{ progress.total | number }}</p>
+        }
+        <p class="hint">Please wait - the page will be back in a moment.</p>
+      } @else {
+        <h2>Move your works into {{ works }}/?</h2>
+        <p>
+          This folder has <strong>{{ setup.looseWorks() | number }}</strong>
+          downloaded {{ setup.looseWorks() === 1 ? 'work' : 'works' }} in its top level. Works
+          now live in the <code>{{ works }}</code> folder, and ones left in the top level are not
+          seen - the next run would download them all again.
+        </p>
+        <p class="hint">
+          Moving only changes which folder they are in. Nothing is downloaded, renamed or
+          deleted, and a file is never written over.
+        </p>
+        <div class="choices">
+          <button type="button" class="button subtle" (click)="setup.choose(false)">
+            Leave them where they are
+          </button>
+          <button type="button" class="button primary" (click)="setup.choose(true)">
+            Move them into {{ works }}/
+          </button>
+        </div>
+      }
+    </div>
+  </div>
+}

@@ -12,6 +12,7 @@ from source_code import exceptions, indexing, parse_soup, parse_text, strings
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
 from source_code.repo import Repository
+from source_code.storage import LocalStorage
 
 
 WORK_URL = 'https://archiveofourown.org/works/123'
@@ -32,6 +33,8 @@ def make_ao3(
     Returns (ao3, repo_mock, fileops_mock)."""
     repo = MagicMock(spec=Repository)
     fileops = MagicMock(spec=FileOps)
+    # a real local folder underneath, for the tests that call FileOps' own methods on this
+    fileops.storage = LocalStorage('downloads')
     fileops.get_ini_value_boolean.return_value = debug
     fileops.get_ini_value.return_value = strings.FILE_NAME_PATTERN
     fileops.get_ini_value_integer.return_value = strings.INI_DEFAULT_NAME_LENGTH
@@ -128,7 +131,9 @@ def test_try_download_happy_path() -> None:
         result = ao3.try_download(WORK_URL, log, None)
 
     assert result is True
-    fileops.save_bytes.assert_called_once_with('My Work.epub', b'epub content')
+    # into works/, never the library's top level
+    fileops.save_bytes.assert_called_once_with(
+        os.path.join(strings.WORKS_FOLDER_NAME, 'My Work.epub'), b'epub content')
     assert log['title'] == ['My Work']
     assert log['workskin'] is False
 
@@ -143,8 +148,10 @@ def test_try_download_multiple_filetypes() -> None:
 
     assert result is True
     assert fileops.save_bytes.call_count == 2
-    fileops.save_bytes.assert_any_call('My Work.epub', b'content')
-    fileops.save_bytes.assert_any_call('My Work.pdf', b'content')
+    fileops.save_bytes.assert_any_call(
+        os.path.join(strings.WORKS_FOLDER_NAME, 'My Work.epub'), b'content')
+    fileops.save_bytes.assert_any_call(
+        os.path.join(strings.WORKS_FOLDER_NAME, 'My Work.pdf'), b'content')
 
 
 def test_try_download_chapters_no_update() -> None:
@@ -933,7 +940,8 @@ def test_downloading_from_the_index_names_files_the_usual_way():
     ao3.download_indexed([_record('111', title='No Paths Are Bound')])
 
     written = fileops.save_bytes.call_args.args[0]
-    assert written == '111 No Paths Are Bound - Cal 2024-12-14.epub'
+    assert written == os.path.join(strings.WORKS_FOLDER_NAME,
+                                   '111 No Paths Are Bound - Cal 2024-12-14.epub')
 
 
 def test_downloading_from_the_index_skips_what_is_already_downloaded():
@@ -2215,7 +2223,10 @@ def test_a_truncated_new_file_leaves_the_old_one_where_it_is(tmp_path):
 def saving_for_real(tmp_path):
     ao3, repo, fileops = make_ao3()
     fileops.downloadfolder = str(tmp_path)
+    (tmp_path / strings.WORKS_FOLDER_NAME).mkdir(exist_ok=True)
     fileops.save_bytes.side_effect = lambda n, c: FileOps.save_bytes(fileops, n, c)
+    fileops.is_file.side_effect = lambda p: FileOps.is_file(fileops, p)
+    fileops.same_file.side_effect = lambda a, b: FileOps.same_file(fileops, a, b)
     fileops.saved_intact.side_effect = lambda p, n: FileOps.saved_intact(fileops, p, n)
     fileops.saved_problem.side_effect = lambda p, n: FileOps.saved_problem(fileops, p, n)
     fileops.delete_file.side_effect = lambda p: FileOps.delete_file(fileops, p)
@@ -2223,7 +2234,7 @@ def saving_for_real(tmp_path):
 
 
 def outdated_copy(ao3, tmp_path):
-    old = tmp_path / '123 A 2024-01-01.html'
+    old = tmp_path / strings.WORKS_FOLDER_NAME / '123 A 2024-01-01.html'
     old.write_bytes(b'old')
     ao3.superseded = {WORK: {'HTML': str(old)}}
     return old
@@ -2261,7 +2272,7 @@ def test_an_outdated_copy_replaced_names_only_the_new_file_once(tmp_path, capsys
 def test_a_copy_overwritten_under_the_same_name_reads_the_same_as_a_replacement(tmp_path,
                                                                                capsys):
     ao3 = saving_for_real(tmp_path)
-    (tmp_path / '123 A 2024-12-14.html').write_bytes(b'damaged')
+    (tmp_path / strings.WORKS_FOLDER_NAME / '123 A 2024-12-14.html').write_bytes(b'damaged')
 
     ao3.save_download(WORK, 'HTML', '123 A 2024-12-14.html', b'fresh')
 
@@ -2282,7 +2293,7 @@ def test_a_short_replacement_is_removed_and_fails_the_work_leaving_the_old_copy(
         ao3.save_download(WORK, 'HTML', '123 A 2024-12-14.html', b'new copy')
 
     assert old.exists()
-    assert not (tmp_path / '123 A 2024-12-14.html').exists()
+    assert not (tmp_path / strings.WORKS_FOLDER_NAME / '123 A 2024-12-14.html').exists()
     assert strings.INFO_DAMAGED_KEPT_OLD.format('123 A 2024-01-01.html') \
         in capsys.readouterr().out
     # the detail says exactly what was wrong, for the failure report
@@ -2300,7 +2311,7 @@ def test_a_short_first_download_is_removed_too(tmp_path, capsys):
     with pytest.raises(exceptions.SavedFileException):
         ao3.save_download(WORK, 'PDF', '123 A 2024-12-14.pdf', b'new copy')
 
-    assert not (tmp_path / '123 A 2024-12-14.pdf').exists()
+    assert not (tmp_path / strings.WORKS_FOLDER_NAME / '123 A 2024-12-14.pdf').exists()
     assert strings.INFO_DAMAGED_REMOVED.format('123 A 2024-12-14.pdf') in capsys.readouterr().out
 
 
@@ -2374,7 +2385,7 @@ def test_a_check_that_errors_leaves_everything_and_lists_why(tmp_path, capsys):
 
     ao3.save_download(WORK, 'HTML', '123 A 2024-12-14.html', b'new copy')
 
-    assert old.exists() and (tmp_path / '123 A 2024-12-14.html').exists()
+    assert old.exists() and (tmp_path / strings.WORKS_FOLDER_NAME / '123 A 2024-12-14.html').exists()
     assert strings.INFO_UNCONFIRMED.format('123 A 2024-12-14.html') in capsys.readouterr().out
     assert 'drive went away' in ao3.kept_copies[0]['error']
     assert ao3.kept_copies[0]['old'] == '123 A 2024-01-01.html'

@@ -15,6 +15,12 @@ LOG_FOLDER_NAME = 'logs'
 # of the downloads folder, beside `indexing` and `collections` - so everything that walks
 # that folder has to skip it by name, exactly as it skips those.
 RUNS_FOLDER_NAME = 'runs'
+# downloaded works live here rather than in the library's top level, so the files a person
+# actually reads are not mixed in with the app's own folders
+WORKS_FOLDER_NAME = 'works'
+# every folder a library is expected to have. the web page creates whichever are missing
+# when a library is opened, and a local run does the same as it starts
+LIBRARY_FOLDER_NAMES = ('indexing', 'collections', 'images', 'runs', 'works')
 LOG_FILE_NAME = 'log.jsonl'
 SETTINGS_FILE_NAME = 'data.json'
 TEMPLATE_FILE_NAME = 'template.html'
@@ -127,7 +133,6 @@ AO3_INFO_LOGGING_IN = 'logging in as {}'
 AO3_INFO_LOGGED_IN = 'successfully logged in'
 AO3_INFO_DOWNLOADING = 'downloading works'
 AO3_INFO_FILE_TYPE = 'added {} to list of download types'
-AO3_INFO_VISITED = 'generating list of work links that are already in the downloads folder (will be skipped)'
 AO3_INFO_METADATA = 'getting metadata'
 AO3_INFO_INDEXING = 'indexing: saving a json file for every bookmark before downloading any works'
 AO3_INFO_COLLECTIONS = 'syncing collections'
@@ -193,6 +198,13 @@ AO3_INFO_QUICK_CHOSEN_GONE = ('the scan you chose is no longer on record, so thi
                               'your last completed scan')
 ERROR_NOT_A_FLOOR_RUN = ('that is not a completed full scan or quick scan, so it cannot be '
                          'measured back to')
+# the web page signs in to dropbox and hands the helper the session for each run
+ERROR_DROPBOX_SIGNED_OUT = ('Dropbox would not renew this session ({}). Sign out of Dropbox in '
+                            'the page and sign in again.')
+ERROR_DROPBOX_FOLDER_GONE = ('the Dropbox folder {} is not there any more - it may have been '
+                             'moved to the trash. Choose another folder in the page.')
+ERROR_DROPBOX_INCOMPLETE = ('a Dropbox run needs the app key, the session and the folder; '
+                            'sign in to Dropbox again in the page')
 AO3_INFO_QUICK_BOOKMARKED = 'indexing bookmarks you have added since {}'
 AO3_INFO_QUICK_UPDATED = 'indexing works ao3 has updated since {}'
 AO3_INFO_QUICK_UPDATED_NOT_NEEDED = ('no floor, so the first pass already read every bookmark '

@@ -403,40 +403,6 @@ def get_payload(username: str, password: str, token: str) -> dict[str, str]:
     return payload
 
 
-def get_title_dict(logs: list[dict]) -> dict[str, list[str]]:
-    """
-    creates a dict of form [work link, [work title]] from the logfile
-    this dict contains every unique work listed in the logs
-    """
-
-    dictionary = {}
-    titles = filter(lambda x: 'title' in x and 'link' in x, logs)
-    for obj in list(titles):
-        link = obj['link']
-        # make sure we don't include duplicates in our dict
-        if link not in dictionary:
-            title = obj['title']
-            if not isinstance(title, list): title = [title]
-            dictionary[link] = title
-    return dictionary
-
-
-def get_date_dict(logs: list[dict]) -> dict[str, str]:
-    """The date suffix each logged work was last saved under, keyed by work link.
-
-    Pairs with get_title_dict: together they rebuild the exact name a download was written
-    as, which is what tells an existing file apart from a missing one.
-    """
-
-    dictionary = {}
-    for obj in logs:
-        link = obj.get('link')
-        if not link or link in dictionary: continue
-        if 'title' not in obj: continue
-        dictionary[link] = get_date_suffix(obj.get('updated', ''))
-    return dictionary
-
-
 def get_unsuccessful_downloads(logs: list[dict]) -> list[str]:
     """
     checks the logs for any unsuccessful downloads

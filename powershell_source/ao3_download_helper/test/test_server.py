@@ -17,6 +17,21 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from source_code import exceptions, parse_text, progress, server, strings
+from source_code.fileio import FileOps as RealFileOps
+from source_code.storage import LocalStorage
+
+def on_disk(fileops, root: str):
+    """Give a mocked FileOps a real local library underneath: run records and index files are
+    read and written through the storage layer now, so a mock needs the real methods for it."""
+
+    fileops.storage = LocalStorage(root)
+    for name in ('read_text', 'write_text', 'list_files', 'is_file', 'exists', 'same_file',
+                 'describe'):
+        method = getattr(RealFileOps, name)
+        getattr(fileops, name).side_effect = (
+            lambda *args, _method=method: _method(fileops, *args))
+    return fileops
+
 
 
 # region resolve_filetypes
@@ -233,7 +248,7 @@ def fake_environment(tmp_path, monkeypatch):
     """Patch out everything that would touch the disk or the network."""
     monkeypatch.chdir(tmp_path)
 
-    fileops = MagicMock()
+    fileops = on_disk(MagicMock(), str(tmp_path / 'my_downloads'))
     fileops.downloadfolder = str(tmp_path / 'my_downloads')
     repo = MagicMock()
     repo.__enter__ = MagicMock(return_value=repo)
@@ -338,7 +353,7 @@ def test_run_bookmarks_targets_the_users_own_bookmarks_page(fake_environment):
     ao3 = MagicMock()
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=[]):
+         patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     ao3.get_metadata.assert_called_once()
@@ -352,7 +367,7 @@ def test_run_bookmarks_keeps_json_away_from_the_downloader(fake_environment):
                      [strings.AO3_DOWNLOAD_TYPE_METADATA, 'EPUB'], 'Someone')
 
     with patch.object(server, 'Ao3') as ao3_class, \
-         patch.object(server.shared, 'visited', return_value=[]):
+         patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert ao3_class.call_args.args[2] == ['EPUB']
@@ -364,11 +379,33 @@ def test_run_bookmarks_skips_works_already_downloaded(fake_environment):
     ao3 = MagicMock()
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=['already/1']) as visited:
+         patch.object(server.shared, 'already_downloaded', return_value=['already/1']) as visited:
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     visited.assert_called_once()
     assert ao3.download.call_args.args[1] == ['already/1']
+
+
+def test_a_run_writing_no_index_still_skips_what_the_folder_already_holds(tmp_path, monkeypatch):
+    # no json means no index and no plan, but the listing it walks still has to be told
+    # what is here - read from the folder, not from the request log
+    monkeypatch.chdir(tmp_path)
+    folder = tmp_path / 'library'
+    (folder / 'works').mkdir(parents=True)
+    (folder / 'works' / '111 One - A 2024-01-01.html').write_bytes(b'x')
+    # a work left in the top level is not looked at - works live in works/ now
+    (folder / '333 Three - C 2024-01-01.html').write_bytes(b'x')
+    fileops = on_disk(MagicMock(), str(folder))
+    fileops.downloadfolder = str(folder)
+    fileops.worksfolder = str(folder / 'works')
+    fileops.write_log({'link': 'https://archiveofourown.org/works/222', 'title': ['222 Two']})
+    job = server.Job(server.ACTION_BOOKMARKS, ['HTML'], 'Someone')
+    ao3 = MagicMock()
+
+    with patch.object(server, 'Ao3', return_value=ao3):
+        server.run_bookmarks(job, fileops, MagicMock(), MagicMock())
+
+    assert ao3.download.call_args.args[1] == ['https://archiveofourown.org/works/111']
 
 
 def test_run_job_routes_the_collections_action(fake_environment):
@@ -450,9 +487,10 @@ def test_run_bookmarks_downloads_from_the_index_when_it_can(fake_environment):
     ao3.get_metadata.return_value = RECORDS
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=[]), \
+         patch.object(server.shared, 'already_downloaded', return_value=[]), \
          patch.object(server, 'plan_refresh',
-                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+                      return_value={'stale': [], 'undated': [], 'superseded': {},
+                                    'existing': {}}):
         server.run_bookmarks(job, fake_environment['fileops'],
                              fake_environment['repo'], MagicMock())
 
@@ -470,9 +508,10 @@ def test_run_bookmarks_reports_the_works_that_would_not_download(fake_environmen
     reported: list[dict] = []
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=[]), \
+         patch.object(server.shared, 'already_downloaded', return_value=[]), \
          patch.object(server, 'plan_refresh',
-                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+                      return_value={'stale': [], 'undated': [], 'superseded': {},
+                                    'existing': {}}):
         server.run_bookmarks(job, fake_environment['fileops'],
                              fake_environment['repo'], reported.append)
 
@@ -489,9 +528,10 @@ def test_run_bookmarks_says_nothing_when_every_work_came_down(fake_environment):
     reported: list[dict] = []
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=[]), \
+         patch.object(server.shared, 'already_downloaded', return_value=[]), \
          patch.object(server, 'plan_refresh',
-                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+                      return_value={'stale': [], 'undated': [], 'superseded': {},
+                                    'existing': {}}):
         server.run_bookmarks(job, fake_environment['fileops'],
                              fake_environment['repo'], reported.append)
 
@@ -505,9 +545,10 @@ def test_run_bookmarks_walks_the_listing_when_images_were_asked_for(fake_environ
     ao3.get_metadata.return_value = RECORDS
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=[]), \
+         patch.object(server.shared, 'already_downloaded', return_value=[]), \
          patch.object(server, 'plan_refresh',
-                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+                      return_value={'stale': [], 'undated': [], 'superseded': {},
+                                    'existing': {}}):
         server.run_bookmarks(job, fake_environment['fileops'],
                              fake_environment['repo'], MagicMock())
 
@@ -889,7 +930,7 @@ def test_the_example_obeys_the_length_that_is_configured(tmp_path):
 def test_read_settings_says_which_settings_file_is_in_force(tmp_path):
     # a helper left running from an earlier session is the usual reason settings look
     # ignored, so naming the file it read is what makes that visible
-    fileops = MagicMock()
+    fileops = on_disk(MagicMock(), 'downloads')
     fileops.inifile = str(tmp_path / 'config' / 'settings.ini')
     fileops.downloadfolder = 'downloads'
     fileops.get_ini_value_integer.return_value = 0
@@ -1672,7 +1713,8 @@ def test_a_fic_this_run_just_indexed_is_not_read_again(fake_environment):
     ao3 = MagicMock()
 
     with patch.object(server.shared, 'plan_downloads',
-                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+                      return_value={'stale': [], 'undated': [], 'superseded': {},
+                                    'existing': {}}):
         server.update_one_work(ao3, INCOMPLETE, {}, ['HTML'], 50, False, 1, 3, None,
                                already_fresh={str(INCOMPLETE['id'])})
 
@@ -1685,7 +1727,8 @@ def test_a_fic_the_run_did_not_index_is_still_read_again(fake_environment):
     ao3.refresh_one.return_value = INCOMPLETE
 
     with patch.object(server.shared, 'plan_downloads',
-                      return_value={'stale': [], 'undated': [], 'superseded': {}}):
+                      return_value={'stale': [], 'undated': [], 'superseded': {},
+                                    'existing': {}}):
         server.update_one_work(ao3, INCOMPLETE, {}, ['HTML'], 50, False, 1, 3, None,
                                already_fresh={'999999'})
 
@@ -2988,7 +3031,7 @@ def test_a_metadata_only_run_still_says_what_it_skipped(fake_environment):
     events: list[dict] = []
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=[]):
+         patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'],
                              events.append)
 
@@ -3008,7 +3051,7 @@ def test_run_bookmarks_indexes_every_bookmark_before_downloading_any(fake_enviro
 
     events = []
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=[]):
+         patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'],
                              events.append)
 
@@ -3022,7 +3065,7 @@ def test_run_bookmarks_reports_only_indexing_when_json_is_the_only_type(fake_env
 
     events = []
     with patch.object(server, 'Ao3', return_value=MagicMock()), \
-         patch.object(server.shared, 'visited', return_value=[]):
+         patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'],
                              events.append)
 
@@ -3083,7 +3126,7 @@ def test_run_bookmarks_passes_the_chosen_options_through(fake_environment):
                      server.resolve_options({'pages': 3, 'series': True, 'images': True}))
 
     with patch.object(server, 'Ao3') as ao3_class, \
-         patch.object(server.shared, 'visited', return_value=[]):
+         patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     args = ao3_class.call_args.args
@@ -3098,7 +3141,7 @@ def test_run_bookmarks_treats_page_zero_as_every_page(fake_environment):
                      server.resolve_options({'pages': 0}))
 
     with patch.object(server, 'Ao3') as ao3_class, \
-         patch.object(server.shared, 'visited', return_value=[]):
+         patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert ao3_class.call_args.args[3] is None
@@ -3110,7 +3153,7 @@ def test_run_bookmarks_asks_for_work_dates_when_requested(fake_environment):
     ao3 = MagicMock()
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=[]):
+         patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert ao3.get_metadata.call_args.args[1] is True
@@ -3124,7 +3167,7 @@ def test_run_bookmarks_skips_the_download_phase_once_cancelled(fake_environment)
     ao3.get_metadata.side_effect = lambda *a, **k: job.cancel.set()
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'visited', return_value=[]):
+         patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     ao3.download.assert_not_called()

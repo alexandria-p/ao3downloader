@@ -10,6 +10,7 @@ import {
   WorkFailure,
 } from './jobs';
 import { safeGet, safeRemove, safeSet } from './storage';
+import { StorageChoice } from './storage-choice';
 
 type Step =
   | 'link'
@@ -52,6 +53,7 @@ const MAX_LOG = 200;
 })
 export class DownloadDialog implements OnDestroy {
   private readonly jobs = inject(Jobs);
+  private readonly storage = inject(StorageChoice);
 
   readonly action = input.required<JobAction>();
   readonly closed = output<void>();
@@ -564,7 +566,7 @@ export class DownloadDialog implements OnDestroy {
     const config = await this.jobs.loadConfig();
     if (!config) return;
 
-    this.folder.set(config.downloadFolder);
+    this.folder.set(this.storage.dropboxFolderLabel() ?? config.downloadFolder);
     // the defaults are a starting point, not a rule: only `forced` cannot be unticked
     this.selected.set([...(config.defaults ?? config.forced)]);
     this.step.set(this.firstStep());
@@ -656,7 +658,9 @@ export class DownloadDialog implements OnDestroy {
       this.step.set('floor');
       // asked for fresh each time: a scan may have finished since the dialog opened
       this.floorRuns.set(null);
-      void this.jobs.loadFloorRuns().then((runs) => this.floorRuns.set(runs ?? []));
+      void this.jobs
+        .loadFloorRuns(this.storage.dropboxLibrary())
+        .then((runs) => this.floorRuns.set(runs ?? []));
       return;
     }
     this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
@@ -799,7 +803,10 @@ export class DownloadDialog implements OnDestroy {
 
     let jobId: string;
     try {
+      const storage = this.storage.dropboxLibrary();
       jobId = await this.jobs.start({
+        // only present for a Dropbox library, so a local run's request is unchanged
+        ...(storage ? { storage } : {}),
         action: this.action(),
         filetypes: this.chosenFiletypes(),
         options: {

@@ -10,10 +10,11 @@ import json
 import os
 
 from source_code import parse_text, strings
+from source_code.storage import LocalStorage
 
 
 class FileOps:
-    def __init__(self):
+    def __init__(self, storage=None):
         # These normally resolve against the working directory. A deployed bundle keeps
         # config and logs in folders of their own, and says so through the environment.
         # Unset, os.path.join('', name) gives back name, so the behaviour is unchanged.
@@ -25,12 +26,35 @@ class FileOps:
         self.settingsfile = os.path.join(config_folder, strings.SETTINGS_FILE_NAME)
         # settled before the runs folder, which hangs off it. `get_download_folder` reads
         # settings.ini, so `inifile` has to be settled before either of them.
-        self.downloadfolder = self.get_download_folder()
+        #
+        # a run writing to Dropbox is handed its storage, and the downloads folder is then
+        # that storage's root - `DownloadFolder` in settings.ini is not read at all. every
+        # path in the library is still built by joining onto this, so nothing that builds
+        # one has to know which kind of folder it is
+        self.storage = storage or LocalStorage(self.get_download_folder())
         # inside the downloads folder, with the library it describes. everything that walks
         # that folder has to skip it by name - `shared.scan_downloaded_works` does, and so
         # does the web page, which would otherwise read a run record as a work: a record has
         # an `id`, which is all `flattenRecord` needs to hand one back as a bookmark.
         self.runsfolder = os.path.join(self.downloadfolder, strings.RUNS_FOLDER_NAME)
+
+
+    @property
+    def downloadfolder(self) -> str:
+        return self.storage.root
+
+
+    @property
+    def worksfolder(self) -> str:
+        """Where downloaded works are written and looked for - never the top level."""
+
+        return os.path.join(self.downloadfolder, strings.WORKS_FOLDER_NAME)
+
+
+    @downloadfolder.setter
+    def downloadfolder(self, folder: str) -> None:
+        # pointing a local library somewhere else; a Dropbox folder is chosen in the page
+        self.storage.root = folder
 
 
     def initialize(self) -> None:
@@ -39,14 +63,16 @@ class FileOps:
         config_folder = os.path.dirname(self.inifile)
         if config_folder: os.makedirs(config_folder, exist_ok=True)
         try:
-            os.makedirs(self.downloadfolder, exist_ok=True)
+            self.storage.ensure_root()
         except OSError:
             print(strings.MESSAGE_DOWNLOAD_FOLDER_ERROR.format(self.downloadfolder))
             raise
-        # after the downloads folder and not before it: the runs folder is inside it now, so
-        # creating this first would turn an unusable DownloadFolder into a bare OSError from
-        # a line that says nothing about which setting is wrong
-        os.makedirs(self.runsfolder, exist_ok=True)
+        # after the downloads folder and not before it: these are inside it, so creating them
+        # first would turn an unusable DownloadFolder into a bare OSError from a line that
+        # says nothing about which setting is wrong. Dropbox makes a folder as a file is
+        # written into it, so there this does nothing - the page sets that library up
+        for name in strings.LIBRARY_FOLDER_NAMES:
+            self.storage.make_dirs(os.path.join(self.downloadfolder, name))
         if not os.path.exists(self.inifile):
             with importlib.resources.open_text(strings.SETTINGS_FOLDER_NAME, strings.INI_FILE_NAME) as f:
                 with open(self.inifile, 'w', encoding='utf-8') as ini_file:
@@ -125,9 +151,7 @@ class FileOps:
         """
 
         file = os.path.join(self.downloadfolder, filename)
-        os.makedirs(os.path.dirname(file), exist_ok=True)
-        with open(file, 'wb') as f:
-            f.write(content)
+        self.storage.write_bytes(file, content)
         return file
 
 
@@ -140,8 +164,8 @@ class FileOps:
         """
 
         try:
-            return os.path.isfile(path) and os.path.getsize(path) == expected_size
-        except OSError:
+            return self.storage.size(path) == expected_size
+        except Exception:
             return False
 
 
@@ -153,13 +177,13 @@ class FileOps:
         """
 
         try:
-            if not os.path.isfile(path):
-                return strings.SAVED_NOT_FOUND.format(path)
-            size = os.path.getsize(path)
+            size = self.storage.size(path)
+            if size is None:
+                return strings.SAVED_NOT_FOUND.format(self.storage.describe(path))
             if size != expected_size:
                 return strings.SAVED_WRONG_SIZE.format(expected_size, size)
             return strings.SAVED_FINE_ON_SECOND_LOOK
-        except OSError as e:
+        except Exception as e:
             return strings.SAVED_UNREADABLE.format(e)
 
 
@@ -171,24 +195,48 @@ class FileOps:
         exactly as it is rather than raising.
         """
 
-        try:
-            if os.path.exists(new): return False
-            os.rename(old, new)
-            return True
-        except OSError:
-            return False
+        return self.storage.rename(old, new)
 
 
     def delete_file(self, path: str) -> bool:
         """Remove a file, reporting whether it went. A file already gone counts as done."""
 
+        return self.storage.delete(path)
+
+
+    def is_file(self, path: str) -> bool:
         try:
-            os.remove(path)
-            return True
-        except FileNotFoundError:
-            return True
-        except OSError:
+            return self.storage.is_file(path)
+        except Exception:
             return False
+
+
+    def exists(self, path: str) -> bool:
+        return self.storage.exists(path)
+
+
+    def list_files(self, folder: str) -> list[str]:
+        """The names of the files directly inside a folder of the library."""
+
+        return self.storage.list_files(folder)
+
+
+    def same_file(self, a: str, b: str) -> bool:
+        return self.storage.same_file(a, b)
+
+
+    def describe(self, path: str) -> str:
+        """A path in the library as a person would want to read it in a message."""
+
+        return self.storage.describe(path)
+
+
+    def read_text(self, path: str) -> str:
+        return self.storage.read_bytes(path).decode('utf-8')
+
+
+    def write_text(self, path: str, text: str) -> None:
+        self.storage.write_bytes(path, text.encode('utf-8'))
 
 
     def load_json(self, filename: str) -> dict | None:
@@ -200,8 +248,9 @@ class FileOps:
 
         file = os.path.join(self.downloadfolder, filename)
         try:
-            with open(file, 'r', encoding='utf-8') as f:
-                content = json.load(f)
+            content = json.loads(self.read_text(file))
+        except FileNotFoundError:
+            return None
         except (OSError, ValueError):
             return None
         return content if isinstance(content, dict) else None
@@ -209,9 +258,7 @@ class FileOps:
 
     def save_json(self, filename: str, content) -> str:
         file = os.path.join(self.downloadfolder, filename)
-        os.makedirs(os.path.dirname(file), exist_ok=True)
-        with open(file, 'w', encoding='utf-8') as f:
-            json.dump(content, f, ensure_ascii=False, indent=2)
+        self.write_text(file, json.dumps(content, ensure_ascii=False, indent=2))
         return file
 
 
@@ -284,20 +331,6 @@ class FileOps:
         except FileNotFoundError:
             pass
         return logs
-
-
-    def file_exists(self, id: str, titles: dict[str, list[str]], filetypes: list[str],
-                    maximum: int, suffixes: dict[str, str] | None = None) -> bool:
-        if id not in titles: return False
-        # downloaded works carry the date they were updated on, so the name has to be
-        # rebuilt with the same stamp or an existing file would look like a missing one
-        suffix = (suffixes or {}).get(id, '')
-        filename = parse_text.get_valid_filename(titles[id], maximum, suffix)
-        files = list(map(lambda x: os.path.join(self.downloadfolder, filename + parse_text.get_file_type(x)), filetypes))
-        for file in files:
-            if not os.path.exists(file):
-                return False
-        return True
 
 
     def get_download_folder(self) -> str:

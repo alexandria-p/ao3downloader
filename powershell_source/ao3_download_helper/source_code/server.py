@@ -25,6 +25,7 @@ from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
 from source_code.repo import Repository
+from source_code.storage import DropboxClient, DropboxStorage
 
 
 HOST = '127.0.0.1'
@@ -202,7 +203,8 @@ def read_settings(fileops: FileOps) -> dict:
 
     return {
         'file': os.path.abspath(fileops.inifile),
-        'downloadFolder': os.path.abspath(fileops.downloadfolder),
+        # a real path for a local library, `Dropbox: /Fics` for one kept there
+        'downloadFolder': fileops.describe(fileops.downloadfolder),
         'extraWaitTime': fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0),
         # not a setting any more, but still worth showing: it is how every file is named,
         # and the date on the end is what later runs read to spot an outdated copy
@@ -234,12 +236,56 @@ def settings_for_record(fileops: FileOps) -> dict:
         return {}
 
 
+def storage_request(body) -> dict | None:
+    """Which library a request is about: None for the local downloads folder, or the
+    Dropbox folder the web page signed in to.
+
+    The page does the signing in - the helper never sees a Dropbox password, and needs no
+    app secret, because a PKCE session renews with the app key alone. What arrives is the
+    refresh token, the app key and the folder, and **they are kept in memory for the run and
+    nowhere else**: not in the history file, not in an event, not in data.json. Raises
+    ValueError for a request that names Dropbox without everything it needs.
+    """
+
+    requested = body.get('storage') if isinstance(body, dict) else None
+    if not isinstance(requested, dict): return None
+    kind = requested.get('kind') or 'local'
+    if kind == 'local': return None
+    if kind != 'dropbox': raise ValueError(f"unknown storage '{kind}'")
+
+    spec = {name: str(requested.get(name) or '').strip()
+            for name in ('appKey', 'refreshToken', 'folderId', 'folderPath')}
+    if not spec['appKey'] or not spec['refreshToken']:
+        raise ValueError(strings.ERROR_DROPBOX_INCOMPLETE)
+    # '' is the app folder itself; anything else is a path inside it
+    if spec['folderPath'] and not spec['folderPath'].startswith('/'):
+        raise ValueError(strings.ERROR_DROPBOX_INCOMPLETE)
+    return spec
+
+
+def open_library(spec: dict | None) -> FileOps:
+    """The FileOps for a library: the local downloads folder, or the Dropbox one.
+
+    Opening a Dropbox library makes a request - it finds the folder by id, so a folder
+    renamed since the page last looked is followed rather than recreated - which is why a
+    run calls this on its own thread, where a failure becomes a failed run.
+    """
+
+    if not spec: return FileOps()
+    client = DropboxClient(spec['appKey'], spec['refreshToken'])
+    return FileOps(storage=DropboxStorage.connect(client, spec['folderId'], spec['folderPath']))
+
+
 class Job:
     """One download run, executing on its own thread and publishing progress events."""
 
     def __init__(self, action: str, filetypes: list[str], username: str,
-                 options: dict | None = None, url: str = '') -> None:
+                 options: dict | None = None, url: str = '',
+                 storage: dict | None = None) -> None:
         self.id = uuid.uuid4().hex
+        # which library the run reads and writes; None is the local downloads folder. holds
+        # a Dropbox session when there is one, so it is never emitted or recorded
+        self.storage = storage
         self.action = action
         self.filetypes = filetypes
         self.username = username
@@ -494,13 +540,14 @@ def run_job(job: Job, password: str) -> None:
     stream = LineStream(lambda line: job.emit({'type': progress.MESSAGE, 'text': line}))
 
     try:
-        fileops = FileOps()
+        fileops = open_library(job.storage)
         fileops.initialize()
         with contextlib.redirect_stdout(stream):
             with Repository(fileops, progress=report, cancelled=job.cancel.is_set,
                             held=job.held.is_set) as repo:
+                # said as a person would read it - a real path, or `Dropbox: /Fics`
                 job.emit({'type': progress.STARTED, 'action': job.action,
-                          'folder': fileops.downloadfolder,
+                          'folder': fileops.describe(fileops.downloadfolder),
                           'filetypes': job.filetypes, 'options': job.options})
                 # the checklist goes out before anything happens, so the ui can show what
                 # is still to come rather than only what has already been done
@@ -601,12 +648,15 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
     if downloadtypes and not job.cancel.is_set():
         job.steps.start('check')
-        visited = shared.visited(fileops, downloadtypes)
         # the index is what says how recently each work was updated, so this can only be
         # judged once indexing has run
         plan = plan_refresh(job, fileops, records, downloadtypes, report)
+        # a run that wrote no index has no plan, and so no scan of the folder either - but
+        # the listing it is about to walk still needs telling what is already here
+        existing = plan['existing'] if records else shared.scan_downloaded_works(
+            fileops.worksfolder, downloadtypes, storage=fileops.storage)
         # an out-of-date copy is not 'already downloaded', so it must not be skipped
-        visited = [x for x in visited if x not in set(plan['stale'])]
+        visited = shared.already_downloaded(existing, downloadtypes, records, plan['stale'])
         ao3.superseded = plan['superseded']
         job.steps.done('check')
 
@@ -689,8 +739,7 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
     job.steps.start('check')
     plan = plan_refresh(job, fileops, records, downloadtypes, report)
     # an out-of-date copy is not 'already downloaded', so it must not be skipped
-    visited = [x for x in shared.visited(fileops, downloadtypes)
-               if x not in set(plan['stale'])]
+    visited = shared.already_downloaded(plan['existing'], downloadtypes, records, plan['stale'])
     ao3.superseded = plan['superseded']
     job.steps.done('check')
 
@@ -730,7 +779,8 @@ def fill_missing_formats(job: Job, fileops: FileOps, ao3: Ao3, skip: set[str],
 
     index = shared.read_index(fileops)
     unfinished = {str(x.get('id') or '') for x in shared.incomplete_works(index)}
-    existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
+    existing = shared.scan_downloaded_works(fileops.worksfolder, downloadtypes,
+                                            storage=fileops.storage)
 
     gaps: list[tuple[dict, list[str]]] = []
     for record in newest_first(index):
@@ -1362,7 +1412,8 @@ def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
 
     progress.report(report, progress.PHASE, name=progress.CHECKING_FILES)
     print(strings.AO3_INFO_CHECKING_FILES)
-    existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
+    existing = shared.scan_downloaded_works(fileops.worksfolder, downloadtypes,
+                                            storage=fileops.storage)
 
     overwrite = bool(job.options.get('overwrite'))
 
@@ -1420,7 +1471,8 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
 
     if records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
-            len(records), os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)))
+            len(records), fileops.describe(
+                os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME))))
     else:
         print(strings.AO3_INFO_COLLECTIONS_NONE)
 
@@ -1447,7 +1499,8 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
 
     if records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
-            len(records), os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)))
+            len(records), fileops.describe(
+                os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME))))
 
     report_failures(ao3, report)
 
@@ -1534,7 +1587,8 @@ def refresh_and_download(job: Job, fileops: FileOps, ao3: Ao3, records: list[dic
         job.steps.start('check')
         progress.report(report, progress.PHASE, name=progress.CHECKING_FILES)
         print(strings.AO3_INFO_CHECKING_FILES)
-        existing = shared.scan_downloaded_works(fileops.downloadfolder, downloadtypes)
+        existing = shared.scan_downloaded_works(fileops.worksfolder, downloadtypes,
+                                            storage=fileops.storage)
         # overwriting has already settled what happens to every copy, undated ones
         # included, so there is nothing left to ask about
         stamped = 0
@@ -1911,16 +1965,8 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        if self.path == '/api/runs/floors':
-            # the runs a quick scan may be told to measure back to, for the modal's list
-            self.send_json(200, {'runs': floor_runs(FileOps())})
-            return
-
-        if self.path == '/api/runs':
-            # read off disk each time rather than kept in memory: the helper is restarted
-            # far more often than the history is looked at, and the files are the record
-            fileops = FileOps()
-            self.send_json(200, {'runs': runs.read_runs(fileops)})
+        if self.path in ('/api/runs', '/api/runs/floors'):
+            self.send_runs(None)
             return
 
         if self.path.startswith('/api/jobs/') and self.path.endswith('/events'):
@@ -1929,7 +1975,39 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_json(404, {'error': 'not found'})
 
+    def send_runs(self, spec: dict | None) -> None:
+        """The run history, or the runs a quick scan may measure back to.
+
+        Read from the library each time rather than kept in memory: the helper is restarted
+        far more often than the history is looked at, and the files are the record. A
+        Dropbox library is asked for by POST, because its session travels in the body -
+        never in a url, where it could end up in a log.
+        """
+
+        try:
+            fileops = open_library(spec)
+        except Exception as e:
+            self.send_json(502, {'error': str(e)})
+            return
+        if self.path == '/api/runs/floors':
+            # the runs a quick scan may be told to measure back to, for the modal's list
+            self.send_json(200, {'runs': floor_runs(fileops)})
+        else:
+            self.send_json(200, {'runs': runs.read_runs(fileops)})
+
     def do_POST(self) -> None:
+        if self.path in ('/api/runs', '/api/runs/floors'):
+            try:
+                spec = storage_request(self.read_json())
+            except ValueError as e:
+                self.send_json(400, {'error': str(e)})
+                return
+            except Exception:
+                self.send_json(400, {'error': 'invalid json'})
+                return
+            self.send_runs(spec)
+            return
+
         if self.path.startswith('/api/jobs/') and self.path.endswith('/cancel'):
             self.cancel_job(self.path.split('/')[3])
             return
@@ -1976,6 +2054,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {'error': 'username and password are required'})
             return
 
+        try:
+            storage = storage_request(body)
+        except ValueError as e:
+            self.send_json(400, {'error': str(e)})
+            return
+
         options = resolve_options(body.get('options'))
         # the option only means anything on the runs that offer it. the ui never sends it
         # otherwise, but the rule belongs here, where what arrives in a request is turned
@@ -1985,9 +2069,15 @@ class Handler(BaseHTTPRequestHandler):
         # a chosen floor is the quick scan's alone, and has to name a run that can be one -
         # refused here rather than discovered on the thread, so a bad pick is a straight answer
         if action != ACTION_QUICK: options['floorRun'] = ''
-        if options['floorRun'] and not chosen_floor(FileOps(), options['floorRun']):
-            self.send_json(400, {'error': strings.ERROR_NOT_A_FLOOR_RUN})
-            return
+        if options['floorRun']:
+            try:
+                floor = chosen_floor(open_library(storage), options['floorRun'])
+            except Exception as e:
+                self.send_json(502, {'error': str(e)})
+                return
+            if not floor:
+                self.send_json(400, {'error': strings.ERROR_NOT_A_FLOOR_RUN})
+                return
         # a custom run told to skip indexing writes no json, because json is the index
         indexing_run = options['reindex'] or action != ACTION_CUSTOM
         filetypes = resolve_filetypes(body.get('filetypes'), force=indexing_run)
@@ -2007,7 +2097,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {'error': strings.ERROR_NOT_A_COLLECTION})
                 return
 
-        job = Job(action, filetypes, username, options, url)
+        job = Job(action, filetypes, username, options, url, storage=storage)
         with Handler.jobs_lock:
             Handler.jobs[job.id] = job
 

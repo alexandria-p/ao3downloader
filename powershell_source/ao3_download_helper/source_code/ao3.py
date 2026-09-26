@@ -1109,8 +1109,10 @@ class Ao3:
         run downloading hundreds of new files looked as though it was doing nothing at all.
         """
 
+        # into works/, never the top level - that is the only place anything looks for them
+        name = os.path.join(strings.WORKS_FOLDER_NAME, name)
         try:
-            existed = os.path.isfile(os.path.join(self.fileops.downloadfolder, name))
+            existed = self.fileops.is_file(os.path.join(self.fileops.downloadfolder, name))
         except Exception:
             # only decides the wording. a folder that cannot be asked is not a failed download
             existed = False
@@ -1121,7 +1123,7 @@ class Ao3:
         old = self.superseded.get(work_url, {}).get(filetype)
         try:
             # a separate older file, as opposed to the one this write has just landed on top of
-            separate = bool(old) and os.path.abspath(old) != os.path.abspath(saved)
+            separate = bool(old) and not self.fileops.same_file(old, saved)
         except Exception:
             separate = False
         old_name = os.path.basename(old) if separate else ''

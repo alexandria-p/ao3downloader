@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   DirectoryHandle,
   FileHandle,
+  moveIntoSubfolder,
   readFolder,
+  readSubfolder,
   removeFile,
   streamFile,
+  topLevel,
   writeFile,
 } from './folder-store';
 
@@ -234,5 +237,120 @@ describe('streaming a download into the picked folder', () => {
     await streamFile(streamable(written), 'images/111 img000.png', bodyOf(['bytes']));
 
     expect(written.get('111 img000.png')).toBe('bytes');
+  });
+});
+
+/**
+ * A whole folder tree in memory - reads what it holds as well as taking writes - for the
+ * parts of setting a library up that move files between folders.
+ */
+class MemoryFolder implements DirectoryHandle {
+  readonly kind = 'directory' as const;
+  readonly folders = new Map<string, MemoryFolder>();
+  readonly files = new Map<string, string>();
+  /** a write that lands short, as a full disk would leave it */
+  shortWrites = false;
+
+  constructor(readonly name: string) {}
+
+  async *values() {
+    for (const folder of this.folders.values()) yield folder;
+    for (const name of this.files.keys()) yield this.fileHandle(name);
+  }
+
+  async getDirectoryHandle(name: string, options?: { create?: boolean }) {
+    let folder = this.folders.get(name);
+    if (!folder) {
+      if (!options?.create) throw new Error('not found: ' + name);
+      folder = new MemoryFolder(name);
+      this.folders.set(name, folder);
+    }
+    return folder;
+  }
+
+  async getFileHandle(name: string, options?: { create?: boolean }) {
+    if (!this.files.has(name)) {
+      if (!options?.create) throw new Error('not found: ' + name);
+      this.files.set(name, '');
+    }
+    return this.fileHandle(name);
+  }
+
+  async removeEntry(name: string) {
+    if (!this.files.delete(name)) throw new Error('not found: ' + name);
+  }
+
+  private fileHandle(name: string): FileHandle {
+    return {
+      kind: 'file',
+      name,
+      getFile: async () => new File([this.files.get(name) ?? ''], name),
+      createWritable: async () => {
+        let pending = '';
+        return {
+          write: async (data: BufferSource | Blob | string) => {
+            pending +=
+              typeof data === 'string'
+                ? data
+                : data instanceof Blob
+                  ? await data.text()
+                  : new TextDecoder().decode(data as ArrayBuffer);
+          },
+          close: async () => {
+            this.files.set(name, this.shortWrites ? pending.slice(0, 1) : pending);
+          },
+        };
+      },
+    };
+  }
+}
+
+describe('setting a library up', () => {
+  it('names what is in the top level, folders apart from files', async () => {
+    const library = new MemoryFolder('downloads');
+    await library.getDirectoryHandle('indexing', { create: true });
+    library.files.set('111 A.html', 'fic');
+
+    expect(await topLevel(library)).toEqual({ folders: ['indexing'], files: ['111 A.html'] });
+  });
+
+  it('reads a subfolder that is not there as empty, without making it', async () => {
+    const library = new MemoryFolder('downloads');
+    expect(await readSubfolder(library, 'works')).toEqual([]);
+    expect(library.folders.has('works')).toBe(false);
+  });
+
+  it('moves a work into works/, all of it, and only then removes the original', async () => {
+    const library = new MemoryFolder('downloads');
+    library.files.set('111 A.html', 'the whole fic');
+
+    expect(await moveIntoSubfolder(library, '111 A.html', 'works')).toBe(true);
+
+    expect(library.files.has('111 A.html')).toBe(false);
+    expect(library.folders.get('works')!.files.get('111 A.html')).toBe('the whole fic');
+  });
+
+  it('never writes over a file already in works/', async () => {
+    const library = new MemoryFolder('downloads');
+    library.files.set('111 A.html', 'top level copy');
+    const works = await library.getDirectoryHandle('works', { create: true });
+    works.files.set('111 A.html', 'the one already moved');
+
+    expect(await moveIntoSubfolder(library, '111 A.html', 'works')).toBe(false);
+
+    expect(library.files.get('111 A.html')).toBe('top level copy');
+    expect(works.files.get('111 A.html')).toBe('the one already moved');
+  });
+
+  it('keeps the original when the copy does not arrive whole', async () => {
+    const library = new MemoryFolder('downloads');
+    library.files.set('111 A.html', 'the whole fic');
+    const works = await library.getDirectoryHandle('works', { create: true });
+    works.shortWrites = true;
+
+    expect(await moveIntoSubfolder(library, '111 A.html', 'works')).toBe(false);
+
+    expect(library.files.get('111 A.html')).toBe('the whole fic');
+    expect(works.files.has('111 A.html')).toBe(false);
   });
 });

@@ -225,12 +225,31 @@ export class WorkList {
   protected openWork(work: Bookmark, event: Event): void {
     event.preventDefault();
 
-    const file = work.id ? this.htmlFiles().get(work.id) : undefined;
-    if (file) {
-      const url = URL.createObjectURL(file);
+    const copy = work.id ? this.htmlFiles().get(work.id) : undefined;
+    if (copy instanceof Blob) {
+      const url = URL.createObjectURL(copy);
       window.open(url, '_blank');
       // the tab keeps its own copy once loaded, so the handle can be released
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      return;
+    }
+    if (copy) {
+      // a copy in Dropbox has to be fetched first. the tab is opened now, while the click
+      // still counts as the user's - opened after the download it would be a popup, and
+      // blocked - and pointed at the work once it arrives
+      const tab = window.open('', '_blank');
+      void this.library.readCopy(copy).then(
+        (blob) => {
+          const url = URL.createObjectURL(blob);
+          if (tab) tab.location.href = url;
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        },
+        () => {
+          // could not be fetched - AO3's copy is better than a blank tab
+          if (tab && work.link) tab.location.href = work.link;
+          else tab?.close();
+        },
+      );
       return;
     }
 

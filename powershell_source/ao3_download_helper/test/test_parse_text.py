@@ -381,41 +381,6 @@ def test_get_payload_contains_expected_fields():
 # endregion
 
 
-# region get_title_dict
-
-def test_get_title_dict_deduplicates_by_link():
-    logs = [
-        {'link': 'https://a/works/1', 'title': 'First'},
-        {'link': 'https://a/works/1', 'title': 'Second'},
-    ]
-    result = parse_text.get_title_dict(logs)
-    assert result == {'https://a/works/1': ['First']}
-
-
-def test_get_title_dict_wraps_non_list_title_in_list():
-    logs = [{'link': 'https://a/works/1', 'title': 'solo'}]
-    result = parse_text.get_title_dict(logs)
-    assert result == {'https://a/works/1': ['solo']}
-
-
-def test_get_title_dict_preserves_list_titles():
-    logs = [{'link': 'https://a/works/1', 'title': ['a', 'b']}]
-    result = parse_text.get_title_dict(logs)
-    assert result == {'https://a/works/1': ['a', 'b']}
-
-
-def test_get_title_dict_ignores_entries_without_title_or_link():
-    logs = [
-        {'link': 'https://a/works/1'},
-        {'title': 'orphan'},
-        {'link': 'https://a/works/2', 'title': 'kept'},
-    ]
-    result = parse_text.get_title_dict(logs)
-    assert result == {'https://a/works/2': ['kept']}
-
-# endregion
-
-
 # region get_unsuccessful_downloads
 
 def test_get_unsuccessful_downloads_deduplicates():

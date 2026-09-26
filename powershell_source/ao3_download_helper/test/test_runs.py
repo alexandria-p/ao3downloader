@@ -5,12 +5,27 @@ import os
 from unittest.mock import MagicMock
 
 from source_code import runs
+from source_code.fileio import FileOps
+from source_code.storage import LocalStorage
+
+
+def on_disk(fileops, root: str):
+    """Give a mocked FileOps a real local library underneath: run records and index files are
+    read and written through the storage layer now, so a mock needs the real methods for it."""
+
+    fileops.storage = LocalStorage(root)
+    for name in ('read_text', 'write_text', 'list_files', 'is_file', 'exists', 'same_file',
+                 'describe'):
+        method = getattr(FileOps, name)
+        getattr(fileops, name).side_effect = (
+            lambda *args, _method=method: _method(fileops, *args))
+    return fileops
 
 
 def fake_fileops(tmp_path):
     fileops = MagicMock()
     fileops.runsfolder = str(tmp_path / 'runs')
-    return fileops
+    return on_disk(fileops, str(tmp_path))
 
 
 def a_record(tmp_path, action='sync', filetypes=('JSON', 'HTML'), options=None):
@@ -201,7 +216,7 @@ def test_a_line_that_cannot_be_kept_does_not_take_the_run_down(tmp_path):
 
 def test_a_history_file_that_cannot_be_written_does_not_raise(tmp_path):
     # a note about the run is not worth taking the run down for
-    fileops = MagicMock()
+    fileops = on_disk(MagicMock(), str(tmp_path))
     fileops.runsfolder = str(tmp_path / 'runs')
     record = runs.RunRecord(fileops, 'abc', 'sync', 'A', ['JSON'], {})
     record.path = str(tmp_path / 'runs' / 'no' / 'such' / '\0bad.json')

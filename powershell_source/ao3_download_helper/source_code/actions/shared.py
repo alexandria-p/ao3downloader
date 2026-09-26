@@ -4,6 +4,7 @@ import traceback
 
 from source_code import exceptions, indexing, parse_text, strings
 from source_code.fileio import FileOps
+from source_code.storage import LocalStorage
 from source_code.repo import Repository
 
 
@@ -70,22 +71,49 @@ def ignorelist_check_deleted() -> bool:
     return True if input() == strings.PROMPT_YES else False
 
 
-def visited(fileops: FileOps, filetypes: list[str]) -> list[str]:
-    visited = []
-    logs = fileops.load_logfile()
-    if logs:
-        print(strings.AO3_INFO_VISITED)
-        titles = parse_text.get_title_dict(logs)
-        # a downloaded work's name ends in the date it was updated on, so the stamp has to
-        # be rebuilt too or every existing file would look like one that is missing
-        suffixes = parse_text.get_date_dict(logs)
-        maximum = fileops.get_ini_value_integer(strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
-        visited = list({x for x in titles if
-            fileops.file_exists(x, titles, filetypes, maximum, suffixes)})
-    if os.path.exists(strings.IGNORELIST_FILE_NAME):
-        with open(strings.IGNORELIST_FILE_NAME, 'r', encoding='utf-8') as f: 
-                visited.extend([x[:x.find('; ')] for x in f.readlines()])
-    return visited
+def already_downloaded(existing: dict[str, dict[str, dict]], filetypes: list[str],
+                       records: list[dict] | None = None,
+                       stale: list[str] = ()) -> list[str]:
+    """The works a run should pass over: every requested format already in the folder,
+    plus anything on the ignore list.
+
+    **Read from the folder, not the request log.** This used to rebuild each file name from
+    `logs/log.jsonl` and check it was still there. The log lives beside the helper rather
+    than in the library, so it described every library ever downloaded into - a Dropbox
+    one and a local one alike - and a file downloaded some other way, or a log trimmed or
+    lost, left it wrong. `existing` is `scan_downloaded_works`: the folder as it actually
+    is, matched by the work number a file name starts with, which is the rule every other
+    part of this project pairs files to works by.
+
+    Whether a copy is current is **not** decided here. A work whose files are all present
+    counts as downloaded however old they are; `stale` is `plan_downloads`' list of the
+    ones that are behind, and they are left out by work number - an out-of-date copy is not
+    'already downloaded'. Two rules, two places.
+
+    Links are given in the canonical form a listing is read into, and in whatever form
+    `records` carries too, so both download paths - from the index and from the listing -
+    recognise them.
+    """
+
+    wanted = [x.upper() for x in filetypes]
+    behind = {parse_text.get_work_number(x) for x in stale}
+    done = {work for work, types in existing.items()
+            if work not in behind and all(t in types for t in wanted)}
+
+    links = {f'{strings.AO3_BASE_URL}/works/{work}' for work in done}
+    for record in records or []:
+        if str(record.get('id')) in done and record.get('link'): links.add(record['link'])
+
+    return sorted(links) + ignored_links()
+
+
+def ignored_links() -> list[str]:
+    """The works and series the user has said never to download, from the ignore list."""
+
+    if not os.path.exists(strings.IGNORELIST_FILE_NAME): return []
+    with open(strings.IGNORELIST_FILE_NAME, 'r', encoding='utf-8') as f:
+        # a line is a link, optionally followed by '; ' and a comment
+        return [line.split('; ', 1)[0].strip() for line in f if line.strip()]
 
 
 def pinboard_date() -> datetime.datetime | None:
@@ -295,9 +323,8 @@ def read_index(fileops: FileOps) -> list[dict]:
 
     folder = os.path.join(fileops.downloadfolder, strings.INDEXING_FOLDER_NAME)
     records: list[dict] = []
-    if not os.path.isdir(folder): return records
 
-    for name in sorted(os.listdir(folder)):
+    for name in sorted(fileops.list_files(folder)):
         if not name.lower().endswith('.json'): continue
         document = fileops.load_json(os.path.join(strings.INDEXING_FOLDER_NAME, name))
         record = indexing.flatten(document)
@@ -317,10 +344,9 @@ def indexed_work_ids(fileops: FileOps) -> set[str]:
     """
 
     folder = os.path.join(fileops.downloadfolder, strings.INDEXING_FOLDER_NAME)
-    if not os.path.isdir(folder): return set()
 
     found = set()
-    for name in os.listdir(folder):
+    for name in fileops.list_files(folder):
         if not name.lower().endswith('.json'): continue
         work = parse_text.get_work_number_from_filename(name)
         if work: found.add(work)
@@ -333,7 +359,8 @@ def incomplete_works(records: list[dict]) -> list[dict]:
     return [x for x in records if indexing.is_incomplete(x)]
 
 
-def scan_downloaded_works(folder: str, filetypes: list[str]) -> dict[str, dict[str, dict]]:
+def scan_downloaded_works(folder: str, filetypes: list[str],
+                          storage=None) -> dict[str, dict[str, dict]]:
     """Every downloaded work in the folder, by work number and then file type.
 
     Files are matched to a work by the number their name starts with - the same rule the
@@ -346,27 +373,28 @@ def scan_downloaded_works(folder: str, filetypes: list[str]) -> dict[str, dict[s
     """
 
     found: dict[str, dict[str, dict]] = {}
-    if not folder or not os.path.isdir(folder): return found
+    if not folder: return found
 
     skip = {strings.INDEXING_FOLDER_NAME, strings.COLLECTIONS_FOLDER_NAME,
             strings.IMAGE_FOLDER_NAME, strings.RUNS_FOLDER_NAME}
     wanted = {x.upper() for x in filetypes}
 
-    for subdir, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if d not in skip]
-        for file in files:
-            filetype = os.path.splitext(file)[1].upper()[1:]
-            if filetype not in wanted: continue
-            work = parse_text.get_work_number_from_filename(file)
-            if not work: continue
+    # a local folder unless the caller says otherwise. a Dropbox folder is read in one
+    # recursive listing - a page per 2,000 files - rather than a call per subfolder
+    storage = storage or LocalStorage(folder)
+    for path in storage.files_under(folder, skip):
+        file = path.replace('\\', '/').rsplit('/', 1)[-1]
+        filetype = os.path.splitext(file)[1].upper()[1:]
+        if filetype not in wanted: continue
+        work = parse_text.get_work_number_from_filename(file)
+        if not work: continue
 
-            entry = {'path': os.path.join(subdir, file),
-                     'date': parse_text.get_date_from_filename(file)}
-            existing = found.setdefault(work, {}).get(filetype)
-            # more than one copy of the same type means an older one is still lying about;
-            # the newest date is the one that counts, and an undated file is the oldest
-            if existing is None or (entry['date'] or '') > (existing['date'] or ''):
-                found[work][filetype] = entry
+        entry = {'path': path, 'date': parse_text.get_date_from_filename(file)}
+        existing = found.setdefault(work, {}).get(filetype)
+        # more than one copy of the same type means an older one is still lying about;
+        # the newest date is the one that counts, and an undated file is the oldest
+        if existing is None or (entry['date'] or '') > (existing['date'] or ''):
+            found[work][filetype] = entry
 
     return found
 
@@ -413,7 +441,7 @@ def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
             trimmed = base[:room].strip() if room else base.strip()
             new = os.path.join(folder, trimmed + suffix + extension)
 
-            if os.path.exists(new):
+            if fileops.exists(new):
                 # something is already called that. renaming would destroy it
                 skipped += 1
                 continue

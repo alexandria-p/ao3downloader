@@ -1,33 +1,78 @@
 <header class="topbar">
   <h1>AO3 Library</h1>
   <div class="picker">
-    @if (folderName() || sourceName()) {
-      <span class="source" [title]="sourceName()">
-        @if (folderName()) {
-          <span class="remembered" title="Remembered - loads automatically next time">&#9679;</span>
-          {{ folderName() }}
-        } @else {
-          {{ sourceName() }}
-        }
-      </span>
-    }
-
-    @if (canPickFolder) {
-      <button type="button" class="button" (click)="askBeforePicking()">
-        {{ folderName() ? 'Change folder' : 'Choose downloads folder' }}
+    <div class="storage" role="group" aria-label="Where your library is kept">
+      <button
+        type="button"
+        [class.current]="mode() === 'local'"
+        [attr.aria-pressed]="mode() === 'local'"
+        (click)="setMode('local')"
+      >
+        This computer
       </button>
-      @if (folderName()) {
-        <button type="button" class="button subtle" (click)="forget()">Forget</button>
+      <button
+        type="button"
+        [class.current]="mode() === 'dropbox'"
+        [attr.aria-pressed]="mode() === 'dropbox'"
+        (click)="setMode('dropbox')"
+      >
+        Dropbox
+      </button>
+    </div>
+
+    @if (mode() === 'local') {
+      @if (folderName() || sourceName()) {
+        <span class="source" [title]="sourceName()">
+          @if (folderName()) {
+            <span class="remembered" title="Remembered - loads automatically next time">&#9679;</span>
+            {{ folderName() }}
+          } @else {
+            {{ sourceName() }}
+          }
+        </span>
+      }
+
+      @if (canPickFolder) {
+        <button type="button" class="button" (click)="askBeforePicking()">
+          {{ folderName() ? 'Change folder' : 'Choose downloads folder' }}
+        </button>
+        @if (folderName()) {
+          <button type="button" class="button subtle" (click)="forget()">Forget</button>
+        }
+      } @else {
+        <!-- a button rather than a label, so the note can come first; it clicks the input -->
+        <button type="button" class="button" (click)="askBeforePicking()">
+          {{ data() ? 'Change folder' : 'Choose downloads folder' }}
+        </button>
+        <input #folderInput type="file" webkitdirectory multiple (change)="choose($event)" hidden />
       }
     } @else {
-      <!-- a button rather than a label, so the note can come first; it clicks the input -->
-      <button type="button" class="button" (click)="askBeforePicking()">
-        {{ data() ? 'Change folder' : 'Choose downloads folder' }}
-      </button>
-      <input #folderInput type="file" webkitdirectory multiple (change)="choose($event)" hidden />
+      @switch (dropboxStatus()) {
+        @case ('signed-out') {
+          <button type="button" class="button primary" (click)="signInToDropbox()">
+            Sign in with Dropbox
+          </button>
+        }
+        @case ('signing-in') {
+          <span class="source">Signing in to Dropbox...</span>
+        }
+        @case ('signed-in') {
+          <span
+            class="source"
+            [title]="'Signed in as ' + (dropboxAccount()?.email ?? '') + ' - your library is ' + appFolderPath + ' in Dropbox'"
+          >
+            <span class="remembered" title="Remembered - opens automatically next time">&#9679;</span>
+            {{ appFolderPath }}
+          </span>
+          <button type="button" class="button subtle" (click)="signOutOfDropbox()">Sign out</button>
+        }
+      }
     }
   </div>
 </header>
+
+<!-- covers everything while a library's folders are made or its works moved -->
+<app-setup-overlay />
 
 <!-- said once, before anything else, because it decides whether any of this can work here -->
 @if (browserNotice()) {
@@ -85,7 +130,7 @@
   to work out what it already has and writes everything back into it. the panel below
   already asks for one, so an empty button bar above it would only repeat the question.
 -->
-@if (view() !== 'faq' && view() !== 'history' && folderChosen()) {
+@if (view() !== 'faq' && view() !== 'history' && canRun()) {
 <div class="actions">
   @if (view() === 'bookmarks') {
     <!--
@@ -143,51 +188,87 @@
   <app-download-dialog [action]="action" (closed)="dialogAction.set(null)" />
 }
 
-@if (needsReconnect()) {
-  <p class="reconnect">
-    <span>
-      <strong>{{ folderName() }}</strong> is remembered, but this browser needs you to confirm
-      access again.
-    </span>
-    <button type="button" class="button" (click)="reconnect()">Reconnect</button>
-  </p>
+@if (mode() === 'local') {
+  @if (needsReconnect()) {
+    <p class="reconnect">
+      <span>
+        <strong>{{ folderName() }}</strong> is remembered, but this browser needs you to confirm
+        access again.
+      </span>
+      <button type="button" class="button" (click)="reconnect()">Reconnect</button>
+    </p>
+  }
+
+  <!-- the faq is worth reading before a folder is chosen, so it is not held behind one -->
+  @if (isEmpty() && view() !== 'faq' && view() !== 'history') {
+    <section class="empty">
+      <h2>Choose your downloads folder</h2>
+      <p>
+        Pick the <strong>whole folder</strong> ao3downloader saves into - the one named by
+        <code>DownloadFolder</code> in <code>settings.ini</code>. It should be the directory holding
+        both your <code>.json</code> metadata files and your downloaded <code>.html</code> works.
+      </p>
+      <p class="hint">
+        Pick the directory itself, not individual files. Reading the whole folder is what pairs each
+        bookmark with its downloaded copy, so clicking a title opens the fic instead of sending you
+        to AO3. Nothing leaves your computer - the files are read here in the browser.
+      </p>
+      <p class="hint">
+        No json files yet? Run ao3downloader, choose option <code>a</code>, and pick the
+        <code>JSON</code> file type - add <code>HTML</code> too if you want the works themselves.
+      </p>
+      @if (canPickFolder) {
+        <p class="hint">
+          You only have to do this once. The folder is remembered and reopens by itself next time.
+        </p>
+      }
+    </section>
+  }
+} @else {
+  @if (dropboxError()) {
+    <p class="error">{{ dropboxError() }}</p>
+  }
 }
 
 @if (error()) {
   <p class="error">{{ error() }}</p>
 }
 
-@if (loading()) {
-  <p class="notice">Reading files...</p>
+@if (setupReport()) {
+  <p class="reconnect">
+    <span>{{ setupReport() }}</span>
+    <button type="button" class="button subtle" (click)="setupReport.set('')">Dismiss</button>
+  </p>
 }
 
-<!-- the faq is worth reading before a folder is chosen, so it is not held behind one -->
-@if (isEmpty() && view() !== 'faq' && view() !== 'history') {
+@if (loading()) {
+  <p class="notice">{{ mode() === 'dropbox' ? 'Reading your library from Dropbox...' : 'Reading files...' }}</p>
+}
+
+@if (mode() === 'dropbox' && !canRun() && (view() === 'bookmarks' || view() === 'collections')) {
   <section class="empty">
-    <h2>Choose your downloads folder</h2>
-    <p>
-      Pick the <strong>whole folder</strong> ao3downloader saves into - the one named by
-      <code>DownloadFolder</code> in <code>settings.ini</code>. It should be the directory holding
-      both your <code>.json</code> metadata files and your downloaded <code>.html</code> works.
-    </p>
-    <p class="hint">
-      Pick the directory itself, not individual files. Reading the whole folder is what pairs each
-      bookmark with its downloaded copy, so clicking a title opens the fic instead of sending you
-      to AO3. Nothing leaves your computer - the files are read here in the browser.
-    </p>
-    <p class="hint">
-      No json files yet? Run ao3downloader, choose option <code>a</code>, and pick the
-      <code>JSON</code> file type - add <code>HTML</code> too if you want the works themselves.
-    </p>
-    @if (canPickFolder) {
-      <p class="hint">
-        You only have to do this once. The folder is remembered and reopens by itself next time.
-      </p>
+    @switch (dropboxStatus()) {
+      @case ('unconfigured') {
+        <h2>Dropbox is not set up in this copy</h2>
+        <p>
+          Signing in needs a Dropbox app registered for this page, and its app key in
+          <code>gui_source/src/app/dropbox-config.ts</code>. That file says how to register one.
+        </p>
+      }
+      @default {
+        <h2>Keep your library in Dropbox</h2>
+        <p>
+          Sign in with Dropbox and your library lives in <code>{{ appFolderPath }}</code> there,
+          instead of in a downloads folder on this computer - the index, your downloaded works
+          and the run history.
+        </p>
+        <p class="hint">
+          That folder is all this app can see. Nothing else in your Dropbox is read or changed.
+        </p>
+      }
     }
   </section>
-}
-
-@if (view() === 'bookmarks') {
+} @else if (view() === 'bookmarks') {
   @if (data()) {
     <app-work-list
       [works]="works()"
@@ -195,7 +276,7 @@
       label="Bookmarks"
       [note]="retrieved() ? 'Last indexed ' + retrieved() + '.' : ''"
     />
-  } @else if (!isEmpty() && !loading()) {
+  } @else if ((!isEmpty() || mode() === 'dropbox') && !loading()) {
     <p class="notice">
       No bookmarks indexed in this folder yet. Use <strong>Quick Scan</strong> above to
       fetch them - with nothing indexed yet it will read your whole listing.

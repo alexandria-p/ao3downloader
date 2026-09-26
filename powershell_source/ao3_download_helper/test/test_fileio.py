@@ -342,34 +342,6 @@ def test_load_logfile_loads_unicode_correctly(fake_fileops):
 # endregion
 
 
-# region file_exists
-
-def test_file_exists_false_when_id_not_in_titles(fake_fileops):
-    assert fake_fileops.file_exists('99', {}, ['EPUB'], 50) is False
-
-
-def test_file_exists_true_when_all_filetypes_present(fake_fileops):
-    titles = {'1': ['work title']}
-    for ext in ['epub', 'html']:
-        path = os.path.join(fake_fileops.downloadfolder, 'work title.' + ext)
-        with open(path, 'wb') as f:
-            f.write(b'')
-
-    assert fake_fileops.file_exists('1', titles, ['EPUB', 'HTML'], 50) is True
-
-
-def test_file_exists_false_when_one_filetype_missing(fake_fileops):
-    titles = {'1': ['work title']}
-    # only create the epub, not the html
-    path = os.path.join(fake_fileops.downloadfolder, 'work title.epub')
-    with open(path, 'wb') as f:
-        f.write(b'')
-
-    assert fake_fileops.file_exists('1', titles, ['EPUB', 'HTML'], 50) is False
-
-# endregion
-
-
 # region ini_differences_str
 
 def test_ini_differences_str_returns_none_when_equal(fake_fileops):

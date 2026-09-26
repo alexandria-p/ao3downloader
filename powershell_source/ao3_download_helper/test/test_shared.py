@@ -9,6 +9,7 @@ import pytest
 from source_code import indexing, parse_text, strings
 from source_code.actions import shared
 from source_code.fileio import FileOps
+from source_code.storage import LocalStorage
 
 
 # region get_files_of_type
@@ -294,45 +295,74 @@ def test_pinboard_date_parses_entered_date(monkeypatch, capsys) -> None:
 # endregion
 
 
-# region visited
+# region already_downloaded
+#
+# read from the folder, not from logs/log.jsonl - the log lives beside the helper and
+# describes every library ever downloaded into, where the folder says what this one holds
 
-def _prepare_fileops(tmp_path):
-    from source_code.fileio import FileOps
+def works_in(tmp_path, *names):
+    for name in names: make_file(tmp_path, name)
+    return shared.scan_downloaded_works(str(tmp_path), ['HTML', 'EPUB'])
 
+
+def link(work: str) -> str:
+    return f'{strings.AO3_BASE_URL}/works/{work}'
+
+
+def test_a_work_with_every_asked_for_format_in_the_folder_is_already_downloaded(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    existing = works_in(tmp_path, '111 One - A 2024-01-01.html', '111 One - A 2024-01-01.epub')
+    assert shared.already_downloaded(existing, ['HTML', 'EPUB']) == [link('111')]
+
+
+def test_a_work_missing_a_format_is_not(tmp_path, monkeypatch):
+    # it goes to the download, which fetches what it lacks
+    monkeypatch.chdir(tmp_path)
+    existing = works_in(tmp_path, '111 One - A 2024-01-01.html')
+    assert shared.already_downloaded(existing, ['HTML', 'EPUB']) == []
+
+
+def test_a_work_only_the_log_remembers_is_not_already_downloaded(tmp_path, monkeypatch):
+    # the bug this replaced: a log that names a work says nothing about this folder
+    monkeypatch.chdir(tmp_path)
     fo = FileOps()
     fo.logfile = str(tmp_path / 'log.jsonl')
-    fo.inifile = str(tmp_path / 'settings.ini')
-    fo.settingsfile = str(tmp_path / 'data.json')
-    fo.downloadfolder = str(tmp_path / 'downloads')
-    os.makedirs(fo.downloadfolder, exist_ok=True)
-    return fo
+    fo.write_log({'link': link('222'), 'title': ['222 Two - B'], 'success': True})
+    assert shared.already_downloaded(works_in(tmp_path), ['HTML']) == []
 
 
-def test_visited_returns_files_from_log_that_exist_on_disk(tmp_path, monkeypatch) -> None:
-    """visited should return only work ids whose files exist on disk."""
-    fo = _prepare_fileops(tmp_path)
-
-    # write two works to the log
-    fo.write_log({'link': 'https://a/works/1', 'title': 'one'})
-    fo.write_log({'link': 'https://a/works/2', 'title': 'two'})
-
-    # only create the file for work 1
-    with open(os.path.join(fo.downloadfolder, 'one.epub'), 'wb') as f:
-        f.write(b'')
-
-    monkeypatch.chdir(tmp_path)  # IGNORELIST_FILE_NAME uses relative path
-
-    result = shared.visited(fo, ['EPUB'])
-
-    assert 'https://a/works/1' in result
-    assert 'https://a/works/2' not in result
-
-
-def test_visited_returns_empty_when_no_log_and_no_ignorelist(tmp_path, monkeypatch) -> None:
-    fo = _prepare_fileops(tmp_path)
+def test_an_out_of_date_copy_is_not_already_downloaded(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    existing = works_in(tmp_path, '111 One - A 2024-01-01.html', '222 Two - B 2024-01-01.html')
+    assert shared.already_downloaded(existing, ['HTML'], stale=[link('111')]) == [link('222')]
 
-    assert shared.visited(fo, ['EPUB']) == []
+
+def test_an_undated_copy_counts_as_downloaded(tmp_path, monkeypatch):
+    # whether to refetch it is the undated question's to answer, which puts it in `stale`
+    monkeypatch.chdir(tmp_path)
+    existing = works_in(tmp_path, '111 One - A.html')
+    assert shared.already_downloaded(existing, ['HTML']) == [link('111')]
+
+
+def test_a_work_is_named_the_way_each_download_path_names_it(tmp_path, monkeypatch):
+    # the listing is read into canonical links; an index record carries its own
+    monkeypatch.chdir(tmp_path)
+    existing = works_in(tmp_path, '111 One - A 2024-01-01.html')
+    records = [{'id': '111', 'link': 'https://archiveofourown.org/works/111?view_adult=true'}]
+    assert set(shared.already_downloaded(existing, ['HTML'], records)) == {
+        link('111'), 'https://archiveofourown.org/works/111?view_adult=true'}
+
+
+def test_the_ignore_list_is_still_honoured(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / strings.IGNORELIST_FILE_NAME).write_text(
+        f'{link("333")}; never this one\n{link("444")}', encoding='utf-8')
+    assert shared.already_downloaded({}, ['HTML']) == [link('333'), link('444')]
+
+
+def test_no_folder_and_no_ignore_list_skips_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert shared.already_downloaded({}, ['HTML']) == []
 
 # endregion
 
@@ -343,7 +373,10 @@ def index_fileops(tmp_path):
     """A FileOps whose downloads folder is real and whose json reading is the real thing."""
     fo = MagicMock()
     fo.downloadfolder = str(tmp_path)
+    fo.storage = LocalStorage(str(tmp_path))
     fo.load_json.side_effect = lambda name: FileOps.load_json(fo, name)
+    fo.read_text.side_effect = lambda path: FileOps.read_text(fo, path)
+    fo.list_files.side_effect = lambda folder: FileOps.list_files(fo, folder)
     return fo
 
 
@@ -422,6 +455,8 @@ def make_file(folder, name: str) -> str:
 def with_folder(tmp_path):
     fileops = MagicMock()
     fileops.downloadfolder = str(tmp_path)
+    fileops.storage = LocalStorage(str(tmp_path))
+    fileops.list_files.side_effect = lambda folder: FileOps.list_files(fileops, folder)
     return fileops
 
 
@@ -554,7 +589,9 @@ WORKS = {'34816549'}
 def real_fileops():
     """A FileOps whose renaming is real, with nothing else wired up."""
     fo = MagicMock()
+    fo.storage = LocalStorage('')
     fo.rename_file.side_effect = lambda a, b: FileOps.rename_file(fo, a, b)
+    fo.exists.side_effect = lambda path: FileOps.exists(fo, path)
     return fo
 
 

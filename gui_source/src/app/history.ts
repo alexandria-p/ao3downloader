@@ -1,6 +1,7 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { Jobs, RunHistory } from './jobs';
+import { StorageChoice } from './storage-choice';
 
 /**
  * What past runs did, read back from the helper's run files.
@@ -17,6 +18,7 @@ import { Jobs, RunHistory } from './jobs';
 })
 export class History {
   private readonly jobs = inject(Jobs);
+  private readonly storage = inject(StorageChoice);
 
   protected readonly runs = signal<RunHistory[]>([]);
   protected readonly loading = signal(true);
@@ -24,12 +26,17 @@ export class History {
   protected readonly unavailable = signal(false);
 
   constructor() {
-    void this.load();
+    // the history lives in the library, so it is read again whenever the library changes -
+    // switching to Dropbox while looking at this page shows Dropbox's runs
+    effect(() => {
+      this.storage.dropboxLibrary();
+      untracked(() => void this.load());
+    });
   }
 
   protected async load(): Promise<void> {
     this.loading.set(true);
-    const found = await this.jobs.loadRuns();
+    const found = await this.jobs.loadRuns(this.storage.dropboxLibrary());
     this.unavailable.set(found === null);
     this.runs.set(found ?? []);
     this.loading.set(false);

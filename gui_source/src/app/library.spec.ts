@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Library } from './library';
+import { LibrarySetup } from './library-setup';
 import { DirectoryHandle, FolderStore } from './folder-store';
 
 const SOURCE = 'https://archiveofourown.org/users/Someone/bookmarks';
@@ -78,6 +79,36 @@ class FakeFolderStore extends FolderStore {
   }
   override async read(): Promise<File[]> {
     return this.files;
+  }
+  /** works/ holds the html among `files` - the tests list a folder's files flat */
+  override async readSubfolder(_handle: DirectoryHandle, name: string): Promise<File[]> {
+    return name === 'works' ? this.files.filter((f) => /\.html?$/i.test(f.name)) : [];
+  }
+
+  /** a library already set up, unless a test says otherwise */
+  folders = ['indexing', 'collections', 'images', 'runs', 'works'];
+  topFiles: string[] = [];
+  made: string[] = [];
+  moved: string[] = [];
+  /** names a move is refused for, as when works/ already has one */
+  refuseMove = new Set<string>();
+
+  override async topLevel(): Promise<{ folders: string[]; files: string[] }> {
+    return { folders: this.folders, files: this.topFiles };
+  }
+  override async makeFolder(_handle: DirectoryHandle, name: string): Promise<void> {
+    this.made.push(name);
+    this.folders = [...this.folders, name];
+  }
+  override async moveIntoSubfolder(
+    _handle: DirectoryHandle,
+    name: string,
+    subfolder: string,
+  ): Promise<boolean> {
+    if (this.refuseMove.has(name)) return false;
+    this.moved.push(`${subfolder}/${name}`);
+    this.topFiles = this.topFiles.filter((x) => x !== name);
+    return true;
   }
 }
 
@@ -390,4 +421,77 @@ describe('Library', () => {
   });
 
   // endregion
+
+  // region setting a local folder up
+
+  it('makes the folders a library needs in a newly picked folder, then reads it', async () => {
+    store.folders = [];
+    store.files = [];
+
+    await library.pickFolder();
+
+    expect(store.made).toEqual(['indexing', 'collections', 'images', 'runs', 'works']);
+    // a folder just made into a library is an empty one, not the wrong one
+    expect(library.error()).toBe('');
+  });
+
+  it('offers to move top-level works into works/ and moves only the works', async () => {
+    store.topFiles = ['111 A - X.html', '222 B - Y.pdf', 'readme.txt', 'bookmarks.json'];
+    const setup = TestBed.inject(LibrarySetup);
+
+    const picking = library.pickFolder();
+    await until(() => setup.state() === 'asking');
+    expect(setup.looseWorks()).toBe(2);
+    setup.choose(true);
+    await picking;
+
+    expect(store.moved).toEqual(['works/111 A - X.html', 'works/222 B - Y.pdf']);
+    expect(store.topFiles).toEqual(['readme.txt', 'bookmarks.json']);
+  });
+
+  it('moves nothing when told to leave them', async () => {
+    store.topFiles = ['111 A - X.html'];
+    const setup = TestBed.inject(LibrarySetup);
+
+    const picking = library.pickFolder();
+    await until(() => setup.state() === 'asking');
+    setup.choose(false);
+    await picking;
+
+    expect(store.moved).toEqual([]);
+    expect(setup.state()).toBe('idle');
+  });
+
+  it('says a folder could not be set up rather than reading it half done', async () => {
+    store.folders = [];
+    store.makeFolder = async () => {
+      throw new Error('This folder is read-only.');
+    };
+
+    await library.pickFolder();
+
+    expect(library.error()).toContain('Could not set up downloads');
+    expect(library.error()).toContain('read-only');
+    expect(library.data()).toBeNull();
+  });
+
+  it('takes works only from works/ in a folder handed over as a file list', async () => {
+    const inWorks = new File(['<html></html>'], '111 Work 111 - X.html');
+    Object.defineProperty(inWorks, 'webkitRelativePath', { value: 'downloads/works/111 Work 111 - X.html' });
+    const atTop = new File(['<html></html>'], '222 Work 222 - X.html');
+    Object.defineProperty(atTop, 'webkitRelativePath', { value: 'downloads/222 Work 222 - X.html' });
+
+    await library.load([recordFile('111', 1), recordFile('222', 2), inWorks, atTop] as unknown as FileList);
+
+    expect(library.htmlFiles().has('111')).toBe(true);
+    expect(library.htmlFiles().has('222')).toBe(false);
+  });
+
+  // endregion
 });
+
+/** wait for something the page does across a few awaits */
+async function until(condition: () => boolean): Promise<void> {
+  for (let i = 0; i < 50 && !condition(); i++) await new Promise((r) => setTimeout(r, 0));
+  expect(condition()).toBe(true);
+}

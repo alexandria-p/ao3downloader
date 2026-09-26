@@ -5,6 +5,7 @@ import { Jobs } from './jobs';
 import { Library } from './library';
 import { Bookmark, BookmarksExport } from './bookmarks';
 import { Collection } from './collections';
+import { DropboxSession } from './dropbox';
 
 function work(id: number): Bookmark {
   return {
@@ -614,6 +615,95 @@ describe('App', () => {
     await clickFolder(fixture, element);
 
     expect(element.querySelector('app-folder-warning')).toBeTruthy();
+  });
+
+  // endregion
+
+  // region where the library lives
+
+  function storageButton(element: HTMLElement, name: string): HTMLButtonElement {
+    return Array.from(element.querySelectorAll<HTMLButtonElement>('.storage button')).find((b) =>
+      b.textContent?.includes(name),
+    )!;
+  }
+
+  it('keeps the library on this computer until told otherwise', async () => {
+    const element = await withFolder();
+    expect(storageButton(element, 'This computer').getAttribute('aria-pressed')).toBe('true');
+    expect(actionLabels(element)).toContain('Quick Scan');
+  });
+
+  it('offers no run with dropbox chosen, since runs cannot save there yet', async () => {
+    // a run would still write to the folder on this computer while the page said dropbox
+    const fixture = TestBed.createComponent(App);
+    TestBed.inject(Library).folderName.set('downloads');
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    storageButton(element, 'Dropbox').click();
+    await fixture.whenStable();
+
+    expect(actionLabels(element)).toEqual([]);
+    expect(localStorage.getItem('ao3.storageMode')).toBe('dropbox');
+  });
+
+  it('remembers the local folder underneath a switch to dropbox and back', async () => {
+    const fixture = TestBed.createComponent(App);
+    TestBed.inject(Library).folderName.set('downloads');
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    storageButton(element, 'Dropbox').click();
+    await fixture.whenStable();
+    storageButton(element, 'This computer').click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('.topbar .source')?.textContent).toContain('downloads');
+    expect(actionLabels(element)).toContain('Quick Scan');
+  });
+
+  it('says where to put the app key when this copy has no dropbox app', async () => {
+    localStorage.setItem('ao3.storageMode', 'dropbox');
+    TestBed.inject(DropboxSession).status.set('unconfigured');
+    const element = await withFolder();
+
+    expect(element.querySelector('.empty h2')?.textContent).toContain('not set up');
+    expect(element.textContent).toContain('dropbox-config.ts');
+    expect(element.textContent).not.toContain('Sign in with Dropbox');
+  });
+
+  it('opens the dropbox app folder as soon as someone is signed in', async () => {
+    // there is nothing to choose: the app folder is all this app can see, so it is the library
+    localStorage.setItem('ao3.storageMode', 'dropbox');
+    const dropbox = TestBed.inject(DropboxSession);
+    dropbox.status.set('signed-in');
+    dropbox.account.set({ id: 'dbid:me', name: 'Me', email: 'me@example.com' });
+
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const source = element.querySelector('.topbar .source');
+    expect(source?.textContent).toContain('/Apps/ao3-downloader');
+    expect(source?.getAttribute('title')).toContain('me@example.com');
+    // a session is everything a run needs, so the runs are offered
+    expect(actionLabels(element)).toContain('Quick Scan');
+    const labels = Array.from(element.querySelectorAll('.topbar button')).map((b) =>
+      b.textContent?.trim(),
+    );
+    expect(labels).toContain('Sign out');
+    expect(labels.join(' ')).not.toContain('folder');
+  });
+
+  it('says where the library will live before anyone signs in', async () => {
+    localStorage.setItem('ao3.storageMode', 'dropbox');
+    TestBed.inject(DropboxSession).status.set('signed-out');
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('.empty')?.textContent).toContain('/Apps/ao3-downloader');
+    expect(actionLabels(element)).toEqual([]);
   });
 
   // endregion

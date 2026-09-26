@@ -31,6 +31,37 @@
   align-items: center;
 }
 
+/* where the library lives: two halves of one control, so it reads as a choice of one */
+.storage {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.storage button {
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.storage button + button {
+  border-left: 1px solid var(--border-strong);
+}
+
+.storage button:hover {
+  color: var(--text-strong);
+}
+
+.storage button.current {
+  background: #33566b;
+  color: var(--text-strong);
+}
+
 .source {
   max-width: 260px;
   overflow: hidden;

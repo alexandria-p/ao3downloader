@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DownloadDialog } from './download-dialog';
+import { StorageChoice } from './storage-choice';
 import {
   AnswerChoice,
   JobAction,
@@ -227,6 +228,36 @@ describe('DownloadDialog', () => {
     await advanceTo('running');
 
     expect(jobs.started[0].filetypes).toEqual(['JSON']);
+  });
+
+  it('sends a local run exactly as before, with no storage in it', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    expect('storage' in jobs.started[0]).toBe(false);
+  });
+
+  it('hands a run the dropbox session and folder when dropbox is the library', async () => {
+    const storage = {
+      kind: 'dropbox' as const,
+      appKey: 'app-key',
+      refreshToken: 'refresh-1',
+      folderId: 'id:fics',
+      folderPath: '/Fics',
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: StorageChoice,
+          useValue: { dropboxLibrary: () => storage, dropboxFolderLabel: () => 'Dropbox: /Fics' },
+        },
+      ],
+    });
+    await open('bookmarks');
+    await advanceTo('running');
+
+    expect(jobs.started[0].storage).toEqual(storage);
+    // and says where the files are going, before the helper has said anything
+    expect(element.textContent).toContain('Dropbox: /Fics');
   });
 
   it('says what unticking the rest buys, where the choice is made', async () => {

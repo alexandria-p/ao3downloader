@@ -1,4 +1,13 @@
-import { Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { BrowserNotice, browserNoticeSeen } from './browser-notice';
 import { CollectionsView } from './collections-view';
@@ -8,22 +17,28 @@ import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { JobAction, Jobs } from './jobs';
 import { Library } from './library';
+import { LibrarySetup } from './library-setup';
+import { SetupOverlay } from './setup-overlay';
 import { WorkList } from './work-list';
 import { Bookmark, ownerFromSource } from './bookmarks';
+import { APP_FOLDER_PATH, DropboxSession } from './dropbox';
+import { StorageChoice, StorageMode } from './storage-choice';
 
 /** the two things this folder holds, the pages that show them, and the two reading pages */
 export type View = 'bookmarks' | 'collections' | 'history' | 'faq';
 
 @Component({
   selector: 'app-root',
-  imports: [DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History,
-    WorkList, CollectionsView],
+  imports: [DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
+    CollectionsView, SetupOverlay],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })
 export class App {
   private readonly library = inject(Library);
   private readonly jobs = inject(Jobs);
+  private readonly storage = inject(StorageChoice);
+  private readonly dropbox = inject(DropboxSession);
 
   protected readonly view = signal<View>('bookmarks');
   /** which download dialog is open, if any */
@@ -52,6 +67,16 @@ export class App {
   protected readonly needsReconnect = this.library.needsReconnect;
   protected readonly canPickFolder = this.library.canPickFolder;
 
+  /** a folder on this computer, or one in Dropbox - both stay remembered either way */
+  protected readonly mode = this.storage.mode;
+  protected readonly dropboxStatus = this.dropbox.status;
+  protected readonly dropboxAccount = this.dropbox.account;
+  protected readonly dropboxError = this.dropbox.error;
+  /** what setting a library up could not do - files it could not move, say */
+  protected readonly setupReport = inject(LibrarySetup).report;
+  /** where the library is in Dropbox - always the app folder, so there is nothing to pick */
+  protected readonly appFolderPath = APP_FOLDER_PATH;
+
   /**
    * Whether a downloads folder has been chosen yet.
    *
@@ -61,6 +86,14 @@ export class App {
    * button you can see and cannot press says what is missing, where an absent one does not.
    */
   protected readonly folderChosen = computed(() => !!this.folderName());
+
+  /**
+   * Whether the run buttons are offered: once there is a folder for the run to read and
+   * write. For Dropbox that is the app folder, so being signed in is all it takes.
+   */
+  protected readonly canRun = computed(() =>
+    this.mode() === 'local' ? this.folderChosen() : this.dropboxStatus() === 'signed-in',
+  );
 
   /**
    * Whether settings.ini has turned the debug tools on.
@@ -75,8 +108,21 @@ export class App {
   );
 
   constructor() {
-    // reopen the folder picked last time, if the browser still lets us read it
-    void this.library.restore();
+    // finishes a sign-in if this load is the way back from dropbox.com
+    void this.dropbox.restore();
+    // show whichever library is chosen, and show it again whenever that changes. signing in
+    // to dropbox is what opens its folder, so the session is tracked - but only while
+    // dropbox is the choice: signing in while looking at a local folder must not make the
+    // page read that folder again
+    effect(() => {
+      if (this.mode() === 'dropbox') {
+        this.dropboxStatus();
+        untracked(() => void this.library.showDropbox());
+      } else {
+        // reopen the folder picked last time, if the browser still lets us read it
+        untracked(() => void this.library.showLocal());
+      }
+    });
     // the buttons on offer depend on settings.ini, so it is read as the page opens
     // rather than when a dialog first needs it
     void this.jobs.loadConfig();
@@ -137,6 +183,18 @@ export class App {
     // no directory picker here, so the folder comes from a file input. clicking it from
     // inside the confirm handler keeps this within the user gesture the browser requires
     this.folderInput()?.nativeElement.click();
+  }
+
+  protected setMode(mode: StorageMode): void {
+    this.storage.set(mode);
+  }
+
+  protected signInToDropbox(): void {
+    void this.dropbox.signIn();
+  }
+
+  protected async signOutOfDropbox(): Promise<void> {
+    await this.dropbox.signOut();
   }
 
   protected async reconnect(): Promise<void> {

@@ -80,28 +80,47 @@ function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => 
   );
 }
 
-export async function rememberFolder(handle: DirectoryHandle): Promise<void> {
+/**
+ * One value in this page's IndexedDB store, by key. Shared with the Dropbox session, which
+ * keeps its refresh token and chosen folder here beside the local folder's handle.
+ *
+ * All three swallow failure: a private window or blocked site data just means the thing
+ * has to be chosen, or signed into, again.
+ */
+export async function putValue(key: string, value: unknown): Promise<void> {
   try {
-    await withStore('readwrite', (store) => store.put(handle, KEY) as IDBRequest<IDBValidKey>);
+    await withStore('readwrite', (store) => store.put(value, key) as IDBRequest<IDBValidKey>);
   } catch {
-    // a private window or blocked site data just means it has to be picked again
+    // remembered for this visit only
   }
 }
 
-export async function recallFolder(): Promise<DirectoryHandle | null> {
+export async function getValue<T>(key: string): Promise<T | null> {
   try {
-    return (await withStore<DirectoryHandle | undefined>('readonly', (store) => store.get(KEY))) ?? null;
+    return (await withStore<T | undefined>('readonly', (store) => store.get(key))) ?? null;
   } catch {
     return null;
   }
 }
 
-export async function forgetFolder(): Promise<void> {
+export async function deleteValue(key: string): Promise<void> {
   try {
-    await withStore('readwrite', (store) => store.delete(KEY) as IDBRequest<undefined>);
+    await withStore('readwrite', (store) => store.delete(key) as IDBRequest<undefined>);
   } catch {
     // nothing to clean up
   }
+}
+
+export function rememberFolder(handle: DirectoryHandle): Promise<void> {
+  return putValue(KEY, handle);
+}
+
+export function recallFolder(): Promise<DirectoryHandle | null> {
+  return getValue<DirectoryHandle>(KEY);
+}
+
+export function forgetFolder(): Promise<void> {
+  return deleteValue(KEY);
 }
 
 /**
@@ -212,6 +231,64 @@ export async function removeFile(handle: DirectoryHandle, path: string): Promise
   }
 }
 
+/** The names of the folders and files directly inside a folder. */
+export async function topLevel(
+  handle: DirectoryHandle,
+): Promise<{ folders: string[]; files: string[] }> {
+  const folders: string[] = [];
+  const files: string[] = [];
+  for await (const entry of handle.values()) {
+    (entry.kind === 'directory' ? folders : files).push(entry.name);
+  }
+  return { folders, files };
+}
+
+/** Every file below one subfolder - none when it is not there, rather than making it. */
+export async function readSubfolder(handle: DirectoryHandle, name: string): Promise<File[]> {
+  if (!handle.getDirectoryHandle) return [];
+  let folder: DirectoryHandle;
+  try {
+    folder = await handle.getDirectoryHandle(name);
+  } catch {
+    return [];
+  }
+  return readFolder(folder);
+}
+
+/**
+ * Move a file from a folder into one of its subfolders, reporting whether it moved.
+ *
+ * Copy, check, then delete: the copy has to be all there before the original goes, so a
+ * move that fails partway leaves the file where it was rather than nowhere. A file already
+ * in the subfolder under that name is never written over - the move is refused and both are
+ * left alone.
+ */
+export async function moveIntoSubfolder(
+  handle: DirectoryHandle,
+  name: string,
+  subfolder: string,
+): Promise<boolean> {
+  if (!handle.getDirectoryHandle || !handle.getFileHandle || !handle.removeEntry) return false;
+  const destination = await handle.getDirectoryHandle(subfolder, { create: true });
+  if (!destination.getFileHandle) return false;
+  try {
+    await destination.getFileHandle(name);
+    return false; // something is already called that there
+  } catch {
+    // nothing there, which is what a move needs
+  }
+
+  const original = await (await handle.getFileHandle(name)).getFile();
+  await writeFile(destination, name, original);
+  const copy = await (await destination.getFileHandle(name)).getFile();
+  if (copy.size !== original.size) {
+    await removeFile(destination, name);
+    return false;
+  }
+  await handle.removeEntry(name);
+  return true;
+}
+
 /** Every file in the folder, including subfolders. */
 export async function readFolder(handle: DirectoryHandle): Promise<File[]> {
   const files: File[] = [];
@@ -255,6 +332,22 @@ export class FolderStore {
 
   read(handle: DirectoryHandle): Promise<File[]> {
     return readFolder(handle);
+  }
+
+  readSubfolder(handle: DirectoryHandle, name: string): Promise<File[]> {
+    return readSubfolder(handle, name);
+  }
+
+  topLevel(handle: DirectoryHandle): Promise<{ folders: string[]; files: string[] }> {
+    return topLevel(handle);
+  }
+
+  async makeFolder(handle: DirectoryHandle, name: string): Promise<void> {
+    await folderAt(handle, [name]);
+  }
+
+  moveIntoSubfolder(handle: DirectoryHandle, name: string, subfolder: string): Promise<boolean> {
+    return moveIntoSubfolder(handle, name, subfolder);
   }
 
   write(

@@ -1,0 +1,106 @@
+/*
+ * above everything else on the page, dialogs included: nothing underneath may be clicked
+ * while a library is being set up
+ */
+.cover {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(20, 20, 20, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.panel {
+  width: min(480px, 100%);
+  padding: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+p {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.count {
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.spinner {
+  width: 34px;
+  height: 34px;
+  margin: 0 auto 16px;
+  border: 3px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.button {
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #3a3a3a;
+}
+
+.button.primary {
+  border-color: #5a7f9a;
+  background: #33566b;
+}
+
+.button.primary:hover {
+  background: #3d6580;
+}
+
+.button.subtle {
+  background: transparent;
+  color: var(--text-dim);
+}

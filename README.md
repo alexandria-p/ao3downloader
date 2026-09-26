@@ -11,9 +11,30 @@ settings.ini can be found in the powershell_source directory
 EnableDebugTools=true can be set in settings.ini
 
 - if you make dev changes to website, you can just hot-reload.
-- if you make dev changes to downloader process, you will need to restart the worker (by exiting uv.exe and rerunning start-application.ps1
+- if you make dev changes to downloader process (python files), you will need to restart the worker (exit any running processes in powershell, then read section below on how to Build & Run the project again)
 
-### Running full project on your local
+## Build & Run Project
+
+### Build - How to bundle it
+
+(it's worth running uv run python dev/readme.py after a rewrite.(?))
+
+Open powershell in the root directory:
+powershell.exe -ExecutionPolicy Bypass -File .\generate_build_artifacts.ps1
+
+Everthing gets bundled to the /build folder.
+
+### Run - How to run the build artifact
+
+Open powershell in the /build directory:
+powershell.exe -ExecutionPolicy Bypass -File .\Start-Application.ps1
+
+This starts the local download helper on port 4400 and the web UI on port 4200
+Leave the window open and go to http://localhost:4200.
+
+## Run development files:
+
+### Running GUI + python helper locally, wihtout building artifacts
 Open powershell
 powershell.exe -ExecutionPolicy Bypass -File .\run_development_build.ps1
 That starts both pieces — the local helper on port 4400 and the web UI on port 4200 — then leave the window open and go to http://localhost:4200.
@@ -29,25 +50,6 @@ npm --prefix GUI start
 (or, cd GUI; npm start)
 
 Then open http://localhost:4200.
-
-## Build Artifact
-
-### How to bundle it
-
-(it's worth running uv run python dev/readme.py after a rewrite.(?))
-
-Open powershell in the root directory:
-powershell.exe -ExecutionPolicy Bypass -File .\generate_build_artifacts.ps1
-
-Everthing gets bundled to the /build folder.
-
-### How to run the build artifact
-
-Open powershell in the /build directory:
-powershell.exe -ExecutionPolicy Bypass -File .\Start-Application.ps1
-
-This starts the local download helper on port 4400 and the web UI on port 4200
-Leave the window open and go to http://localhost:4200.
 
 
 # Original Readme
