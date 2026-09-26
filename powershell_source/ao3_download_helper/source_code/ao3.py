@@ -474,7 +474,9 @@ class Ao3:
         return fresh
 
 
-    def download_indexed(self, records: list[dict], visited: list[str] | None = None) -> None:
+    def download_indexed(self, records: list[dict], visited: list[str] | None = None,
+                         existing: dict | None = None,
+                         forced: bool | set[str] = False) -> None:
         """Download the works the index lists, without reading ao3's listing again.
 
         The index already holds every work number and everything needed to name a file, so
@@ -486,6 +488,11 @@ class Ao3:
         deleted or hidden is not recognised as such - it just fails to download and is
         logged. Anything that genuinely needs the page (embedded images, marking as read,
         following series links) goes the long way round instead; see server.can_use_index.
+
+        `existing` is the folder scan the run already made. Given it, the count is broken down
+        by why each work is being fetched - see `say_why_downloading`. `forced` names the
+        works being replaced at the user's request (`True` for all of them), so a current
+        copy fetched again is not called out of date.
         """
 
         visited = visited or []
@@ -500,6 +507,7 @@ class Ao3:
                    and str(x['id']) not in self.unrevealed]
 
         print(strings.AO3_INFO_FROM_INDEX.format(len(pending)))
+        if existing is not None: self.say_why_downloading(pending, existing, forced)
 
         for done, record in enumerate(pending, start=1):
             log: dict = {'link': record['link']}
@@ -515,6 +523,35 @@ class Ao3:
                 self.check_session()
                 self.record_failure(record['link'], e)
                 self.log_error(log, e)
+
+
+    def say_why_downloading(self, pending: list[dict], existing: dict,
+                            forced: bool | set[str]) -> None:
+        """Break the works about to be downloaded down by why: never downloaded, behind
+        ao3, replaced at your request, or missing a format.
+
+        Goes by what the check step already decided - `superseded` names the copies it will
+        replace - so this only counts, and cannot disagree with it. A kind with none in it
+        is not said.
+        """
+
+        new = updating = overwriting = missing = 0
+        for record in pending:
+            link = record['link']
+            if not existing.get(str(record['id'])):
+                new += 1
+            elif link in self.superseded:
+                if forced is True or (isinstance(forced, set) and link in forced):
+                    overwriting += 1
+                else:
+                    updating += 1
+            else:
+                missing += 1
+        for count, line in ((new, strings.AO3_INFO_FROM_INDEX_NEW),
+                            (updating, strings.AO3_INFO_FROM_INDEX_UPDATING),
+                            (overwriting, strings.AO3_INFO_FROM_INDEX_OVERWRITING),
+                            (missing, strings.AO3_INFO_FROM_INDEX_MISSING)):
+            if count: print(line.format(count))
 
 
     def download_one_indexed(self, record: dict, maximum: int, log: dict,

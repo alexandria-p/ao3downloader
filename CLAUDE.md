@@ -58,7 +58,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1171 python passed; 455 gui passed.**
+Current: **1174 python passed; 455 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 

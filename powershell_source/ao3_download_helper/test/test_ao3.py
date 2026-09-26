@@ -1031,6 +1031,42 @@ def test_a_record_with_no_work_number_is_skipped_rather_than_guessed_at():
 
     repo.download_file.assert_not_called()
 
+
+def _why(existing: dict, superseded: dict, forced=False) -> str:
+    ao3, _, _ = make_ao3(filetypes=['HTML', 'PDF'])
+    ao3.superseded = superseded
+    records = [_record(w) for w in ('1', '2', '3', '4')]
+    with patch('builtins.print') as said:
+        ao3.say_why_downloading(records, existing, forced)
+    return '\n'.join(str(c.args[0]) for c in said.call_args_list)
+
+
+_HAVE = {'2': {'HTML': {}}, '3': {'HTML': {}}, '4': {'HTML': {}}}
+_BEHIND = {'https://archiveofourown.org/works/2': {'HTML': 'old'},
+           'https://archiveofourown.org/works/3': {'HTML': 'old'}}
+
+
+def test_the_download_count_says_how_many_are_new_and_how_many_are_updates():
+    said = _why(_HAVE, _BEHIND)
+
+    assert strings.AO3_INFO_FROM_INDEX_NEW.format(1) in said
+    assert strings.AO3_INFO_FROM_INDEX_UPDATING.format(2) in said
+    # work 4 has its html and is only here for the pdf it lacks
+    assert strings.AO3_INFO_FROM_INDEX_MISSING.format(1) in said
+
+
+def test_a_kind_with_nothing_in_it_is_not_said():
+    said = _why({}, {})
+    assert said == strings.AO3_INFO_FROM_INDEX_NEW.format(4)
+
+
+def test_copies_replaced_at_your_request_are_not_called_out_of_date():
+    said = _why(_HAVE, _BEHIND, forced={'https://archiveofourown.org/works/2'})
+
+    assert strings.AO3_INFO_FROM_INDEX_OVERWRITING.format(1) in said
+    assert strings.AO3_INFO_FROM_INDEX_UPDATING.format(1) in said
+    assert strings.AO3_INFO_FROM_INDEX_OVERWRITING.format(2) in _why(_HAVE, _BEHIND, True)
+
 # endregion
 
 

@@ -775,7 +775,8 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             # the index already knows every work number, so neither the listing nor each
             # work's page has to be read again. newest first, so a run that is stopped has
             # got through the fics most likely to be worth having
-            ao3.download_indexed(newest_first(records), visited)
+            ao3.download_indexed(newest_first(records), visited, existing,
+                                 forced=bool(job.options.get('overwrite')))
         else:
             # the download walks the same listing, so it begins on the same page
             ao3.download(parse_text.set_page_number(link, start), visited)
@@ -984,7 +985,9 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
     job.steps.start('download')
     progress.report(report, progress.PHASE, name=progress.DOWNLOADING)
     print(strings.AO3_INFO_DOWNLOADING)
-    ao3.download_indexed(newest_first(records), visited)
+    ao3.download_indexed(newest_first(records), visited, plan['existing'],
+                         forced=set(overwrite) if overwrite is not None
+                         else bool(job.options.get('overwrite')))
     job.steps.done('download')
 
 

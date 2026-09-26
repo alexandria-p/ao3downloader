@@ -202,6 +202,10 @@ AO3_INFO_OVERWRITING = 'overwriting {} downloaded works at your request, current
 AO3_INFO_STAMPED = 'dated {} existing files, across {} works, as {}'
 AO3_INFO_STAMPED_FILE = '    renamed {} -> {}'
 AO3_INFO_FROM_INDEX = 'downloading {} works directly, without re-indexing'
+AO3_INFO_FROM_INDEX_NEW = '  {} new - not downloaded before'
+AO3_INFO_FROM_INDEX_UPDATING = '  {} already downloaded, updating to the newest version'
+AO3_INFO_FROM_INDEX_OVERWRITING = '  {} already downloaded, downloading again at your request'
+AO3_INFO_FROM_INDEX_MISSING = '  {} already downloaded, fetching a format you do not have yet'
 AO3_INFO_FAILED_WORKS = '{} works could not be downloaded'
 # the 'new bookmarks only' walk, which stops at the first fic it already has
 AO3_INFO_INDEXING_NEW = 'indexing your newest bookmarks, stopping at the first one you already have'
