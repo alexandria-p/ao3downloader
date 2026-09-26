@@ -24,3 +24,6 @@ cov.xml
 .env.*
 *.secret
 *secrets*
+
+# written by deploy_config.py in the hosted deployment, just before the image is built
+/powershell_source/ao3_download_helper/hosted-settings.ini

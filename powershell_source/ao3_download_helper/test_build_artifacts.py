@@ -365,6 +365,30 @@ def test_build_leaves_the_web_folder_alone_when_skipping_it(fake_root):
 
     assert (web / 'index.html').exists()
 
+def test_the_page_is_pointed_at_the_helper_settings_ini_names(fake_root):
+    web = bundle(fake_root) / build_artifacts.WEB_FOLDER
+    web.mkdir(parents=True)
+    config_dir(fake_root).mkdir(parents=True)
+    (config_dir(fake_root) / 'settings.ini').write_text(
+        '[settings]\nHelperUrl=http://127.0.0.1:4500/\nRequirePasscode=true\n', encoding='utf-8')
+
+    build_artifacts.build(fake_root, skip_web=True)
+
+    written = json.loads((web / build_artifacts.PAGE_CONFIG_FILE).read_text(encoding='utf-8'))
+    assert written == {'helperUrl': 'http://127.0.0.1:4500', 'requirePasscode': True,
+                       'publicKey': ''}
+
+
+def test_a_settings_ini_without_the_keys_points_the_page_at_this_computer(fake_root):
+    web = bundle(fake_root) / build_artifacts.WEB_FOLDER
+    web.mkdir(parents=True)
+
+    build_artifacts.build(fake_root, skip_web=True)
+
+    written = json.loads((web / build_artifacts.PAGE_CONFIG_FILE).read_text(encoding='utf-8'))
+    assert written['helperUrl'] == 'http://127.0.0.1:4400'
+    assert written['requirePasscode'] is False
+
 # endregion
 
 

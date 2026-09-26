@@ -1,5 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 import { LibraryStore, StorageRequest, answerStorage, readRunHistory } from './library-store';
+import { HelperConnection } from './helper-connection';
 
 /**
  * Talks to the local helper (ao3downloader.server) that actually performs downloads.
@@ -352,17 +353,21 @@ export interface StartRequest {
   url?: string;
 }
 
-const API_BASE = 'http://127.0.0.1:4400';
-
 @Injectable({ providedIn: 'root' })
 export class Jobs {
+  /**
+   * Where the helper is and how to reach it. A constructor parameter with a default rather
+   * than `inject()`, so a test can still say `new Jobs()`.
+   */
+  constructor(private readonly helper: HelperConnection = new HelperConnection()) {}
+
   /** null until checked; false means the helper is not running */
   readonly available = signal<boolean | null>(null);
   readonly config = signal<ServerConfig | null>(null);
 
   async loadConfig(): Promise<ServerConfig | null> {
     try {
-      const response = await fetch(`${API_BASE}/api/config`);
+      const response = await this.helper.call(`/api/config`);
       if (!response.ok) throw new Error(String(response.status));
       const config = (await response.json()) as ServerConfig;
       this.config.set(config);
@@ -392,7 +397,7 @@ export class Jobs {
     try {
       // the history is read out of the library here; which of it qualifies is the helper's
       // rule, so it is asked rather than decided twice
-      const response = await fetch(`${API_BASE}/api/runs/floors`, {
+      const response = await this.helper.call(`/api/runs/floors`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runs: await readRunHistory(store) }),
@@ -409,7 +414,7 @@ export class Jobs {
    */
   async activeJobs(): Promise<string[] | null> {
     try {
-      const response = await fetch(`${API_BASE}/api/jobs`);
+      const response = await this.helper.call(`/api/jobs`);
       if (!response.ok) throw new Error(String(response.status));
       return ((await response.json()) as { active?: string[] }).active ?? [];
     } catch {
@@ -460,7 +465,7 @@ export class Jobs {
     if (!store) return null;
     try {
       await this.settleInterrupted(store);
-      const response = await fetch(`${API_BASE}/api/runs/resumable`, {
+      const response = await this.helper.call(`/api/runs/resumable`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runs: await readRunHistory(store) }),
@@ -494,12 +499,12 @@ export class Jobs {
    */
   async answerStorage(jobId: string, request: StorageRequest, store: LibraryStore): Promise<void> {
     const answer = await answerStorage(store, request, async () => {
-      const response = await fetch(`${API_BASE}/api/jobs/${jobId}/blobs/${request.id}`);
+      const response = await this.helper.call(`/api/jobs/${jobId}/blobs/${request.id}`);
       if (!response.ok) throw new Error(`could not collect the file (${response.status})`);
       return response;
     });
     try {
-      await fetch(`${API_BASE}/api/jobs/${jobId}/storage/${request.id}`, {
+      await this.helper.call(`/api/jobs/${jobId}/storage/${request.id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(answer),
@@ -516,15 +521,18 @@ export class Jobs {
    * did not happen would leave the page believing the run had moved on when it had not.
    */
   async skipStep(jobId: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/api/jobs/${jobId}/skip`, { method: 'POST' });
+    const response = await this.helper.call(`/api/jobs/${jobId}/skip`, { method: 'POST' });
     if (!response.ok) throw new Error('could not skip the current step');
   }
 
   async start(request: StartRequest): Promise<string> {
-    const response = await fetch(`${API_BASE}/api/jobs`, {
+    // the login goes sealed when this page was built with the helper's public key
+    const { username, password, ...rest } = request;
+    const login = await this.helper.sealLogin(username, password);
+    const response = await this.helper.call(`/api/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
+      body: JSON.stringify({ ...rest, ...login }),
     });
     const answer = await response.json();
     if (!response.ok) throw new Error(answer?.error ?? `request failed (${response.status})`);
@@ -539,7 +547,7 @@ export class Jobs {
    * ever if this never arrives.
    */
   async answer(jobId: string, choice: AnswerChoice, date = ''): Promise<void> {
-    const response = await fetch(`${API_BASE}/api/jobs/${jobId}/answer`, {
+    const response = await this.helper.call(`/api/jobs/${jobId}/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ choice, date }),
@@ -556,7 +564,7 @@ export class Jobs {
    */
   async cancel(jobId: string): Promise<void> {
     try {
-      await fetch(`${API_BASE}/api/jobs/${jobId}/cancel`, { method: 'POST' });
+      await this.helper.call(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
     } catch {
       // the helper may already have stopped; the stream closing will tell us
     }
@@ -572,7 +580,7 @@ export class Jobs {
    */
   async setPaused(jobId: string, paused: boolean): Promise<void> {
     const what = paused ? 'pause' : 'resume';
-    const response = await fetch(`${API_BASE}/api/jobs/${jobId}/${what}`, { method: 'POST' });
+    const response = await this.helper.call(`/api/jobs/${jobId}/${what}`, { method: 'POST' });
     if (response.ok) return;
 
     // a 404 here is nearly always a helper older than this page rather than a missing job.
@@ -593,21 +601,17 @@ export class Jobs {
    * The password is never part of this - it went out with the start request and is not stored.
    */
   stream(jobId: string, onEvent: (event: JobEvent) => void, onError: () => void): () => void {
-    const source = new EventSource(`${API_BASE}/api/jobs/${jobId}/events`);
-
-    source.onmessage = (message) => {
-      try {
-        onEvent(JSON.parse(message.data) as JobEvent);
-      } catch {
-        // a malformed frame is not worth tearing the run down for
-      }
-    };
-    source.onerror = () => {
+    return this.helper.stream(
+      `/api/jobs/${jobId}/events`,
+      (data) => {
+        try {
+          onEvent(JSON.parse(data) as JobEvent);
+        } catch {
+          // a malformed frame is not worth tearing the run down for
+        }
+      },
       // the helper closes the stream when the job ends, which surfaces here too
-      source.close();
-      onError();
-    };
-
-    return () => source.close();
+      onError,
+    );
   }
 }

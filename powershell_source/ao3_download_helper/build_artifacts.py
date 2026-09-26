@@ -14,6 +14,8 @@ Run it through generate_build_artifacts.ps1 in the repository root, or directly:
 
 import argparse
 import ast
+import configparser
+import json
 import os
 import shutil
 import subprocess
@@ -37,6 +39,8 @@ PACKAGE_NAME = 'source_code'
 # they used have been deleted, so the package is exactly what the helper reaches. A name in
 # `left_behind` now means dead code, or a module that lost its last import by accident.
 HELPER_ENTRY = 'server'
+# the page's own config, written into web/ from the bundle's settings.ini
+PAGE_CONFIG_FILE = 'app-config.json'
 
 # read at run time through importlib.resources, so no import graph can see them
 HELPER_DATA = ['settings']
@@ -286,6 +290,36 @@ def write_config(config_dir: Path, python_home: Path) -> list[str]:
     return created
 
 
+def write_page_config(build_dir: Path) -> Path | None:
+    """Point the bundled page at the helper settings.ini names.
+
+    The page cannot read settings.ini - it has to know where the helper is before it can
+    ask the helper anything - so the two keys it needs are copied into `app-config.json`
+    beside it, from the bundle's own settings.ini. Rewritten on every build, `--skip-web`
+    included, so editing `HelperUrl` and rebuilding is enough.
+
+    A bundle never carries a public key: it runs on this computer and sends the login to a
+    helper on this computer. The hosted copy's page, which does, is built by the deploy
+    workflow through `deploy_config.py`.
+    """
+
+    web = build_dir / WEB_FOLDER
+    if not web.is_dir(): return None
+
+    parser = configparser.ConfigParser()
+    parser.read(build_dir / CONFIG_FOLDER / 'settings.ini', encoding='utf-8')
+    helper_url = parser.get('settings', 'HelperUrl', fallback='') or 'http://127.0.0.1:4400'
+    try:
+        require = parser.getboolean('settings', 'RequirePasscode', fallback=False)
+    except ValueError:
+        require = False
+    path = web / PAGE_CONFIG_FILE
+    path.write_text(json.dumps({'helperUrl': helper_url.strip().rstrip('/'),
+                                'requirePasscode': require, 'publicKey': ''}, indent=2) + '\n',
+                    encoding='utf-8')
+    return path
+
+
 def clear_stale(build_dir: Path) -> None:
     """Remove anything an older bundle layout left at the top level."""
 
@@ -322,6 +356,7 @@ def build(root: Path, skip_web: bool = False) -> dict:
     if stale_readme.is_file(): stale_readme.unlink()
 
     created = write_config(build_dir / CONFIG_FOLDER, python_home)
+    write_page_config(build_dir)
     write_readme(build_dir)
 
     return {'build_dir': build_dir, 'launcher': launcher, 'config_created': created,
@@ -842,15 +877,16 @@ a new run if that happens.
 
 ## A caveat about deploying this to a server
 
-The web app is static and will serve from anywhere. The download buttons will not.
+The web app is static and will serve from anywhere. The download buttons will not, as built
+here: they talk to the helper at `HelperUrl` in `config/settings.ini`, which is
+`http://127.0.0.1:4400` - the same machine as the *browser*. Copying `web/` to a server gives
+visitors a bookmark browser whose buttons fail.
 
-They talk to the helper on `127.0.0.1:4400`, which means the helper has to run on the same
-machine as the *browser*, and downloads land on the machine running the *helper*. Putting
-this on a remote server gives visitors a bookmark browser whose buttons fail, and any
-download that did run would save to the server's disk, logged in as whoever's ao3 account
-was typed in.
-
-Treat it as something you run locally, or on a machine you alone use.
+A copy on the web for **one person** is supported, and is set up differently: the page on
+GitHub Pages and the helper on Render, behind a passcode (`RequirePasscode`), with the ao3
+login encrypted on its way to the helper. `HOSTING.md` in the project root explains it. It is
+not a way to share the app - anyone else should run it on their own computer, as this bundle
+does.
 """
 
 

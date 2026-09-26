@@ -296,3 +296,7 @@
 } @else {
   <app-faq />
 }
+
+@if (passcodeWanted()) {
+  <app-passcode-gate (unlocked)="unlocked()" />
+}

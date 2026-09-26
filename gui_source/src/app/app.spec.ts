@@ -6,6 +6,7 @@ import { Library } from './library';
 import { Bookmark, BookmarksExport } from './bookmarks';
 import { Collection } from './collections';
 import { DropboxSession } from './dropbox';
+import { HelperConnection } from './helper-connection';
 
 function work(id: number): Bookmark {
   return {
@@ -218,6 +219,22 @@ describe('App', () => {
 
   // writing into a folder you chose needs an API only Chromium has, and the moment it bites
   // is after a folder is picked and a run started - far too late to be told
+  it('opens with no passcode window on a copy that needs none', async () => {
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    expect((fixture.nativeElement as HTMLElement).querySelector('app-passcode-gate')).toBeNull();
+  });
+
+  it('puts the passcode window over the page when the helper wants one', async () => {
+    TestBed.inject(HelperConnection).passcodeWanted.set(true);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const gate = (fixture.nativeElement as HTMLElement).querySelector('app-passcode-gate');
+    expect(gate?.textContent).toContain('passcode protected');
+  });
+
   it('says once that this needs a Chromium browser', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();

@@ -16,8 +16,10 @@ import { Faq } from './faq';
 import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { JobAction, Jobs } from './jobs';
+import { HelperConnection } from './helper-connection';
 import { Library } from './library';
 import { LibrarySetup } from './library-setup';
+import { PasscodeGate } from './passcode-gate';
 import { SetupOverlay } from './setup-overlay';
 import { WorkList } from './work-list';
 import { Bookmark, ownerFromSource } from './bookmarks';
@@ -30,7 +32,7 @@ export type View = 'bookmarks' | 'collections' | 'history' | 'faq';
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
-    CollectionsView, SetupOverlay],
+    CollectionsView, PasscodeGate, SetupOverlay],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })
@@ -39,8 +41,14 @@ export class App {
   private readonly jobs = inject(Jobs);
   private readonly storage = inject(StorageChoice);
   private readonly dropbox = inject(DropboxSession);
+  private readonly helper = inject(HelperConnection);
 
   protected readonly view = signal<View>('bookmarks');
+  /**
+   * Whether the passcode window is up - on a copy set up with one and not yet given it, or
+   * whenever the helper turns the saved one down.
+   */
+  protected readonly passcodeWanted = this.helper.passcodeWanted;
   /** which download dialog is open, if any */
   protected readonly dialogAction = signal<JobAction | null>(null);
   /** the run a custom run opens set to resume, when opened from the history */
@@ -164,6 +172,11 @@ export class App {
   protected readonly isEmpty = computed(
     () => !this.data() && this.collections().length === 0 && !this.loading(),
   );
+
+  /** the helper took the passcode: ask it again for what it refused to say without one */
+  protected unlocked(): void {
+    void this.jobs.loadConfig();
+  }
 
   protected setView(view: View): void {
     this.view.set(view);

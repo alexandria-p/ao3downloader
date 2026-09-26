@@ -16,6 +16,8 @@ Upstream ao3downloader is a console program. This fork adds:
    cannot do the work itself.
 4. **Collection indexing** - one json file per collection, recording what it contains.
 5. **A bundler** (`generate_build_artifacts.ps1`) producing a self-contained `build/`.
+6. **A hosted copy for one person** (`HOSTING.md`) - the page on GitHub Pages, the helper
+   on Render, behind a passcode and taking the ao3 login only encrypted.
 
 ## Layout
 
@@ -31,7 +33,12 @@ powershell_source/
     test/                         pytest suite
     build_artifacts.py            the bundler itself
     test_build_artifacts.py       its tests (next to it, not in test/)
+    deploy_config.py              writes the hosted settings.ini and app-config.json
+    test_deploy_config.py         its tests
+    Dockerfile, .dockerignore     the hosted helper's image
     pyproject.toml, uv.lock, .venv/
+.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy
+HOSTING.md                        how to set the hosted copy up
 build/                            generated; config/settings.ini is NOT overwritten
 ```
 
@@ -58,7 +65,9 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1199 python passed; 471 gui passed.**
+Current: **1262 python passed; 508 gui passed** (on Windows). On Linux one python test,
+`test_the_same_file_reached_by_a_different_path_is_still_not_deleted`, fails because it is
+built on `C:\` paths - that is the platform, not a regression.
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -72,9 +81,10 @@ login session, and cannot read or write the downloads folder. So the page talks 
 helper on `127.0.0.1:4400`.
 
 The user's constraint was originally "client-side only"; the helper was accepted only once
-CORS was demonstrated to make that impossible. Don't reintroduce a hosted API - the design
-is deliberately local-only, and `build/README.md` explains why deploying it to a server
-gives you a broken page.
+CORS was demonstrated to make that impossible. **Don't turn it into a shared service.** The
+one exception is a hosted copy for its owner alone - see **A hosted copy is one person's**
+- and everyone else is meant to run it on their own computer. A helper that many people
+send their ao3 passwords to is a different project, and not this one.
 
 ### Only one helper may run at a time
 
@@ -103,6 +113,81 @@ Turning `SO_REUSEADDR` off was tried and rejected: it also makes the port unbind
 minutes after a normal shutdown while closed connections sit in `TIME_WAIT`, so stopping
 and restarting the app would fail for no reason. Probing separates "a helper is there" from
 "the OS still remembers the port".
+
+### A hosted copy is one person's
+
+`HOSTING.md` is the setup; this is what not to break. The page goes on GitHub Pages under
+`/app/`, the helper on Render from a Docker image, both built by
+`.github/workflows/deploy-hosted.yml`. It is for the owner alone - everyone else runs the app
+on their own computer - and it is locked two ways.
+
+**The passcode.** `RequirePasscode` in settings.ini turns it on; the value is the
+`AO3DOWNLOADER_PASSCODE` environment variable, **never settings.ini**, because settings.ini
+is baked into a public image and copied into every bundle. `Handler.admitted` runs first in
+`do_GET` and `do_POST` (never on `OPTIONS` - a browser sends no Authorization header on a
+preflight, so gating it would block every request that carries one). A request without the
+passcode gets **401 when its Origin is the page** (`page_may_call`: loopback, or exactly
+`PageOrigin`), so the page can ask for it, and **404 - byte for byte what an unknown path
+answers - from anywhere else**. Origin can be forged outside a browser; all that buys is the
+word 401. `access.passcode_matches` compares in constant time and an empty passcode matches
+nothing.
+
+**The sealed login.** The page encrypts `{username, password, sent, nonce}` with RSA-OAEP
+over SHA-256 using a public key **built into the page** (`app-config.json`), not fetched from
+the helper: a helper at the wrong address must not be able to hand the page its own key and
+be sent the login. `access.open_login` refuses anything older than `LOGIN_MAX_AGE_SECONDS`
+or with a nonce already seen, so one lifted from a log cannot be replayed. With a private key
+configured, `access.login_from` **refuses a plain login** rather than quietly accepting one
+from a page built without the key. This is encryption, not salting - the helper has to type
+the real password into ao3.
+
+**Startup fails closed** (`server.startup_problem`): passcode required and not set; a
+non-loopback address without the passcode, or without the private key; a key that will not
+load. `AO3DOWNLOADER_HOST`/`PORT` pick the address, defaulting to `127.0.0.1:4400` so a
+local helper is exactly what it was. `already_listening` probes `127.0.0.1` when bound to
+`0.0.0.0`.
+
+**The page learns where its helper is from `app-config.json`**, loaded by
+`provideAppInitializer` before anything talks to the helper. `HelperConnection` is the only
+thing that calls the helper: it prefixes `helperUrl`, attaches `Authorization: Bearer`, and
+turns any 401 into `passcodeWanted`, which puts `PasscodeGate` up. That covers a passcode
+changed on the helper after a browser saved the old one. The passcode is checked by the
+helper (`GET /api/auth`) and saved in `localStorage` only once accepted - the page is public,
+so it holds nothing to check against. `Jobs` takes it as a constructor parameter with a
+default, so the specs' `new Jobs()` still works. A missing or unreadable config file (a dev
+server answers it with `index.html`) leaves the local defaults.
+
+**The event stream is read with `fetch`, not `EventSource`**, because `EventSource` cannot
+send a header and a passcode in the url would land in every log the request passes.
+`drainEvents` does the splitting; `stream` calls its close callback once, and never after
+the caller closed it.
+
+**`crypto.subtle` only exists on a secure page** (https, or localhost). A copy served over
+plain http from any other host cannot seal a login, and `sealLogin` says so rather than
+failing on an undefined. This was hit in testing, not guessed.
+
+**One settings.ini feeds both halves.** `deploy_config.py settings` writes `HelperUrl`,
+`RequirePasscode` and `PageOrigin` into the template from the workflow's variables (keeping
+its comments), and `page-config` reads that same file back into `app-config.json`, deriving
+the public key from the private-key secret - so the page and the helper cannot disagree, and
+a hand-typed public key cannot drift from its private half. Both refuse, at build time, a
+setup that could not work: a plain-http hosted helper (an https page may not call it), no
+passcode, no `PageOrigin`, no key.
+
+The workflow deploys the helper **before** the page, so a new page never goes out ahead of
+the helper it expects - the same stale-helper trap as above, from the other side. It sets
+Render's variables one key at a time, because the bulk endpoint replaces the whole list.
+The secret check comes **after** the image is pushed, since Render can only be pointed at an
+image that exists: the first run publishes it and stops, saying what is left to do.
+
+**Render must run exactly one instance.** Jobs live in `Handler.jobs`, in memory; a second
+instance would receive half a run's requests and know nothing about the run.
+
+The request log (`logs/log.jsonl`) is **written and never read** - the one reader,
+`shared.get_last_page_downloaded`, is only called from the console prompt `shared.link`,
+which nothing calls - so a hosted helper losing it on every restart costs nothing.
+`ignorelist.txt` is the one helper-side file that does change a run, and a hosted helper
+has none.
 
 ### Indexing runs before downloading
 
@@ -381,8 +466,9 @@ missing or outdated and skips what is not. The ui says so on the failure.
 
 ### Every run writes itself down
 
-`runs/` is a subfolder of the **downloads folder** (`downloads/runs`, wherever
-`DownloadFolder` points), one json file per run: which button, which settings, which fics were reindexed / downloaded / updated, the
+`runs/` is a subfolder of the **library** - the folder the page has open, on this computer
+or in Dropbox. There is no `DownloadFolder` setting any more: the page picks the folder and
+the helper reaches it only through the page (`storage.PageStorage`). One json file per run: which button, which settings, which fics were reindexed / downloaded / updated, the
 choices it stopped to ask, what it could not get, and how it ended. `GET /api/runs` reads
 them back for the history tab.
 
@@ -395,10 +481,9 @@ arrives **flat**, so `jobs.isRunRecord` recognises one by shape and `Library.rea
 passes it over. Without that a run record renders as a bookmark, because `flattenRecord`
 hands back anything carrying an `id` and a run record has one.
 
-`FileOps.initialize` creates the runs folder **after** the downloads folder rather than
-before. Creating it first would make an unusable `DownloadFolder` fail with a bare `OSError`
-from a line that says nothing about which setting is wrong, instead of
-`MESSAGE_DOWNLOAD_FOLDER_ERROR`.
+`FileOps.initialize` checks the library's root is still there (`storage.ensure_root`) before
+making the library folders (`LIBRARY_FOLDER_NAMES`, `runs` among them) inside it, so a
+library that has gone away fails on the root rather than on whichever subfolder came first.
 
 **The file is written when the run starts, not when it ends.** A run killed mid-flight
 cannot write its own epitaph, so a record still saying `running` *is* the evidence that it
@@ -1247,3 +1332,8 @@ Three rules worth keeping:
 `SavePassword=true`. It is gitignored. Do not paste it, print it, or ship it - the bundler
 deliberately does not seed `build/config/data.json`. The web UI never stores a password:
 only the username, in `localStorage`, and only when "remember me" is ticked.
+
+A hosted copy has two more secrets - the passcode and the RSA private key. They live in
+GitHub secrets and Render environment variables and **nowhere else**: not settings.ini, not
+`app-config.json`, not the image. The page does keep the passcode in `localStorage` once the
+helper accepts it; that is the one password-like thing it stores, by the user's choice.
