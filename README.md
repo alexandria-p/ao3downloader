@@ -34,6 +34,14 @@ powershell.exe -ExecutionPolicy Bypass -File .\Start-Application.ps1
 This starts the local download helper on port 4400 and the web UI on port 4200
 Leave the window open and go to http://localhost:4200.
 
+## Deploy
+
+Open Github repo,
+Actions -> deploy hosted app (under All workflows) -> click Run Workflow event trigger
+
+It writes settings.ini and page config, build the helper as a dockerfile and pushes it to github container registry (Github Profile -> Packages). Then deploys to 'render' as a web service.
+
+
 ## Run development files:
 
 ### Running GUI + python helper locally, wihtout building artifacts
