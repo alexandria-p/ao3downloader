@@ -86,6 +86,10 @@ class RunRecord:
             'skipped': [],
             # new copies downloaded while the older copy could not be safely deleted
             'keptCopies': [],
+            # older copies of a work the run decided to remove, and what became of each:
+            # `pending` until the cleanup step, then `removed`, or `kept` with the reason.
+            # written the moment they are marked, so a run that dies first still says which
+            'removals': [],
             # everything the run printed, in order - the same account the modal shows,
             # kept because the modal is gone once the tab is closed
             'log': list(printed or []),
@@ -144,6 +148,15 @@ class RunRecord:
         try:
             if not self.data['choices']: return
             self.data['choices'][-1].update(fields)
+            self.save()
+        except Exception:
+            pass
+
+    def removals(self, items: list[dict]) -> None:
+        """Record the older copies marked for removal, or what has since become of them."""
+
+        try:
+            self.data['removals'] = [{k: v for k, v in x.items() if k != 'path'} for x in items]
             self.save()
         except Exception:
             pass

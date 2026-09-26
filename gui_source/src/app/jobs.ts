@@ -110,8 +110,23 @@ export type UndatedChoice = 'stamp' | 'refresh' | 'skip';
  */
 export type QuickFloorChoice = 'since' | 'full';
 
+/** what to do about older copies of a work beside the newest one */
+export type DuplicatesChoice = 'newest' | 'leave';
+
 /** anything a run may be answered with; the run only reads its own question's replies */
-export type AnswerChoice = UndatedChoice | QuickFloorChoice;
+export type AnswerChoice = UndatedChoice | QuickFloorChoice | DuplicatesChoice;
+
+/** one older copy a run marked for removal, and what became of it */
+export interface RunRemoval {
+  id: string;
+  filetype: string;
+  file: string;
+  /** the newest copy, which is the one kept */
+  keeping: string;
+  status: 'pending' | 'removed' | 'kept';
+  /** why it was kept, when it was */
+  error?: string;
+}
 
 /**
  * Where a step has got to.
@@ -171,6 +186,8 @@ export interface RunHistory {
   skipped: WorkFailure[];
   /** new copies downloaded while the old copy could not be deleted - absent on older runs */
   keptCopies?: WorkFailure[];
+  /** older copies marked for removal, and what became of each - absent on older runs */
+  removals?: RunRemoval[];
   error: string;
 }
 
@@ -261,6 +278,10 @@ export interface JobEvent {
   status?: StepStatus;
   /** on a `question` event: which question is being asked, and how many works it concerns */
   count?: number;
+  /** on a `question` event: how many files those works hold between them */
+  files?: number;
+  /** on a `notRemoved` event: older copies marked for removal that are still there */
+  notRemoved?: WorkFailure[];
   choices?: string[];
   /** on a `question` event: the date the question is offering, where it has one */
   date?: string;

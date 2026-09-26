@@ -29,6 +29,8 @@ QUESTION = 'question'
 # every file a run touches goes through one of these. never kept in the job's history: a
 # page reconnecting must not be handed old writes to do again
 STORAGE = 'storage'
+# older copies a run marked for removal and did not remove - stopped, failed, or refused
+NOT_REMOVED = 'notRemoved'
 # the steps this run intends to take, sent once at the start, and then one of these per
 # change as it works through them. kept separate from PHASE: a phase says what kind of work
 # is happening and repeats (a combined run downloads twice), while a step is a place in a

@@ -182,6 +182,24 @@
   color: var(--text-dim);
 }
 
+.member-of .membership + .membership {
+  margin-top: 4px;
+}
+
+.series-name {
+  font-weight: 600;
+}
+
+.series-link {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.series-list li.current .title {
+  font-weight: 600;
+}
+
 /* endregion */
 
 /* region blurbs */
@@ -355,6 +373,24 @@
   color: var(--text);
 }
 
+.member-of .membership + .membership {
+  margin-top: 4px;
+}
+
+.series-name {
+  font-weight: 600;
+}
+
+.series-link {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.series-list li.current .title {
+  font-weight: 600;
+}
+
 /* endregion */
 
 /* region bookmarker section */
@@ -423,6 +459,24 @@
 .bookmark-tags .label {
   margin-right: 4px;
   color: var(--text-dim);
+  font-weight: 600;
+}
+
+.member-of .membership + .membership {
+  margin-top: 4px;
+}
+
+.series-name {
+  font-weight: 600;
+}
+
+.series-link {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.series-list li.current .title {
   font-weight: 600;
 }
 
@@ -515,5 +569,46 @@
   font-size: 0.78rem;
 }
 
+.member-of .membership + .membership {
+  margin-top: 4px;
+}
+
+.series-name {
+  font-weight: 600;
+}
+
+.series-link {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.series-list li.current .title {
+  font-weight: 600;
+}
+
 /* endregion */
+
+/* the button that opens a work's downloaded PDF, beside its title */
+.pdf {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.pdf:hover {
+  border-color: var(--accent);
+  color: var(--text-strong);
+}
 

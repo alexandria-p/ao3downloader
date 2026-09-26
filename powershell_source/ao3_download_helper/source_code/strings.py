@@ -183,8 +183,10 @@ BOOKMARK_TYPE_EXTERNAL = 'external work'
 BOOKMARK_TYPE_SERIES = 'series bookmark'
 # the bookmarked series a work was found through, by series id
 FROM_SERIES_FIELD = 'from_series'
-# the works a bookmarked series held when it was last read, on the series' own entry
+# the works a series held when it was last read, on the series' own entry
 SERIES_WORKS_FIELD = 'work_ids'
+# on a work: the series it is part of, as [{id, title, part}] - read off its blurb or page
+SERIES_MEMBERSHIP_FIELD = 'series'
 # the bookmark's own fields: what you wrote and when. a work read off a series page has
 # none of them, so an existing entry keeps its own rather than having them blanked
 BOOKMARK_OWN_FIELDS = ('date_bookmarked', 'bookmark_notes', 'bookmark_tags',
@@ -324,6 +326,24 @@ STEP_UPDATE = 'Re-index each fic, then download or update as necessary'
 STEP_FILL_GAPS = 'Fetch any format still missing'
 STEP_IMAGES = 'Save embedded images separately'
 STEP_REPORT = 'Report any failures'
+STEP_SERIES = 'Index works in series marked for walkthrough'
+STEP_CLEANUP = 'Cleanup'
+AO3_INFO_DUPLICATES = ('{} works have more than one copy of the same format ({} older files). '
+                       'the newest copy is the one every run goes by')
+AO3_INFO_DUPLICATE_FILE = '  {}: keeping {} - older copy {}'
+AO3_INFO_DUPLICATES_WAITING = 'waiting for you to choose whether to keep only the newest copies...'
+AO3_INFO_DUPLICATES_MARKED = 'marked {} older copies for removal - they are removed in the cleanup step'
+AO3_INFO_DUPLICATES_LEFT = 'leaving all {} older copies where they are'
+AO3_INFO_CLEANUP = 'removing {} older copies marked for removal'
+AO3_INFO_CLEANUP_REMOVED = '  removed {}'
+AO3_INFO_CLEANUP_FAILED = '  could not remove {}: {}'
+AO3_INFO_CLEANUP_KEPT = '  kept {}: this run downloaded a file to that name'
+AO3_INFO_CLEANUP_STOPPED = 'the run was stopped, so the {} older copies marked for removal were left in place'
+AO3_INFO_NOT_REMOVED = '{} older copies marked for removal were not removed - the list below says which'
+CLEANUP_STOPPED = 'the run stopped before the cleanup step'
+CLEANUP_FAILED_RUN = 'the run failed before the cleanup step'
+CLEANUP_WROTE_OVER = 'this run downloaded a file to that name, so it is no longer the older copy'
+CLEANUP_NOT_DELETED = 'the file could not be deleted'
 
 AO3_INFO_FORMAT_MISSING = '    no copy in {} - downloading now'
 AO3_INFO_FORMAT_OUTDATED = '    outdated version in {} - replacing now'
@@ -367,10 +387,13 @@ AO3_INFO_METADATA_SKIPPED = 'skipped {} bookmarks that are not works (series, ex
 # each one rather than leaving a count to be worked out from
 AO3_INFO_SKIPPED_WORKS = '{} bookmarks were not works and could not be downloaded - the list below says which, and why'
 SKIPPED_SERIES = 'a series, not a single work'
-AO3_INFO_SERIES_READING = 'reading the bookmarked series "{}" for the works in it'
+AO3_INFO_SERIES_MARKED = 'marking series for walkthrough: "{}"'
+AO3_INFO_SERIES_MARKED_BOOKMARK = 'marking series for walkthrough: "{}" (a series you bookmarked)'
+AO3_INFO_SERIES_STEP = 'indexing the works in {} series marked for walkthrough'
+AO3_INFO_SERIES_NONE = 'no series were marked for walkthrough'
+AO3_INFO_SERIES_READING = 'walking through the series "{}" for the works in it'
 AO3_INFO_SERIES_READ = '  {} works in that series: {} indexed from it, {} already indexed this run'
-AO3_INFO_SERIES_AGAIN = 'the series "{}" was already read this run'
-ERROR_SERIES = 'could not read a bookmarked series - its works were not indexed from it'
+ERROR_SERIES = 'could not read a series marked for walkthrough - its works were not indexed from it'
 SKIPPED_EXTERNAL = 'an external work, hosted somewhere other than ao3'
 SKIPPED_DELETED = 'the work has been deleted'
 # an author hides a work by putting it in an unrevealed collection. it keeps its work

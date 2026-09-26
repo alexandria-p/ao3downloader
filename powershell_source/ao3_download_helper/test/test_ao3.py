@@ -2447,6 +2447,31 @@ def test_a_fic_indexed_from_its_own_page_is_bookmarked_when_it_says_edit_bookmar
     assert record['bookmarked'] is True
 
 
+def test_a_single_fic_you_have_not_bookmarked_is_recorded_as_not_bookmarked() -> None:
+    # the single-fic run: its own page says 'Bookmark' - you have none - so the entry says so
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _page_with_bookmark_button('Bookmark')
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        record = ao3.index_one_work('https://archiveofourown.org/works/111')
+
+    assert record['bookmarked'] is False
+    # and a new entry made from a work page is typed like any other work
+    assert record[strings.BOOKMARK_TYPE_FIELD] == strings.BOOKMARK_TYPE_WORK
+
+
+def test_a_single_fic_run_corrects_an_entry_you_have_since_unbookmarked() -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _page_with_bookmark_button('Bookmark')
+    existing = {'id': '111', 'link': 'https://archiveofourown.org/works/111',
+                'bookmarked': True, strings.BOOKMARK_TYPE_FIELD: strings.BOOKMARK_TYPE_WORK}
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        record = ao3.index_one_work('https://archiveofourown.org/works/111', existing)
+
+    assert record['bookmarked'] is False
+
+
 def test_a_refreshed_fic_you_have_since_unbookmarked_says_so() -> None:
     ao3, repo, _ = make_ao3()
     repo.get_soup.return_value = _page_with_bookmark_button('Bookmark')

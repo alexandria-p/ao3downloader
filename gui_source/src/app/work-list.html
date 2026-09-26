@@ -185,6 +185,9 @@
                   (click)="openWork(work, $event)"
                   >{{ work.title }}</a
                 >
+                @if (hasPdf(work)) {
+                  <ng-container *ngTemplateOutlet="pdfButton; context: { $implicit: work }"></ng-container>
+                }
               } @else {
                 <!-- a series opens on ao3; an external work opens wherever it is hosted -->
                 <a
@@ -317,54 +320,42 @@
             <button
               type="button"
               class="series-toggle"
-              [attr.aria-expanded]="isSeriesOpen(work)"
-              (click)="toggleSeries(work)"
+              [attr.aria-expanded]="isOpen(work.id ?? '')"
+              (click)="toggle(work.id ?? '')"
             >
-              <span class="chevron" aria-hidden="true">{{ isSeriesOpen(work) ? '&#9662;' : '&#9656;' }}</span>
-              {{ isSeriesOpen(work) ? 'Hide' : 'Show' }} the
+              <span class="chevron" aria-hidden="true">{{ isOpen(work.id ?? '') ? '&#9662;' : '&#9656;' }}</span>
+              {{ isOpen(work.id ?? '') ? 'Hide' : 'Show' }} the
               {{ (work.work_ids?.length ?? 0) | number }}
               {{ (work.work_ids?.length ?? 0) === 1 ? 'work' : 'works' }} in this series
             </button>
 
-            @if (isSeriesOpen(work)) {
-              @if (!work.work_ids?.length) {
-                <p class="not-indexed">
-                  This series has not been read for its works yet. The next scan that reaches it
-                  will index them.
-                </p>
-              } @else {
-                <ol class="series-list">
-                  @for (part of seriesWorks(work); track $index; let at = $index) {
-                    <li>
-                      <span class="part">Part {{ at + 1 }}</span>
-                      @if (part.placeholder) {
-                        <a class="title" [href]="part.link" target="_blank" rel="noopener">Work {{ part.id }}</a>
-                        <span class="part-meta">not in your index yet</span>
-                      } @else {
-                        <a
-                          class="title"
-                          [href]="part.link"
-                          [class.local]="hasLocalCopy(part)"
-                          [title]="hasLocalCopy(part) ? 'Open your downloaded copy' : 'Open on AO3 (no local copy in this folder)'"
-                          (click)="openWork(part, $event)"
-                          >{{ part.title }}</a
-                        >
-                        @if (part.authors.length) {
-                          <span class="by">by</span> {{ part.authors.join(', ') }}
-                        }
-                        <span class="part-meta">
-                          @if (part.words !== null) { {{ part.words | number }} words &middot; }
-                          {{ chapterCount(part) }} chapters
-                          @if (part.date_updated) { &middot; updated {{ part.date_updated }} }
-                        </span>
-                        @if (part.bookmarked) {
-                          <span class="badge">Also bookmarked</span>
-                        }
-                      }
-                    </li>
-                  }
-                </ol>
-              }
+            @if (isOpen(work.id ?? '')) {
+              <ng-container *ngTemplateOutlet="parts; context: { $implicit: work.work_ids, current: null }"></ng-container>
+            }
+          </div>
+        } @else if (typeOf(work) === 'individual work' && work.series?.length) {
+          <!-- the series this work is part of - including one you never bookmarked, which is
+               where the rest of that series shows up at all -->
+          <div class="series-works member-of">
+            @for (member of work.series; track member.id) {
+              <div class="membership">
+                <button
+                  type="button"
+                  class="series-toggle"
+                  [attr.aria-expanded]="isOpen(work.id + '/' + member.id)"
+                  (click)="toggle(work.id + '/' + member.id)"
+                >
+                  <span class="chevron" aria-hidden="true">{{ isOpen(work.id + '/' + member.id) ? '&#9662;' : '&#9656;' }}</span>
+                  @if (member.part) { Part {{ member.part }} of } @else { Part of }
+                  <span class="series-name">{{ member.title || 'series ' + member.id }}</span>
+                </button>
+                <a class="series-link" [href]="'https://archiveofourown.org/series/' + member.id"
+                   target="_blank" rel="noopener">on AO3</a>
+
+                @if (isOpen(work.id + '/' + member.id)) {
+                  <ng-container *ngTemplateOutlet="parts; context: { $implicit: seriesParts(member.id), current: work.id }"></ng-container>
+                }
+              </div>
             }
           </div>
         }
@@ -403,4 +394,72 @@
       </button>
     </nav>
   }
+</ng-template>
+
+<!--
+  the works in a series, in the series' order - shared by a series' own card and the
+  'Part N of' line on a work in it. `current` is the work whose card this is, if any
+-->
+<ng-template #parts let-ids let-current="current">
+  @if (!ids?.length) {
+    <p class="not-indexed">
+      This series has not been walked for its works yet. The next scan that reaches it will
+      index them - for a series you did not bookmark, a scan with <em>Get all works from encountered series</em> ticked.
+    </p>
+  } @else {
+    <ol class="series-list">
+      @for (part of partsOf(ids); track $index; let at = $index) {
+        <li [class.current]="part.id === current">
+          <span class="part">Part {{ at + 1 }}</span>
+          @if (part.placeholder) {
+            <a class="title" [href]="part.link" target="_blank" rel="noopener">Work {{ part.id }}</a>
+            <span class="part-meta">not in your index yet</span>
+          } @else {
+            <a
+              class="title"
+              [href]="part.link"
+              [class.local]="hasLocalCopy(part)"
+              [title]="hasLocalCopy(part) ? 'Open your downloaded copy' : 'Open on AO3 (no local copy in this folder)'"
+              (click)="openWork(part, $event)"
+              >{{ part.title }}</a
+            >
+            @if (hasPdf(part)) {
+              <ng-container *ngTemplateOutlet="pdfButton; context: { $implicit: part }"></ng-container>
+            }
+            @if (part.authors.length) {
+              <span class="by">by</span> {{ part.authors.join(', ') }}
+            }
+            <span class="part-meta">
+              @if (part.words !== null) { {{ part.words | number }} words &middot; }
+              {{ chapterCount(part) }} chapters
+              @if (part.date_updated) { &middot; updated {{ part.date_updated }} }
+            </span>
+            @if (part.id === current) {
+              <span class="badge">This work</span>
+            } @else if (part.bookmarked) {
+              <span class="badge">Also bookmarked</span>
+            }
+          }
+        </li>
+      }
+    </ol>
+  }
+</ng-template>
+
+<!-- opens the work's newest downloaded PDF; only shown when there is one -->
+<ng-template #pdfButton let-work>
+  <button
+    type="button"
+    class="pdf"
+    [attr.aria-label]="'Open the downloaded PDF of ' + work.title"
+    title="Open the downloaded PDF in a new tab"
+    (click)="openPdf(work, $event)"
+  >
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path d="M4 1h5l4 4v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none"
+            stroke="currentColor" stroke-width="1.2" />
+      <path d="M9 1v4h4" fill="none" stroke="currentColor" stroke-width="1.2" />
+    </svg>
+    PDF
+  </button>
 </ng-template>

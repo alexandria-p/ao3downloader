@@ -189,6 +189,10 @@ export class DownloadDialog implements OnDestroy {
    * is a problem the user has to go and sort out, so each one is named.
    */
   protected readonly keptCopies = signal<WorkFailure[]>([]);
+  /** older copies the run marked for removal and did not remove - stopped, failed, refused */
+  protected readonly notRemoved = signal<WorkFailure[]>([]);
+  /** on the duplicates question: how many older files there are across those works */
+  protected readonly askedFiles = signal(0);
 
   /**
    * How many undated files the run has stopped to ask about, or 0 when it is not asking.
@@ -308,12 +312,14 @@ export class DownloadDialog implements OnDestroy {
   /**
    * Series expansion: the full scan only.
    *
-   * A series is discovered on a work's own page, and following one means downloading works
-   * that were never in the listing. Only a full scan goes the long way round (see
-   * `server.can_use_index`); every other run downloads a known set straight from the work
-   * numbers, and there is nothing in that path to expand a series into.
+   * Offered on the runs that index works one way or another - the two scans, the custom run
+   * and the single fic. With it ticked, every work the run indexes marks the series it is
+   * part of, and each marked series is walked once indexing is over, the same as a series
+   * you bookmarked. The runs kept for debugging and the update run leave it out.
    */
-  protected readonly picksSeries = computed(() => this.action() === 'bookmarks');
+  protected readonly picksSeries = computed(() =>
+    (['bookmarks', 'quick', 'custom', 'work'] as JobAction[]).includes(this.action()),
+  );
 
   /**
    * Embedded images: the custom run only.
@@ -454,7 +460,7 @@ export class DownloadDialog implements OnDestroy {
     if (this.picksDates() && this.useDates()) chosen.push(this.dateRange());
     if (this.picksPages()) chosen.push(this.pageRange());
     if (this.workdates()) chosen.push('look up publication dates');
-    if (this.picksSeries() && this.series()) chosen.push('expand series links');
+    if (this.picksSeries() && this.series()) chosen.push('the rest of each series');
     if (this.picksImages() && this.images()) chosen.push('save images separately');
     if (this.picksReindex() && !this.reindex()) chosen.push('no reindexing');
     if (this.picksOverwrite() && this.overwrite()) chosen.push('overwrite existing files');
@@ -538,7 +544,12 @@ export class DownloadDialog implements OnDestroy {
       });
     }
     if (this.picksSeries()) {
-      rows.push({ label: 'Series links', value: this.series() ? 'followed' : 'not followed' });
+      rows.push({
+        label: 'If a work is part of a series',
+        value: this.series()
+          ? 'download all the other works in the series too, even if they are not bookmarked'
+          : 'do nothing',
+      });
     }
     if (this.picksImages()) {
       rows.push({
@@ -810,6 +821,7 @@ export class DownloadDialog implements OnDestroy {
     this.failures.set([]);
     this.skipped.set([]);
     this.keptCopies.set([]);
+    this.notRemoved.set([]);
     this.steps.set([]);
 
     let jobId: string;
@@ -972,6 +984,9 @@ export class DownloadDialog implements OnDestroy {
       case 'skipped':
         this.skipped.set(event.skipped ?? []);
         break;
+      case 'notRemoved':
+        this.notRemoved.set(event.notRemoved ?? []);
+        break;
       case 'keptCopies':
         this.keptCopies.set(event.keptCopies ?? []);
         break;
@@ -991,6 +1006,7 @@ export class DownloadDialog implements OnDestroy {
         this.question.set(event.name ?? '');
         this.askedDate.set(event.date ?? '');
         this.asking.set(event.count ?? 0);
+        this.askedFiles.set(event.files ?? 0);
         this.choosingDate.set(false);
         this.answering.set(false);
         break;
@@ -1165,6 +1181,16 @@ export class DownloadDialog implements OnDestroy {
     }
   }
 
+  /** mark the older copies for removal in the cleanup step, keeping the newest of each */
+  protected keepNewestCopies(): void {
+    void this.answerQuestion('newest');
+  }
+
+  /** leave every copy where it is */
+  protected leaveAllCopies(): void {
+    void this.answerQuestion('leave');
+  }
+
   /** measure back to the day the index was last written */
   protected quickScanSinceIndex(): void {
     void this.answerQuestion('since');
@@ -1206,7 +1232,11 @@ export class DownloadDialog implements OnDestroy {
 
   /** how many entries there are across every list of issues this run reported */
   protected readonly issueCount = computed(
-    () => this.failures().length + this.keptCopies().length + this.skipped().length,
+    () =>
+      this.failures().length +
+      this.keptCopies().length +
+      this.notRemoved().length +
+      this.skipped().length,
   );
 
   /**
@@ -1242,6 +1272,15 @@ export class DownloadDialog implements OnDestroy {
       'work id, link, new file, older copy still on disk (if any), reason',
       this.keptCopies().map((row) =>
         [row.id ?? '', row.link ?? '', row.file ?? '', row.old ?? '', clean(row.error)].join('\t'),
+      ),
+    );
+    section(
+      plural(this.notRemoved().length,
+        'older copy marked for removal that is still there',
+        'older copies marked for removal that are still there'),
+      'work id, older copy, newest copy (kept), reason',
+      this.notRemoved().map((row) =>
+        [row.id ?? '', row.file ?? '', row.old ?? '', clean(row.error)].join('\t'),
       ),
     );
     section(

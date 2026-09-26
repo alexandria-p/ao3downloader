@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
-import { Library } from './library';
+import { Library, LocalCopy, OpenableFormat } from './library';
 import {
   Bookmark,
   BookmarkType,
@@ -54,6 +54,7 @@ export class WorkList {
   readonly note = input('');
 
   protected readonly htmlFiles = this.library.htmlFiles;
+  protected readonly pdfFiles = this.library.pdfFiles;
 
   // What to narrow the listing to. All four are 'no opinion' when empty, so an untouched
   // panel shows everything - the filters are for finding something, not for hiding things
@@ -67,9 +68,14 @@ export class WorkList {
   /** one kind of bookmark only - works, series or external works - or '' for all of them */
   protected readonly typeFilter = signal<'' | BookmarkType>('');
 
-  /** the series whose works are showing, by series id */
+  /**
+   * The parts lists that are open. A series card is keyed by the series id; a work's
+   * 'Part N of' line by the work and the series, so opening it on one card does not open it
+   * on every other work of the same series.
+   */
   protected readonly openSeries = signal<ReadonlySet<string>>(new Set());
   private readonly worksById = this.library.worksById;
+  private readonly seriesById = this.library.seriesById;
 
   /**
    * How the listing is ordered. Empty keeps the order the folder was read in.
@@ -243,26 +249,30 @@ export class WorkList {
     return isWorkEntry(work) && !!work.id && this.htmlFiles().has(work.id);
   }
 
-  protected isSeriesOpen(series: Bookmark): boolean {
-    return !!series.id && this.openSeries().has(series.id);
+  protected isOpen(key: string): boolean {
+    return this.openSeries().has(key);
   }
 
-  protected toggleSeries(series: Bookmark): void {
-    if (!series.id) return;
+  protected toggle(key: string): void {
     const open = new Set(this.openSeries());
-    if (open.has(series.id)) open.delete(series.id);
-    else open.add(series.id);
+    if (open.has(key)) open.delete(key);
+    else open.add(key);
     this.openSeries.set(open);
   }
 
   /**
-   * The works in a bookmarked series, in the series' own order, as the index describes
-   * them. A work the index has no entry for - the series grew since it was last read - is
-   * shown by its number, with a link to ao3, as a collection shows one.
+   * The works a series holds, in the series' own order, as the index describes them. A work
+   * the index has no entry for - the series grew since it was last walked - is shown by its
+   * number, with a link to ao3, as a collection shows one.
    */
-  protected seriesWorks(series: Bookmark): Bookmark[] {
+  protected partsOf(ids: string[] | undefined): Bookmark[] {
     const byId = this.worksById();
-    return (series.work_ids ?? []).map((id) => byId.get(id) ?? placeholderWork(id));
+    return (ids ?? []).map((id) => byId.get(id) ?? placeholderWork(id));
+  }
+
+  /** the works in one of the series a work belongs to, when that series has been walked */
+  protected seriesParts(seriesId: string): string[] | undefined {
+    return this.seriesById().get(seriesId)?.work_ids;
   }
 
   /**
@@ -273,33 +283,47 @@ export class WorkList {
     event.preventDefault();
 
     const copy = isWorkEntry(work) && work.id ? this.htmlFiles().get(work.id) : undefined;
-    if (copy instanceof Blob) {
-      const url = URL.createObjectURL(copy);
-      window.open(url, '_blank');
-      // the tab keeps its own copy once loaded, so the handle can be released
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      return;
-    }
     if (copy) {
-      // a copy in Dropbox has to be fetched first. the tab is opened now, while the click
-      // still counts as the user's - opened after the download it would be a popup, and
-      // blocked - and pointed at the work once it arrives
-      const tab = window.open('', '_blank');
-      void this.library.readCopy(copy).then(
-        (blob) => {
-          const url = URL.createObjectURL(blob);
-          if (tab) tab.location.href = url;
-          setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        },
-        () => {
-          // could not be fetched - AO3's copy is better than a blank tab
-          if (tab && work.link) tab.location.href = work.link;
-          else tab?.close();
-        },
-      );
+      this.openCopy(copy, 'html', work.link);
       return;
     }
-
     if (work.link) window.open(work.link, '_blank', 'noopener');
+  }
+
+  /** whether this folder holds a downloaded PDF of the work */
+  protected hasPdf(work: Bookmark): boolean {
+    return isWorkEntry(work) && !!work.id && this.pdfFiles().has(work.id);
+  }
+
+  /** Open the work's newest downloaded PDF in a new tab. */
+  protected openPdf(work: Bookmark, event: Event): void {
+    event.preventDefault();
+    const copy = isWorkEntry(work) && work.id ? this.pdfFiles().get(work.id) : undefined;
+    if (copy) this.openCopy(copy, 'pdf', null);
+  }
+
+  /**
+   * Show a downloaded copy in a new tab.
+   *
+   * A copy in Dropbox has to be fetched first. The tab is opened straight away, while the
+   * click still counts as the user's - opened after the download it would be a popup, and
+   * blocked - and pointed at the file once it arrives. If it cannot be fetched, the tab goes
+   * to `fallback` (the work on AO3) rather than staying blank.
+   */
+  private openCopy(copy: LocalCopy, format: OpenableFormat, fallback: string | null): void {
+    const tab = window.open('', '_blank');
+    void this.library.readCopy(copy, format).then(
+      (blob) => {
+        const url = URL.createObjectURL(blob);
+        if (tab) tab.location.href = url;
+        else window.open(url, '_blank');
+        // the tab keeps its own copy once loaded, so the handle can be released
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      },
+      () => {
+        if (tab && fallback) tab.location.href = fallback;
+        else tab?.close();
+      },
+    );
   }
 }

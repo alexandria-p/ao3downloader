@@ -409,10 +409,40 @@ def scan_downloaded_works(folder: str, filetypes: list[str],
         entry = {'path': path, 'date': parse_text.get_date_from_filename(file)}
         existing = found.setdefault(work, {}).get(filetype)
         # more than one copy of the same type means an older one is still lying about;
-        # the newest date is the one that counts, and an undated file is the oldest
-        if existing is None or (entry['date'] or '') > (existing['date'] or ''):
+        # the newest date is the one that counts, and an undated file is the oldest. the
+        # others are kept under `older`, so a run can offer to tidy them away
+        if existing is None:
             found[work][filetype] = entry
+        elif (entry['date'] or '') > (existing['date'] or ''):
+            entry['older'] = existing.pop('older', []) + [existing]
+            found[work][filetype] = entry
+        else:
+            existing.setdefault('older', []).append(entry)
 
+    return found
+
+
+def older_copies(existing: dict[str, dict[str, dict]], works: set[str],
+                 filetypes: list[str]) -> list[dict]:
+    """The copies of a work that are older than another copy of the same format.
+
+    Only the works named - the run's own, never the whole folder - and only the formats the
+    run scanned for. Strictly older only: an undated copy beside a dated one is older, but
+    two copies with the **same** date are left alone, since there is no telling which is the
+    one to keep. Each is `{id, filetype, path, file, keeping}`, `keeping` being the newest
+    copy's name.
+    """
+
+    wanted = {x.upper() for x in filetypes}
+    found = []
+    for work in sorted(works & set(existing), key=lambda x: (len(x), x)):
+        for filetype, newest in existing[work].items():
+            if filetype not in wanted: continue
+            for copy in newest.get('older') or []:
+                if (copy['date'] or '') >= (newest['date'] or ''): continue
+                found.append({'id': work, 'filetype': filetype, 'path': copy['path'],
+                              'file': os.path.basename(str(copy['path']).replace('\\', '/')),
+                              'keeping': os.path.basename(str(newest['path']).replace('\\', '/'))})
     return found
 
 
@@ -477,7 +507,7 @@ def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
 
 def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
                    filetypes: list[str], refresh_undated: bool = False,
-                   overwrite: bool = False) -> dict:
+                   overwrite: bool | set[str] = False) -> dict:
     """Work out which already-downloaded works this run should fetch again.
 
     A work is out of date when ao3 says it was updated after the date on the file we hold.
@@ -498,6 +528,11 @@ def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
     each download will replace - {link: {FILETYPE: path}} - so nothing is removed on a guess.
     """
 
+    # a set overwrites only the works it names, by link - a single-fic run replaces that
+    # fic, not the rest of a series it went on to index
+    def forced(link: str) -> bool:
+        return overwrite is True or (isinstance(overwrite, (set, frozenset)) and link in overwrite)
+
     stale: list[str] = []
     undated: list[str] = []
     superseded: dict[str, dict[str, str]] = {}
@@ -517,7 +552,7 @@ def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
         for filetype in filetypes:
             copy = have.get(filetype.upper())
             if not copy: continue
-            if overwrite:
+            if forced(link):
                 replacing[filetype] = copy['path']
             elif copy['date'] is None:
                 is_undated = True

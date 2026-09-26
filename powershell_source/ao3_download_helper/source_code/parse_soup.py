@@ -802,10 +802,69 @@ def get_blurb_metadata(blurb: Tag) -> dict:
         metadata['kudos'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.kudos'))
         metadata['bookmarks'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.bookmarks'))
         metadata['hits'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.hits'))
+        # which series it is part of, so a run asked to can walk them - even one that does
+        # not re-read the work, working from what its entry already says
+        metadata[strings.SERIES_MEMBERSHIP_FIELD] = get_series_memberships(blurb)
         metadata.update(get_bookmark_metadata(blurb))
     except Exception as e: # don't lose the rest of the page over one unparseable blurb
         metadata['error'] = ''.join(traceback.TracebackException.from_exception(e).format())
     return metadata
+
+
+def get_series_memberships(tag: BeautifulSoup | Tag) -> list[dict]:
+    """The series a work is part of, as `[{id, title, part}]`.
+
+    Read the same way from a listing blurb (`ul.series li`) and a work's own page
+    (`dd.series span.position`) - both say 'Part N of <a href="/series/ID">Title</a>'.
+    """
+
+    found = []
+    for place in tag.select('ul.series > li, dd.series span.position'):
+        link = place.find('a', href=re.compile(r'/series/\d+'))
+        if not link: continue
+        series = parse_text.get_series_number(str(link.get('href') or ''))
+        if not series: continue
+        part = re.sub(r'\D', '', place.decode_contents().replace(str(link), ''))
+        found.append({'id': series, 'title': link.get_text().strip(),
+                      'part': int(part) if part else None})
+    return found
+
+
+def get_series_page_metadata(soup: BeautifulSoup, series: str) -> dict:
+    """A series, as its own ao3 page describes it - for a series nobody bookmarked, which
+    therefore has no listing blurb to be read from.
+
+    The page carries less than a bookmark blurb does: no tags or fandoms of the series' own,
+    only what the header says. Those fields are left empty rather than guessed at.
+    """
+
+    meta = soup.select_one('dl.series.meta')
+
+    def value(label: str) -> str:
+        if not meta: return ''
+        for term in meta.find_all('dt'):
+            if term.get_text().strip().rstrip(':').lower() == label:
+                answer = term.find_next('dd')
+                return answer.get_text().strip() if answer else ''
+        return ''
+
+    description = meta.select_one('blockquote.userstuff') if meta else None
+    return {
+        'id': series,
+        'link': f'{strings.AO3_BASE_URL}/series/{series}',
+        'title': get_text_or_empty(soup, 'h2.heading'),
+        'authors': [x.get_text().strip() for x in meta.select('a[rel=author]')] if meta else [],
+        'date_created': None,
+        'date_updated': value('series updated') or value('series begun'),
+        'fandoms': [],
+        'warnings': [],
+        'tags': {'rating': '', 'categories': [], 'relationships': [], 'characters': [],
+                 'additional': []},
+        'summary': get_userstuff_text(description) if description else '',
+        'words': parse_text.get_count(get_text_or_empty(meta, 'dd.words')) if meta else None,
+        'works': parse_text.get_count(get_text_or_empty(meta, 'dd.works')) if meta else None,
+        'complete': value('complete').lower() == 'yes',
+    }
 
 
 def get_series_bookmark_metadata(blurb: Tag, series: str) -> dict:
@@ -819,7 +878,8 @@ def get_series_bookmark_metadata(blurb: Tag, series: str) -> dict:
     metadata = get_blurb_metadata(blurb)
     metadata['id'] = series
     metadata['link'] = f'{strings.AO3_BASE_URL}/series/{series}'
-    for key in ('chapters_published', 'chapters_total', 'comments', 'kudos', 'hits'):
+    for key in ('chapters_published', 'chapters_total', 'comments', 'kudos', 'hits',
+                strings.SERIES_MEMBERSHIP_FIELD):
         metadata.pop(key, None)
     metadata['works'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.works'))
     status = blurb.select_one('span.iswip')
@@ -840,7 +900,7 @@ def get_external_bookmark_metadata(blurb: Tag, external: str | None) -> dict:
     heading = blurb.select_one('h4.heading a')
     metadata['link'] = str(heading.get('href') or '') if heading else ''
     for key in ('chapters_published', 'chapters_total', 'comments', 'kudos', 'hits',
-                'bookmarks', 'words'):
+                'bookmarks', 'words', strings.SERIES_MEMBERSHIP_FIELD):
         metadata.pop(key, None)
     if metadata.get('authors') == ['Anonymous']:
         text = get_text_or_empty(blurb, 'h4.heading')

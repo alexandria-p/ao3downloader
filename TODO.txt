@@ -1,25 +1,9 @@
-write doco:
-- what each button in the app does
-- what is indexing
-
-
-wording/terminology:
-
-* Run
-* Workflow (logic of a run)
-* Steps (stages in a workflow)
-* Settings (site configuration)
-* Options (run configuration)
-* Indexing
-
-
 ---------
 DEPLOYMENT
 
 for github pages - do not bother keeping logs (make this a deployment option, that updates settings.ini, that is read by project)
 
 ask claude to help with how to configure this for github pages, and that for every push to /main should redeploy the new build.
-
 
 -----------
 
@@ -41,13 +25,6 @@ stopped at your request. anything already saved has been kept.
 is this because 9 existing need updating, and 49 are new and arent downloaded at all??
 let's fix the output wording here. cause it is confusing AF
 
--------
-
-how to handle existing fic having multiple versions of same format, dated differently?
-
-
-indexes, downloads still being saved to /build, instead of selected /downloads folder.
-
 
 ---------
 
@@ -64,33 +41,14 @@ what happens when stopped or exited mid-download?
 -- -Index writes are now per page, as you asked. get_metadata buffers a page's records and saves them only once the whole page is parsed — previously it saved after each blurb, which made a part-read page a part-written index by definition. --> should i change this?????
 
 
-------------
-
-
-
-
-confirm if Download/update a specific fic also marks 'bookmarked' properly for me in index.
-
-
-
-2. "Get works from all encountered series links"
-If a bookmarked work belongs to a series, download the whole series too. This can take a great deal longer. Series you bookmarked directly are always downloaded either way."
-- introduce this as an option in ALL workflows
-- walk thru, index and download every bookmark in the series, if this is selected
-- if work in a series was already indexed this run, do not index again
-- if a work in a series was already downloaded/updated (whether successful/failed) this run, skip - or we get caught in loops.
-- if you are already in a series crawl, do not trigger a series crawl when you encounter the next work in the series. finish this crawl first.
-
-
-
-
-in custom run, an option to ONLY index (and download) bookmarked series.
-bookmarkable_type: Series
-https://archiveofourown.org/bookmarks?bookmark_search%5Bsort_column%5D=created_at&bookmark_search%5Bother_tag_names%5D=&bookmark_search%5Bother_bookmark_tag_names%5D=&bookmark_search%5Bexcluded_tag_names%5D=&bookmark_search%5Bexcluded_bookmark_tag_names%5D=&bookmark_search%5Bwords_from%5D=&bookmark_search%5Bwords_to%5D=&bookmark_search%5Bbookmarkable_query%5D=bookmarkable_type%3A+Series&bookmark_search%5Bbookmark_query%5D=&bookmark_search%5Blanguage_id%5D=&bookmark_search%5Brec%5D=0&bookmark_search%5Bwith_notes%5D=0&commit=Sort+and+Filter&user_id=Moonlight_Streak
-
 -------------
 
 stretch goals:
+
+handle interrupted run.
+
+how to mark a run as interrupted (eg if you load the run files, and notice that there are any that say active but are not active in the helper or page
+
 
 if login has expired midrun....prompt the user to login and continue, or end run here.
 i could 'pick up where last run left off'....but not really im lazy.

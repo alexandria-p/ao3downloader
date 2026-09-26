@@ -396,12 +396,11 @@
         @if (picksSeries()) {
           <label class="check">
             <input type="checkbox" [checked]="series()" (change)="series.set($any($event.target).checked)" />
-            <span>Get works from all encountered series links</span>
+            <span>Get all works from encountered series</span>
           </label>
           <p class="hint">
-            If a bookmarked work belongs to a series, download the whole series too. This can
-            take a great deal longer. Series you bookmarked directly are always downloaded
-            either way.
+            If a bookmarked work belongs to a series, download the rest of the series too - even
+            if its other works are not bookmarked.
           </p>
         }
 
@@ -798,8 +797,39 @@
           </div>
         }
 
+        @if (asking() && question() === 'duplicates') {
+          <div class="question">
+            <p class="question-text">
+              <strong>{{ asking() | number }}</strong>
+              {{ asking() === 1 ? 'work has' : 'works have' }} more than one copy of the same
+              format - <strong>{{ askedFiles() | number }}</strong> older
+              {{ askedFiles() === 1 ? 'file' : 'files' }} beside the newest. The run always goes
+              by the newest copy; the older ones are just taking up room.
+            </p>
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="keepNewestCopies()">
+                Keep only the newest
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="leaveAllCopies()">
+                Leave them all
+              </button>
+            </div>
+
+            <p class="hint">
+              <strong>Keep only the newest</strong> marks the older copies for removal. Nothing is
+              removed until the <strong>Cleanup</strong> step at the end of the run - if the run
+              stops or fails first, they stay where they are and the report lists them.
+              The newest is judged by the date in the file name; two copies with the same date
+              are both kept. The run log lists every file.
+            </p>
+          </div>
+        }
+
         <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
-        @if (question() !== 'quick-floor') {
+        @if (question() !== 'quick-floor' && question() !== 'duplicates') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">
@@ -983,8 +1013,6 @@
                 <dt>Debug logging</dt>
                 <dd>on</dd>
               }
-              <dt>Read from</dt>
-              <dd><code class="path">{{ ini.file }}</code></dd>
             </dl>
           </details>
         }
@@ -1130,6 +1158,33 @@
             </ul>
             @if (keptCopies().length > 5) {
               <p class="hint">and {{ keptCopies().length - 5 | number }} more.</p>
+            }
+          </div>
+        }
+
+        <!--
+          marked for removal in the check step, and still there: the run stopped or failed
+          before its cleanup step, or a file would not delete. nothing is lost - only left
+        -->
+        @if (notRemoved().length) {
+          <div class="failures kept">
+            <p class="failures-text">
+              <strong>{{ notRemoved().length | number }}</strong>
+              older {{ notRemoved().length === 1 ? 'copy was' : 'copies were' }} marked for
+              removal but {{ notRemoved().length === 1 ? 'is' : 'are' }} still there. The newest
+              copy of each is untouched. Run again to be asked about them again, or delete them
+              yourself.
+            </p>
+            <ul class="failed-list">
+              @for (item of notRemoved().slice(0, 5); track $index) {
+                <li>
+                  <a [href]="item.link" target="_blank" rel="noopener">{{ item.id }}</a>
+                  <span class="reason">{{ item.file }} - {{ item.error }}</span>
+                </li>
+              }
+            </ul>
+            @if (notRemoved().length > 5) {
+              <p class="hint">and {{ notRemoved().length - 5 | number }} more.</p>
             }
           </div>
         }

@@ -476,9 +476,11 @@ def test_embedded_images_need_the_work_page():
     assert server.can_use_index(_job_with(images=True), RECORDS) is False
 
 
-def test_following_series_links_needs_the_work_page():
+def test_walking_series_no_longer_needs_the_work_page():
+    # series are walked from their own pages once indexing is over, and their works
+    # downloaded from the index like any other - the long way round is not needed
     # a series is discovered through the work, not through the bookmarks index
-    assert server.can_use_index(_job_with(series=True), RECORDS) is False
+    assert server.can_use_index(_job_with(series=True), RECORDS) is True
 
 
 def test_run_bookmarks_downloads_from_the_index_when_it_can(fake_environment):
@@ -2282,7 +2284,7 @@ def test_a_quick_scan_over_a_date_range_says_so_on_its_checklist():
 
     plan = dict(server.step_plan(job))
     assert [step for step, _ in server.step_plan(job)] == [
-        'login', 'bookmarked', 'index', 'check', 'download', 'report']
+        'login', 'bookmarked', 'index', 'series', 'check', 'download', 'cleanup', 'report']
     assert plan['bookmarked'] == strings.STEP_INDEX_BOOKMARKED_WINDOW
     assert plan['index'] == strings.STEP_INDEX_UPDATED_WINDOW
 
@@ -2490,13 +2492,14 @@ def test_every_run_starts_by_logging_in_and_ends_by_reporting():
 
 def test_the_combined_run_lists_its_three_passes_in_order():
     assert plan_ids(server.ACTION_SYNC) == [
-        'login', 'index', 'check', 'download', 'update', 'gaps', 'report']
+        'login', 'index', 'series', 'check', 'download', 'update', 'gaps', 'cleanup', 'report']
 
 
 def test_the_new_bookmarks_run_lists_only_the_pass_it_actually_does():
     # it is the combined run's first pass on its own, and `run_new` runs no gap pass - a
     # step on the checklist that nothing ever marks reads as one that silently failed
-    assert plan_ids(server.ACTION_NEW) == ['login', 'index', 'check', 'download', 'report']
+    assert plan_ids(server.ACTION_NEW) == [
+        'login', 'index', 'series', 'check', 'download', 'cleanup', 'report']
 
 
 def test_the_runs_that_only_fetch_new_bookmarks_say_so_on_the_download_step():
@@ -2540,7 +2543,7 @@ def test_only_the_combined_run_has_a_gap_pass():
 
 def test_an_update_run_reads_before_it_checks_before_it_updates():
     assert plan_ids(server.ACTION_UPDATE) == [
-        'login', 'read', 'check', 'update', 'report']
+        'login', 'read', 'check', 'update', 'cleanup', 'report']
 
 
 def test_a_metadata_only_run_lists_no_download_steps():
@@ -2795,7 +2798,7 @@ def test_a_date_window_says_so_on_its_checklist():
 
     ids = [step for step, _ in server.step_plan(job)]
 
-    assert ids == ['login', 'index', 'read', 'check', 'update', 'report']
+    assert ids == ['login', 'index', 'read', 'series', 'check', 'update', 'cleanup', 'report']
     assert dict(server.step_plan(job))['read'] == strings.STEP_READ_WINDOW
     assert dict(server.step_plan(job))['index'] == strings.STEP_INDEX_WINDOW
 
@@ -2809,9 +2812,10 @@ def test_a_window_that_skips_indexing_still_lists_the_step_it_turned_off(fake_en
     job.steps = server.Steps(events.append, server.step_plan(job))
 
     assert [step for step, _ in server.step_plan(job)] == [
-        'login', 'index', 'read', 'check', 'update', 'report']
+        'login', 'index', 'read', 'series', 'check', 'update', 'cleanup', 'report']
 
     ao3 = MagicMock()
+    ao3.series_marked = {}
     with patch.object(server.shared, 'read_index', return_value=[]):
         server.run_custom_dates(job, fake_environment['fileops'], ao3, ['HTML'], None)
 
@@ -3019,7 +3023,10 @@ def test_every_action_ends_by_saying_what_it_could_not_get(action):
     # is worth naming whichever run left it
     source = inspect.getsource(server.runners()[action])
 
-    assert 'report_failures' in source, action
+    assert 'finish_run' in source, action
+    # which cleans up first, so anything it could not remove is in the report
+    finishing = inspect.getsource(server.finish_run)
+    assert finishing.index('cleanup(') < finishing.index('report_failures(')
 
 
 def test_a_metadata_only_run_still_says_what_it_skipped(fake_environment):
@@ -3047,6 +3054,7 @@ def test_run_bookmarks_indexes_every_bookmark_before_downloading_any(fake_enviro
                      [strings.AO3_DOWNLOAD_TYPE_METADATA, 'EPUB'], 'Someone')
     order = []
     ao3 = MagicMock()
+    ao3.series_marked = {}
     ao3.get_metadata.side_effect = lambda *a, **k: order.append('metadata')
     ao3.download.side_effect = lambda *a: order.append('download')
 
@@ -3065,7 +3073,9 @@ def test_run_bookmarks_reports_only_indexing_when_json_is_the_only_type(fake_env
     job = server.Job(server.ACTION_BOOKMARKS, [strings.AO3_DOWNLOAD_TYPE_METADATA], 'Someone')
 
     events = []
-    with patch.object(server, 'Ao3', return_value=MagicMock()), \
+    ao3 = MagicMock()
+    ao3.series_marked = {}
+    with patch.object(server, 'Ao3', return_value=ao3), \
          patch.object(server.shared, 'already_downloaded', return_value=[]):
         server.run_bookmarks(job, fake_environment['fileops'], fake_environment['repo'],
                              events.append)
@@ -3392,5 +3402,52 @@ def test_old_copies_that_would_not_go_are_reported_with_the_failures(capsys):
 
     assert {'type': progress.KEPT_COPIES, 'keptCopies': ao3.kept_copies} in events
     assert strings.AO3_INFO_KEPT_COPIES.format(1) in capsys.readouterr().out
+
+# endregion
+
+
+# region series marked for walkthrough
+
+def series_step(marked: dict) -> tuple[list, list, MagicMock]:
+    """Run the walkthrough step on its own, and hand back its checklist marks and output."""
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON', 'HTML'], 'Someone')
+    events: list[dict] = []
+    job.steps = server.Steps(events.append, server.step_plan(job))
+    ao3 = MagicMock()
+    ao3.series_marked = marked
+    ao3.walk_marked_series.return_value = [{'id': '9', 'link': 'https://archiveofourown.org/works/9'}]
+    works = server.index_marked_series(job, ao3, None)
+    marks = [(e['id'], e['status']) for e in events if e['type'] == progress.STEP]
+    return works, marks, ao3
+
+
+def test_a_run_with_no_series_marked_skips_the_walkthrough_step(capsys):
+    # nothing to walk is not a failure, and is shown struck through rather than ticked
+    works, marks, ao3 = series_step({})
+
+    assert works == []
+    assert marks == [('series', progress.STEP_SKIPPED)]
+    ao3.walk_marked_series.assert_not_called()
+    assert strings.AO3_INFO_SERIES_NONE in capsys.readouterr().out
+
+
+def test_a_run_with_series_marked_walks_them_and_hands_their_works_on(capsys):
+    works, marks, ao3 = series_step({'5': {'id': '5', 'title': 'S', 'bookmark': None}})
+
+    ao3.walk_marked_series.assert_called_once()
+    assert marks == [('series', progress.STEP_RUNNING), ('series', progress.STEP_DONE)]
+    # the works it indexed go on to the download step
+    assert [w['id'] for w in works] == ['9']
+    assert strings.AO3_INFO_SERIES_STEP.format(1) in capsys.readouterr().out
+
+
+def test_every_run_that_indexes_lists_the_walkthrough_step_after_indexing():
+    for action in (server.ACTION_BOOKMARKS, server.ACTION_QUICK, server.ACTION_CUSTOM,
+                   server.ACTION_WORK, server.ACTION_NEW, server.ACTION_SYNC):
+        ids = plan_ids(action)
+        assert 'series' in ids, action
+        assert ids.index('series') < ids.index('check'), action
+    # the update run indexes nothing, so it has nothing to mark
+    assert 'series' not in plan_ids(server.ACTION_UPDATE)
 
 # endregion

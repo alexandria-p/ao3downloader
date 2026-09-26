@@ -106,7 +106,7 @@ describe('History', () => {
     expect(said).toContain('no reindexing');
     expect(said).toContain('up to page 3');
     expect(said).toContain('from page 5');
-    expect(said).toContain('expand series links');
+    expect(said).toContain('all works from encountered series');
     // an option left off is not listed at all
     expect(said).not.toContain('save images');
   });
@@ -216,6 +216,32 @@ describe('History', () => {
     expect(said).toContain('Downloaded, but needs checking by hand');
     expect(said).toContain('123 A - B 2026-09-14.html');
     expect(said).toContain('123 A - B 2026-01-01.html');
+  });
+
+  it('lists the older copies a run removed, and the ones it marked but left', async () => {
+    await show([
+      aRun({
+        choices: [{ at: '2026-09-13T12:05:00', question: 'duplicates', choice: 'newest',
+                    count: 2, files: 3 }],
+        removals: [
+          { id: '111', filetype: 'PDF', file: '111 A 2024-01-01.pdf',
+            keeping: '111 A 2025-06-01.pdf', status: 'removed' },
+          { id: '222', filetype: 'PDF', file: '222 B.pdf', keeping: '222 B 2025-06-01.pdf',
+            status: 'kept', error: 'the file could not be deleted' },
+          // a run that died before cleaning up never got to say so
+          { id: '333', filetype: 'PDF', file: '333 C.pdf', keeping: '333 C 2025-06-01.pdf',
+            status: 'pending' },
+        ],
+      }),
+    ]);
+
+    const said = element.querySelector('.run')?.textContent ?? '';
+    expect(said).toContain('keep only the newest');
+    expect(said).toContain('Older copies removed');
+    expect(said).toContain('111 A 2024-01-01.pdf');
+    expect(said).toContain('Marked for removal, still there');
+    expect(said).toContain('the file could not be deleted');
+    expect(said).toContain('the run ended before its cleanup step');
   });
 
   it('describes the quick scan question as what it was, not as undated files', async () => {

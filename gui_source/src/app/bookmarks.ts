@@ -17,6 +17,31 @@ export interface BookmarkIndex {
   [field: string]: unknown;
 }
 
+/**
+ * The `YYYY-MM-DD` a downloaded file's name ends in - the version of the work it holds - or
+ * '' when it has none. The same rule as the helper's `parse_text.get_date_from_filename`.
+ */
+export function dateFromFilename(name: string): string {
+  const base = (name.split(/[\\/]/).pop() ?? name).replace(/\.[^.]*$/, '').trim();
+  return /(\d{4}-\d{2}-\d{2})$/.exec(base)?.[1] ?? '';
+}
+
+/**
+ * Whether one downloaded copy of a work is a newer version than another: by the date in
+ * its name, an undated copy counting as the oldest - the same rule every run judges copies
+ * by. Only when the dates are the same does the time the file was last changed decide.
+ */
+export function isNewerCopy(
+  name: string,
+  modified: number,
+  than: { name: string; modified: number },
+): boolean {
+  const mine = dateFromFilename(name);
+  const theirs = dateFromFilename(than.name);
+  if (mine !== theirs) return mine > theirs;
+  return modified > than.modified;
+}
+
 /** the helper's `BOOKMARK_TYPE_*` */
 export type BookmarkType = 'individual work' | 'external work' | 'series bookmark';
 
@@ -40,12 +65,21 @@ export function isWorkEntry(record: Bookmark): boolean {
  * Whether an entry belongs in the bookmarks listing - that is, whether it is one of your
  * bookmarks.
  *
- * Everything is, except a work that is in the index only because a series you bookmarked
- * holds it: that is shown inside its series' card, not a second time on its own. An entry
- * from before `bookmarked` was recorded came off your bookmarks, so it counts.
+ * Everything is, except what is in the index without being bookmarked: a work found only
+ * through a series, and a series found only through one of your works. Both are shown from
+ * what you did bookmark - a work inside its series' card, a series from the 'Part N of'
+ * line on a work - and not a second time on their own. An entry from before `bookmarked`
+ * was recorded came off your bookmarks, so it counts.
  */
 export function isBookmarkEntry(record: Bookmark): boolean {
-  return !(isWorkEntry(record) && record.bookmarked === false);
+  return record.bookmarked !== false;
+}
+
+/** one series a work is part of, as its entry records it */
+export interface SeriesMembership {
+  id: string;
+  title: string;
+  part: number | null;
 }
 
 /** whether a work, or a series, is finished - which the two record differently */
@@ -70,6 +104,8 @@ export interface Bookmark {
   bookmarked?: boolean;
   /** the bookmarked series, by id, a work was found through */
   from_series?: string[];
+  /** on a work: the series it is part of, and where in each */
+  series?: SeriesMembership[];
   /** on a series: how many works it holds, whether it is finished, and which works */
   works?: number | null;
   complete?: boolean;

@@ -92,9 +92,17 @@ QUICK_SINCE_INDEX = 'since'
 QUICK_FULL = 'full'
 QUICK_CHOICES = (QUICK_SINCE_INDEX, QUICK_FULL)
 
+# What to do about older copies of a work sitting beside the newest one. Asked after the
+# undated question - dating files can leave two copies with the same work and format - and
+# only ever about the run's own works.
+DUPLICATES_QUESTION = 'duplicates'
+DUPLICATES_NEWEST = 'newest'
+DUPLICATES_LEAVE = 'leave'
+DUPLICATES_CHOICES = (DUPLICATES_NEWEST, DUPLICATES_LEAVE)
+
 # every choice any question may be answered with. the run reads only the answer to the
 # question it actually asked, so one list is enough to keep nonsense out at the door
-ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES
+ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
            ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_CUSTOM, ACTION_QUICK)
@@ -257,6 +265,9 @@ class Job:
         # requests to the page about the library that have not been answered yet, by id, and
         # the bytes waiting for the page to collect for each write. see `storage_call`
         self.storage_pending: dict[str, dict] = {}
+        # older copies marked for removal, removed in the cleanup step - see
+        # `settle_duplicates`. each carries a `status` the history file follows
+        self.removals: list[dict] = []
         self.blobs: dict[str, bytes] = {}
         # event streams open to a page right now, and when the last one closed
         self.listeners = 0
@@ -495,6 +506,7 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         plan.append(('collection', strings.STEP_INDEX_COLLECTION))
     elif job.action == ACTION_WORK:
         plan.append(('index', strings.STEP_INDEX_ONE))
+        plan.append(('series', strings.STEP_SERIES))
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD_ONE))
@@ -506,11 +518,13 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         # the first pass of the combined run, on its own: it indexes what is new and
         # downloads that. no gap pass, because `run_new` does not run one
         plan.append(('index', strings.STEP_INDEX_NEW))
+        plan.append(('series', strings.STEP_SERIES))
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD_NEW))
     elif job.action == ACTION_SYNC:
         plan.append(('index', strings.STEP_INDEX_NEW))
+        plan.append(('series', strings.STEP_SERIES))
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD_NEW))
@@ -532,8 +546,10 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
             if metadata:
                 window.append(('index', strings.STEP_INDEX_WINDOW))
             window.extend([('read', strings.STEP_READ_WINDOW),
+                           ('series', strings.STEP_SERIES),
                            ('check', strings.STEP_CHECK_FILES),
                            ('update', strings.STEP_UPDATE_WINDOW),
+                           ('cleanup', strings.STEP_CLEANUP),
                            ('report', strings.STEP_REPORT)])
             return window
         if job.action == ACTION_QUICK:
@@ -549,12 +565,18 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
             plan.append(('index', strings.STEP_INDEX_ALL))
         else:
             plan.append(('index', strings.STEP_USE_INDEX))
+        # after every walk is over: a series is marked while indexing and walked here, so
+        # nothing a listing holds is read twice
+        plan.append(('series', strings.STEP_SERIES))
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD))
         if job.options['images'] and job.action == ACTION_CUSTOM:
             plan.append(('images', strings.STEP_IMAGES))
 
+    # every run can end with files to tidy away, and every run reports - in that order, so
+    # anything the cleanup could not remove is in the report
+    plan.append(('cleanup', strings.STEP_CLEANUP))
     plan.append(('report', strings.STEP_REPORT))
     return plan
 
@@ -633,6 +655,16 @@ def run_job(job: Job, password: str) -> None:
         # a lapsed login is not a crash and there is a specific thing to do about it, so it
         # is flagged rather than left to be recognised from the wording of an error
         expired = isinstance(e, exceptions.SessionExpiredException)
+        for item in job.removals:
+            if item.get('status') == 'pending':
+                item['status'] = 'kept'
+                item['error'] = strings.CLEANUP_FAILED_RUN
+        if job.removals and job.record:
+            try:
+                job.record.removals(job.removals)
+            except Exception:
+                pass
+        report_not_removed(job, job.emit)
         job.emit({'type': progress.FAILED, 'error': str(e), 'sessionExpired': expired,
                   'detail': traceback.format_exc()})
     finally:
@@ -686,8 +718,10 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         print(strings.AO3_INFO_INDEXING)
         records = ao3.get_metadata(link, job.options['workdates'], own_bookmarks=True)
         job.steps.done('index')
+        records = merge_by_work(records, index_marked_series(job, ao3, report))
     else:
         job.steps.skip('index')
+        job.steps.skip('series')
 
     if downloadtypes and not job.cancel.is_set():
         job.steps.start('check')
@@ -724,7 +758,7 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     # a run that leaves gaps should say which works they were, rather than leaving it to be
     # worked out from the log afterwards. outside the download block on purpose: a
     # metadata-only run downloads nothing and can still skip bookmarks that are not works
-    report_failures(ao3, report)
+    finish_run(job, fileops, ao3, report)
 
 
 def can_use_index(job: Job, records: list[dict]) -> bool:
@@ -737,8 +771,29 @@ def can_use_index(job: Job, records: list[dict]) -> bool:
 
     if not records: return False
     if job.options['images']: return False
-    if job.options['series']: return False
     return True
+
+
+def index_marked_series(job: Job, ao3: Ao3, report) -> list[dict]:
+    """Walk every series marked for walkthrough during indexing, and return the works it
+    indexed, for the download step to take with the rest.
+
+    Its own step, after indexing is over, so every work a listing holds has been read from
+    the listing first. A series you bookmarked is always marked; the series your works are
+    part of are marked only when the run was asked to (`series`). With nothing marked the
+    step is skipped - a run with no series to walk has not gone wrong.
+    """
+
+    if job.cancel.is_set() or not ao3.series_marked:
+        if not job.cancel.is_set(): print(strings.AO3_INFO_SERIES_NONE)
+        job.steps.skip('series')
+        return []
+    job.steps.start('series')
+    progress.report(report, progress.PHASE, name=progress.INDEXING)
+    print(strings.AO3_INFO_SERIES_STEP.format(len(ao3.series_marked)))
+    works = ao3.walk_marked_series()
+    job.steps.done('series')
+    return works
 
 
 def bookmarks_link(job: Job) -> str:
@@ -759,11 +814,13 @@ def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[di
     print(strings.AO3_INFO_NEW_FOUND.format(len(records)) if records
           else strings.AO3_INFO_NEW_NONE)
     job.steps.done('index')
-    return records
+    # a series you bookmarked since last time is walked, and its works downloaded with the rest
+    return merge_by_work(records, index_marked_series(job, ao3, report))
 
 
 def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
-                     downloadtypes: list[str], report) -> None:
+                     downloadtypes: list[str], report,
+                     overwrite: list[str] | None = None) -> None:
     """Settle anything undated among these works, then download them.
 
     The same rule a full run downloads by, applied to whichever slice of the index the
@@ -780,7 +837,7 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
         return
 
     job.steps.start('check')
-    plan = plan_refresh(job, fileops, records, downloadtypes, report)
+    plan = plan_refresh(job, fileops, records, downloadtypes, report, overwrite)
     # an out-of-date copy is not 'already downloaded', so it must not be skipped
     visited = shared.already_downloaded(plan['existing'], downloadtypes, records, plan['stale'])
     ao3.superseded = plan['superseded']
@@ -955,7 +1012,7 @@ def run_new(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
     records = index_new_bookmarks(job, fileops, ao3, report)
     download_planned(job, fileops, ao3, records, downloadtypes, report)
-    report_failures(ao3, report)
+    finish_run(job, fileops, ao3, report)
 
 
 def run_sync(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -988,7 +1045,7 @@ def run_sync(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         handled = {str(x.get('id') or '') for x in records}
         fill_missing_formats(job, fileops, ao3, handled, downloadtypes, report)
 
-    report_failures(ao3, report)
+    finish_run(job, fileops, ao3, report)
 
 
 def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -1012,7 +1069,7 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
     job.options['overwrite'] = True
 
-    ao3 = Ao3(repo, fileops, downloadtypes, None, False, job.options['images'],
+    ao3 = Ao3(repo, fileops, downloadtypes, None, job.options['series'], job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
     # the run record reads its fic lists off this when the run ends
     job.ao3 = ao3
@@ -1027,11 +1084,16 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
                      if str(x.get('id') or '') == work), None)
     record = ao3.index_one_work(link, existing)
     print(strings.AO3_INFO_ONE_WORK_INDEXED)
+    ao3.mark_series_of(record)
     job.steps.done('index')
 
-    download_planned(job, fileops, ao3, [record], downloadtypes, report)
+    records = merge_by_work([record], index_marked_series(job, ao3, report))
+    # the fic asked for is replaced whatever copy there is; the rest of its series is
+    # fetched only where it is missing or behind, as any run would
+    download_planned(job, fileops, ao3, records, downloadtypes, report,
+                     overwrite=[record.get('link') or link])
     print(strings.AO3_INFO_ONE_WORK_DONE.format(work))
-    report_failures(ao3, report)
+    finish_run(job, fileops, ao3, report)
 
 
 def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -1057,7 +1119,7 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
     metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
 
-    ao3 = Ao3(repo, fileops, downloadtypes, None, False, False,
+    ao3 = Ao3(repo, fileops, downloadtypes, None, job.options['series'], False,
               progress=report, cancelled=job.cancel.is_set)
     # the run record reads its fic lists off this when the run ends
     job.ao3 = ao3
@@ -1135,12 +1197,14 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         # either scan may have found a fic; the other may have found it too
         records = merge_by_work(by_bookmarked, by_updated)
         if window: print(strings.AO3_INFO_QUICK_IN_WINDOW.format(len(records)))
+        records = merge_by_work(records, index_marked_series(job, ao3, report))
     else:
         job.steps.skip('bookmarked')
         job.steps.skip('index')
+        job.steps.skip('series')
 
     download_planned(job, fileops, ao3, records, downloadtypes, report)
-    report_failures(ao3, report)
+    finish_run(job, fileops, ao3, report)
 
 
 def works_dated_between(records: list[dict], field: str, start: str, end: str) -> list[dict]:
@@ -1170,7 +1234,7 @@ def merge_by_work(*passes: list[dict]) -> list[dict]:
 
     merged: dict[str, dict] = {}
     for records in passes:
-        for record in records:
+        for record in records or []:
             key = str(record.get('id') or record.get('link') or '')
             if not key: continue
             merged[key] = record
@@ -1339,7 +1403,7 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
     if job.options['dates']:
         run_custom_dates(job, fileops, ao3, downloadtypes, report)
-        report_failures(ao3, report)
+        finish_run(job, fileops, ao3, report)
         return
 
     job.steps.start('index')
@@ -1352,8 +1416,11 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         print(strings.AO3_INFO_USING_LAST_INDEX)
         records = shared.read_index(fileops)
         print(strings.AO3_INFO_INDEXED_COUNT.format(len(records)))
+        # not re-read, but what each entry says about its series is enough to walk them
+        for record in records: ao3.mark_series_of(record)
     job.steps.done('index')
 
+    records = merge_by_work(records, index_marked_series(job, ao3, report))
     download_planned(job, fileops, ao3, records, downloadtypes, report)
 
     # last, and only when asked: it costs a work page per fic, which is exactly what the
@@ -1361,7 +1428,7 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     if job.options['images']:
         save_images(job, fileops, ao3, records, report)
 
-    report_failures(ao3, report)
+    finish_run(job, fileops, ao3, report)
 
 
 def work_link(value: str) -> str | None:
@@ -1451,8 +1518,114 @@ def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: di
     return False, 0
 
 
+def settle_duplicates(job: Job, records: list[dict], existing: dict,
+                      downloadtypes: list[str]) -> None:
+    """Ask whether to keep only the newest copy of each format, where a work has several.
+
+    Only ever the run's own works (`records`), never the whole folder - the same limit the
+    undated question has, for the same reason. Nothing is removed here: a copy the user says
+    to drop is **marked**, written into the run's history at once, and removed in the
+    cleanup step at the end of the run. A run that stops or fails before then removes
+    nothing, and says which files it had marked.
+
+    The default is always to leave them - the answer that changes nothing.
+    """
+
+    works = {str(x.get('id')) for x in records if x.get('id')}
+    older = shared.older_copies(existing, works, downloadtypes)
+    if not older: return
+
+    affected = sorted({x['id'] for x in older}, key=lambda x: (len(x), x))
+    print(strings.AO3_INFO_DUPLICATES.format(len(affected), len(older)))
+    for item in older:
+        print(strings.AO3_INFO_DUPLICATE_FILE.format(item['id'], item['keeping'], item['file']))
+    print(strings.AO3_INFO_DUPLICATES_WAITING)
+
+    answer = job.ask(
+        {'name': DUPLICATES_QUESTION, 'count': len(affected), 'files': len(older),
+         'choices': list(DUPLICATES_CHOICES)},
+        {'choice': DUPLICATES_LEAVE})
+    choice = answer.get('choice')
+
+    if job.record:
+        job.record.choice({'question': DUPLICATES_QUESTION, 'count': len(affected),
+                           'files': len(older), 'works': affected, 'choice': choice})
+
+    if choice != DUPLICATES_NEWEST:
+        print(strings.AO3_INFO_DUPLICATES_LEFT.format(len(older)))
+        return
+
+    for item in older: item['status'] = 'pending'
+    job.removals.extend(older)
+    # on record straight away: a run that dies before the cleanup step still says which
+    # files it meant to remove, and that they are still there
+    if job.record: job.record.removals(job.removals)
+    print(strings.AO3_INFO_DUPLICATES_MARKED.format(len(older)))
+
+
+def cleanup(job: Job, fileops: FileOps, ao3) -> None:
+    """Remove the older copies marked for removal - the step before the report.
+
+    Skipped when nothing was marked, and when the run was stopped: a stop keeps everything
+    as it is, and the report says what was left. A marked file this run has since downloaded
+    over - the same name - is kept, since it is no longer the older copy. Each file's outcome
+    goes into the history as it happens.
+    """
+
+    pending = [x for x in job.removals if x.get('status') == 'pending']
+    if not pending:
+        job.steps.skip('cleanup')
+        return
+    if job.cancel.is_set():
+        print(strings.AO3_INFO_CLEANUP_STOPPED.format(len(pending)))
+        for item in pending:
+            item['status'] = 'kept'
+            item['error'] = strings.CLEANUP_STOPPED
+        if job.record: job.record.removals(job.removals)
+        job.steps.skip('cleanup')
+        return
+
+    job.steps.start('cleanup')
+    print(strings.AO3_INFO_CLEANUP.format(len(pending)))
+    written = list(getattr(ao3, 'written', None) or [])
+    for item in pending:
+        if any(fileops.same_file(item['path'], path) for path in written):
+            item['status'] = 'kept'
+            item['error'] = strings.CLEANUP_WROTE_OVER
+            print(strings.AO3_INFO_CLEANUP_KEPT.format(item['file']))
+        elif fileops.delete_file(item['path']):
+            item['status'] = 'removed'
+            print(strings.AO3_INFO_CLEANUP_REMOVED.format(item['file']))
+        else:
+            item['status'] = 'kept'
+            item['error'] = strings.CLEANUP_NOT_DELETED
+            print(strings.AO3_INFO_CLEANUP_FAILED.format(item['file'], strings.CLEANUP_NOT_DELETED))
+        if job.record: job.record.removals(job.removals)
+    job.steps.done('cleanup')
+
+
+def report_not_removed(job: Job, report) -> None:
+    """Name the older copies a run marked for removal and did not remove."""
+
+    left = [{'id': x['id'], 'link': f'{strings.AO3_BASE_URL}/works/{x["id"]}',
+             'file': x['file'], 'old': x['keeping'],
+             'error': x.get('error') or strings.CLEANUP_STOPPED}
+            for x in job.removals if x.get('status') != 'removed']
+    if not left: return
+    print(strings.AO3_INFO_NOT_REMOVED.format(len(left)))
+    progress.report(report, progress.NOT_REMOVED, notRemoved=left)
+
+
+def finish_run(job: Job, fileops: FileOps, ao3, report) -> None:
+    """How every run ends: the cleanup step, then the report of anything left undone."""
+
+    cleanup(job, fileops, ao3)
+    report_failures(ao3, report)
+    report_not_removed(job, report)
+
+
 def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
-                 downloadtypes: list[str], report) -> dict:
+                 downloadtypes: list[str], report, only: list[str] | None = None) -> dict:
     """What the downloads folder already holds, and which of it ao3 has moved past.
 
     Says what it is doing at each step, because from the outside 'checking what you have'
@@ -1468,16 +1641,21 @@ def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
     existing = shared.scan_downloaded_works(fileops.worksfolder, downloadtypes,
                                             storage=fileops.storage)
 
-    overwrite = bool(job.options.get('overwrite'))
+    # `only` names the works to overwrite when it is not all of them - a single-fic run
+    # replaces that fic, not the rest of its series
+    overwrite: bool | set[str] = set(only) if only is not None else bool(job.options.get('overwrite'))
 
     # the undated question decides which copies count as behind, and overwriting has
     # already decided that for all of them. stopping to ask would be asking about works
     # this run is about to fetch again either way
-    if overwrite:
+    if overwrite is True or (isinstance(overwrite, set) and
+                              {str(r.get('link')) for r in records} <= overwrite):
         refresh_undated, stamped = False, 0
     else:
         refresh_undated, stamped = settle_undated(job, fileops, records, existing,
                                                   downloadtypes)
+    # after the undated question: dating files can leave two copies of one format side by side
+    settle_duplicates(job, records, existing, downloadtypes)
 
     progress.report(report, progress.PHASE, name=progress.CHECKING_VERSIONS)
     print(strings.AO3_INFO_CHECKING_VERSIONS)
@@ -1485,7 +1663,7 @@ def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
                                  refresh_undated=refresh_undated, overwrite=overwrite)
     plan['existing'] = existing
     # so the per-format lines can say why a current-looking copy is being fetched again
-    plan['overwrite'] = overwrite
+    plan['overwrite'] = bool(overwrite)
 
     if plan['stale'] and overwrite:
         # not 'out of date' - most of them are not, and saying so would be a lie the user
@@ -1530,7 +1708,7 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
         print(strings.AO3_INFO_COLLECTIONS_NONE)
 
     # a collection crawl can leave gaps too, and used not to say so at all
-    report_failures(ao3, report)
+    finish_run(job, fileops, ao3, report)
 
 
 def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -1555,7 +1733,7 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
             len(records), fileops.describe(
                 os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME))))
 
-    report_failures(ao3, report)
+    finish_run(job, fileops, ao3, report)
 
 
 def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -1585,7 +1763,7 @@ def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     job.ao3 = ao3
 
     update_incomplete(job, fileops, ao3, downloadtypes, report)
-    report_failures(ao3, report)
+    finish_run(job, fileops, ao3, report)
 
 
 def update_incomplete(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[str],
@@ -1730,6 +1908,12 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
 
     chosen = works_updated_between(shared.read_index(fileops), start, end)
     job.steps.done('read')
+
+    # the works the window picked out of the index were not all read on the walk, so their
+    # series are marked from what their entries say. the ones the walk did read marked theirs
+    # as it went
+    for record in chosen: ao3.mark_series_of(record)
+    chosen = newest_first(merge_by_work(chosen, index_marked_series(job, ao3, report)))
 
     if not chosen:
         print(strings.AO3_INFO_DATE_NONE)

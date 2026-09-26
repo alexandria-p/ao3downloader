@@ -4,6 +4,7 @@ import {
   BookmarksExport,
   flattenRecord,
   isBookmarkEntry,
+  isNewerCopy,
   isWorkEntry,
   workIdFromFilename,
 } from './bookmarks';
@@ -26,6 +27,17 @@ export interface DropboxCopy {
   dropboxPath: string;
   modified: number;
 }
+
+/** the downloaded copies the listing can open, by work number, for each format it offers */
+export interface Copies {
+  html: Map<string, LocalCopy>;
+  pdf: Map<string, LocalCopy>;
+}
+
+/** the formats the listing opens, and how a tab is told to show each */
+const OPENABLE = { html: /\.html?$/i, pdf: /\.pdf$/i } as const;
+export type OpenableFormat = keyof typeof OPENABLE;
+const SHOWN_AS: Record<OpenableFormat, string> = { html: 'text/html', pdf: 'application/pdf' };
 
 /** the folders whose json is the index, read in one zip each */
 const INDEX_FOLDERS = ['indexing', 'collections'];
@@ -52,12 +64,19 @@ export class Library {
   readonly sourceName = signal('');
   readonly folderName = signal('');
   readonly htmlFiles = signal<Map<string, LocalCopy>>(new Map());
+  /** each work's newest downloaded PDF, by work number - what the listing's PDF button opens */
+  readonly pdfFiles = signal<Map<string, LocalCopy>>(new Map());
   /**
    * Every work in the index by work number - including works that are there only because a
    * series you bookmarked holds them, which the bookmarks listing leaves out. A series' card
    * and a collection both list works by number and look them up here.
    */
   readonly worksById = signal<Map<string, Bookmark>>(new Map());
+  /**
+   * Every series entry by series id - one you bookmarked, or one reached through a work of
+   * yours - so a work's 'Part N of' line can list the rest of its series.
+   */
+  readonly seriesById = signal<Map<string, Bookmark>>(new Map());
   readonly error = signal('');
   readonly loading = signal(false);
   /** a folder is remembered but the browser wants the permission confirmed again */
@@ -132,16 +151,20 @@ export class Library {
       const indexFiles = files.filter(
         (f) => /\.json$/i.test(f.name) && INDEX_FOLDERS.includes(inside(f)[0]?.toLowerCase()),
       );
-      const copies = new Map<string, LocalCopy>();
+      const copies: Copies = { html: new Map(), pdf: new Map() };
       for (const file of files) {
-        if (!/\.html?$/i.test(file.name)) continue;
+        const format = openableFormat(file.name);
+        if (!format) continue;
         // works/ and nowhere else - the same place a run looks
         if (inside(file)[0]?.toLowerCase() !== WORKS_FOLDER) continue;
         const id = workIdFromFilename(file.name);
         if (!id) continue;
-        const existing = copies.get(id) as DropboxCopy | undefined;
-        if (!existing || existing.modified < file.modified) {
-          copies.set(id, { dropboxPath: file.path, modified: file.modified });
+        const map = copies[format];
+        const existing = map.get(id) as DropboxCopy | undefined;
+        // the newest version by the date in its name, as a run would judge it
+        if (!existing || isNewerCopy(file.name, file.modified,
+            { name: existing.dropboxPath, modified: existing.modified })) {
+          map.set(id, { dropboxPath: file.path, modified: file.modified });
         }
       }
 
@@ -159,11 +182,14 @@ export class Library {
     }
   }
 
-  /** The contents of a downloaded work, to open it. */
-  async readCopy(copy: LocalCopy): Promise<Blob> {
-    if (copy instanceof Blob) return copy;
-    // dropbox sends a file as octet-stream, which a tab would offer to save rather than show
-    return new Blob([await this.dropbox.download(copy.dropboxPath)], { type: 'text/html' });
+  /**
+   * The contents of a downloaded work, to open it - typed as the format it is, so a tab
+   * shows it rather than offering to save it. Dropbox sends every file as octet-stream.
+   */
+  async readCopy(copy: LocalCopy, format: OpenableFormat = 'html'): Promise<Blob> {
+    const type = SHOWN_AS[format];
+    if (copy instanceof Blob) return copy.type === type ? copy : new Blob([copy], { type });
+    return new Blob([await this.dropbox.download(copy.dropboxPath)], { type });
   }
 
   /** Called at startup: reopen the remembered folder if it can still be read. */
@@ -226,7 +252,9 @@ export class Library {
     this.collections.set([]);
     this.sourceName.set('');
     this.htmlFiles.set(new Map());
+    this.pdfFiles.set(new Map());
     this.worksById.set(new Map());
+    this.seriesById.set(new Map());
   }
 
   /**
@@ -303,7 +331,7 @@ export class Library {
       if (!current()) return;
       // not strict: this folder has just been set up as a library, so an empty one is new,
       // not the wrong folder
-      await this.ingestRecords(jsonOf(everything), this.mapHtmlFiles(works), false);
+      await this.ingestRecords(jsonOf(everything), this.mapCopies(works), false);
     } catch {
       if (current()) this.error.set(`Could not read ${handle.name}.`);
     } finally {
@@ -322,7 +350,7 @@ export class Library {
       // [picked folder, works, name] - or a bare file with no path to go on
       return parts.length === 1 || parts[1]?.toLowerCase() === WORKS_FOLDER;
     });
-    await this.ingestRecords(jsonOf(files), this.mapHtmlFiles(works), true);
+    await this.ingestRecords(jsonOf(files), this.mapCopies(works), true);
   }
 
   private localTarget(handle: DirectoryHandle): SetupTarget {
@@ -361,7 +389,7 @@ export class Library {
    */
   private async ingestRecords(
     jsonFiles: File[],
-    copies: Map<string, LocalCopy>,
+    copies: Copies,
     strict: boolean,
   ): Promise<void> {
     this.error.set('');
@@ -389,10 +417,17 @@ export class Library {
       // no listing order is kept: the works list sorts by when each was bookmarked
       collections.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
       this.collections.set(collections);
-      this.htmlFiles.set(copies);
+      this.htmlFiles.set(copies.html);
+      this.pdfFiles.set(copies.pdf);
       const byId = new Map<string, Bookmark>();
-      for (const work of works) if (work.id && isWorkEntry(work)) byId.set(work.id, work);
+      const seriesById = new Map<string, Bookmark>();
+      for (const entry of works) {
+        if (!entry.id) continue;
+        if (isWorkEntry(entry)) byId.set(entry.id, entry);
+        else if (entry.bookmark_type === 'series bookmark') seriesById.set(entry.id, entry);
+      }
       this.worksById.set(byId);
+      this.seriesById.set(seriesById);
 
       // the listing is your bookmarks: works, series and external works you bookmarked,
       // but not a work that is only here because a series holds it - that is in its card
@@ -468,17 +503,33 @@ export class Library {
     return { works, collections };
   }
 
-  private mapHtmlFiles(files: File[]): Map<string, LocalCopy> {
-    const map = new Map<string, File>();
+  /** each work's newest HTML and PDF, from the files in works/ */
+  private mapCopies(files: File[]): Copies {
+    const copies = { html: new Map<string, File>(), pdf: new Map<string, File>() };
     for (const file of files) {
-      if (!/\.html?$/i.test(baseName(file))) continue;
+      const format = openableFormat(baseName(file));
+      if (!format) continue;
       const id = workIdFromFilename(baseName(file));
       if (!id) continue;
+      const map = copies[format];
       const existing = map.get(id);
-      if (!existing || existing.lastModified < file.lastModified) map.set(id, file);
+      // the newest version by the date in its name, as a run would judge it - not whichever
+      // file was touched last, which a copy or a sync tool can change
+      if (!existing || isNewerCopy(baseName(file), file.lastModified,
+          { name: baseName(existing), modified: existing.lastModified })) {
+        map.set(id, file);
+      }
     }
-    return map;
+    return copies;
   }
+}
+
+/** which of the formats the listing opens a file is, if any */
+function openableFormat(name: string): OpenableFormat | null {
+  for (const format of Object.keys(OPENABLE) as OpenableFormat[]) {
+    if (OPENABLE[format].test(name)) return format;
+  }
+  return null;
 }
 
 function relativePath(file: File): string {

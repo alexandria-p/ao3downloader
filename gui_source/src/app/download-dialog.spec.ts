@@ -308,12 +308,17 @@ describe('DownloadDialog', () => {
 
   // region options step
 
-  it('offers series expansion on a full scan, which is where it works', async () => {
-    // a series is found on a work's own page, and only a full scan goes the long way round
-    await open('bookmarks');
-    await advanceTo('options');
+  it('offers the rest of each series on every run that indexes works', async () => {
+    for (const action of ['bookmarks', 'quick', 'custom', 'work'] as const) {
+      await open(action);
+      await advanceTo('options');
 
-    expect(checkbox('series links')).toBeTruthy();
+      expect(checkbox('encountered series'), action).toBeTruthy();
+    }
+    expect(element.textContent).toContain(
+      'If a bookmarked work belongs to a series, download the rest of the series too - even ' +
+        'if its other works are not bookmarked.',
+    );
   });
 
   it('offers saving images separately only on a custom run', async () => {
@@ -523,13 +528,12 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('input[name="start"]')).toBeTruthy();
   });
 
-  it('offers series expansion to no other run', async () => {
-    // nothing else goes the long way round, so there would be nothing to expand into
-    for (const action of ['custom', 'sync', 'new', 'update'] as const) {
+  it('does not offer it on the runs kept for debugging, or the update run', async () => {
+    for (const action of ['sync', 'new', 'update'] as const) {
       await open(action);
       await advanceTo(currentStep() === 'options' ? 'options' : 'filetypes');
 
-      expect(checkbox('series links'), action).toBeUndefined();
+      expect(checkbox('encountered series'), action).toBeUndefined();
     }
   });
 
@@ -573,7 +577,7 @@ describe('DownloadDialog', () => {
     // there is no options step at all, and it opens on the file types
     expect(currentStep()).toBe('filetypes');
     expect(element.querySelector('input[name="pages"]')).toBeNull();
-    expect(checkbox('series links')).toBeUndefined();
+    expect(checkbox('encountered series')).toBeUndefined();
     expect(checkbox('publication date')).toBeUndefined();
     expect(checkbox('images separately')).toBeUndefined();
   });
@@ -582,7 +586,7 @@ describe('DownloadDialog', () => {
     await open('bookmarks');
     await advanceTo('options');
 
-    checkbox('series links')!.click();
+    checkbox('encountered series')!.click();
     await fixture.whenStable();
 
     await advanceTo('running');
@@ -1090,6 +1094,63 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  /** the duplicates question: older copies of a format beside the newest */
+  async function askedAboutOlderCopies(count = 12, files = 14): Promise<void> {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'duplicates', count, files,
+                 choices: ['newest', 'leave'] } as JobEvent);
+    await fixture.whenStable();
+  }
+
+  it('asks about older copies in its own words', async () => {
+    await askedAboutOlderCopies();
+
+    const said = element.querySelector('.question')?.textContent ?? '';
+    expect(said).toContain('12');
+    expect(said).toContain('more than one copy of the same format');
+    expect(said).toContain('14');
+    expect(said).toContain('Cleanup');
+    // one panel, not the undated question's as well
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+    expect(said).not.toContain('before file names carried a date');
+  });
+
+  it('marks the older copies when told to keep only the newest', async () => {
+    await askedAboutOlderCopies();
+    button('Keep only the newest')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'newest', date: '' }]);
+  });
+
+  it('leaves them all when told to', async () => {
+    await askedAboutOlderCopies();
+    button('Leave them all')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'leave', date: '' }]);
+  });
+
+  it('reports older copies marked for removal that are still there, and exports them', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({
+      type: 'notRemoved',
+      notRemoved: [{ id: '111', link: 'https://archiveofourown.org/works/111',
+                     file: '111 A 2024-01-01.pdf', old: '111 A 2025-06-01.pdf',
+                     error: 'the run stopped before the cleanup step' }],
+    } as JobEvent);
+    jobs.push!({ type: 'finished', cancelled: true } as JobEvent);
+    await fixture.whenStable();
+
+    const said = element.textContent ?? '';
+    expect(said).toContain('marked for');
+    expect(said).toContain('111 A 2024-01-01.pdf');
+    const report = (fixture.componentInstance as unknown as { issuesReport(): string }).issuesReport();
+    expect(report).toContain('## 1 older copy marked for removal that is still there');
+    expect(report).toContain(
+      '111	111 A 2024-01-01.pdf	111 A 2025-06-01.pdf	the run stopped before the cleanup step');
+  });
+
   // more than one question can stop a run, and they go back through the same endpoint -
   // so the panel has to be keyed on which one is being asked, not on the count
   it('asks how far back a quick scan should go, in its own words', async () => {
@@ -1426,13 +1487,35 @@ describe('DownloadDialog', () => {
     expect(shown).toContain('may be shortened to fit');
   });
 
-  it('names the settings file it read, since which one is in force is not obvious', async () => {
+  it('does not show which settings file was read', async () => {
     await open('bookmarks');
     await advanceTo('running');
 
-    expect(element.querySelector('.settings')?.textContent).toContain(
-      'C:\\app\\config\\settings.ini',
-    );
+    const shown = element.querySelector('.settings')?.textContent ?? '';
+    expect(shown).not.toContain('settings.ini');
+    expect(shown).not.toContain('Read from');
+  });
+
+  it('says what happens to the rest of a series, in words', async () => {
+    await open('bookmarks');
+    await advanceTo('options');
+    checkbox('encountered series')!.click();
+    await fixture.whenStable();
+    await advanceTo('running');
+
+    const said = element.querySelector('.settings')?.textContent ?? '';
+    expect(said).toContain('If a work is part of a series');
+    expect(said).toContain(
+      'download all the other works in the series too, even if they are not bookmarked');
+  });
+
+  it('says it does nothing about the rest of a series when not asked to', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+
+    const said = element.querySelector('.settings')?.textContent ?? '';
+    expect(said).toContain('If a work is part of a series');
+    expect(said).toContain('do nothing');
   });
 
   it('flags a zero wait, which is what trips the rate limit', async () => {

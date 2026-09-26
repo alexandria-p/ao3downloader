@@ -100,11 +100,18 @@ def library(tmp_path, monkeypatch):
     return fileops
 
 
-def an_ao3(fileops: FileOps, pages: dict[str, BeautifulSoup]) -> tuple[Ao3, MagicMock]:
+def an_ao3(fileops: FileOps, pages: dict[str, BeautifulSoup],
+           series: bool = False) -> tuple[Ao3, MagicMock]:
     repo = MagicMock(spec=Repository)
     repo.get_soup.side_effect = lambda link: pages[link]
-    return Ao3(repo=repo, fileops=fileops, filetypes=['HTML'], pages=None, series=False,
+    return Ao3(repo=repo, fileops=fileops, filetypes=['HTML'], pages=None, series=series,
                images=False), repo
+
+
+def index_and_walk(ao3: Ao3, link: str = LISTING) -> list[dict]:
+    """What a run does: index the listing, then walk every series marked while it did."""
+    records = ao3.get_metadata(link, False, own_bookmarks=True)
+    return records + ao3.walk_marked_series()
 
 
 def entries(fileops: FileOps, *folders: str) -> dict[str, dict]:
@@ -140,7 +147,7 @@ def test_a_bookmarked_series_gets_its_own_entry_and_its_works_are_indexed(librar
     ao3, repo = an_ao3(library, {LISTING: listing_with(series_blurb()),
                                  SERIES_LINK: soup('seriesPage')})
 
-    records = ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    records = index_and_walk(ao3)
 
     series = entries(library, strings.SERIES_INDEX_FOLDER_NAME)[SERIES]
     assert series[strings.BOOKMARK_TYPE_FIELD] == strings.BOOKMARK_TYPE_SERIES
@@ -167,7 +174,7 @@ def test_a_work_already_indexed_this_run_is_not_read_again_from_a_series(library
     ao3, repo = an_ao3(library, {LISTING: listing_with(work_blurb('33671446'), series_blurb()),
                                  SERIES_LINK: soup('seriesPage')})
 
-    records = ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    records = index_and_walk(ao3)
 
     work = entries(library)['33671446']
     assert work[strings.BOOKMARKED_FIELD] is True
@@ -185,7 +192,7 @@ def test_a_series_work_later_found_in_your_bookmarks_is_marked_bookmarked(librar
                                  later: listing_with(work_blurb('33671446')),
                                  SERIES_LINK: soup('seriesPage')})
 
-    ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    index_and_walk(ao3)
     assert entries(library)['33671446'][strings.BOOKMARKED_FIELD] is False
     ao3.get_metadata(later, False, own_bookmarks=True)
 
@@ -211,7 +218,7 @@ def test_an_existing_entry_keeps_its_own_bookmark_when_updated_from_a_series(lib
 
     ao3, _ = an_ao3(library, {LISTING: listing_with(series_blurb()),
                               SERIES_LINK: soup('seriesPage')})
-    ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    index_and_walk(ao3)
 
     work = entries(library)['33671446']
     assert work[strings.BOOKMARKED_FIELD] is True
@@ -226,8 +233,8 @@ def test_a_series_met_twice_in_a_run_is_read_once(library):
     ao3, repo = an_ao3(library, {LISTING: listing_with(series_blurb()),
                                  SERIES_LINK: soup('seriesPage')})
 
-    ao3.get_metadata(LISTING, False, own_bookmarks=True)
-    ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    index_and_walk(ao3)
+    index_and_walk(ao3)
 
     assert [c.args[0] for c in repo.get_soup.call_args_list].count(SERIES_LINK) == 1
     assert entries(library, 'series')[SERIES][strings.SERIES_WORKS_FIELD] == SERIES_WORKS
@@ -236,11 +243,11 @@ def test_a_series_met_twice_in_a_run_is_read_once(library):
 def test_a_series_that_will_not_read_keeps_the_works_it_had(library):
     first, _ = an_ao3(library, {LISTING: listing_with(series_blurb()),
                                 SERIES_LINK: soup('seriesPage')})
-    first.get_metadata(LISTING, False, own_bookmarks=True)
+    index_and_walk(first)
 
     pages = {LISTING: listing_with(series_blurb())}
     ao3, repo = an_ao3(library, pages)
-    ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    index_and_walk(ao3)
 
     assert entries(library, 'series')[SERIES][strings.SERIES_WORKS_FIELD] == SERIES_WORKS
 
@@ -249,7 +256,7 @@ def test_an_external_work_gets_its_own_entry_and_is_never_downloaded(library):
     blurb, _ = blurb_of('externalWork', parse_soup.BLURB_EXTERNAL)
     ao3, repo = an_ao3(library, {LISTING: listing_with(blurb)})
 
-    records = ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    records = index_and_walk(ao3)
 
     external = entries(library, strings.EXTERNAL_INDEX_FOLDER_NAME)['1']
     assert external[strings.BOOKMARK_TYPE_FIELD] == strings.BOOKMARK_TYPE_EXTERNAL
@@ -269,7 +276,7 @@ def test_a_work_only_in_the_index_through_a_series_does_not_stop_the_new_bookmar
     # it is not one you bookmarked, so the day you do, the walk has to reach it
     ao3, _ = an_ao3(library, {LISTING: listing_with(work_blurb('33936370'), series_blurb()),
                               SERIES_LINK: soup('seriesPage')})
-    ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    index_and_walk(ao3)
 
     known = shared.indexed_work_ids(library)
 
@@ -279,8 +286,133 @@ def test_a_work_only_in_the_index_through_a_series_does_not_stop_the_new_bookmar
 def test_the_index_read_as_works_leaves_series_and_external_entries_out(library):
     ao3, _ = an_ao3(library, {LISTING: listing_with(series_blurb()),
                               SERIES_LINK: soup('seriesPage')})
-    ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    index_and_walk(ao3)
 
     assert sorted(x['id'] for x in shared.read_index(library)) == sorted(SERIES_WORKS)
+
+# endregion
+
+
+# region series marked for walkthrough
+
+def test_a_work_says_which_series_it_is_part_of():
+    # checked against real markup: a blurb and a work's own page say it the same way
+    blurb = next(b for b in parse_soup.get_blurbs(soup('bookmarks'))
+                 if parse_soup.get_blurb_kind(b)[1] == '34816549')
+    assert parse_soup.get_series_memberships(blurb) == [
+        {'id': '2627935', 'title': 'MXTX - Retellings', 'part': 1},
+        {'id': '3108957', 'title': 'No Paths Are Bound + Extras', 'part': 1},
+    ]
+    page = parse_soup.get_series_memberships(soup('multipleSeries'))
+    assert page[0] == {'id': '3078150', 'title': 'AO3 Skins', 'part': 1}
+
+
+def test_a_series_page_describes_the_series(library):
+    header = parse_soup.get_series_page_metadata(soup('seriesPage'), '2577382')
+    assert header['title'] == 'After Hours'
+    assert header['authors'] == ['woodironbone']
+    assert (header['works'], header['complete'], header['words']) == (5, True, 28131)
+    assert header['date_updated'] == '2026-09-01'
+
+
+# the series the saved series page is of - its works name it as their series
+PAGE_SERIES = '2577382'
+PAGE_SERIES_LINK = f'https://archiveofourown.org/series/{PAGE_SERIES}'
+
+
+def test_a_work_marks_its_series_only_when_asked(library, capsys):
+    # its blurb names the series it is part of
+    off, _ = an_ao3(library, {LISTING: listing_with(work_blurb('33671446'))})
+    off.get_metadata(LISTING, False, own_bookmarks=True)
+    assert off.series_marked == {}
+
+    on, _ = an_ao3(library, {LISTING: listing_with(work_blurb('33671446'))}, series=True)
+    on.get_metadata(LISTING, False, own_bookmarks=True)
+    assert list(on.series_marked) == [PAGE_SERIES]
+    # said in the modal, once
+    assert capsys.readouterr().out.count(
+        strings.AO3_INFO_SERIES_MARKED.format('After Hours')) == 1
+
+
+def test_a_series_bookmark_is_marked_whether_or_not_the_option_is_on(library, capsys):
+    ao3, _ = an_ao3(library, {LISTING: listing_with(series_blurb())})
+    ao3.get_metadata(LISTING, False, own_bookmarks=True)
+    assert list(ao3.series_marked) == [SERIES]
+    assert strings.AO3_INFO_SERIES_MARKED_BOOKMARK.format("Watches 'Verse") in capsys.readouterr().out
+    # marked, not walked: nothing is read from the series until indexing is over
+    assert SERIES not in ao3.series_read
+
+
+def test_the_series_of_a_work_is_walked_like_a_series_bookmark(library):
+    ao3, repo = an_ao3(library, {LISTING: listing_with(work_blurb('33671446')),
+                                 PAGE_SERIES_LINK: soup('seriesPage')}, series=True)
+
+    records = index_and_walk(ao3)
+
+    # the listing, then the series' one page - the work bookmarked for itself is read off
+    # the listing and not again from the series
+    assert repo.get_soup.call_count == 2
+    works = entries(library)
+    assert works['33671446'][strings.BOOKMARKED_FIELD] is True
+    for other in SERIES_WORKS[1:]:
+        assert works[other][strings.BOOKMARKED_FIELD] is False
+        assert works[other][indexing.FROM_SERIES] == [PAGE_SERIES]
+    assert sorted(r['id'] for r in records) == sorted(SERIES_WORKS)
+    # the series gets an entry of its own, from its page, as not one you bookmarked
+    series = entries(library, strings.SERIES_INDEX_FOLDER_NAME)[PAGE_SERIES]
+    assert series[strings.BOOKMARKED_FIELD] is False
+    assert series['title'] == 'After Hours'
+    assert series[strings.SERIES_WORKS_FIELD] == SERIES_WORKS
+
+
+def test_walking_a_series_marks_no_further_series(library):
+    # every work on a series page names the series in hand - walking is not indexing
+    ao3, _ = an_ao3(library, {LISTING: listing_with(series_blurb()),
+                              SERIES_LINK: soup('seriesPage')}, series=True)
+    index_and_walk(ao3)
+    assert list(ao3.series_marked) == [SERIES]
+
+
+def test_a_series_reached_through_a_work_keeps_a_bookmark_an_earlier_run_recorded(library):
+    # bookmarked on an earlier run; this run only reaches it through one of its works
+    bookmarked = BeautifulSoup(str(series_blurb()).replace(SERIES, PAGE_SERIES),
+                               'html.parser').li
+    earlier, _ = an_ao3(library, {LISTING: listing_with(bookmarked),
+                                  PAGE_SERIES_LINK: soup('seriesPage')})
+    index_and_walk(earlier)
+
+    ao3, _ = an_ao3(library, {LISTING: listing_with(work_blurb('33671446')),
+                              PAGE_SERIES_LINK: soup('seriesPage')}, series=True)
+    index_and_walk(ao3)
+
+    series = entries(library, strings.SERIES_INDEX_FOLDER_NAME)[PAGE_SERIES]
+    assert series[strings.BOOKMARKED_FIELD] is True
+    assert series['date_bookmarked'] == '18 May 2026'
+    # one entry, not a second file named after the page's title
+    assert len(entries(library, strings.SERIES_INDEX_FOLDER_NAME)) == 1
+
+
+def test_a_work_taken_from_the_index_marks_its_series_without_being_read_again(library):
+    # a run that skips indexing still knows each work's series from its entry
+    ao3, _ = an_ao3(library, {}, series=True)
+    ao3.mark_series_of({'id': '1', strings.SERIES_MEMBERSHIP_FIELD: [
+        {'id': '42', 'title': 'Stored', 'part': 2}]})
+    assert list(ao3.series_marked) == ['42']
+
+# endregion
+
+
+# region the single-fic run
+
+def test_a_single_fic_replaces_only_itself_and_not_the_rest_of_its_series():
+    existing = {'1': {'HTML': {'path': 'works/1 A 2026-01-01.html', 'date': '2026-01-01'}},
+                '2': {'HTML': {'path': 'works/2 B 2026-01-01.html', 'date': '2026-01-01'}}}
+    records = [{'id': '1', 'link': 'https://archiveofourown.org/works/1', 'date_updated': '2026-01-01'},
+               {'id': '2', 'link': 'https://archiveofourown.org/works/2', 'date_updated': '2026-01-01'}]
+
+    plan = shared.plan_downloads(records, existing, ['HTML'],
+                                 overwrite={'https://archiveofourown.org/works/1'})
+
+    assert plan['stale'] == ['https://archiveofourown.org/works/1']
 
 # endregion

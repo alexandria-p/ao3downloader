@@ -90,6 +90,14 @@
                     </ul>
                   </details>
                 }
+              } @else if (choice.question === 'duplicates') {
+                <p>
+                  Found <strong>{{ choice.files | number }}</strong> older
+                  {{ choice.files === 1 ? 'copy' : 'copies' }} across
+                  <strong>{{ choice.count | number }}</strong>
+                  {{ choice.count === 1 ? 'work' : 'works' }}, and chose to
+                  <strong>{{ choice.choice === 'newest' ? 'keep only the newest' : 'leave them all' }}</strong>.
+                </p>
               } @else if (choice.question === 'quick-floor') {
                 <p>
                   No completed scan to measure back to, with
@@ -143,6 +151,42 @@
                 <li>
                   <span class="who">{{ item.id || item.title || 'a bookmark' }}</span>
                   <span class="reason">{{ item.error }}</span>
+                </li>
+              }
+            </ul>
+          </details>
+        }
+
+        @if (removedOf(run).length) {
+          <details class="ids">
+            <summary>
+              Older copies removed
+              <span class="ids-count">{{ removedOf(run).length | number }}</span>
+            </summary>
+            <ul class="reason-list">
+              @for (item of removedOf(run); track $index) {
+                <li>
+                  <a [href]="workLink(item.id)" target="_blank" rel="noopener">{{ item.id }}</a>
+                  <span class="reason">{{ item.file }} &middot; kept {{ item.keeping }}</span>
+                </li>
+              }
+            </ul>
+          </details>
+        }
+
+        @if (notRemovedOf(run).length) {
+          <details class="ids kept">
+            <summary>
+              Marked for removal, still there
+              <span class="ids-count">{{ notRemovedOf(run).length | number }}</span>
+            </summary>
+            <ul class="reason-list">
+              @for (item of notRemovedOf(run); track $index) {
+                <li>
+                  <a [href]="workLink(item.id)" target="_blank" rel="noopener">{{ item.id }}</a>
+                  <span class="reason">
+                    {{ item.file }} &middot; {{ item.error || 'the run ended before its cleanup step' }}
+                  </span>
                 </li>
               }
             </ul>

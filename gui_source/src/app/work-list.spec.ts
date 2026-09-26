@@ -429,7 +429,7 @@ describe('WorkList, bookmarks of every kind', () => {
     await listing([{ ...series, work_ids: [] } as Bookmark]);
     element.querySelector<HTMLButtonElement>('.series-toggle')!.click();
     await fixture.whenStable();
-    expect(element.querySelector('.series-works')?.textContent).toContain('not been read for its works yet');
+    expect(element.querySelector('.series-works')?.textContent).toContain('not been walked for its works yet');
   });
 
   it('shows a series its own stats rather than chapters', async () => {
@@ -439,4 +439,147 @@ describe('WorkList, bookmarks of every kind', () => {
     expect(stats).toContain('Complete:');
     expect(stats).not.toContain('Chapters:');
   });
+
+  // region the series a work is part of
+
+  const walked = {
+    ...series,
+    id: '777',
+    title: 'Not Bookmarked',
+    bookmarked: false,
+    work_ids: ['111', '555', '222'],
+  } as Bookmark;
+  const member = {
+    ...single,
+    series: [{ id: '777', title: 'Not Bookmarked', part: 2 }],
+  } as Bookmark;
+
+  function withSeries(...entries: Bookmark[]) {
+    TestBed.inject(Library).seriesById.set(new Map(entries.map((e) => [e.id!, e])));
+  }
+
+  it('says which series a work is part of, and where in it', async () => {
+    withSeries(walked);
+    await listing([member]);
+    const line = element.querySelector('.membership')!;
+    expect(line.querySelector('.series-toggle')?.textContent).toContain('Part 2 of');
+    expect(line.querySelector('.series-name')?.textContent).toBe('Not Bookmarked');
+    expect(line.querySelector<HTMLAnchorElement>('a.series-link')!.getAttribute('href')).toBe(
+      'https://archiveofourown.org/series/777',
+    );
+    // closed until asked
+    expect(line.querySelector('.series-list')).toBeNull();
+  });
+
+  it('opens the rest of a series you never bookmarked from a work of yours in it', async () => {
+    // the only place its other works appear at all
+    withSeries(walked);
+    await listing([member]);
+
+    element.querySelector<HTMLButtonElement>('.membership .series-toggle')!.click();
+    await fixture.whenStable();
+
+    const parts = Array.from(element.querySelectorAll('.membership .series-list li'));
+    expect(parts.map((li) => li.querySelector('a.title')?.textContent?.trim())).toEqual([
+      'Part One',
+      'On Its Own',
+      'Part Two',
+    ]);
+    // the work whose card this is, marked as such rather than as a separate bookmark
+    expect(parts[1].querySelector('.badge')?.textContent).toContain('This work');
+    expect(parts[1].classList.contains('current')).toBe(true);
+    expect(parts[2].querySelector('.badge')?.textContent).toContain('Also bookmarked');
+    // a part with a downloaded copy opens it
+    expect(parts[0].querySelector('a.title')!.classList.contains('local')).toBe(true);
+  });
+
+  it('opens a series on one work without opening it on every other work in it', async () => {
+    withSeries(walked);
+    const other = {
+      ...work({ id: '888', title: 'Another', bookmarked: '01 Jan 2020' }),
+      series: [{ id: '777', title: 'Not Bookmarked', part: 3 }],
+    } as Bookmark;
+    await listing([member, other]);
+
+    element.querySelector<HTMLButtonElement>('.membership .series-toggle')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelectorAll('.membership .series-list')).toHaveLength(1);
+  });
+
+  it('says so when a series a work is part of has not been walked yet', async () => {
+    withSeries();
+    await listing([member]);
+    element.querySelector<HTMLButtonElement>('.membership .series-toggle')!.click();
+    await fixture.whenStable();
+
+    const said = element.querySelector('.membership')?.textContent ?? '';
+    expect(said).toContain('not been walked for its works yet');
+    expect(said).toContain('Get all works from encountered series');
+  });
+
+  it('shows no series line on a work in no series', async () => {
+    await listing([single]);
+    expect(element.querySelector('.membership')).toBeNull();
+  });
+
+  // endregion
+
+  // region downloaded PDFs
+
+  it('offers a PDF button on a work that has a downloaded PDF, and only then', async () => {
+    TestBed.inject(Library).pdfFiles.set(new Map([['555', new File(['%PDF'], '555 On Its Own.pdf')]]));
+    await listing([single, { ...work({ id: '666', title: 'No PDF' }) } as Bookmark]);
+
+    const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('button.pdf'));
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].getAttribute('aria-label')).toBe('Open the downloaded PDF of On Its Own');
+  });
+
+  it('never offers a series or an external work a PDF, whatever file shares its id', async () => {
+    TestBed.inject(Library).pdfFiles.set(new Map([
+      ['15213', new File(['%PDF'], '15213 x.pdf')],
+      ['1', new File(['%PDF'], '1 x.pdf')],
+    ]));
+    await listing([series, external]);
+    expect(element.querySelector('button.pdf')).toBeNull();
+  });
+
+  it('opens the PDF in a new tab, as a PDF', async () => {
+    const pdf = new File(['%PDF-1.7'], '555 On Its Own 2025-06-01.pdf');
+    TestBed.inject(Library).pdfFiles.set(new Map([['555', pdf]]));
+    const tab = { location: { href: '' }, close: () => {} };
+    const opened: string[] = [];
+    const realOpen = window.open;
+    const realCreate = URL.createObjectURL;
+    let shown: Blob | null = null;
+    window.open = ((url?: string) => { opened.push(url ?? ''); return tab; }) as typeof window.open;
+    URL.createObjectURL = ((blob: Blob) => { shown = blob; return 'blob:the-pdf'; }) as typeof URL.createObjectURL;
+    try {
+      await listing([single]);
+      element.querySelector<HTMLButtonElement>('button.pdf')!.click();
+      await new Promise((r) => setTimeout(r, 0));
+    } finally {
+      window.open = realOpen;
+      URL.createObjectURL = realCreate;
+    }
+
+    // a tab is opened on the click itself, so it is not blocked as a popup
+    expect(opened).toEqual(['']);
+    expect(tab.location.href).toBe('blob:the-pdf');
+    expect(shown!.type).toBe('application/pdf');
+  });
+
+  it('offers the PDF on each part of a series that has one', async () => {
+    TestBed.inject(Library).pdfFiles.set(new Map([['111', new File(['%PDF'], '111 Part One.pdf')]]));
+    await listing([series]);
+    element.querySelector<HTMLButtonElement>('.series-toggle')!.click();
+    await fixture.whenStable();
+
+    const parts = Array.from(element.querySelectorAll('.series-list li'));
+    expect(parts[0].querySelector('button.pdf')).toBeTruthy();
+    expect(parts[1].querySelector('button.pdf')).toBeNull();
+  });
+
+  // endregion
 });

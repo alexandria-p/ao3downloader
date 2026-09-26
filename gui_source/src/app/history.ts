@@ -1,6 +1,6 @@
 import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
-import { Jobs, RunHistory } from './jobs';
+import { Jobs, RunHistory, RunRemoval } from './jobs';
 import { Library } from './library';
 
 /**
@@ -32,6 +32,20 @@ export class History {
       this.library.store();
       untracked(() => void this.load());
     });
+  }
+
+  /** the older copies a run removed in its cleanup step */
+  protected removedOf(run: RunHistory): RunRemoval[] {
+    return (run.removals ?? []).filter((x) => x.status === 'removed');
+  }
+
+  /**
+   * The older copies a run marked for removal and did not remove. A record still saying
+   * `pending` is a run that never reached its cleanup step - interrupted before it could
+   * say so itself.
+   */
+  protected notRemovedOf(run: RunHistory): RunRemoval[] {
+    return (run.removals ?? []).filter((x) => x.status !== 'removed');
   }
 
   protected async load(): Promise<void> {
@@ -75,7 +89,7 @@ export class History {
     if (options['reindex'] === false) said.push('no reindexing');
     if (options['pages']) said.push(`up to page ${options['pages']}`);
     if (Number(options['start'] ?? 1) > 1) said.push(`from page ${options['start']}`);
-    if (options['series']) said.push('expand series links');
+    if (options['series']) said.push('all works from encountered series');
     if (options['images']) said.push('save images separately');
     return said;
   }

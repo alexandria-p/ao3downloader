@@ -80,9 +80,9 @@ class FakeFolderStore extends FolderStore {
   override async read(): Promise<File[]> {
     return this.files;
   }
-  /** works/ holds the html among `files` - the tests list a folder's files flat */
+  /** works/ holds the html and pdfs among `files` - the tests list a folder's files flat */
   override async readSubfolder(_handle: DirectoryHandle, name: string): Promise<File[]> {
-    return name === 'works' ? this.files.filter((f) => /\.html?$/i.test(f.name)) : [];
+    return name === 'works' ? this.files.filter((f) => /\.(html?|pdf)$/i.test(f.name)) : [];
   }
 
   /** a library already set up, unless a test says otherwise */
@@ -276,7 +276,9 @@ describe('Library', () => {
     store.files = [
       entry('111', 'individual work', { bookmarked: true }),
       entry('333', 'individual work', { bookmarked: false }),
-      entry('15213', 'series bookmark', { work_ids: ['333'] }),
+      entry('15213', 'series bookmark', { work_ids: ['333'], bookmarked: true }),
+      // reached only through one of your works: not a bookmark of yours
+      entry('777', 'series bookmark', { work_ids: ['111'], bookmarked: false }),
       entry('1', 'external work'),
       recordFile('222', 2),
     ];
@@ -287,6 +289,8 @@ describe('Library', () => {
     expect(library.data()?.works.map((w) => w.id).sort()).toEqual(['1', '111', '15213', '222']);
     // every work is still there to look up by number - which a series' card does
     expect([...library.worksById().keys()].sort()).toEqual(['111', '222', '333']);
+    // every series is there to look up - a work's 'Part N of' line does - bookmarked or not
+    expect([...library.seriesById().keys()].sort()).toEqual(['15213', '777']);
     expect(library.sourceName()).toBe('4 bookmarks');
   });
 
@@ -522,3 +526,61 @@ async function until(condition: () => boolean): Promise<void> {
   for (let i = 0; i < 50 && !condition(); i++) await new Promise((r) => setTimeout(r, 0));
   expect(condition()).toBe(true);
 }
+
+describe('Library, choosing which copy of a work to open', () => {
+  let store: FakeFolderStore;
+  let library: Library;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [{ provide: FolderStore, useClass: FakeFolderStore }] });
+    store = TestBed.inject(FolderStore) as FakeFolderStore;
+    library = TestBed.inject(Library);
+  });
+
+  function copy(name: string, modified: number): File {
+    return new File(['<p>fic</p>'], name, { lastModified: modified });
+  }
+
+  it('opens the copy dated newest in its name, not the one changed last', async () => {
+    store.files = [
+      recordFile('111', 1),
+      copy('111 Work - X 2025-06-01.html', 1000),
+      // touched more recently - copied, synced - but an older version of the work
+      copy('111 Work - X 2024-01-01.html', 9000),
+      copy('111 Work - X.html', 9999),
+    ];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect((library.htmlFiles().get('111') as File).name).toBe('111 Work - X 2025-06-01.html');
+  });
+
+  it("finds each work's newest PDF alongside its html", async () => {
+    store.files = [
+      recordFile('111', 1),
+      copy('111 Work - X 2025-06-01.html', 1000),
+      copy('111 Work - X 2024-01-01.pdf', 9000),
+      copy('111 Work - X 2025-06-01.pdf', 1000),
+    ];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect((library.pdfFiles().get('111') as File).name).toBe('111 Work - X 2025-06-01.pdf');
+    expect((library.htmlFiles().get('111') as File).name).toBe('111 Work - X 2025-06-01.html');
+  });
+
+  it('falls back to the one changed last only between copies with the same date', async () => {
+    store.files = [
+      recordFile('111', 1),
+      copy('111 Old Title - X 2025-06-01.html', 1000),
+      copy('111 New Title - X 2025-06-01.html', 5000),
+    ];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect((library.htmlFiles().get('111') as File).name).toBe('111 New Title - X 2025-06-01.html');
+  });
+});

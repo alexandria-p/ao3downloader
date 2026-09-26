@@ -1205,6 +1205,12 @@ Three rules worth keeping:
   matching rule, and the collections format are documented in both by requirement.
 - Verify claims before reporting them. Several conclusions in this project's history were
   wrong until checked against real fixtures or a live run.
+- **Keep `TERMINOLOGY.md` (project root) up to date with every change to the codebase.** It
+  lists the project's terms (with the synonyms used in chat), each workflow's programmatic
+  name, options and steps, and how every step works. Whenever a change adds, renames or
+  removes a term, workflow, option or step - or changes what a step does - update that file
+  in the same change. Take its facts from the code (`step_plan`, the `STEP_*` strings, the
+  dialog's `picks*` computeds), not from memory.
 
 ## Data hygiene
 

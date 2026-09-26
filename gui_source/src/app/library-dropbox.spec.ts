@@ -209,8 +209,9 @@ describe('Library, reading a Dropbox folder', () => {
     await library.showDropbox();
 
     const copy = library.htmlFiles().get('111') as DropboxCopy;
-    // the one dropbox saw change last, as a local folder picks the newest file
-    expect(copy.dropboxPath).toBe('/works/old/111 One - A.html');
+    // the newest version by the date in its name - not the one dropbox saw change last,
+    // which here is the undated copy
+    expect(copy.dropboxPath).toBe('/works/111 One - A 2024-01-01.html');
     expect(dropbox.downloads).toEqual([]);
   });
 
@@ -221,6 +222,25 @@ describe('Library, reading a Dropbox folder', () => {
     };
     await library.showDropbox();
     expect(library.htmlFiles().has('111')).toBe(false);
+  });
+
+  it("finds each work's newest PDF, and hands it over as a PDF", async () => {
+    dropbox.files = {
+      '/indexing/111 One.json': record('111', 1),
+      '/works/111 One - A 2024-01-01.pdf': 'old',
+      '/works/111 One - A 2025-06-01.pdf': 'new',
+      '/works/111 One - A 2025-06-01.html': '<p>one</p>',
+    };
+    await library.showDropbox();
+
+    const copy = library.pdfFiles().get('111') as DropboxCopy;
+    expect(copy.dropboxPath).toBe('/works/111 One - A 2025-06-01.pdf');
+    const blob = await library.readCopy(copy, 'pdf');
+    expect(blob.type).toBe('application/pdf');
+    expect(await blob.text()).toBe('new');
+    // and the html is still the html
+    expect((library.htmlFiles().get('111') as DropboxCopy).dropboxPath).toBe(
+      '/works/111 One - A 2025-06-01.html');
   });
 
   it('fetches a work only when it is opened, as html so a tab shows it', async () => {

@@ -80,9 +80,20 @@ class Ao3:
         # because they answer different questions: what got a fresh index entry, what
         # arrived as a file, and what replaced a copy that was already on disk.
         self.reindexed: set[str] = set()
-        # bookmarked series read this run, and the works each held - a series bookmarked
-        # twice, or met by both of a quick scan's walks, is read once
+        # every file this run wrote, so the cleanup step can never remove one of them
+        self.written: list[str] = []
+        # when this run's readings were taken. `get_metadata` sets it as a walk starts; this
+        # is for a run that indexes without walking a listing
+        self.indexed_on = indexing.now()
+        # series marked for walkthrough this run, by id, in the order they were marked:
+        # `{id, title, bookmark}`, where `bookmark` is the series' own bookmark when it was
+        # one of yours. walked once indexing is over - see `walk_marked_series`
+        self.series_marked: dict[str, dict] = {}
+        # series already walked this run, and the works each held
         self.series_read: dict[str, list[str]] = {}
+        # set while the marked series are walked: a work met there does not mark its own
+        # series, which would only mark the series being walked
+        self.walking_series = False
         self.downloaded: set[str] = set()
         self.updated: set[str] = set()
         # work numbers seen on this run's listing that ao3 will not serve a file for yet,
@@ -295,11 +306,14 @@ class Ao3:
                     self.save_metadata(document)
                 for document in page_external:
                     self.save_entry(document, strings.EXTERNAL_INDEX_FOLDER_NAME)
-                # a bookmarked series is read for its works once the page is written, so
-                # works already on this page are not read again from the series; the ones it
-                # indexes are downloaded with the rest, as the individual works they are
+                # a series is not walked here: it is marked, and every marked series is
+                # walked once indexing is over, so a work anywhere in the listing is read
+                # from the listing and not a second time from a series
                 for document in page_series:
-                    records.extend(self.index_series(document))
+                    self.save_series_entry(document)
+                    self.mark_series(document['id'], document.get('title'), bookmark=document)
+                for document in page_records:
+                    self.mark_series_of(document)
                 shown_total = None if open_ended else total_pages
                 done, of = self.page_progress(current, shown_total)
                 # two sets of numbers on purpose: the bar measures the slice being fetched,
@@ -426,6 +440,11 @@ class Ao3:
                       'title': page.get('title') or '', 'authors': authors}
 
         fresh = {**record, **stats, **bookmark_state(soup)}
+        # a work page is only ever a work's - an entry made here is typed like any other
+        fresh.setdefault(strings.BOOKMARK_TYPE_FIELD, strings.BOOKMARK_TYPE_WORK)
+        # the series it is part of, read off its own page, so a run asked to walk them can
+        memberships = parse_soup.get_series_memberships(soup)
+        if memberships: fresh[strings.SERIES_MEMBERSHIP_FIELD] = memberships
         self.save_metadata(fresh)
         return fresh
 
@@ -889,39 +908,99 @@ class Ao3:
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
 
 
-    def index_series(self, series: dict) -> list[dict]:
-        """Write a bookmarked series' own entry, and index every work in it.
+    # region series marked for walkthrough
 
-        The series' page lists its works with the same blurbs a bookmarks listing uses, 20
-        to a page, so a series costs a request per 20 works. For each work on it:
+    def mark_series(self, series_id, title: str = '', bookmark: dict | None = None) -> None:
+        """Mark a series to be walked for its works once indexing is over.
 
-        - **already indexed this run** - a work bookmarked in its own right, read off the
-          listing a moment ago - it is left alone. It is not read twice.
-        - **otherwise** it is indexed from the series page (`save_series_work`), keeping
-          what its entry already says about your own bookmark of it.
+        A series you bookmarked is always marked. A series one of your works belongs to is
+        marked too when the run was asked to (`series`) - see `mark_series_of`. Each is
+        marked once, and said so once; a series marked again because it turned out to be
+        bookmarked as well keeps that bookmark. Nothing is marked while series are being
+        walked, since that would only mark the series in hand.
+        """
+
+        if self.walking_series or not series_id: return
+        series_id = str(series_id)
+        marked = self.series_marked.get(series_id)
+        if marked is None:
+            said = (strings.AO3_INFO_SERIES_MARKED_BOOKMARK if bookmark
+                    else strings.AO3_INFO_SERIES_MARKED)
+            print(said.format(title or series_id))
+            self.series_marked[series_id] = {'id': series_id, 'title': title or '',
+                                             'bookmark': bookmark}
+        elif bookmark is not None and marked['bookmark'] is None:
+            marked['bookmark'] = bookmark
+
+
+    def mark_series_of(self, record: dict) -> None:
+        """Mark every series a work is part of, when the run was asked to.
+
+        Goes by what the record says, so it works as well for a work read off a listing a
+        moment ago as for one taken from the index without being read again.
+        """
+
+        if not self.series: return
+        for member in record.get(strings.SERIES_MEMBERSHIP_FIELD) or []:
+            if isinstance(member, dict): self.mark_series(member.get('id'), member.get('title'))
+
+
+    def walk_marked_series(self) -> list[dict]:
+        """Walk every series marked this run, and return the works it indexed.
+
+        What indexing a bookmarked series used to do inline, done here once indexing is
+        over - so every work a listing holds has been read from the listing first, and is
+        not read again from a series (see `index_series`).
+        """
+
+        self.walking_series = True
+        indexed: list[dict] = []
+        try:
+            for marked in list(self.series_marked.values()):
+                self.check_cancelled()
+                if marked['id'] in self.series_read: continue
+                indexed.extend(self.index_series(marked))
+        except exceptions.CancelledException:
+            # what was indexed stays indexed; the run notices the stop and ends
+            print(strings.INFO_CANCELLED)
+        finally:
+            self.walking_series = False
+        return indexed
+
+
+    def index_series(self, marked: dict) -> list[dict]:
+        """Walk one series' ao3 page and index every work in it; then write its entry.
+
+        The page lists its works with the same blurbs a bookmarks listing uses, 20 to a page,
+        so a series costs a request per 20 works. For each work on it:
+
+        - **already indexed this run** - read off the listing, or from another series - it
+          is left alone. It is not read twice.
+        - **otherwise** it is indexed from the series page (`save_series_work`): an entry
+          that exists keeps what it says about your own bookmark of it; a new one is
+          recorded as not bookmarked.
 
         Returns the works it indexed, so they are downloaded with the rest of the run.
         """
 
-        series_id = str(series.get('id') or '')
-        title = series.get('title') or series_id
-        if series_id in self.series_read:
-            print(strings.AO3_INFO_SERIES_AGAIN.format(title))
-            series[strings.SERIES_WORKS_FIELD] = self.series_read[series_id]
-            self.save_entry(series, strings.SERIES_INDEX_FOLDER_NAME)
-            return []
+        series_id = str(marked['id'])
+        bookmark = marked.get('bookmark')
+        link = f'{strings.AO3_BASE_URL}/series/{series_id}'
+        print(strings.AO3_INFO_SERIES_READING.format(
+            (bookmark or {}).get('title') or marked.get('title') or series_id))
 
-        print(strings.AO3_INFO_SERIES_READING.format(title))
         found: list[str] = []
         indexed: list[dict] = []
         already = 0
-        link = series.get('link') or f'{strings.AO3_BASE_URL}/series/{series_id}'
+        header: dict | None = None
+        walked = False
         page = link
         try:
             total = None
             while True:
                 self.check_cancelled()
                 soup = self.repo.get_soup(page)
+                if header is None: header = parse_soup.get_series_page_metadata(soup, series_id)
                 if total is None: total = parse_soup.get_total_pages(soup)
                 readings = []
                 for blurb in parse_soup.get_blurbs(soup):
@@ -937,7 +1016,7 @@ class Ao3:
                     indexed.append(self.save_series_work(document, series_id, link))
                 if not total or parse_text.get_page_number(page) >= total: break
                 page = parse_text.get_next_page(page)
-            series[strings.SERIES_WORKS_FIELD] = found
+            walked = True
             self.series_read[series_id] = found
             print(strings.AO3_INFO_SERIES_READ.format(len(found), len(indexed), already))
         except exceptions.CancelledException:
@@ -947,12 +1026,73 @@ class Ao3:
             # recorded as holding only the ones reached before it failed
             print(strings.ERROR_SERIES)
             self.log_error({'message': strings.ERROR_SERIES, 'link': link}, e)
-            previous = indexing.flatten(self.fileops.load_json(
-                self.metadata_path(series, strings.SERIES_INDEX_FOLDER_NAME))) or {}
-            if strings.SERIES_WORKS_FIELD in previous:
-                series[strings.SERIES_WORKS_FIELD] = previous[strings.SERIES_WORKS_FIELD]
-        self.save_entry(series, strings.SERIES_INDEX_FOLDER_NAME)
+
+        self.save_series_entry(self.series_document(series_id, bookmark, header,
+                                                    found if walked else None))
         return indexed
+
+
+    def series_document(self, series_id: str, bookmark: dict | None, header: dict | None,
+                        works: list[str] | None) -> dict:
+        """A series' entry: its own bookmark's reading when it is one of yours, otherwise
+        what its page says, keeping whatever its existing entry already knows.
+
+        A series marked only because a work of yours is in it is recorded as **not
+        bookmarked** - unless its entry says you bookmarked it, which a run that did not
+        reach that bookmark cannot contradict.
+        """
+
+        if bookmark:
+            document = dict(bookmark)
+        else:
+            existing = self.series_existing(series_id)
+            document = {key: value for key, value in existing.items()
+                        if key not in (indexing.INDEXES, indexing.LAST_INDEXED,
+                                       indexing.INDEXED_ON)}
+            document.update({k: v for k, v in (header or {}).items() if v not in (None, '', [])})
+            document.setdefault('id', series_id)
+            document.setdefault('link', f'{strings.AO3_BASE_URL}/series/{series_id}')
+            document.setdefault(strings.BOOKMARKED_FIELD, False)
+            document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_SERIES
+        if works is not None: document[strings.SERIES_WORKS_FIELD] = works
+        return document
+
+
+    def series_path(self, document: dict) -> str:
+        """Where a series' entry lives - found by its id when it is already there, so a
+        series renamed on ao3 keeps its one file rather than starting a second."""
+
+        folder = os.path.join(self.fileops.downloadfolder, strings.INDEXING_FOLDER_NAME,
+                              strings.SERIES_INDEX_FOLDER_NAME)
+        series_id = str(document.get('id') or '')
+        try:
+            for name in self.fileops.list_files(folder):
+                if parse_text.get_work_number_from_filename(name) == series_id:
+                    return os.path.join(strings.INDEXING_FOLDER_NAME,
+                                        strings.SERIES_INDEX_FOLDER_NAME, name)
+        except Exception:
+            pass
+        return self.metadata_path(document, strings.SERIES_INDEX_FOLDER_NAME)
+
+
+    def series_existing(self, series_id: str) -> dict:
+        return indexing.flatten(self.fileops.load_json(self.series_path({'id': series_id}))) or {}
+
+
+    def save_series_entry(self, document: dict) -> None:
+        """Write a series' entry, keeping the works list it had when this reading has none -
+        a bookmark read off the listing says nothing about the series' works."""
+
+        try:
+            path = self.series_path(document)
+            existing = self.fileops.load_json(path)
+            current = indexing.flatten(existing) or {}
+            if strings.SERIES_WORKS_FIELD not in document and strings.SERIES_WORKS_FIELD in current:
+                document = {**document, strings.SERIES_WORKS_FIELD: current[strings.SERIES_WORKS_FIELD]}
+            merged = indexing.merge(existing, document, self.indexed_on)
+            self.fileops.save_json(path, merged)
+        except Exception as e:
+            self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
 
 
     def save_series_work(self, document: dict, series_id: str, series_link: str) -> dict:
@@ -974,6 +1114,8 @@ class Ao3:
         document[indexing.FROM_SERIES] = [series_id]
         self.save_metadata(document)
         return document
+
+    # endregion
 
 
     def add_work_dates(self, records: list[dict]) -> None:
@@ -1061,7 +1203,7 @@ class Ao3:
         elif strings.AO3_BASE_URL in link:
             # special case for subscriptions page - it doesn't have blurbs, so any series
             # links encountered are directly subscribed to and should always be downloaded.
-            include_series = parse_text.is_subscriptions(link) or self.series
+            include_series = parse_text.is_subscriptions(link)
             total_pages = None
             while True:
                 self.fileops.write_log({'link': link, 'message': strings.INFO_STARTING_PAGE, 'level': 'debug'})
@@ -1100,7 +1242,7 @@ class Ao3:
         elif strings.AO3_BASE_URL in link:
             # special case for subscriptions page - it doesn't have blurbs, so any series
             # links encountered are directly subscribed to and should always be downloaded.
-            include_series = parse_text.is_subscriptions(link) or self.series
+            include_series = parse_text.is_subscriptions(link)
             total_pages = None
             while True:
                 self.fileops.write_log({'link': link, 'message': strings.INFO_STARTING_PAGE, 'level': 'debug'})
@@ -1243,6 +1385,7 @@ class Ao3:
             existed = False
 
         saved = self.fileops.save_bytes(name, content)
+        if isinstance(saved, str): self.written.append(saved)
         new = os.path.basename(saved) if isinstance(saved, str) else name
         work = parse_text.get_work_number(work_url)
         old = self.superseded.get(work_url, {}).get(filetype)
