@@ -1,5 +1,12 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { Bookmark, BookmarksExport, flattenRecord, workIdFromFilename } from './bookmarks';
+import {
+  Bookmark,
+  BookmarksExport,
+  flattenRecord,
+  isBookmarkEntry,
+  isWorkEntry,
+  workIdFromFilename,
+} from './bookmarks';
 import { Collection, flattenCollection, isCollectionRecord } from './collections';
 import { APP_FOLDER_PATH, DropboxFile, DropboxSession } from './dropbox';
 import { DirectoryHandle, FolderStore } from './folder-store';
@@ -45,6 +52,12 @@ export class Library {
   readonly sourceName = signal('');
   readonly folderName = signal('');
   readonly htmlFiles = signal<Map<string, LocalCopy>>(new Map());
+  /**
+   * Every work in the index by work number - including works that are there only because a
+   * series you bookmarked holds them, which the bookmarks listing leaves out. A series' card
+   * and a collection both list works by number and look them up here.
+   */
+  readonly worksById = signal<Map<string, Bookmark>>(new Map());
   readonly error = signal('');
   readonly loading = signal(false);
   /** a folder is remembered but the browser wants the permission confirmed again */
@@ -213,6 +226,7 @@ export class Library {
     this.collections.set([]);
     this.sourceName.set('');
     this.htmlFiles.set(new Map());
+    this.worksById.set(new Map());
   }
 
   /**
@@ -372,13 +386,18 @@ export class Library {
         return;
       }
 
-      // one file per bookmark, so the listing order has to be restored from the records
-      works.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      // no listing order is kept: the works list sorts by when each was bookmarked
       collections.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
       this.collections.set(collections);
       this.htmlFiles.set(copies);
+      const byId = new Map<string, Bookmark>();
+      for (const work of works) if (work.id && isWorkEntry(work)) byId.set(work.id, work);
+      this.worksById.set(byId);
 
-      if (works.length === 0) {
+      // the listing is your bookmarks: works, series and external works you bookmarked,
+      // but not a work that is only here because a series holds it - that is in its card
+      const bookmarks = works.filter(isBookmarkEntry);
+      if (bookmarks.length === 0) {
         // collections synced but nothing indexed yet: the collections page still works
         this.data.set(null);
         this.sourceName.set(`${collections.length} collections`);
@@ -392,10 +411,10 @@ export class Library {
           works.find((w) => w.last_indexed)?.last_indexed ??
           works.find((w) => w.retrieved)?.retrieved ??
           '',
-        count: works.length,
-        works,
+        count: bookmarks.length,
+        works: bookmarks,
       });
-      this.sourceName.set(`${works.length} works`);
+      this.sourceName.set(`${bookmarks.length} bookmarks`);
     } finally {
       this.loading.set(false);
     }

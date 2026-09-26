@@ -652,24 +652,56 @@ def get_blurb_id(blurb: Tag) -> str | None:
     return str(blurb_id) if blurb_id else None
 
 
+BLURB_WORK = 'work'
+BLURB_SERIES = 'series'
+BLURB_EXTERNAL = 'external'
+BLURB_OTHER = 'other'
+
+
+def get_blurb_kind(blurb: Tag) -> tuple[str, str | None]:
+    """What a blurb is of - a work, a series or an external work - and its id.
+
+    The class list says so outright (`work-123`, `series-123`, `external-work-123`), and is
+    read first. **External works are checked before anything else**: checked against the
+    live site, an external work's title can link to an ao3 address - `/en/works/863` - so
+    going by the link would read it as work 863. A blurb with no such class falls back to
+    what its title links to. Anything else - a deleted work, a hidden one - is 'other'.
+    """
+
+    classes = blurb.get('class') or []
+    if not isinstance(classes, list): classes = [str(classes)]
+    classes = [str(x) for x in classes]
+
+    for prefix, kind in (('external-work-', BLURB_EXTERNAL), ('series-', BLURB_SERIES),
+                         ('work-', BLURB_WORK)):
+        for classname in classes:
+            if classname.startswith(prefix) and classname[len(prefix):].isdigit():
+                return kind, classname[len(prefix):]
+
+    if blurb.select_one('span.external-work'):
+        related = blurb.select_one('a[href*="/external_works/"]')
+        number = parse_text.get_digits_after('/external_works/', str(related.get('href'))) \
+            if related else None
+        return BLURB_EXTERNAL, number
+
+    heading = blurb.select_one('h4.heading a')
+    href = str(heading.get('href') or '') if heading else ''
+    if href:
+        series = parse_text.get_series_number(href)
+        if series: return BLURB_SERIES, series
+        if href.startswith('http') and strings.AO3_DOMAIN not in href.lower():
+            return BLURB_EXTERNAL, None
+        work = parse_text.get_work_number(href)
+        if work: return BLURB_WORK, work
+    return BLURB_OTHER, None
+
+
 def get_blurb_work_number(blurb: Tag) -> str | None:
     """Get the work number from a blurb, or None if the blurb isn't for a work.
     Bookmarks of series, external works, and deleted works all return None."""
 
-    classes = blurb.get('class') or []
-    if not isinstance(classes, list): classes = [str(classes)]
-    for classname in classes:
-        if str(classname).startswith('work-'):
-            worknum = str(classname)[len('work-'):]
-            if worknum.isdigit(): return worknum
-
-    # not every listing puts the work number in the class list, so fall back to the title link
-    heading = blurb.select_one('h4.heading a')
-    if heading:
-        href = heading.get('href')
-        if href: return parse_text.get_work_number(str(href))
-
-    return None
+    kind, number = get_blurb_kind(blurb)
+    return number if kind == BLURB_WORK else None
 
 
 def get_blurb_skip_reason(blurb: Tag) -> dict:
@@ -773,6 +805,48 @@ def get_blurb_metadata(blurb: Tag) -> dict:
         metadata.update(get_bookmark_metadata(blurb))
     except Exception as e: # don't lose the rest of the page over one unparseable blurb
         metadata['error'] = ''.join(traceback.TracebackException.from_exception(e).format())
+    return metadata
+
+
+def get_series_bookmark_metadata(blurb: Tag, series: str) -> dict:
+    """A bookmarked series, from its blurb in a bookmarks listing.
+
+    The same fields a work's blurb gives, where a series has them, plus the two only a
+    series has: how many works it holds and whether it is complete. The works themselves
+    are read from the series' own page - see `Ao3.index_series`.
+    """
+
+    metadata = get_blurb_metadata(blurb)
+    metadata['id'] = series
+    metadata['link'] = f'{strings.AO3_BASE_URL}/series/{series}'
+    for key in ('chapters_published', 'chapters_total', 'comments', 'kudos', 'hits'):
+        metadata.pop(key, None)
+    metadata['works'] = parse_text.get_count(get_text_or_empty(blurb, 'dd.works'))
+    status = blurb.select_one('span.iswip')
+    metadata['complete'] = bool(status and 'complete-yes' in (status.get('class') or []))
+    return metadata
+
+
+def get_external_bookmark_metadata(blurb: Tag, external: str | None) -> dict:
+    """A bookmark of a work hosted somewhere other than ao3.
+
+    `link` is where the work actually is. `id` is ao3's own number for its record of the
+    work, when the listing gives one. The author is plain text on these - there is no
+    account to link to - so it is read out of the heading.
+    """
+
+    metadata = get_blurb_metadata(blurb)
+    metadata['id'] = external
+    heading = blurb.select_one('h4.heading a')
+    metadata['link'] = str(heading.get('href') or '') if heading else ''
+    for key in ('chapters_published', 'chapters_total', 'comments', 'kudos', 'hits',
+                'bookmarks', 'words'):
+        metadata.pop(key, None)
+    if metadata.get('authors') == ['Anonymous']:
+        text = get_text_or_empty(blurb, 'h4.heading')
+        byline = ' '.join(text.split()).rsplit(' by ', 1)
+        if len(byline) == 2 and byline[1].strip():
+            metadata['authors'] = [x.strip() for x in byline[1].split(',') if x.strip()]
     return metadata
 
 

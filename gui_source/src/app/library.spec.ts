@@ -226,14 +226,15 @@ describe('Library', () => {
     expect(library.data()).toBeNull();
   });
 
-  it('reads one file per bookmark and restores the listing order', async () => {
-    // the files come back from the folder in whatever order, but position is the truth
+  it('reads one file per bookmark', async () => {
+    // no listing order is kept any more - the works list sorts them, by when each was
+    // bookmarked unless asked otherwise
     store.files = [recordFile('333', 3), recordFile('111', 1), recordFile('222', 2)];
     store.recalled = handle();
 
     await library.restore();
 
-    expect(library.data()?.works.map((w) => w.id)).toEqual(['111', '222', '333']);
+    expect(library.data()?.works.map((w) => w.id).sort()).toEqual(['111', '222', '333']);
     expect(library.data()?.count).toBe(3);
     expect(library.data()?.source).toBe(SOURCE);
   });
@@ -243,7 +244,7 @@ describe('Library', () => {
       id: '111',
       link: 'https://archiveofourown.org/works/111',
       source: SOURCE,
-      position: 1,
+      bookmark_type: 'individual work',
       last_indexed: '2026-09-10T12:00:00+00:00',
       indexes: [
         { indexed_on: '2026-09-01T10:00:00+00:00', title: 'Old Title', kudos: 1 },
@@ -259,8 +260,34 @@ describe('Library', () => {
     expect(work.title).toBe('New Title');
     expect(work.id).toBe('111');
     // the root identity is not overwritten by the reading
-    expect(work.position).toBe(1);
+    expect(work.bookmark_type).toBe('individual work');
     expect(library.data()!.retrieved).toBe('2026-09-10T12:00:00+00:00');
+  });
+
+  it('lists every kind of bookmark, but not a work that is only there through a series', async () => {
+    // series and external works are bookmarks too; a work in the index only because a
+    // bookmarked series holds it is shown inside that series' card, not on its own
+    const entry = (id: string, type: string, extra: object = {}) =>
+      new File(
+        [JSON.stringify({ id, link: `https://x/${id}`, source: SOURCE, bookmark_type: type,
+          indexes: [{ indexed_on: '2026-09-10T12:00:00+00:00', title: `Entry ${id}`, ...extra }] })],
+        `${id}.json`,
+      );
+    store.files = [
+      entry('111', 'individual work', { bookmarked: true }),
+      entry('333', 'individual work', { bookmarked: false }),
+      entry('15213', 'series bookmark', { work_ids: ['333'] }),
+      entry('1', 'external work'),
+      recordFile('222', 2),
+    ];
+    store.recalled = handle();
+
+    await library.restore();
+
+    expect(library.data()?.works.map((w) => w.id).sort()).toEqual(['1', '111', '15213', '222']);
+    // every work is still there to look up by number - which a series' card does
+    expect([...library.worksById().keys()].sort()).toEqual(['111', '222', '333']);
+    expect(library.sourceName()).toBe('4 bookmarks');
   });
 
   it('still reads a flat file written before histories existed', async () => {

@@ -17,6 +17,12 @@ RUNS_FOLDER_NAME = 'runs'
 # downloaded works live here rather than in the library's top level, so the files a person
 # actually reads are not mixed in with the app's own folders
 WORKS_FOLDER_NAME = 'works'
+# series and external-work bookmarks have no work number, and everything reading indexing/
+# as works goes by the number a file name starts with - a series id could be mistaken for a
+# work's. so they are kept in folders of their own inside indexing/, which nothing reading
+# works looks into
+SERIES_INDEX_FOLDER_NAME = 'series'
+EXTERNAL_INDEX_FOLDER_NAME = 'external'
 # every folder a library is expected to have. the web page creates whichever are missing
 # when a library is opened, and a local run does the same as it starts
 LIBRARY_FOLDER_NAMES = ('indexing', 'collections', 'images', 'runs', 'works')
@@ -169,6 +175,21 @@ AO3_INFO_UNDATED_WORKS = 'works with undated files: {}'
 # their own bookmarks listing or a work page saying 'Edit Bookmark', False off a page saying
 # 'Bookmark', and absent when nothing has been able to tell
 BOOKMARKED_FIELD = 'bookmarked'
+# what a bookmark is of. a work found only through a bookmarked series is still an
+# individual work - `from_series` says how it got into the index
+BOOKMARK_TYPE_FIELD = 'bookmark_type'
+BOOKMARK_TYPE_WORK = 'individual work'
+BOOKMARK_TYPE_EXTERNAL = 'external work'
+BOOKMARK_TYPE_SERIES = 'series bookmark'
+# the bookmarked series a work was found through, by series id
+FROM_SERIES_FIELD = 'from_series'
+# the works a bookmarked series held when it was last read, on the series' own entry
+SERIES_WORKS_FIELD = 'work_ids'
+# the bookmark's own fields: what you wrote and when. a work read off a series page has
+# none of them, so an existing entry keeps its own rather than having them blanked
+BOOKMARK_OWN_FIELDS = ('date_bookmarked', 'bookmark_notes', 'bookmark_tags',
+                       'bookmark_collections', 'bookmark_private', 'bookmark_rec',
+                       BOOKMARKED_FIELD)
 AO3_INFO_CHECKING_FILES = 'checking which of these you have already downloaded'
 AO3_INFO_CHECKING_VERSIONS = 'checking which of your downloads ao3 has a newer version of'
 AO3_INFO_UNDATED_WAITING = 'waiting for you to say what to do about them'
@@ -346,6 +367,10 @@ AO3_INFO_METADATA_SKIPPED = 'skipped {} bookmarks that are not works (series, ex
 # each one rather than leaving a count to be worked out from
 AO3_INFO_SKIPPED_WORKS = '{} bookmarks were not works and could not be downloaded - the list below says which, and why'
 SKIPPED_SERIES = 'a series, not a single work'
+AO3_INFO_SERIES_READING = 'reading the bookmarked series "{}" for the works in it'
+AO3_INFO_SERIES_READ = '  {} works in that series: {} indexed from it, {} already indexed this run'
+AO3_INFO_SERIES_AGAIN = 'the series "{}" was already read this run'
+ERROR_SERIES = 'could not read a bookmarked series - its works were not indexed from it'
 SKIPPED_EXTERNAL = 'an external work, hosted somewhere other than ao3'
 SKIPPED_DELETED = 'the work has been deleted'
 # an author hides a work by putting it in an unrevealed collection. it keeps its work

@@ -35,6 +35,20 @@
 
   <div class="filter-grid">
     <label class="filter-field">
+      <span>Bookmark type</span>
+      <select
+        name="typeFilter"
+        [value]="typeFilter()"
+        (change)="typeFilter.set($any($event.target).value)"
+      >
+        <option value="">All bookmarks</option>
+        <option value="individual work">Individual works</option>
+        <option value="series bookmark">Series</option>
+        <option value="external work">External works</option>
+      </select>
+    </label>
+
+    <label class="filter-field">
       <span>Title contains</span>
       <input
         type="search"
@@ -91,7 +105,6 @@
         [value]="sortBy()"
         (change)="sortBy.set($any($event.target).value)"
       >
-        <option value="">Folder order</option>
         <option value="bookmarked-desc">Date bookmarked, newest first</option>
         <option value="bookmarked-asc">Date bookmarked, oldest first</option>
         <option value="created-desc">Date created, newest first</option>
@@ -132,7 +145,8 @@
 
 <ol class="index">
   @for (work of pageWorks(); track $index) {
-    <li class="blurb">
+    <li class="blurb" [class.series]="typeOf(work) === 'series bookmark'"
+        [class.external]="typeOf(work) === 'external work'">
       @if (work.error) {
         <p class="error">This bookmark could not be read from the listing page.</p>
       } @else if (work.placeholder) {
@@ -156,15 +170,32 @@
           </div>
 
           <div class="blurb-titles">
+            @if (typeOf(work) !== 'individual work') {
+              <p class="kind">
+                {{ typeOf(work) === 'series bookmark' ? 'Series' : 'External work' }}
+              </p>
+            }
             <h4 class="heading">
-              <a
-                class="title"
-                [href]="work.link"
-                [class.local]="hasLocalCopy(work)"
-                [title]="hasLocalCopy(work) ? 'Open your downloaded copy' : 'Open on AO3 (no local copy in this folder)'"
-                (click)="openWork(work, $event)"
-                >{{ work.title }}</a
-              >
+              @if (typeOf(work) === 'individual work') {
+                <a
+                  class="title"
+                  [href]="work.link"
+                  [class.local]="hasLocalCopy(work)"
+                  [title]="hasLocalCopy(work) ? 'Open your downloaded copy' : 'Open on AO3 (no local copy in this folder)'"
+                  (click)="openWork(work, $event)"
+                  >{{ work.title }}</a
+                >
+              } @else {
+                <!-- a series opens on ao3; an external work opens wherever it is hosted -->
+                <a
+                  class="title"
+                  [href]="work.link"
+                  target="_blank"
+                  rel="noopener"
+                  [title]="typeOf(work) === 'series bookmark' ? 'Open the series on AO3' : 'Open where this work is hosted'"
+                  >{{ work.title }}</a
+                >
+              }
               @if (work.authors.length) {
                 <span class="by">by</span>
                 @for (author of work.authors; track author; let last = $last) {
@@ -207,12 +238,21 @@
         }
 
         <dl class="stats">
-          @if (work.words !== null) {
+          @if (work.words !== null && work.words !== undefined) {
             <dt>Words:</dt>
             <dd>{{ work.words | number }}</dd>
           }
-          <dt>Chapters:</dt>
-          <dd>{{ chapterCount(work) }}</dd>
+          @if (typeOf(work) === 'series bookmark') {
+            @if (work.works !== null && work.works !== undefined) {
+              <dt>Works:</dt>
+              <dd>{{ work.works | number }}</dd>
+            }
+            <dt>Complete:</dt>
+            <dd>{{ work.complete ? 'Yes' : 'No' }}</dd>
+          } @else if (typeOf(work) === 'individual work') {
+            <dt>Chapters:</dt>
+            <dd>{{ chapterCount(work) }}</dd>
+          }
           @if (work.comments !== null) {
             <dt>Comments:</dt>
             <dd>{{ work.comments | number }}</dd>
@@ -268,6 +308,63 @@
                   <span class="tag">{{ collection }}</span>@if (!last) {, }
                 }
               </p>
+            }
+          </div>
+        }
+
+        @if (typeOf(work) === 'series bookmark') {
+          <div class="series-works">
+            <button
+              type="button"
+              class="series-toggle"
+              [attr.aria-expanded]="isSeriesOpen(work)"
+              (click)="toggleSeries(work)"
+            >
+              <span class="chevron" aria-hidden="true">{{ isSeriesOpen(work) ? '&#9662;' : '&#9656;' }}</span>
+              {{ isSeriesOpen(work) ? 'Hide' : 'Show' }} the
+              {{ (work.work_ids?.length ?? 0) | number }}
+              {{ (work.work_ids?.length ?? 0) === 1 ? 'work' : 'works' }} in this series
+            </button>
+
+            @if (isSeriesOpen(work)) {
+              @if (!work.work_ids?.length) {
+                <p class="not-indexed">
+                  This series has not been read for its works yet. The next scan that reaches it
+                  will index them.
+                </p>
+              } @else {
+                <ol class="series-list">
+                  @for (part of seriesWorks(work); track $index; let at = $index) {
+                    <li>
+                      <span class="part">Part {{ at + 1 }}</span>
+                      @if (part.placeholder) {
+                        <a class="title" [href]="part.link" target="_blank" rel="noopener">Work {{ part.id }}</a>
+                        <span class="part-meta">not in your index yet</span>
+                      } @else {
+                        <a
+                          class="title"
+                          [href]="part.link"
+                          [class.local]="hasLocalCopy(part)"
+                          [title]="hasLocalCopy(part) ? 'Open your downloaded copy' : 'Open on AO3 (no local copy in this folder)'"
+                          (click)="openWork(part, $event)"
+                          >{{ part.title }}</a
+                        >
+                        @if (part.authors.length) {
+                          <span class="by">by</span> {{ part.authors.join(', ') }}
+                        }
+                        <span class="part-meta">
+                          @if (part.words !== null) { {{ part.words | number }} words &middot; }
+                          {{ chapterCount(part) }} chapters
+                          @if (part.date_updated) { &middot; updated {{ part.date_updated }} }
+                        </span>
+                        @if (part.bookmarked) {
+                          <span class="badge">Also bookmarked</span>
+                        }
+                      }
+                    </li>
+                  }
+                </ol>
+              }
             }
           </div>
         }

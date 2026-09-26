@@ -6,7 +6,7 @@ new one is added only when something actually changed, and the file always recor
 was last checked - whether or not anything came of it.
 
     {
-      "id": "123", "link": "...", "source": "...", "position": 4,
+      "id": "123", "link": "...", "source": "...", "bookmark_type": "individual work",
       "last_indexed": "2026-09-10T12:34:56+00:00",
       "indexes": [
         {"indexed_on": "2026-09-01T10:00:00+00:00", "title": ..., "kudos": 12, ...},
@@ -22,9 +22,16 @@ INDEXED_ON = 'indexed_on'
 LAST_INDEXED = 'last_indexed'
 
 # these identify the file rather than describing the work, so they live at the root and
-# are not versioned. position in particular changes as bookmarks are added, and versioning
-# it would append an entry on every run for every fic.
-IDENTITY_FIELDS = ('id', 'link', 'source', 'position')
+# are not versioned.
+IDENTITY_FIELDS = ('id', 'link', 'source', 'bookmark_type', 'from_series')
+
+# the bookmarked series a work was found through. added to, never replaced: a work in two
+# bookmarked series was found through both, whichever was read last
+FROM_SERIES = 'from_series'
+
+# written by earlier versions: a fic's place in the listing, which the page now sorts and
+# filters for itself. dropped from any file as it is next saved
+RETIRED_FIELDS = ('position',)
 
 # a collection is identified by its short name rather than a work id, and has no place
 # in a listing order worth keeping
@@ -110,7 +117,14 @@ def merge(existing: dict | None, document: dict, indexed_on: str,
     elif not entries or changed(entries[-1], snapshot):
         entries.append(entry)
 
+    for field in RETIRED_FIELDS:
+        result.pop(field, None)
+        for reading in entries: reading.pop(field, None)
+    known_series = [str(x) for x in (result.get(FROM_SERIES) or [])]
     result.update(identity)
+    if FROM_SERIES in identity or known_series:
+        added = [str(x) for x in (identity.get(FROM_SERIES) or [])]
+        result[FROM_SERIES] = sorted(set(known_series) | set(added), key=lambda x: (len(x), x))
     result[LAST_INDEXED] = indexed_on
     result[INDEXES] = entries
     return result

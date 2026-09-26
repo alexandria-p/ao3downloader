@@ -192,7 +192,7 @@ describe('Library, reading a Dropbox folder', () => {
     await library.showDropbox();
 
     expect(library.error()).toBe('');
-    expect(library.data()?.works.map((w) => w.id)).toEqual(['111', '222']);
+    expect(library.data()?.works.map((w) => w.id).sort()).toEqual(['111', '222']);
     expect(library.collections().map((c) => c.name)).toEqual(['yuletide']);
     expect(dropbox.zips).toEqual(['/indexing', '/collections']);
     expect(dropbox.downloads).toEqual([]);

@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { WorkList } from './work-list';
+import { Library } from './library';
 import { Bookmark } from './bookmarks';
 
 /**
@@ -301,9 +302,141 @@ describe('WorkList filtering', () => {
       .click();
     await fixture.whenStable();
 
-    expect(shownTitles()).toEqual(['No Paths Are Bound', 'Catch and Release', 'The Dating Game']);
-    expect(element.querySelector<HTMLSelectElement>('select[name="sortBy"]')!.value).toBe('');
+    // back to the default: most recently bookmarked first
+    expect(shownTitles()).toEqual(['Catch and Release', 'The Dating Game', 'No Paths Are Bound']);
+    expect(element.querySelector<HTMLSelectElement>('select[name="sortBy"]')!.value).toBe(
+      'bookmarked-desc',
+    );
+  });
+
+  it('lists the most recently bookmarked first, before anything is chosen', async () => {
+    // the index keeps no listing order of its own any more
+    await listing(LIBRARY);
+
+    expect(shownTitles()).toEqual(['Catch and Release', 'The Dating Game', 'No Paths Are Bound']);
+    expect(element.querySelector('.sort-empty')).toBeNull();
+    // a default is not something to clear
+    const clear = Array.from(element.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
+      b.textContent?.includes('Clear filters'),
+    )!;
+    expect(clear.disabled).toBe(true);
   });
 
   // endregion
+});
+
+describe('WorkList, bookmarks of every kind', () => {
+  const series = {
+    ...work({ id: '15213', title: "Watches 'Verse", bookmarked: '18 May 2026' }),
+    link: 'https://archiveofourown.org/series/15213',
+    bookmark_type: 'series bookmark',
+    works: 3,
+    complete: false,
+    work_ids: ['111', '222', '999'],
+  } as Bookmark;
+  const external = {
+    ...work({ id: '1', title: 'drift', bookmarked: '01 Jan 2026' }),
+    link: 'https://example.com/drift',
+    bookmark_type: 'external work',
+  } as Bookmark;
+  const single = {
+    ...work({ id: '555', title: 'On Its Own', bookmarked: '10 Sep 2026' }),
+    bookmark_type: 'individual work',
+  } as Bookmark;
+  // in the index because of the series; one of them bookmarked in its own right as well
+  const partOne = { ...work({ id: '111', title: 'Part One' }), bookmarked: false } as Bookmark;
+  const partTwo = { ...work({ id: '222', title: 'Part Two' }), bookmarked: true } as Bookmark;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [WorkList] }).compileComponents();
+    const library = TestBed.inject(Library);
+    library.worksById.set(new Map([['111', partOne], ['222', partTwo], ['555', single]]));
+    // a downloaded copy of part one - and a file whose number happens to be the external
+    // work's id, which must not be taken for its copy
+    library.htmlFiles.set(new Map([
+      ['111', new File(['<p>one</p>'], '111 Part One.html')],
+      ['1', new File(['<p>work 1</p>'], '1 Some Other Work.html')],
+    ]));
+  });
+
+  async function showTypes(value: string) {
+    const select = element.querySelector<HTMLSelectElement>('select[name="typeFilter"]')!;
+    select.value = value;
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  }
+
+  it('lists works, series and external works together, newest bookmark first', async () => {
+    await listing([series, external, single]);
+    expect(shownTitles()).toEqual(['On Its Own', "Watches 'Verse", 'drift']);
+    expect(Array.from(element.querySelectorAll('.kind')).map((x) => x.textContent?.trim()))
+      .toEqual(['Series', 'External work']);
+  });
+
+  it('narrows to one kind of bookmark', async () => {
+    await listing([series, external, single]);
+
+    await showTypes('series bookmark');
+    expect(shownTitles()).toEqual(["Watches 'Verse"]);
+    await showTypes('external work');
+    expect(shownTitles()).toEqual(['drift']);
+    await showTypes('individual work');
+    expect(shownTitles()).toEqual(['On Its Own']);
+    expect(element.querySelector('.filtered-note')?.textContent).toContain('3');
+  });
+
+  it('opens a series on ao3 and an external work where it is hosted', async () => {
+    await listing([series, external]);
+    const links = Array.from(element.querySelectorAll<HTMLAnchorElement>('.blurb .heading a.title'));
+    expect(links.map((a) => [a.getAttribute('href'), a.target])).toEqual([
+      ['https://archiveofourown.org/series/15213', '_blank'],
+      ['https://example.com/drift', '_blank'],
+    ]);
+    // an external work's id is not a work number, whatever file shares it
+    expect(links[1].classList.contains('local')).toBe(false);
+  });
+
+  it('keeps a series card closed until asked, then lists its works in order', async () => {
+    await listing([series]);
+    expect(element.querySelector('.series-list')).toBeNull();
+
+    const toggle = element.querySelector<HTMLButtonElement>('.series-toggle')!;
+    expect(toggle.textContent).toContain('Show the 3 works in this series');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    toggle.click();
+    await fixture.whenStable();
+
+    const parts = Array.from(element.querySelectorAll('.series-list li'));
+    expect(parts.map((li) => li.querySelector('a.title')?.textContent?.trim())).toEqual([
+      'Part One',
+      'Part Two',
+      // grown since the series was last read: known only by its number
+      'Work 999',
+    ]);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    // a part with a downloaded copy opens it, as any work does
+    expect(parts[0].querySelector('a.title')!.classList.contains('local')).toBe(true);
+    // and one bookmarked in its own right says so
+    expect(parts[1].querySelector('.badge')?.textContent).toContain('Also bookmarked');
+    expect(parts[0].querySelector('.badge')).toBeNull();
+
+    toggle.click();
+    await fixture.whenStable();
+    expect(element.querySelector('.series-list')).toBeNull();
+  });
+
+  it('says so when a series has not been read for its works yet', async () => {
+    await listing([{ ...series, work_ids: [] } as Bookmark]);
+    element.querySelector<HTMLButtonElement>('.series-toggle')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('.series-works')?.textContent).toContain('not been read for its works yet');
+  });
+
+  it('shows a series its own stats rather than chapters', async () => {
+    await listing([series]);
+    const stats = element.querySelector('.stats')?.textContent ?? '';
+    expect(stats).toContain('Works:');
+    expect(stats).toContain('Complete:');
+    expect(stats).not.toContain('Chapters:');
+  });
 });

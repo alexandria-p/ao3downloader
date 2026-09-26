@@ -17,6 +17,42 @@ export interface BookmarkIndex {
   [field: string]: unknown;
 }
 
+/** the helper's `BOOKMARK_TYPE_*` */
+export type BookmarkType = 'individual work' | 'external work' | 'series bookmark';
+
+/** what an entry is, reading an entry from before types were recorded as a work */
+export function bookmarkTypeOf(record: Bookmark): BookmarkType {
+  return record.bookmark_type ?? 'individual work';
+}
+
+/**
+ * Whether an index entry is a work - something with a work number and a file to open.
+ *
+ * A bookmarked series and an external work have entries of their own, in folders inside
+ * indexing/. A folder read through the File System Access API arrives flat, so this goes by
+ * what the entry says, not where it was.
+ */
+export function isWorkEntry(record: Bookmark): boolean {
+  return bookmarkTypeOf(record) === 'individual work';
+}
+
+/**
+ * Whether an entry belongs in the bookmarks listing - that is, whether it is one of your
+ * bookmarks.
+ *
+ * Everything is, except a work that is in the index only because a series you bookmarked
+ * holds it: that is shown inside its series' card, not a second time on its own. An entry
+ * from before `bookmarked` was recorded came off your bookmarks, so it counts.
+ */
+export function isBookmarkEntry(record: Bookmark): boolean {
+  return !(isWorkEntry(record) && record.bookmarked === false);
+}
+
+/** whether a work, or a series, is finished - which the two record differently */
+export function isEntryComplete(record: Bookmark): boolean {
+  return bookmarkTypeOf(record) === 'series bookmark' ? !!record.complete : isComplete(record);
+}
+
 export interface Bookmark {
   /** provenance, written into every per-work file */
   source?: string;
@@ -25,8 +61,19 @@ export interface Bookmark {
   last_indexed?: string;
   /** every reading kept for this fic, oldest first */
   indexes?: BookmarkIndex[];
-  /** place in the listing, which is the order ao3 shows the bookmarks in */
-  position?: number;
+  /**
+   * What the bookmark is of. Entries from before this was recorded have none, and are
+   * individual works.
+   */
+  bookmark_type?: BookmarkType;
+  /** false for a work in the index only because a series you bookmarked holds it */
+  bookmarked?: boolean;
+  /** the bookmarked series, by id, a work was found through */
+  from_series?: string[];
+  /** on a series: how many works it holds, whether it is finished, and which works */
+  works?: number | null;
+  complete?: boolean;
+  work_ids?: string[];
   id: string | null;
   link: string | null;
   title: string;
@@ -83,7 +130,7 @@ export function flattenRecord(parsed: unknown): Bookmark | null {
   if (Array.isArray(history)) {
     const latest = history[history.length - 1];
     if (!latest || typeof latest !== 'object') return null;
-    // root last so identity wins: id, link, source and position are not versioned
+    // root last so identity wins: id, link, source and bookmark type are not versioned
     return { ...(latest as object), ...record } as unknown as Bookmark;
   }
 

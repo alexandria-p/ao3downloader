@@ -1776,15 +1776,15 @@ def test_get_metadata_begins_on_the_requested_page() -> None:
     assert repo.get_soup.call_args_list[0].args[0] == LISTING_URL + '?page=5'
 
 
-def test_get_metadata_counts_positions_on_from_the_pages_it_skipped() -> None:
-    # a run over the middle of a listing has to number its works where they actually sit,
-    # or a later run over the first pages would collide with them
+def test_get_metadata_no_longer_records_a_place_in_the_listing() -> None:
+    # the page sorts and filters for itself - by when each was bookmarked, by default
     ao3, repo, fileops = make_ao3(start=5)
     repo.get_soup.return_value = _listing_soup(['111', '222'])
 
     records = ao3.get_metadata(LISTING_URL, False)
 
-    assert [r['position'] for r in records] == [81, 82]
+    assert all('position' not in r for r in records)
+    assert all(r[strings.BOOKMARK_TYPE_FIELD] == strings.BOOKMARK_TYPE_WORK for r in records)
 
 
 def test_get_metadata_still_records_the_listing_itself_as_the_source() -> None:
@@ -1803,7 +1803,7 @@ def test_get_metadata_records_the_listing_and_its_order() -> None:
 
     records = ao3.get_metadata(LISTING_URL, False)
 
-    assert [r['position'] for r in records] == [1, 2]
+    assert [r['id'] for r in records] == ['111', '222']
     # the source is the link that was asked for, not the last page walked to
     assert all(r['source'] == LISTING_URL for r in records)
     # when it was read is recorded in the file rather than on the record

@@ -69,11 +69,9 @@ what happens when stopped or exited mid-download?
 
 
 
-1. save the 'bookmarked series' as its own json entry
-- ensure all works in the bookmark are indexed & downloaded.
-- if work in a series was already indexed this run, do not index again
-- if a work in a series was already downloaded/updated (whether successful/failed) this run, skip - or we get caught in loops.
-- if you 'walked' here from a series
+confirm if Download/update a specific fic also marks 'bookmarked' properly for me in index.
+
+
 
 2. "Get works from all encountered series links"
 If a bookmarked work belongs to a series, download the whole series too. This can take a great deal longer. Series you bookmarked directly are always downloaded either way."

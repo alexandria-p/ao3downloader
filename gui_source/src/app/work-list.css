@@ -439,3 +439,81 @@
     margin-right: 0;
   }
 }
+
+/* region series and external bookmarks */
+
+/* what kind of bookmark this card is, when it is not a single work */
+.kind {
+  margin: 0 0 2px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.blurb.series {
+  border-left: 3px solid var(--accent);
+}
+
+.blurb.external {
+  border-left: 3px dashed var(--border-strong);
+}
+
+.series-works {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.series-toggle {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.series-toggle:hover {
+  text-decoration: underline;
+}
+
+.chevron {
+  display: inline-block;
+  width: 1em;
+}
+
+.series-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.series-list li {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+
+.series-list li:first-child {
+  border-top: 0;
+}
+
+.part {
+  display: inline-block;
+  min-width: 4.5em;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.part-meta {
+  display: block;
+  margin-left: 4.5em;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+/* endregion */
+

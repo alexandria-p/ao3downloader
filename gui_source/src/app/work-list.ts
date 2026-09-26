@@ -3,12 +3,16 @@ import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library } from './library';
 import {
   Bookmark,
+  BookmarkType,
   authorLink,
+  bookmarkTypeOf,
   chapterCount,
   dateStamp,
-  isComplete,
+  isEntryComplete,
+  isWorkEntry,
   pageItems,
   paragraphs,
+  placeholderWork,
   ratingClass,
   warningClass,
 } from './bookmarks';
@@ -17,6 +21,13 @@ const PER_PAGE = 20;
 
 /** the orderings the filter panel offers; '' is the order the folder was read in */
 export type WorkSort = '' | 'created-desc' | 'created-asc' | 'bookmarked-desc' | 'bookmarked-asc';
+
+/**
+ * How the works are listed until someone asks otherwise: most recently bookmarked first,
+ * which is how ao3 shows your bookmarks. The index no longer keeps a listing position of
+ * its own, so this is what puts the list in that order.
+ */
+export const DEFAULT_SORT: WorkSort = 'bookmarked-desc';
 
 /**
  * A paginated listing of works, in ao3's own blurb style.
@@ -53,6 +64,12 @@ export class WorkList {
   protected readonly updatedTo = signal('');
   protected readonly bookmarkedFrom = signal('');
   protected readonly bookmarkedTo = signal('');
+  /** one kind of bookmark only - works, series or external works - or '' for all of them */
+  protected readonly typeFilter = signal<'' | BookmarkType>('');
+
+  /** the series whose works are showing, by series id */
+  protected readonly openSeries = signal<ReadonlySet<string>>(new Set());
+  private readonly worksById = this.library.worksById;
 
   /**
    * How the listing is ordered. Empty keeps the order the folder was read in.
@@ -61,7 +78,7 @@ export class WorkList {
    * be placed, and putting it first on an ascending sort would bury every dated work under
    * a pile of blanks.
    */
-  protected readonly sortBy = signal<WorkSort>('');
+  protected readonly sortBy = signal<WorkSort>(DEFAULT_SORT);
 
   protected readonly filtering = computed(
     () =>
@@ -71,12 +88,13 @@ export class WorkList {
         this.updatedFrom() ||
         this.updatedTo() ||
         this.bookmarkedFrom() ||
-        this.bookmarkedTo()
+        this.bookmarkedTo() ||
+        this.typeFilter()
       ),
   );
 
   /** a sort narrows nothing, so it is not 'filtering' - but it is still something to clear */
-  protected readonly anythingToClear = computed(() => this.filtering() || !!this.sortBy()
+  protected readonly anythingToClear = computed(() => this.filtering() || this.sortBy() !== DEFAULT_SORT
   );
 
   /**
@@ -96,8 +114,10 @@ export class WorkList {
     const updatedTo = this.updatedTo();
     const bookmarkedFrom = this.bookmarkedFrom();
     const bookmarkedTo = this.bookmarkedTo();
+    const type = this.typeFilter();
 
     return this.works().filter((work) => {
+      if (type && bookmarkTypeOf(work) !== type) return false;
       if (title && !(work.title ?? '').toLowerCase().includes(title)) return false;
       if (author && !(work.authors ?? []).some((name) =>
         name.toLowerCase().includes(author))) return false;
@@ -158,7 +178,9 @@ export class WorkList {
    */
   protected readonly sortHasNoDates = computed(() => {
     const sort = this.sortBy();
-    if (!sort) return false;
+    // the default is not something anyone chose, so it is not worth a note that it does
+    // nothing - a collection of works you never bookmarked has no bookmark dates at all
+    if (!sort || sort === DEFAULT_SORT) return false;
     const field = sort.startsWith('created') ? 'date_created' : 'date_bookmarked';
     return this.filtered().length > 0 &&
       !this.filtered().some((work) => dateStamp(work[field] ?? ''));
@@ -188,7 +210,7 @@ export class WorkList {
   /** how many of the listed works actually have a downloaded html file alongside them */
   readonly linkedCount = computed(() => {
     const files = this.htmlFiles();
-    return this.filtered().filter((work) => work.id && files.has(work.id)).length;
+    return this.filtered().filter((work) => isWorkEntry(work) && work.id && files.has(work.id)).length;
   });
 
   protected clearFilters(): void {
@@ -198,13 +220,15 @@ export class WorkList {
     this.updatedTo.set('');
     this.bookmarkedFrom.set('');
     this.bookmarkedTo.set('');
-    this.sortBy.set('');
+    this.typeFilter.set('');
+    this.sortBy.set(DEFAULT_SORT);
   }
 
   // template helpers
   protected readonly authorLink = authorLink;
   protected readonly chapterCount = chapterCount;
-  protected readonly isComplete = isComplete;
+  protected readonly isComplete = isEntryComplete;
+  protected readonly typeOf = bookmarkTypeOf;
   protected readonly paragraphs = paragraphs;
   protected readonly ratingClass = ratingClass;
   protected readonly warningClass = warningClass;
@@ -215,7 +239,30 @@ export class WorkList {
   }
 
   protected hasLocalCopy(work: Bookmark): boolean {
-    return !!work.id && this.htmlFiles().has(work.id);
+    // a series' or an external work's id is not a work number, and could be one by chance
+    return isWorkEntry(work) && !!work.id && this.htmlFiles().has(work.id);
+  }
+
+  protected isSeriesOpen(series: Bookmark): boolean {
+    return !!series.id && this.openSeries().has(series.id);
+  }
+
+  protected toggleSeries(series: Bookmark): void {
+    if (!series.id) return;
+    const open = new Set(this.openSeries());
+    if (open.has(series.id)) open.delete(series.id);
+    else open.add(series.id);
+    this.openSeries.set(open);
+  }
+
+  /**
+   * The works in a bookmarked series, in the series' own order, as the index describes
+   * them. A work the index has no entry for - the series grew since it was last read - is
+   * shown by its number, with a link to ao3, as a collection shows one.
+   */
+  protected seriesWorks(series: Bookmark): Bookmark[] {
+    const byId = this.worksById();
+    return (series.work_ids ?? []).map((id) => byId.get(id) ?? placeholderWork(id));
   }
 
   /**
@@ -225,7 +272,7 @@ export class WorkList {
   protected openWork(work: Bookmark, event: Event): void {
     event.preventDefault();
 
-    const copy = work.id ? this.htmlFiles().get(work.id) : undefined;
+    const copy = isWorkEntry(work) && work.id ? this.htmlFiles().get(work.id) : undefined;
     if (copy instanceof Blob) {
       const url = URL.createObjectURL(copy);
       window.open(url, '_blank');

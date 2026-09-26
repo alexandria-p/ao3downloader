@@ -80,6 +80,9 @@ class Ao3:
         # because they answer different questions: what got a fresh index entry, what
         # arrived as a file, and what replaced a copy that was already on disk.
         self.reindexed: set[str] = set()
+        # bookmarked series read this run, and the works each held - a series bookmarked
+        # twice, or met by both of a quick scan's walks, is read once
+        self.series_read: dict[str, list[str]] = {}
         self.downloaded: set[str] = set()
         self.updated: set[str] = set()
         # work numbers seen on this run's listing that ao3 will not serve a file for yet,
@@ -181,10 +184,6 @@ class Ao3:
         # the listing itself is the source, not whichever page the run happened to begin
         # on, so a run that starts partway through still writes the same provenance
         link = parse_text.set_page_number(link, self.start)
-        # positions are places in the whole listing, so a run starting at page 5 carries on
-        # from where page 4 left off rather than numbering its first fic 1. ao3 serves
-        # listings 20 to a page, which is what makes the pages before this one countable.
-        position_offset = (self.start - 1) * strings.AO3_LISTING_PAGE_SIZE
         # one timestamp for the whole run, so every file this run touches agrees on when
         # it was indexed, and a second save of the same fic updates rather than appends
         self.indexed_on = indexing.now()
@@ -220,9 +219,30 @@ class Ao3:
                 if total_pages is None:
                     total_pages = parse_soup.get_total_pages(thesoup)
                 page_records = []
+                # bookmarks of a series or of a work off ao3: indexed in their own folders,
+                # never downloaded, and never what a walk stops at
+                page_series: list[dict] = []
+                page_external: list[dict] = []
                 reached_known = False
                 for blurb in parse_soup.get_blurbs(thesoup):
-                    worknum = parse_soup.get_blurb_work_number(blurb)
+                    kind, number = parse_soup.get_blurb_kind(blurb)
+                    if kind in (parse_soup.BLURB_SERIES, parse_soup.BLURB_EXTERNAL) and \
+                            (number or kind == parse_soup.BLURB_EXTERNAL):
+                        key = parse_soup.get_blurb_id(blurb) or f'{kind}-{number}'
+                        if key in seen: continue
+                        seen.add(key)
+                        if kind == parse_soup.BLURB_SERIES:
+                            document = parse_soup.get_series_bookmark_metadata(blurb, number)
+                            document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_SERIES
+                            page_series.append(document)
+                        else:
+                            document = parse_soup.get_external_bookmark_metadata(blurb, number)
+                            document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_EXTERNAL
+                            page_external.append(document)
+                        document['source'] = source
+                        if own_bookmarks: document[strings.BOOKMARKED_FIELD] = True
+                        continue
+                    worknum = number if kind == parse_soup.BLURB_WORK else None
                     if not worknum:
                         skipped += 1
                         # why, not just how many - a count leaves no way to tell which
@@ -261,12 +281,9 @@ class Ao3:
                     key = parse_soup.get_blurb_id(blurb) or str(worknum)
                     if key in seen: continue
                     seen.add(key)
-                    document = {
-                        'source': source,
-                        # the listing order, which is the order ao3 shows the bookmarks in
-                        'position': position_offset + len(records) + 1,
-                    }
+                    document = {'source': source}
                     document.update(parse_soup.get_blurb_metadata(blurb))
+                    document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_WORK
                     if own_bookmarks: document[strings.BOOKMARKED_FIELD] = True
                     records.append(document)
                     page_records.append(document)
@@ -276,6 +293,13 @@ class Ao3:
                 # saving as each blurb was parsed made the page half-written by definition
                 for document in page_records:
                     self.save_metadata(document)
+                for document in page_external:
+                    self.save_entry(document, strings.EXTERNAL_INDEX_FOLDER_NAME)
+                # a bookmarked series is read for its works once the page is written, so
+                # works already on this page are not read again from the series; the ones it
+                # indexes are downloaded with the rest, as the individual works they are
+                for document in page_series:
+                    records.extend(self.index_series(document))
                 shown_total = None if open_ended else total_pages
                 done, of = self.page_progress(current, shown_total)
                 # two sets of numbers on purpose: the bar measures the slice being fetched,
@@ -822,25 +846,27 @@ class Ao3:
                             'link': document.get('link')}, e)
 
 
-    def save_metadata(self, document: dict) -> None:
-        """Write one bookmark to its own json file, in the indexing subfolder.
+    def metadata_path(self, document: dict, subfolder: str = '') -> str:
+        """Where one entry's json lives: named with the same pattern as a downloaded work,
+        so a fic's metadata carries the same name as its epub or html, in indexing/ - or in
+        a folder inside it, for the entries that are not works."""
 
-        Named with the same pattern as a downloaded work, so a fic's metadata carries the
-        same name as its epub or html - it just sits in indexing/ rather than beside them,
-        which keeps the downloads folder to actual works.
-        """
+        pattern = strings.FILE_NAME_PATTERN
+        maximum = self.fileops.get_ini_value_integer(strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+        name = parse_soup.apply_name_pattern(parse_soup.get_name_metadata_from_blurb(document), pattern)
+        filename = parse_text.get_valid_filename(name, maximum)
+        # a pattern can resolve to nothing if every field it uses is empty
+        if not filename: filename = str(document.get('id') or 'bookmark')
+        return os.path.join(
+            strings.INDEXING_FOLDER_NAME, *([subfolder] if subfolder else []),
+            filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA))
+
+
+    def save_metadata(self, document: dict) -> None:
+        """Write one work to its own json file, in the indexing subfolder."""
 
         try:
-            pattern = strings.FILE_NAME_PATTERN
-            maximum = self.fileops.get_ini_value_integer(strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
-            name = parse_soup.apply_name_pattern(parse_soup.get_name_metadata_from_blurb(document), pattern)
-            filename = parse_text.get_valid_filename(name, maximum)
-            # a pattern can resolve to nothing if every field it uses is empty
-            if not filename: filename = str(document.get('id') or document.get('position'))
-            path = os.path.join(
-                strings.INDEXING_FOLDER_NAME,
-                filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA))
-
+            path = self.metadata_path(document)
             # keep whatever readings the file already holds, and add this one only if it
             # says something new
             merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
@@ -849,6 +875,105 @@ class Ao3:
         except Exception as e:
             # one unwritable file shouldn't end the run
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
+
+
+    def save_entry(self, document: dict, subfolder: str) -> None:
+        """Write a bookmark that is not a work - a series, an external work - to its folder
+        inside indexing/, keeping its history the way a work's file does."""
+
+        try:
+            path = self.metadata_path(document, subfolder)
+            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
+            self.fileops.save_json(path, merged)
+        except Exception as e:
+            self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
+
+
+    def index_series(self, series: dict) -> list[dict]:
+        """Write a bookmarked series' own entry, and index every work in it.
+
+        The series' page lists its works with the same blurbs a bookmarks listing uses, 20
+        to a page, so a series costs a request per 20 works. For each work on it:
+
+        - **already indexed this run** - a work bookmarked in its own right, read off the
+          listing a moment ago - it is left alone. It is not read twice.
+        - **otherwise** it is indexed from the series page (`save_series_work`), keeping
+          what its entry already says about your own bookmark of it.
+
+        Returns the works it indexed, so they are downloaded with the rest of the run.
+        """
+
+        series_id = str(series.get('id') or '')
+        title = series.get('title') or series_id
+        if series_id in self.series_read:
+            print(strings.AO3_INFO_SERIES_AGAIN.format(title))
+            series[strings.SERIES_WORKS_FIELD] = self.series_read[series_id]
+            self.save_entry(series, strings.SERIES_INDEX_FOLDER_NAME)
+            return []
+
+        print(strings.AO3_INFO_SERIES_READING.format(title))
+        found: list[str] = []
+        indexed: list[dict] = []
+        already = 0
+        link = series.get('link') or f'{strings.AO3_BASE_URL}/series/{series_id}'
+        page = link
+        try:
+            total = None
+            while True:
+                self.check_cancelled()
+                soup = self.repo.get_soup(page)
+                if total is None: total = parse_soup.get_total_pages(soup)
+                readings = []
+                for blurb in parse_soup.get_blurbs(soup):
+                    kind, work = parse_soup.get_blurb_kind(blurb)
+                    if kind != parse_soup.BLURB_WORK or not work or work in found: continue
+                    found.append(work)
+                    if work in self.reindexed:
+                        already += 1
+                        continue
+                    readings.append(parse_soup.get_blurb_metadata(blurb))
+                # a page at a time, as a listing is written
+                for document in readings:
+                    indexed.append(self.save_series_work(document, series_id, link))
+                if not total or parse_text.get_page_number(page) >= total: break
+                page = parse_text.get_next_page(page)
+            series[strings.SERIES_WORKS_FIELD] = found
+            self.series_read[series_id] = found
+            print(strings.AO3_INFO_SERIES_READ.format(len(found), len(indexed), already))
+        except exceptions.CancelledException:
+            raise
+        except Exception as e:
+            # a series that will not read keeps the works list it had, rather than being
+            # recorded as holding only the ones reached before it failed
+            print(strings.ERROR_SERIES)
+            self.log_error({'message': strings.ERROR_SERIES, 'link': link}, e)
+            previous = indexing.flatten(self.fileops.load_json(
+                self.metadata_path(series, strings.SERIES_INDEX_FOLDER_NAME))) or {}
+            if strings.SERIES_WORKS_FIELD in previous:
+                series[strings.SERIES_WORKS_FIELD] = previous[strings.SERIES_WORKS_FIELD]
+        self.save_entry(series, strings.SERIES_INDEX_FOLDER_NAME)
+        return indexed
+
+
+    def save_series_work(self, document: dict, series_id: str, series_link: str) -> dict:
+        """Index one work read off a bookmarked series' page.
+
+        A series page knows the work but nothing about your own bookmark of it, so an
+        entry that already exists keeps its bookmark fields as they were - whether you
+        bookmarked it, when, your notes and tags - and its source. A new one is recorded as
+        **not bookmarked**: it is in the index because of the series. If the same run then
+        meets it in your bookmarks listing, that reading says bookmarked, as any does.
+        """
+
+        existing = indexing.flatten(self.fileops.load_json(self.metadata_path(document))) or {}
+        for field in strings.BOOKMARK_OWN_FIELDS:
+            if field in existing: document[field] = existing[field]
+        document.setdefault(strings.BOOKMARKED_FIELD, False)
+        document['source'] = existing.get('source') or series_link
+        document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_WORK
+        document[indexing.FROM_SERIES] = [series_id]
+        self.save_metadata(document)
+        return document
 
 
     def add_work_dates(self, records: list[dict]) -> None:

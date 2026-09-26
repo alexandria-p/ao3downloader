@@ -54,6 +54,8 @@ async function render(collections: Collection[], indexed: string[] = []) {
   library = TestBed.inject(Library);
   library.collections.set(collections);
   library.data.set(indexed.length ? index(indexed) : null);
+  // a collection looks its works up by number, among every work in the index
+  library.worksById.set(new Map(indexed.map((id) => [id, work(id)])));
 
   fixture = TestBed.createComponent(CollectionsView);
   await fixture.whenStable();

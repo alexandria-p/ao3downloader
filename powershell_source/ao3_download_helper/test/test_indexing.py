@@ -13,7 +13,7 @@ def document(**overrides) -> dict:
     """A reading of one bookmark, as get_metadata builds it."""
     reading = {
         'source': 'https://archiveofourown.org/users/Someone/bookmarks',
-        'position': 1,
+        'bookmark_type': 'individual work',
         'id': '111',
         'link': 'https://archiveofourown.org/works/111',
         'title': 'A Work',
@@ -41,9 +41,8 @@ def test_now_is_utc_and_parseable():
 def test_split_keeps_identity_out_of_the_history():
     identity, snapshot = indexing.split(document())
 
-    assert sorted(identity) == ['id', 'link', 'position', 'source']
-    # position shifts as bookmarks are added; versioning it would append every run
-    assert 'position' not in snapshot
+    assert sorted(identity) == ['bookmark_type', 'id', 'link', 'source']
+    assert 'bookmark_type' not in snapshot
     assert snapshot['title'] == 'A Work'
     assert snapshot['kudos'] == 12
 
@@ -60,8 +59,8 @@ def test_merge_into_nothing_starts_a_history():
     assert result[indexing.INDEXES][0][indexing.INDEXED_ON] == FIRST
     # identity sits at the root, not in the entry
     assert result['id'] == '111'
-    assert result['position'] == 1
-    assert 'position' not in result[indexing.INDEXES][0]
+    assert result['bookmark_type'] == 'individual work'
+    assert 'bookmark_type' not in result[indexing.INDEXES][0]
 
 
 def test_merge_records_a_change_as_a_new_reading():
@@ -87,14 +86,30 @@ def test_merge_does_not_repeat_an_unchanged_reading():
     assert second[indexing.INDEXES][0][indexing.INDEXED_ON] == FIRST
 
 
-def test_merge_ignores_a_moved_bookmark_position():
-    # a fic sliding down the listing is not a change to the fic
-    first = indexing.merge(None, document(position=1), FIRST)
+def test_merge_drops_the_listing_position_earlier_versions_wrote():
+    # the page sorts and filters for itself now, so a fic's place in the listing is not
+    # kept - taken out of a file the next time it is saved, root and readings alike
+    old = indexing.merge(None, {**document(), 'position': 4}, FIRST)
+    old['position'] = 4
+    old[indexing.INDEXES][0]['position'] = 4
 
-    second = indexing.merge(first, document(position=9), SECOND)
+    result = indexing.merge(old, document(), SECOND)
 
-    assert len(second[indexing.INDEXES]) == 1
-    assert second['position'] == 9
+    assert 'position' not in result
+    assert all('position' not in reading for reading in result[indexing.INDEXES])
+
+
+def test_merge_adds_to_the_series_a_work_was_found_through_rather_than_replacing_them():
+    # a work in two bookmarked series was found through both, whichever was read last
+    first = indexing.merge(None, document(from_series=['12']), FIRST)
+
+    second = indexing.merge(first, document(from_series=['7']), SECOND)
+    third = indexing.merge(second, document(), SECOND)
+
+    assert second[indexing.FROM_SERIES] == ['7', '12']
+    # a reading off the bookmarks listing says nothing about series, and loses none
+    assert third[indexing.FROM_SERIES] == ['7', '12']
+    assert len(third[indexing.INDEXES]) == 1
 
 
 def test_merge_replaces_a_reading_taken_in_the_same_run():
@@ -158,7 +173,7 @@ def test_changed_notices_a_field_appearing_or_disappearing():
 
 def test_flatten_reads_the_newest_reading_with_the_identity_over_it():
     document = {
-        'id': '111', 'link': 'https://ao3/works/111', 'position': 4,
+        'id': '111', 'link': 'https://ao3/works/111', 'bookmark_type': 'individual work',
         indexing.LAST_INDEXED: SECOND,
         indexing.INDEXES: [
             {indexing.INDEXED_ON: FIRST, 'title': 'Old', 'kudos': 12},
@@ -172,7 +187,7 @@ def test_flatten_reads_the_newest_reading_with_the_identity_over_it():
     assert record['kudos'] == 20
     # identity is not versioned, so the root wins
     assert record['id'] == '111'
-    assert record['position'] == 4
+    assert record['bookmark_type'] == 'individual work'
 
 
 def test_flatten_reads_a_flat_file_written_before_the_history_existed():

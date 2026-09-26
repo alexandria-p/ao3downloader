@@ -60,13 +60,7 @@ export class CollectionsView {
   });
 
   /** every indexed work, by work number, which is what a collection records */
-  private readonly worksById = computed(() => {
-    const map = new Map<string, Bookmark>();
-    for (const work of this.library.data()?.works ?? []) {
-      if (work.id) map.set(work.id, work);
-    }
-    return map;
-  });
+  private readonly worksById = this.library.worksById;
 
   /** the work numbers the open tab is showing */
   private readonly openIds = computed<string[]>(() => {
