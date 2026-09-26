@@ -27,7 +27,11 @@ what happens when stopped or exited mid-download?
 
 stretch goals:
 
+allow custom run where you only download/update already indexed, bookmarked series.
 
+ensure logs on render do not take up too much disk space, if that is a premium?? or does it not matter, if it is wiped every time it is inactive? If this is so, then lets print logs to the render log for me to see
+
+set settings.ini properly (seems to be 15s cooldown for deployed version?)
 
 if login has expired midrun....prompt the user to login and continue, or end run here.
 i could 'pick up where last run left off'....but not really im lazy.

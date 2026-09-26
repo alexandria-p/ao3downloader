@@ -74,6 +74,21 @@ export class HelperConnection {
     return this.settings().helperUrl + path;
   }
 
+  /** whether the helper runs on this computer rather than on a server somewhere */
+  isLocal(): boolean {
+    try {
+      const host = new URL(this.settings().helperUrl).hostname.toLowerCase();
+      return (
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '[::1]' ||
+        host.endsWith('.localhost')
+      );
+    } catch {
+      return false;
+    }
+  }
+
   private withPasscode(headers?: HeadersInit): Headers {
     const all = new Headers(headers);
     const passcode = this.passcode();

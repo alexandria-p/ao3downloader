@@ -24,7 +24,6 @@ export class PasscodeGate {
   protected readonly passcode = signal('');
   protected readonly checking = signal(false);
   protected readonly problem = signal('');
-  protected readonly helperUrl = this.helper.url('');
 
   protected async submit(event?: Event): Promise<void> {
     // a form, so enter works - but nothing here is meant to navigate
@@ -43,10 +42,15 @@ export class PasscodeGate {
           this.problem.set('That passcode was not accepted.');
           return;
         case 'unreachable':
-          // a free hosted instance asleep is the usual cause, and it wakes on its own
+          // never names the address: where a hosted helper lives is not the page's to tell.
+          // a local one is usually just not started; a hosted one is usually asleep, and
+          // wakes on its own
           this.problem.set(
-            `Could not reach the helper at ${this.helperUrl}. If it is hosted on a free ` +
-              'plan it may be waking up, which can take a minute - try again shortly.',
+            this.helper.isLocal()
+              ? 'Could not reach the local helper. Please make sure you ran the correct ' +
+                  'powershell script, and that the python helper console application is running.'
+              : 'Could not reach the remote helper. It may be waking up, which can take a ' +
+                  'minute - try again shortly.',
           );
           return;
       }

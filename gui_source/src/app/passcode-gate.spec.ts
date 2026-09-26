@@ -73,13 +73,32 @@ describe('PasscodeGate', () => {
     expect(unlocked).not.toHaveBeenCalled();
   });
 
-  it('tells a helper that is asleep apart from a wrong passcode', async () => {
-    helper.result = 'unreachable';
+  it('tells a hosted helper that is asleep apart from a wrong passcode, without saying where it is',
+    async () => {
+      helper.settings.set({ ...helper.settings(), helperUrl: 'https://helper.example.com' });
+      helper.result = 'unreachable';
 
-    await type('anything');
-    await submit();
-    fixture.detectChanges();
+      await type('anything');
+      await submit();
+      fixture.detectChanges();
 
-    expect(element.querySelector('[role="alert"]')?.textContent).toContain('Could not reach');
-  });
+      const said = element.querySelector('[role="alert"]')?.textContent ?? '';
+      expect(said).toContain('Could not reach the remote helper. It may be waking up');
+      expect(said).not.toContain('example.com');
+    });
+
+  it('points at the powershell script when the helper on this computer cannot be reached',
+    async () => {
+      helper.settings.set({ ...helper.settings(), helperUrl: 'http://127.0.0.1:4400' });
+      helper.result = 'unreachable';
+
+      await type('anything');
+      await submit();
+      fixture.detectChanges();
+
+      const said = element.querySelector('[role="alert"]')?.textContent ?? '';
+      expect(said).toContain('Could not reach the local helper');
+      expect(said).toContain('powershell script');
+      expect(said).not.toContain('127.0.0.1');
+    });
 });

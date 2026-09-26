@@ -4,6 +4,8 @@ Download and view saved fanfic as an Angular web app. Can be ran entirely locall
 
 ![Alt text](Screenshot.png)
 
+https://alexandria-p.github.io/ao3downloader/app/
+
 Downloads go to the library you open in the page: a folder you choose on this computer, or
 your Dropbox app folder (`/Apps/ao3-downloader`). The page reads and writes that library
 itself, so keep it open while a run is going. There is no `DownloadFolder` setting any more.
