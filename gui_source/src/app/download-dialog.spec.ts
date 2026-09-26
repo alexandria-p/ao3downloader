@@ -604,6 +604,8 @@ describe('DownloadDialog', () => {
       reindex: true,
       // offered on a full scan, but off unless it is asked for
       overwrite: false,
+      // offered on a full scan too, and off unless it is asked for
+      nonBookmarks: false,
       // the date window is a custom run's alternative to pages; nothing else offers it
       dates: false,
       dateFrom: '',
@@ -1818,6 +1820,50 @@ describe('DownloadDialog', () => {
     await advanceTo('running');
 
     expect(jobs.started[0].options.overwrite).toBe(false);
+  });
+
+  // a listing of your bookmarks never shows a work you did not bookmark, so a scan only
+  // reads one again when it is asked to
+  it.each(['bookmarks', 'quick', 'custom'] as const)(
+    'lets a %s run check non-bookmarks for updates, with a warning',
+    async (action) => {
+      await open(action);
+      await advanceTo('options');
+
+      const box = checkbox('Include any changes to non-bookmarks');
+      expect(element.querySelector('.dialog .body')?.textContent).toContain(
+        'not affected by the date range',
+      );
+      box!.click();
+      await fixture.whenStable();
+      await advanceTo('running');
+
+      expect(jobs.started[0].options.nonBookmarks).toBe(true);
+    },
+  );
+
+  it.each(['sync', 'update', 'work'] as const)(
+    'does not offer %s the option to check non-bookmarks',
+    async (action) => {
+      await open(action);
+      await advanceTo('filetypes');
+
+      expect(checkbox('Include any changes to non-bookmarks')).toBeUndefined();
+    },
+  );
+
+  // re-reading a work writes its entry, which skipping the indexing has ruled out
+  it('does not offer it to a custom run told to skip indexing', async () => {
+    await open('custom');
+    await advanceTo('options');
+
+    checkbox('Include any changes to non-bookmarks')!.click();
+    checkbox('Skip indexing')!.click();
+    await fixture.whenStable();
+
+    expect(checkbox('Include any changes to non-bookmarks')).toBeUndefined();
+    await advanceTo('running');
+    expect(jobs.started[0].options.nonBookmarks).toBe(false);
   });
 
   // a quick scan's two shapes, in its own words: the floor it works out for itself, or one

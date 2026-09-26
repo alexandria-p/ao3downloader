@@ -5,6 +5,8 @@ for github pages - do not bother keeping logs (make this a deployment option, th
 
 ask claude to help with how to configure this for github pages, and that for every push to /main should redeploy the new build.
 
+maybe host on github pages, but whitelisted ONLY for me to use by ip, so that i can do it from anywhere/device and update my works on my dropbox.
+
 -----------
 
 starting
@@ -54,12 +56,10 @@ if login has expired midrun....prompt the user to login and continue, or end run
 i could 'pick up where last run left off'....but not really im lazy.
 
 Read your existing downloads step:
+
 option to backdate individual (undated) files - instead of only in bulk?
 
-upload to, and read from, dropbox link (instead of local downloads folder)
-
 filtering in-app
-make html look nice, load images into html fics.
 
 Allow indexing of user-imported files, that do not exist in your bookmarks:
 1. try and index downloaded fics (that user imports) that have no match on ao3 from fichub
@@ -74,12 +74,10 @@ and check if there are any updates.
 - when asking 'what to do' about existing files that are undated (in Read your existing downloaded files step) in any workflow (such as quick scan), allow the user 1 minute to respond before continuing with 'ignore' as an automatic choice. if this times out and the choice is automatically made, allow user to export the list at the end of the run, and recommend they use towards this new 'index old works' workflow
 
 
-update quick scan 
--> search bookmarks?
--> search for updates for non-bookmarks?
 
 
-maybe host on github pages, but whitelisted ONLY for me to use by ip, so that i can do it from anywhere/device and update my works on my dropbox.
+
+
 -----------------
 
 and when displaying fics, if multiple indexes for a fic exist in its json file, display the one that has a title that is not null or empty string (as may happen for anonymous fics, etc)

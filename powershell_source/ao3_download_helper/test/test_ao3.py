@@ -47,7 +47,7 @@ def make_ao3(
 
 def get_soup_from_fixture(filename: str) -> BeautifulSoup:
     fixture_path = os.path.join(os.path.dirname(__file__), 'fixtures', filename + '.html')
-    with open(fixture_path) as f:
+    with open(fixture_path, encoding='utf-8') as f:
         return BeautifulSoup(f.read(), 'html.parser')
 
 

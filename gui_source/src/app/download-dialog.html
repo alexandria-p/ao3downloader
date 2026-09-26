@@ -404,6 +404,26 @@
           </p>
         }
 
+        @if (picksNonBookmarks()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="nonBookmarks"
+              [checked]="nonBookmarks()"
+              (change)="nonBookmarks.set($any($event.target).checked)"
+            />
+            <span>
+              Include any changes to non-bookmarks (for example, works discovered as part of
+              another work's series)
+            </span>
+          </label>
+          <p class="hint">
+            <strong>Warning:</strong> this is not affected by the date range, and will check
+            all non-bookmarks for updates. Their series are read first, 20 works to a request;
+            any the series do not cover are read one request each.
+          </p>
+        }
+
         @if (picksImages()) {
           <label class="check">
             <input type="checkbox" [checked]="images()" (change)="images.set($any($event.target).checked)" />

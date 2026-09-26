@@ -74,6 +74,12 @@ export interface JobOptions {
    */
   overwrite: boolean;
   /**
+   * Check every non-bookmark in the index for updates too - the works it holds only because
+   * something else led a run to them, such as another work's series. Not narrowed by a date
+   * range or a floor. The three scans only, and only while they index.
+   */
+  nonBookmarks?: boolean;
+  /**
    * Whether to read AO3's listing at all, or work from what the index already holds.
    *
    * Only a custom run offers this. It defaults to true everywhere else: a run that quietly

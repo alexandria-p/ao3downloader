@@ -77,6 +77,8 @@ export class DownloadDialog implements OnDestroy {
   protected readonly workdates = signal(false);
   /** fetch every requested format again, whether or not the copy held is behind */
   protected readonly overwrite = signal(false);
+  /** also check every non-bookmark in the index for updates */
+  protected readonly nonBookmarks = signal(false);
 
   /** the collection to index, for the action that works from a link */
   protected readonly collectionUrl = signal('');
@@ -350,6 +352,20 @@ export class DownloadDialog implements OnDestroy {
     () => this.action() === 'bookmarks' || this.action() === 'custom',
   );
 
+  /**
+   * Checking non-bookmarks for updates: the three scans.
+   *
+   * A listing of your bookmarks never shows a work you did not bookmark, so without this a
+   * scan only reads one again when something else brings it there. Their series are walked
+   * first, 20 works a request; only what that misses is opened one work at a time. Not on a
+   * custom run told to skip indexing - re-reading a work writes its entry.
+   */
+  protected readonly picksNonBookmarks = computed(
+    () =>
+      (['bookmarks', 'quick', 'custom'] as JobAction[]).includes(this.action()) &&
+      (!this.picksReindex() || this.reindex()),
+  );
+
   /** only a custom run may work from the index instead of reading the listing */
   protected readonly picksReindex = computed(() => this.action() === 'custom');
 
@@ -399,6 +415,7 @@ export class DownloadDialog implements OnDestroy {
       this.picksImages() ||
       this.picksReindex() ||
       this.picksOverwrite() ||
+      this.picksNonBookmarks() ||
       // it can always be pointed at an earlier scan, so it always has a choice to offer
       this.action() === 'quick',
   );
@@ -464,6 +481,7 @@ export class DownloadDialog implements OnDestroy {
     if (this.picksImages() && this.images()) chosen.push('save images separately');
     if (this.picksReindex() && !this.reindex()) chosen.push('no reindexing');
     if (this.picksOverwrite() && this.overwrite()) chosen.push('overwrite existing files');
+    if (this.picksNonBookmarks() && this.nonBookmarks()) chosen.push('check non-bookmarks');
     return chosen;
   });
 
@@ -561,6 +579,14 @@ export class DownloadDialog implements OnDestroy {
       rows.push({
         label: 'Existing files',
         value: this.overwrite() ? 'overwritten, current or not' : 'kept unless out of date',
+      });
+    }
+    if (this.picksNonBookmarks()) {
+      rows.push({
+        label: 'Non-bookmarks',
+        value: this.nonBookmarks()
+          ? 'every one checked for updates, whatever the date range'
+          : 'left alone unless this run reaches them',
       });
     }
     return rows;
@@ -840,6 +866,8 @@ export class DownloadDialog implements OnDestroy {
           workdates: this.workdates(),
           // only offered on the runs that can be pointed at a known set of works
           overwrite: this.picksOverwrite() && this.overwrite(),
+          // only the scans offer it, and not while skipping the indexing
+          nonBookmarks: this.picksNonBookmarks() && this.nonBookmarks(),
           // only a custom run can turn this off; everything else always indexes
           reindex: this.picksReindex() ? this.reindex() : true,
           // a window of time and a slice of the listing are alternatives, so the one not

@@ -54,10 +54,11 @@ cd gui_source && npm test
 powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 ```
 
-**4 tests in `test/test_ao3.py::test_proceed_*` fail with `UnicodeDecodeError`.** They are
-pre-existing, present on the unmodified upstream code, and caused by fixtures being read
-with the platform default codec (cp1252 on Windows). Do not chase them; do not count them
-as regressions. Current: **1085 python passed, 4 failed; 345 gui passed.**
+**Open fixtures with `encoding='utf-8'`.** Without it Python uses the platform default codec
+(cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
+`UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
+failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
+Current: **1171 python passed; 455 gui passed.**
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 

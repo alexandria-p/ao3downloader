@@ -18,6 +18,7 @@ the same thing in conversation.
 
 - **Bookmark type** [type] - what an index entry is: `individual work`, `series bookmark` or `external work`.
 - **Bookmarked** [is_bookmark] - whether you bookmarked a work or series yourself (`true`/`false`, or absent when unknown).
+- **Non-bookmark** - an individual work in the index with `bookmarked: false`: there because a run was led to it some other way, usually through another work's series.
 
 ## Reading AO3
 
@@ -88,6 +89,7 @@ the same thing in conversation.
   - What it covers: *anything changed since my last run* (default), or *choose which earlier scan to measure back to*
   - *[DEBUG] choose my own date range* (only with debug tools on)
   - *Get all works from encountered series*
+  - *Include any changes to non-bookmarks* - not limited by the floor or date range
   - File types (JSON always on)
   - An acknowledgement of its limits, shown until turned off
 - **Steps:**
@@ -95,10 +97,11 @@ the same thing in conversation.
   2. Index bookmarks added since your last run
   3. Index works AO3 has updated since your last run
   4. Index works in series marked for walkthrough
-  5. Read your existing downloaded files
-  6. Download or update works as necessary
-  7. Cleanup
-  8. Report any failures
+  5. Check remaining non-bookmarks for updates (only when chosen)
+  6. Read your existing downloaded files
+  7. Download or update works as necessary
+  8. Cleanup
+  9. Report any failures
 
 With a date range, steps 2 and 3 read "…in that date range".
 
@@ -108,16 +111,18 @@ With a date range, steps 2 and 3 read "…in that date range".
 - **Options:**
   - *Overwrite existing downloads, even if there has been no update*
   - *Get all works from encountered series*
+  - *Include any changes to non-bookmarks*
   - File types (JSON always on)
   - An acknowledgement, every time
 - **Steps:**
   1. Log in to AO3
   2. Index every bookmark
   3. Index works in series marked for walkthrough
-  4. Read your existing downloaded files
-  5. Download or update works as necessary
-  6. Cleanup
-  7. Report any failures
+  4. Check remaining non-bookmarks for updates (only when chosen)
+  5. Read your existing downloaded files
+  6. Download or update works as necessary
+  7. Cleanup
+  8. Report any failures
 
 ## Download/update a specific fic
 
@@ -145,25 +150,28 @@ With a date range, steps 2 and 3 read "…in that date range".
   - *Overwrite existing downloads, even if there has been no update*
   - *Save embedded images separately*
   - *Get all works from encountered series*
+  - *Include any changes to non-bookmarks* - not limited by the date range; not offered when skipping indexing
   - File types
 - **Steps (all bookmarks, or a slice):**
   1. Log in to AO3
   2. Index every bookmark, or Read the index already saved (when skipping indexing)
   3. Index works in series marked for walkthrough
-  4. Read your existing downloaded files
-  5. Download or update works as necessary
-  6. Save embedded images separately (only when chosen)
-  7. Cleanup
-  8. Report any failures
+  4. Check remaining non-bookmarks for updates (only when chosen)
+  5. Read your existing downloaded files
+  6. Download or update works as necessary
+  7. Save embedded images separately (only when chosen)
+  8. Cleanup
+  9. Report any failures
 - **Steps (a date range):**
   1. Log in to AO3
   2. Index works AO3 has updated since that date (shown skipped when skipping indexing)
   3. Find indexed works updated in that date range
   4. Index works in series marked for walkthrough
-  5. Read your existing downloaded files
-  6. Download or update each fic as necessary
-  7. Cleanup
-  8. Report any failures
+  5. Check remaining non-bookmarks for updates (only when chosen)
+  6. Read your existing downloaded files
+  7. Download or update each fic as necessary
+  8. Cleanup
+  9. Report any failures
 
 ---
 
@@ -220,6 +228,14 @@ Used by: every workflow that indexes (including the debug runs).
 - Skips works already indexed this run; updates existing entries keeping their `bookmarked`; new entries get `bookmarked: false`.
 - Writes the series' own entry with its list of works.
 - The works it indexes go on to be downloaded; skipped when nothing was marked.
+- With *Include any changes to non-bookmarks*, the series of every non-bookmark not already indexed this run are marked here too, whether or not the series option is on.
+
+### Check remaining non-bookmarks for updates
+Used by: full scan, quick scan, custom run - only when *Include any changes to non-bookmarks* is chosen (and, on a custom run, not skipping indexing).
+- Re-reads, from its own AO3 page, each non-bookmark the series walk did not reach: one request per work.
+- Not limited by a floor or date range: every non-bookmark is checked.
+- Updates the entry (including `bookmarked`, if you have since bookmarked it); a work that will not read is a failure.
+- The works it re-reads go on to be downloaded; skipped when the series walk reached them all.
 
 ### Read your existing downloaded files
 Used by: every workflow that downloads.

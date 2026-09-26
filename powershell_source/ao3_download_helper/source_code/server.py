@@ -117,6 +117,12 @@ ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK)
 # sets that itself rather than taking it from the request.
 OVERWRITE_ACTIONS = (ACTION_BOOKMARKS, ACTION_CUSTOM)
 
+# The runs that may also check every non-bookmark in the index for updates - the works it
+# holds only because they were found through something else, such as another work's series.
+# The three scans, and only while they index: re-reading a work writes its index entry, which
+# a custom run told to skip indexing has ruled out.
+NON_BOOKMARK_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
+
 # json is always produced, so the ui shows it ticked and locked. it is what the web page
 # reads, and it costs nothing extra: the metadata comes off the listing page that has to be
 # fetched anyway, rather than one request per work.
@@ -184,6 +190,11 @@ def resolve_options(requested) -> dict:
         # answer to a damaged or truncated file, which no version check can see: the name
         # and the date are both right and only the bytes are wrong.
         'overwrite': bool(given.get('overwrite')),
+        # check every non-bookmark in the index for updates too. a listing of your bookmarks
+        # never shows them, so without this they are only read again when something else
+        # brings the run to them. not narrowed by a date range or a floor: see
+        # `update_non_bookmarks`
+        'nonBookmarks': bool(given.get('nonBookmarks')),
         # a custom run can work from what is already indexed rather than reading ao3's
         # listing again. it defaults to indexing, because a run that quietly skipped it
         # would judge everything against however stale the index happened to be.
@@ -488,6 +499,19 @@ def action_name(action: str) -> str:
     }.get(action, action)
 
 
+def checks_non_bookmarks(job: Job) -> bool:
+    """Whether this run checks every non-bookmark in the index for updates.
+
+    Asked for, on a scan, and a scan that indexes: re-reading a work writes its entry, so a
+    run writing no json - or a custom run told to skip indexing - cannot do it.
+    """
+
+    if not job.options.get('nonBookmarks'): return False
+    if job.action not in NON_BOOKMARK_ACTIONS: return False
+    if strings.AO3_DOWNLOAD_TYPE_METADATA not in job.filetypes: return False
+    return job.action != ACTION_CUSTOM or bool(job.options.get('reindex'))
+
+
 def step_plan(job: Job) -> list[tuple[str, str]]:
     """What this particular run is going to do, in order.
 
@@ -546,8 +570,10 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
             if metadata:
                 window.append(('index', strings.STEP_INDEX_WINDOW))
             window.extend([('read', strings.STEP_READ_WINDOW),
-                           ('series', strings.STEP_SERIES),
-                           ('check', strings.STEP_CHECK_FILES),
+                           ('series', strings.STEP_SERIES)])
+            if checks_non_bookmarks(job):
+                window.append(('nonbookmarks', strings.STEP_NON_BOOKMARKS))
+            window.extend([('check', strings.STEP_CHECK_FILES),
                            ('update', strings.STEP_UPDATE_WINDOW),
                            ('cleanup', strings.STEP_CLEANUP),
                            ('report', strings.STEP_REPORT)])
@@ -568,6 +594,9 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         # after every walk is over: a series is marked while indexing and walked here, so
         # nothing a listing holds is read twice
         plan.append(('series', strings.STEP_SERIES))
+        # after the series walk, which has usually reached most of them already
+        if checks_non_bookmarks(job):
+            plan.append(('nonbookmarks', strings.STEP_NON_BOOKMARKS))
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD))
@@ -718,7 +747,8 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         print(strings.AO3_INFO_INDEXING)
         records = ao3.get_metadata(link, job.options['workdates'], own_bookmarks=True)
         job.steps.done('index')
-        records = merge_by_work(records, index_marked_series(job, ao3, report))
+        records = merge_by_work(records,
+                                index_series_and_non_bookmarks(job, fileops, ao3, report))
     else:
         job.steps.skip('index')
         job.steps.skip('series')
@@ -794,6 +824,114 @@ def index_marked_series(job: Job, ao3: Ao3, report) -> list[dict]:
     works = ao3.walk_marked_series()
     job.steps.done('series')
     return works
+
+
+def index_series_and_non_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[dict]:
+    """The series step, and - when the run was asked to - the non-bookmarks step after it.
+
+    Returns every work either one indexed, for the download step to take with the rest.
+    """
+
+    non_bookmarks = mark_non_bookmarks(job, fileops, ao3) if checks_non_bookmarks(job) else None
+    walked = index_marked_series(job, ao3, report)
+    if non_bookmarks is None: return walked
+    return merge_by_work(walked, update_non_bookmarks(job, ao3, non_bookmarks, report))
+
+
+def non_bookmarks_in(records: list[dict]) -> list[dict]:
+    """The works in the index you have not bookmarked yourself - there because something else
+    led a run to them, such as another work's series.
+
+    Only an entry that says `bookmarked: false` counts. An entry that says nothing about it
+    is one no run has been able to judge, and is most likely an old bookmark indexed before
+    the field existed - a bookmarks walk will reach it anyway.
+    """
+
+    return [record for record in records
+            if record.get(strings.BOOKMARKED_FIELD) is False
+            and (record.get(strings.BOOKMARK_TYPE_FIELD) or strings.BOOKMARK_TYPE_WORK)
+            == strings.BOOKMARK_TYPE_WORK]
+
+
+def series_ids_of(record: dict) -> list[tuple[str, str]]:
+    """Every series a work's entry says it belongs to or was found through, as (id, title)."""
+
+    found: dict[str, str] = {}
+    for member in record.get(strings.SERIES_MEMBERSHIP_FIELD) or []:
+        if isinstance(member, dict) and member.get('id'):
+            found.setdefault(str(member['id']), str(member.get('title') or ''))
+    for series_id in record.get(indexing.FROM_SERIES) or []:
+        if series_id: found.setdefault(str(series_id), '')
+    return list(found.items())
+
+
+def mark_non_bookmarks(job: Job, fileops: FileOps, ao3: Ao3) -> list[dict]:
+    """Find the non-bookmarks this run has not already read, and mark their series.
+
+    No requests. Most non-bookmarks are in the index because of a series, and walking the
+    series re-reads 20 of its works per request - far cheaper than opening each work. So
+    their series are marked for walkthrough here, just before that step, and only what the
+    walk does not reach is left for `update_non_bookmarks` to open one at a time.
+
+    A work already indexed this run - found in your bookmarks after all, or through a series
+    already walked - is left out: it is as fresh as it can be.
+    """
+
+    found = [record for record in non_bookmarks_in(shared.read_index(fileops))
+             if str(record.get('id') or '') not in ao3.reindexed]
+    print(strings.AO3_INFO_NON_BOOKMARKS.format(len(found)))
+    for record in found:
+        for series_id, title in series_ids_of(record):
+            ao3.mark_series(series_id, title)
+    return found
+
+
+def update_non_bookmarks(job: Job, ao3: Ao3, found: list[dict], report) -> list[dict]:
+    """Re-read each non-bookmark the series walk did not reach, from its own page.
+
+    One request per work: a work in no series, or one its series no longer lists, has no
+    cheaper way to be read. **Not narrowed by a date range or a floor.** Those are judged on
+    your bookmarks listing, which never shows a non-bookmark, so there is nothing to measure
+    one against without reading it - the option's own wording says so.
+
+    A work that will not read is recorded as a failure and keeps the entry it had. Returns
+    the works it re-read, which go on to be downloaded with the rest of the run.
+    """
+
+    left = newest_first([record for record in found
+                         if str(record.get('id') or '') not in ao3.reindexed])
+    if job.cancel.is_set() or not left:
+        if not job.cancel.is_set(): print(strings.AO3_INFO_NON_BOOKMARKS_NONE_LEFT)
+        job.steps.skip('nonbookmarks')
+        return []
+
+    job.steps.start('nonbookmarks')
+    progress.report(report, progress.PHASE, name=progress.INDEXING)
+    print(strings.AO3_INFO_NON_BOOKMARKS_READING.format(len(left)))
+    fresh: list[dict] = []
+    for done, record in enumerate(left, start=1):
+        if job.cancel.is_set(): break
+        if job.skipping():
+            print(strings.AO3_INFO_STEP_SKIPPED)
+            job.steps.skip('nonbookmarks')
+            return fresh
+        link = record.get('link') or ''
+        title = record.get('title') or link
+        print(strings.AO3_INFO_UPDATE_WORK.format(done, len(left), title))
+        progress.report(report, progress.WORK, title=title, link=link, done=done,
+                        total=len(left), phase=progress.INDEXING)
+        try:
+            fresh.append(ao3.refresh_one(record))
+        except exceptions.CancelledException:
+            print(strings.INFO_CANCELLED)
+            break
+        except exceptions.SessionExpiredException:
+            raise
+        except Exception as e:
+            ao3.record_failure(link, e)
+            ao3.log_error({'link': link}, e)
+    job.steps.done('nonbookmarks')
+    return fresh
 
 
 def bookmarks_link(job: Job) -> str:
@@ -1197,7 +1335,8 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         # either scan may have found a fic; the other may have found it too
         records = merge_by_work(by_bookmarked, by_updated)
         if window: print(strings.AO3_INFO_QUICK_IN_WINDOW.format(len(records)))
-        records = merge_by_work(records, index_marked_series(job, ao3, report))
+        records = merge_by_work(records,
+                                index_series_and_non_bookmarks(job, fileops, ao3, report))
     else:
         job.steps.skip('bookmarked')
         job.steps.skip('index')
@@ -1420,7 +1559,7 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         for record in records: ao3.mark_series_of(record)
     job.steps.done('index')
 
-    records = merge_by_work(records, index_marked_series(job, ao3, report))
+    records = merge_by_work(records, index_series_and_non_bookmarks(job, fileops, ao3, report))
     download_planned(job, fileops, ao3, records, downloadtypes, report)
 
     # last, and only when asked: it costs a work page per fic, which is exactly what the
@@ -1913,7 +2052,8 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
     # series are marked from what their entries say. the ones the walk did read marked theirs
     # as it went
     for record in chosen: ao3.mark_series_of(record)
-    chosen = newest_first(merge_by_work(chosen, index_marked_series(job, ao3, report)))
+    chosen = newest_first(merge_by_work(
+        chosen, index_series_and_non_bookmarks(job, fileops, ao3, report)))
 
     if not chosen:
         print(strings.AO3_INFO_DATE_NONE)
@@ -2282,6 +2422,8 @@ class Handler(BaseHTTPRequestHandler):
         # into what a run may actually do - a stray flag must not make a routine run
         # re-fetch a whole library
         if action not in OVERWRITE_ACTIONS: options['overwrite'] = False
+        # the same for checking non-bookmarks, which costs a request per work outside a series
+        if action not in NON_BOOKMARK_ACTIONS: options['nonBookmarks'] = False
         # a chosen floor is the quick scan's alone, and has to name a run that can be one -
         # refused here rather than discovered on the thread, so a bad pick is a straight answer
         if action != ACTION_QUICK: options['floorRun'] = ''
@@ -2290,6 +2432,8 @@ class Handler(BaseHTTPRequestHandler):
         # a custom run told to skip indexing writes no json, because json is the index
         indexing_run = options['reindex'] or action != ACTION_CUSTOM
         filetypes = resolve_filetypes(body.get('filetypes'), force=indexing_run)
+        # re-reading a non-bookmark writes its entry, which a run told not to index has ruled out
+        if not indexing_run: options['nonBookmarks'] = False
 
         url = (body.get('url') or '').strip()
         # checked here rather than on the thread, so a bad link is a straight answer to the
