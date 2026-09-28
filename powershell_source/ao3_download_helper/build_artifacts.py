@@ -22,6 +22,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from source_code.settings_file import ensure_settings_file, strip_setting  # noqa: F401
+
 # where the launcher dot-sources its shared functions in the working copy. a shipped copy
 # has no powershell_source beside it, so the functions are pasted in at this point instead.
 DOT_SOURCE = """$envScript = Join-Path $PSScriptRoot 'powershell_source\\ao3_download_helper\\ao3-env.ps1'
@@ -240,33 +242,18 @@ def strip_readme_field(content: str) -> str:
     return ''.join(kept)
 
 
-def strip_setting(content: str, key: str) -> str:
-    """Remove one ini setting along with the comment block that documents it."""
-
-    kept: list[str] = []
-    for line in content.splitlines(keepends=True):
-        if line.strip().lower().startswith(key.lower() + '='):
-            # take the explanation with it, and the blank line that separated the pair
-            # from whatever came before
-            while kept and kept[-1].lstrip().startswith('#'):
-                kept.pop()
-            while kept and not kept[-1].strip():
-                kept.pop()
-            continue
-        kept.append(line)
-    return ''.join(kept)
-
-
 def write_pyproject(python_home: Path, helper_dir: Path) -> None:
     content = (python_home / 'pyproject.toml').read_text(encoding='utf-8')
     (helper_dir / 'pyproject.toml').write_text(strip_readme_field(content), encoding='utf-8')
 
 
-def write_config(config_dir: Path, python_home: Path) -> list[str]:
-    """Seed settings.ini, leaving one that is already there alone.
+def write_config(config_dir: Path, python_home: Path) -> tuple[list[str], list[str]]:
+    """Seed settings.ini, or bring one already there up to date. Returns the files created
+    and the settings added to an existing settings.ini.
 
-    A rebuild must not throw away the download folder, so it is only ever created when
-    missing. data.json is deliberately not seeded: the web ui remembers the username in
+    An existing one is never overwritten - it holds the user's own choices - but any setting
+    added to the template since it was written is appended to it, with its explanation and
+    default (`settings_file.complete_settings`). data.json is deliberately not seeded: the web ui remembers the username in
     the browser and never stores a password, and the application creates the file itself
     on first run if it needs one.
     """
@@ -275,19 +262,20 @@ def write_config(config_dir: Path, python_home: Path) -> list[str]:
     created = []
 
     settings = config_dir / 'settings.ini'
-    if not settings.exists():
-        template = (python_home / PACKAGE_NAME / 'settings' / 'settings.ini').read_text(
-            encoding='utf-8')
-        # the web ui logs in each time and never stores a password, so offering the
-        # setting that would only invites confusion
-        settings.write_text(strip_setting(template, SAVE_PASSWORD_KEY), encoding='utf-8')
-        created.append(settings.name)
+    template = (python_home / PACKAGE_NAME / 'settings' / 'settings.ini').read_text(
+        encoding='utf-8')
+    # a new one from the template; an existing one kept exactly as it is, with any setting
+    # added since it was written appended, explanation and default included - the helper
+    # does the same each time it starts, so this only makes the build say so up front.
+    # the web ui never stores a password, so that setting is left out either way
+    was_new, added = ensure_settings_file(str(settings), template)
+    if was_new: created.append(settings.name)
 
     # an earlier build seeded this; it is the application's to create, not the build's
     stale_data = config_dir / 'data.json'
     if stale_data.is_file(): stale_data.unlink()
 
-    return created
+    return created, added
 
 
 def write_page_config(build_dir: Path) -> Path | None:
@@ -355,11 +343,12 @@ def build(root: Path, skip_web: bool = False) -> dict:
     stale_readme = helper_dir / 'README.md'
     if stale_readme.is_file(): stale_readme.unlink()
 
-    created = write_config(build_dir / CONFIG_FOLDER, python_home)
+    created, settings_added = write_config(build_dir / CONFIG_FOLDER, python_home)
     write_page_config(build_dir)
     write_readme(build_dir)
 
     return {'build_dir': build_dir, 'launcher': launcher, 'config_created': created,
+            'settings_added': settings_added,
             'left_behind': left_behind}
 
 
@@ -378,7 +367,7 @@ overwrites the rest.
 | `Start-Application.ps1` | Starts the helper and serves the site. Self-contained. |
 | `web/` | The compiled web app - plain static files. |
 | `ao3_download_helper/` | The python behind the download buttons. |
-| `config/settings.ini` | Your settings, including where fics are saved. |
+| `config/settings.ini` | Your settings. Kept across rebuilds; a setting added in a newer version is appended to it, with its explanation and default. |
 
 `ao3_download_helper/` holds **only what the web ui can actually invoke**. The console
 menu, its actions, and the ebook parsing that only those use are left out of the bundle:
@@ -925,6 +914,9 @@ def main() -> int:
     print(f'\nbundle written to {result["build_dir"]}')
     if result['config_created']:
         print(f'created: {", ".join(result["config_created"])}')
+    if result['settings_added']:
+        # the user's own values are untouched; these were missing, so they get the defaults
+        print(f'settings.ini: added {", ".join(result["settings_added"])} with their defaults')
     if result['left_behind']:
         # said out loud so a module dropping out of the bundle is noticed at build time
         print(f'left behind ({len(result["left_behind"])} modules the helper never imports):')

@@ -47,7 +47,7 @@ from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives import serialization
 
-from build_artifacts import strip_setting
+from source_code.settings_file import LEFT_OUT as NEVER_WRITTEN, strip_setting
 
 HERE = Path(__file__).resolve().parent
 TEMPLATE = HERE / 'source_code' / 'settings' / 'settings.ini'
@@ -65,7 +65,7 @@ ENV_DEFAULT_PAGE_ORIGIN = 'DEFAULT_PAGE_ORIGIN'
 
 # the web page never stores a password, so a hosted copy has no use for this; the bundle
 # strips it for the same reason
-LEFT_OUT = ('SavePassword',)
+LEFT_OUT = NEVER_WRITTEN
 # where a hosted copy needs something other than the template's default. a hosted helper
 # refuses to start without a passcode, so asking for one is the only default that can work
 HOSTED_DEFAULTS = {REQUIRE_PASSCODE: 'true'}

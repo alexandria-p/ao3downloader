@@ -78,6 +78,11 @@ Three settings in `settings.ini` are specific to it:
   the page ask for it. The passcode itself is never in this file.
 - `PageOrigin` - the address of the page allowed to use a hosted helper.
 
+A local `settings.ini` - in the working copy, or `build/config/settings.ini` in a bundle - is
+created with every setting the first time, and **kept** from then on: when a newer version adds
+a setting, the build and the helper's next start append it to your file, with its explanation
+and default, and leave your own values alone.
+
 For a hosted copy the deploy workflow writes **every** setting in `settings.ini` from a GitHub
 variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TIME`,
 `HelperUrl` from `HELPER_URL`), so you never edit it by hand. HOSTING.md lists them all.

@@ -144,8 +144,8 @@ function Initialize-Ao3Config {
             Write-Step "settings.ini: created $settingsFile"
         }
         else {
-            # no template in the working copy; ao3downloader writes one from the package
-            Write-Step 'settings.ini: missing, ao3downloader will create it'
+            # no template in the working copy; the helper writes one from the package
+            Write-Step 'settings.ini: missing, the helper will create it when it starts'
         }
     }
 

@@ -45,6 +45,18 @@ build/                            generated; config/settings.ini is NOT overwrit
 `build/` is generated but `build/config/settings.ini` and `build/downloads/` are
 deliberately preserved across rebuilds - never delete them to "clean up".
 
+**A settings.ini is only ever added to, never rewritten.** `settings_file.ensure_settings_file`
+writes a missing one from the template, or appends to an existing one every setting it lacks -
+comment block and default included - leaving the user's values, comments and order exactly as
+they were. The helper runs it on every start (`server.bring_settings_up_to_date`, before
+anything reads the file), and the bundler on `build/config/settings.ini`, printing what it
+added. So a setting added to the template reaches every existing install the next time it
+starts, and is visible and editable there rather than a hidden default. `settings_file.LEFT_OUT`
+(`SavePassword`) is kept out of every file written for the web page - the bundler and
+`deploy_config.py` use the same list. `conftest.py` points `AO3DOWNLOADER_CONFIG_FOLDER` at a
+temporary folder for every test, or a test that starts the helper would leave a settings.ini
+wherever the tests were run from.
+
 ## Running things
 
 ```bash

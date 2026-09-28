@@ -27,7 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
 
-from source_code import access, dropbox_library, exceptions, indexing, parse_soup, parse_text, progress, runs, strings
+from source_code import access, dropbox_library, exceptions, settings_file, indexing, parse_soup, parse_text, progress, runs, strings
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -3510,9 +3510,34 @@ def startup_problem(host: str, fileops: FileOps) -> str:
     return ''
 
 
+def bring_settings_up_to_date(path: str) -> None:
+    """Write settings.ini if it is missing, or add any setting it lacks, and say which.
+
+    Only ever adds - the user's own values are left as they are. A settings.ini that cannot
+    be written (read-only, say) is reported and left: the helper still runs on the defaults,
+    which is what it would have done anyway.
+    """
+
+    try:
+        created, added = settings_file.ensure_settings_file(path)
+    except OSError as e:
+        print(f'settings.ini: could not bring {os.path.abspath(path)} up to date ({e}); '
+              'using the defaults for anything missing')
+        return
+    if created:
+        print(f'settings.ini: created {os.path.abspath(path)}')
+    elif added:
+        print(f'settings.ini: added {", ".join(added)} to {os.path.abspath(path)}, with their '
+              'defaults - edit them there to change them')
+
+
 def serve(port: int | None = None, host: str | None = None) -> None:
     host = host or os.environ.get(ENV_HOST) or HOST
     port = port or int(os.environ.get(ENV_PORT) or DEFAULT_PORT)
+
+    # before anything reads it: a settings.ini that is missing is written, and one written
+    # before a setting existed gets that setting added, with its explanation and default
+    bring_settings_up_to_date(FileOps().inifile)
 
     problem = startup_problem(host, FileOps())
     if problem:
