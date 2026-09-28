@@ -13,6 +13,11 @@ jobs:
     name: pytest with coverage
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        # the python project lives here, not at the repo root - run from the root and uv
+        # finds no project, so pytest is never installed
+        working-directory: powershell_source/ao3_download_helper
 
     steps:
       - name: checkout
@@ -21,5 +26,37 @@ jobs:
       - name: setup
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
 
+      - name: install
+        run: uv sync --frozen
+
       - name: run tests
-        run: uv run python -m pytest test/ -v --cov=ao3downloader --cov-report=term-missing --cov-fail-under=60
+        # no path given, so pytest collects test/ and the tests beside the bundler and the
+        # deploy script too. the package is imported as source_code, so that is what is measured
+        run: uv run --no-sync python -m pytest -q --cov=source_code --cov-report=term-missing --cov-fail-under=60
+
+  gui:
+    name: web page tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: gui_source
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          # the angular cli needs 22.22.3+ or 24.15+
+          node-version: 24
+          cache: npm
+          cache-dependency-path: gui_source/package-lock.json
+
+      - name: install
+        run: npm ci
+
+      - name: run tests
+        # npm test, not npx vitest: the angular builder does the test setup
+        run: npm test -- --watch=false

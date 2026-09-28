@@ -83,7 +83,9 @@ the same thing in conversation.
 - **Page config** [app-config.json] - the page's own small config: where the helper is (`HelperUrl`), whether to ask for a passcode, and the public key. Public, so it never holds a secret.
 - **Library store** [PageStorage, the page's storage] - how the helper reads and writes the library: it asks the page, which does it.
 - **Setting** [config] - the properties in the config/settings.ini file which are used by the Page and Helper (for example, it specifies the length of cooldown in seconds between each request to AO3)
-- **Hosting settings** - `HelperUrl` (where the page finds the helper), `RequirePasscode` and `PageOrigin` (the page allowed to call a hosted helper). The deploy workflow writes them from GitHub variables.
+- **Hosting settings** - `HelperUrl` (where the page finds the helper), `RequirePasscode` and `PageOrigin` (the page allowed to call a hosted helper). For a hosted copy the deploy workflow writes every setting from a GitHub variable named after it in upper snake case (`HELPER_URL`, `EXTRA_WAIT_TIME`, ...).
+- **Console logging** [EnableConsoleLogging, ENABLE_CONSOLE_LOGGING] - a setting that makes the helper print every request (method, path, answer) and every line a run says, tagged `[run xxxxxxxx]`, to its own console - the PowerShell window, or Render's Logs tab. Never the passcode or the login. Off by default. Not the same as debug logging, which writes more to the helper's log file.
+- **Deployment variable** [GitHub variable, repository variable] - a GitHub Actions variable the deploy workflow turns into a `settings.ini` key: `EXTRA_WAIT_TIME` becomes `ExtraWaitTime`. Every key has one except `SavePassword`.
 
 ---
 

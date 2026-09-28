@@ -55,13 +55,30 @@ whatever address it actually gives you in the variable below.
 
 In the repo: **Settings → Secrets and variables → Actions**.
 
-**Variables** (not secret - they end up in the public page and image):
+**Variables** (not secret - they end up in the public page and image). **Every setting in
+`settings.ini` has one**, named after the key in upper snake case, so the hosted
+`settings.ini` is written entirely from here. Any you don't set keep the default shown:
 
-| Name | Value | Needed |
-| --- | --- | --- |
-| `HELPER_URL` | the helper's address, e.g. `https://ao3-helper.onrender.com` | yes |
-| `REQUIRE_PASSCODE` | `true` | no - defaults to `true`, and a hosted helper refuses to start without it |
-| `PAGE_ORIGIN` | the page's origin, e.g. `https://alexandria-p.github.io` | no - defaults to `https://<owner>.github.io` |
+| Variable | settings.ini key | Default | What it does |
+| --- | --- | --- | --- |
+| `HELPER_URL` | `HelperUrl` | **required** | the helper's address, exactly as Render shows it, e.g. `https://ao3-helper-latest.onrender.com` |
+| `REQUIRE_PASSCODE` | `RequirePasscode` | `true` | leave it on; a hosted helper refuses to start without it |
+| `PAGE_ORIGIN` | `PageOrigin` | `https://<owner>.github.io` | the page's address, with no path |
+| `EXTRA_WAIT_TIME` | `ExtraWaitTime` | `15` | seconds to wait after every request to AO3 |
+| `MAX_RETRIES` | `MaxRetries` | `30` | retries for a failed request; `0` retries for ever |
+| `MAX_TIMEOUTS` | `MaxTimeouts` | `3` | timeouts in a row before giving up on a request; `0` turns the cutoff off |
+| `FILE_NAME_LENGTH` | `FileNameLength` | `50` | longest file name before the title is shortened; `0` never shortens |
+| `ENABLE_DEBUG_LOGGING` | `EnableDebugLogging` | `false` | more detail in the helper's log |
+| `ENABLE_DEBUG_TOOLS` | `EnableDebugTools` | `false` | the debug panel and the single-pass runs in the page |
+| `ENABLE_CONSOLE_LOGGING` | `EnableConsoleLogging` | `false` | print every request and every line a run says to Render's **Logs** tab |
+
+Numbers have to be whole numbers and switches `true` or `false`; anything else fails the
+deploy, naming the variable. `SavePassword` is the one key left out: the page never stores
+a password, so a hosted copy has no use for it. The deploy's log lists every value it wrote
+and whether it came from a variable or a default.
+
+A setting added to `settings.ini` in future gets a variable the same way, with no change to
+the workflow.
 
 **Secrets**:
 
@@ -86,7 +103,7 @@ pointed at an image that doesn't exist yet.
 
 3. Make the image public so Render can pull it: on your GitHub profile, **Packages →
    ao3downloader-helper → Package settings → Change visibility → Public**. It contains
-   nothing secret, only the code and a settings.ini holding the three variables above. If
+   nothing secret, only the code and a settings.ini built from the variables above. If
    you'd rather keep it private, give Render a registry credential instead (a GitHub token
    with `read:packages`).
 

@@ -45,6 +45,8 @@ INI_NAME_LENGTH = 'FileNameLength'
 INI_DEBUG_LOGGING = 'EnableDebugLogging'
 # adds a debug panel to the download window. for working on the app, not for using it.
 INI_DEBUG_TOOLS = 'EnableDebugTools'
+# prints every request and every line a run says to the helper's own console
+INI_CONSOLE_LOGGING = 'EnableConsoleLogging'
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
 # a hosted helper: every request needs the passcode, whose value is an environment variable

@@ -65,9 +65,12 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1262 python passed; 508 gui passed** (on Windows). On Linux one python test,
-`test_the_same_file_reached_by_a_different_path_is_still_not_deleted`, fails because it is
-built on `C:\` paths - that is the platform, not a regression.
+Current: **1294 python passed; 510 gui passed**, on Windows and on Linux alike - the hosted
+helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
+**Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
+resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
+tests nothing there. `test_the_same_file_reached_by_a_different_path_is_still_not_deleted`
+failed on Linux for exactly that reason until it was rewritten.
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
@@ -166,9 +169,18 @@ the caller closed it.
 plain http from any other host cannot seal a login, and `sealLogin` says so rather than
 failing on an undefined. This was hit in testing, not guessed.
 
-**One settings.ini feeds both halves.** `deploy_config.py settings` writes `HelperUrl`,
-`RequirePasscode` and `PageOrigin` into the template from the workflow's variables (keeping
-its comments), and `page-config` reads that same file back into `app-config.json`, deriving
+**One settings.ini feeds both halves, and every key in it comes from a deployment
+variable.** `deploy_config.py settings` sets each key in the template from the GitHub variable
+named after it in upper snake case (`variable_for`: `ExtraWaitTime` from `EXTRA_WAIT_TIME`),
+keeping the comments. The names are **derived from the template, not listed**, and the
+workflow passes every variable at once as `DEPLOY_VARIABLES` (`toJSON(vars)`, which never
+holds secrets) - so a key added to settings.ini is settable from a variable with no change to
+either file, and a test adds one to prove it. Unset variables keep the template default, except
+`HOSTED_DEFAULTS` (`RequirePasscode` on) and `PageOrigin` (the workflow's
+`DEFAULT_PAGE_ORIGIN`). Values are checked against the kind of the template's default -
+`true`/`false` or a whole number - so a typo fails the deploy, not the helper. `SavePassword`
+is left out through the bundler's own `strip_setting`, for the bundler's reason. The log
+prints every key with where its value came from; nothing in settings.ini is secret. Then `page-config` reads that same file back into `app-config.json`, deriving
 the public key from the private-key secret - so the page and the helper cannot disagree, and
 a hand-typed public key cannot drift from its private half. Both refuse, at build time, a
 setup that could not work: a plain-http hosted helper (an https page may not call it), no
@@ -182,6 +194,15 @@ image that exists: the first run publishes it and stops, saying what is left to 
 
 **Render must run exactly one instance.** Jobs live in `Handler.jobs`, in memory; a second
 instance would receive half a run's requests and know nothing about the run.
+
+**Console logging is opt-in, and goes to the real console.** `EnableConsoleLogging` makes
+`Handler.log_request` print `[request] METHOD path status` and `run_job` echo each run line as
+`[run <id>] ...` alongside sending it to the page. Both write through `to_console`, which uses
+`sys.__stdout__` rather than `print`: a run's `redirect_stdout` is process-wide, so a plain
+print from a request thread mid-run would land in that run's messages to the page. Only the
+method, path and status are printed - never headers (the passcode) or bodies (the sealed
+login). `EnableDebugLogging` is something else: it only adds entries to the log file, which on
+a hosted helper nobody can read.
 
 The request log (`logs/log.jsonl`) is **written and never read** - the one reader,
 `shared.get_last_page_downloaded`, is only called from the console prompt `shared.link`,

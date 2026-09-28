@@ -71,15 +71,16 @@ Render. It asks for a passcode before anything works, and your AO3 login is encr
 way to the helper. Everyone else should run the app on their own computer, which needs none
 of this. [HOSTING.md](HOSTING.md) walks through the setup.
 
-Three settings in `settings.ini` control it:
+Three settings in `settings.ini` are specific to it:
 
 - `HelperUrl` - where the page finds the helper. `http://127.0.0.1:4400` unless hosted.
 - `RequirePasscode` - `true` makes the helper refuse every request without the passcode, and
   the page ask for it. The passcode itself is never in this file.
 - `PageOrigin` - the address of the page allowed to use a hosted helper.
 
-The deploy workflow writes all three from GitHub variables, so you don't edit them by hand
-for a hosted copy.
+For a hosted copy the deploy workflow writes **every** setting in `settings.ini` from a GitHub
+variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TIME`,
+`HelperUrl` from `HELPER_URL`), so you never edit it by hand. HOSTING.md lists them all.
 
 # Original Readme
 

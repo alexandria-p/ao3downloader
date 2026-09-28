@@ -16,6 +16,7 @@ import json
 import os
 import queue
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -266,6 +267,7 @@ def read_settings(fileops: FileOps) -> dict:
         'maxTimeouts': fileops.get_ini_value_integer(strings.INI_MAX_TIMEOUTS, 3),
         'debugLogging': fileops.get_ini_value_boolean(strings.INI_DEBUG_LOGGING, False),
         'debugTools': fileops.get_ini_value_boolean(strings.INI_DEBUG_TOOLS, False),
+        'consoleLogging': fileops.get_ini_value_boolean(strings.INI_CONSOLE_LOGGING, False),
     }
 
 
@@ -659,6 +661,32 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
     return plan
 
 
+CONSOLE_LOCK = threading.Lock()
+
+
+def console_logging() -> bool:
+    return FileOps().get_ini_value_boolean(strings.INI_CONSOLE_LOGGING, False)
+
+
+def to_console(text: str) -> None:
+    """Print to the helper's own console, whatever a run has done to `sys.stdout`.
+
+    A run redirects stdout into its event stream (`run_job`), and that redirect is
+    process-wide: an ordinary `print` from a request thread while a run is going would land
+    in that run's messages to the page instead of the console. `sys.__stdout__` is the real
+    one. Locked, so lines from two threads never interleave mid-line.
+    """
+
+    console = sys.__stdout__
+    if console is None: return # no console at all, as under pythonw
+    with CONSOLE_LOCK:
+        try:
+            console.write(f'{time.strftime("%H:%M:%S")} {text}\n')
+            console.flush()
+        except (OSError, ValueError):
+            pass # a console that has gone is never worth failing a run over
+
+
 class LineStream(io.TextIOBase):
     """Turns the console output of the existing code into progress messages."""
 
@@ -681,7 +709,15 @@ def run_job(job: Job, password: str) -> None:
     def report(event: dict) -> None:
         job.emit(event)
 
-    stream = LineStream(lambda line: job.emit({'type': progress.MESSAGE, 'text': line}))
+    # read once per run: a setting that changed halfway through would log half a run
+    echo = console_logging()
+    tag = f'[run {job.id[:8]}]'
+
+    def said(line: str) -> None:
+        job.emit({'type': progress.MESSAGE, 'text': line})
+        if echo: to_console(f'{tag} {line}')
+
+    stream = LineStream(said)
 
     try:
         # the library is the page's: every file goes through it
@@ -2739,7 +2775,17 @@ class Handler(BaseHTTPRequestHandler):
     server_version = 'ao3downloader-local'
 
     def log_message(self, format: str, *args) -> None:
-        pass # the console belongs to the download output
+        """Silent unless `EnableConsoleLogging` is on - the console belongs to the download
+        output, and a page polling the helper would otherwise bury it."""
+
+        if console_logging(): to_console(f'[request] {format % args}')
+
+    def log_request(self, code='-', size='-') -> None:
+        # the method, the path and the answer - never the headers, which is where the
+        # passcode travels, and never a body, which is where the sealed login does
+        if not console_logging(): return
+        status = code.value if hasattr(code, 'value') else code
+        to_console(f'[request] {self.command} {self.path} {status}')
 
     # region plumbing
 
@@ -3195,6 +3241,10 @@ def serve(port: int | None = None, host: str | None = None) -> None:
     if access.passcode_required(FileOps()):
         print('every request needs the passcode; logins are only taken encrypted'
               if access.configured_private_key() else 'every request needs the passcode')
+    if console_logging():
+        # said up front, so a host's log shows the setting took before anything arrives
+        print(f'{strings.INI_CONSOLE_LOGGING} is on: every request and every line a run says '
+              'is printed here')
     print('this window has to stay open while the web ui is running.')
     try:
         httpd.serve_forever()
