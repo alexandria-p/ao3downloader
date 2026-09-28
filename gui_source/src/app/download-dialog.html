@@ -958,6 +958,28 @@
           </p>
         }
 
+        <!-- first thing in the window, since it answers the Pause button just pressed -->
+        @if (confirmingPause()) {
+          <div class="warning confirm-pause" role="alertdialog" aria-label="Pause this background run?">
+            <p>
+              <strong>Pause this background run?</strong> A background run left paused for
+              {{ pauseTimeout() }} {{ pauseTimeout() === 1 ? 'minute' : 'minutes' }} is
+              <strong>abandoned</strong>: the helper ends it, keeping everything it has saved.
+              It can be resumed from the History tab afterwards, or started again to carry on
+              from what is still missing.
+            </p>
+            <div class="confirm-actions">
+              <button type="button" class="button" (click)="confirmingPause.set(false)">
+                Keep running
+              </button>
+              <button type="button" class="button primary" (click)="togglePause()">
+                Pause anyway
+              </button>
+            </div>
+          </div>
+        }
+
+
         @if (phase() === 'authenticating' && loginVerified() === null) {
           <p class="checking">
             <span class="spinner" aria-hidden="true"></span>
@@ -1274,6 +1296,9 @@
             <strong>Paused.</strong> Whatever was being fetched when you pressed pause was
             allowed to finish, so nothing is half-written, and nothing new will be started
             until you press Resume. You can still stop the run from here.
+            @if (runningInBackground() && abandonsAt()) {
+              <strong>If it is not resumed by {{ abandonsAt() }}, the helper abandons it.</strong>
+            }
           </p>
         }
 
@@ -1342,7 +1367,15 @@
     <!-- step 4: outcome -->
     @if (step() === 'done') {
       <section class="body">
-        @if (wasCancelled()) {
+        @if (abandoned()) {
+          <p class="warning">
+            <strong>Abandoned.</strong> This background run was left paused for
+            {{ pauseTimeout() }} {{ pauseTimeout() === 1 ? 'minute' : 'minutes' }}, so the
+            helper ended it. Everything it saved was kept, in <code>{{ folder() }}</code>.
+            Resume it from the History tab, or start the same run again - it carries on from
+            what is still missing.
+          </p>
+        } @else if (wasCancelled()) {
           <p class="warning">
             Stopped. Everything downloaded before you stopped was kept, in
             <code>{{ folder() }}</code>.

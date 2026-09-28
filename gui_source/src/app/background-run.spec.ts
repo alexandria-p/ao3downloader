@@ -41,12 +41,6 @@ class FakeJobs extends Jobs {
   closedStream = false;
   refuseWith: Error | null = null;
 
-  override async loadConfig(): Promise<ServerConfig | null> {
-    this.config.set(CONFIG);
-    this.available.set(true);
-    return CONFIG;
-  }
-
   override async refreshActiveRuns(): Promise<ActiveRun[] | null> {
     return this.activeRuns();
   }
@@ -59,6 +53,21 @@ class FakeJobs extends Jobs {
 
   override async cancel(jobId: string): Promise<void> {
     this.cancelled.push(jobId);
+  }
+
+  pauses: boolean[] = [];
+
+  override async setPaused(_jobId: string, paused: boolean): Promise<void> {
+    this.pauses.push(paused);
+  }
+
+  timeout = 10;
+
+  override async loadConfig(): Promise<ServerConfig | null> {
+    const config = { ...CONFIG, settings: { ...CONFIG.settings!, pausedRunTimeoutMinutes: this.timeout } };
+    this.config.set(config);
+    this.available.set(true);
+    return config;
   }
 
   override stream(id: string, onEvent: (e: JobEvent) => void): () => void {
@@ -405,6 +414,106 @@ describe('Running in the background', () => {
     });
 
     expect(button('Resume')).toBeTruthy();
+  });
+
+  // endregion
+
+  // region pausing one
+
+  async function runningInBackground(): Promise<void> {
+    inDropbox();
+    await open();
+    await toCredentials();
+    await tickBackground();
+    await startIt();
+  }
+
+  it('asks before pausing a background run, saying it may be abandoned and can be resumed', async () => {
+    await runningInBackground();
+
+    button('Pause')!.click();
+    await fixture.whenStable();
+
+    expect(jobs.pauses).toEqual([]);
+    const asked = element.querySelector('.confirm-pause')?.textContent ?? '';
+    expect(asked).toContain('Pause this background run?');
+    expect(asked).toContain('10 minutes');
+    expect(asked).toContain('abandoned');
+    expect(asked).toContain('resumed from the History tab');
+  });
+
+  it('pauses once told to pause anyway', async () => {
+    await runningInBackground();
+    button('Pause')!.click();
+    await fixture.whenStable();
+
+    button('Pause anyway')!.click();
+    await fixture.whenStable();
+
+    expect(jobs.pauses).toEqual([true]);
+    expect(element.querySelector('.confirm-pause')).toBeNull();
+  });
+
+  it('keeps running when told to', async () => {
+    await runningInBackground();
+    button('Pause')!.click();
+    await fixture.whenStable();
+
+    button('Keep running')!.click();
+    await fixture.whenStable();
+
+    expect(jobs.pauses).toEqual([]);
+    expect(element.querySelector('.confirm-pause')).toBeNull();
+  });
+
+  it('does not ask before pausing a run that is not in the background', async () => {
+    // it is never abandoned: it needs its page, and ends when the page goes anyway
+    inDropbox();
+    await open();
+    await toCredentials();
+    await startIt('Start download');
+
+    button('Pause')!.click();
+    await fixture.whenStable();
+
+    expect(jobs.pauses).toEqual([true]);
+    expect(element.querySelector('.confirm-pause')).toBeNull();
+  });
+
+  it('does not ask when the helper never abandons a paused run', async () => {
+    jobs.timeout = 0;
+    await runningInBackground();
+
+    button('Pause')!.click();
+    await fixture.whenStable();
+
+    expect(jobs.pauses).toEqual([true]);
+  });
+
+  it('says when a paused background run will be abandoned', async () => {
+    await runningInBackground();
+    jobs.activeRuns.set([{ id: 'job-1', action: 'bookmarks', actionName: 'Full scan',
+      background: true, started: '2026-09-28T13:00:00', paused: true,
+      abandonsAt: '2026-09-28T13:10:00', step: '' }]);
+    jobs.push!({ type: 'held' });
+    await fixture.whenStable();
+
+    const said = element.querySelector('.warning.held')?.textContent ?? '';
+    const expected = new Date('2026-09-28T13:10:00')
+      .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    expect(said).toContain(`If it is not resumed by ${expected}, the helper abandons it`);
+  });
+
+  it('says a run that was abandoned was abandoned, and how to carry on', async () => {
+    await runningInBackground();
+    jobs.push!({ type: 'finished', cancelled: true, abandoned: true });
+    await fixture.whenStable();
+
+    const said = element.textContent ?? '';
+    expect(said).toContain('Abandoned.');
+    expect(said).toContain('left paused for 10 minutes');
+    expect(said).toContain('Resume it from the History tab');
+    expect(said).not.toContain('Everything downloaded before you stopped');
   });
 
   // endregion

@@ -65,7 +65,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1340 python passed; 551 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1354 python passed; 562 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -255,9 +255,23 @@ with the page closed. The rules that matter:
   `started` event rather than its own, and offers **Continue in background**, which closes the
   window without stopping anything. No unload guard for a background run.
 - **A free Render service sleeps after ~15 minutes with no request from outside**, which is
-  exactly a background run's situation. While one is going, `keep_awake` requests the
-  helper's own `RENDER_EXTERNAL_URL` every 10 minutes (it answers 404 without the passcode;
-  arriving is the point). Nothing else keeps it awake. **Restarting the helper - a deploy
+  exactly a background run's situation. While one is going **and not paused**,
+  `watch_background` requests the helper's own `RENDER_EXTERNAL_URL` every 10 minutes (it
+  answers 404 without the passcode; arriving is the point). Nothing else keeps it awake.
+- **A background run left paused is abandoned** after `PausedRunTimeoutMinutes` (default 10,
+  0 for never; `PAUSED_RUN_TIMEOUT_MINUTES` on a hosted copy). A paused run is waiting for
+  someone, so it is not worth keeping a host awake or holding the helper for. `hold_job`
+  starts the clock (`held_since`, and `held_at` for the page) and a second press does not
+  restart it; `abandon_overdue`, run by `watch_background` every `WATCH_SECONDS`, sets
+  `abandoned` and then `cancel`, so the run unwinds at the pause gate exactly as a stop does -
+  nothing is part-written there - and its record says `abandoned` (`runs.STATUS_ABANDONED`)
+  rather than `stopped`. It is resumable like any unfinished run. Only background runs: an
+  ordinary run needs its page and ends when the page goes anyway. The page asks before pausing
+  a background run, says when a paused one will be abandoned (`abandonsAt` from
+  `GET /api/jobs`), and names an abandoned run as such. **`run_job` treats a
+  `CancelledException` that escapes the runner as a stop**, not a failure - a stop taken at a
+  pause gate outside a runner's own loops (during the login, say) used to be recorded as
+  failed, which an abandonment made easy to hit. **Restarting the helper - a deploy
   included - ends a background run**; the page warns before one starts, and the history then
   shows it interrupted and resumable like any other.
 

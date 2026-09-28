@@ -118,9 +118,24 @@ export class History {
         return 'Failed';
       case 'running':
         return 'Running';
+      case 'abandoned':
+        return 'Abandoned';
       default:
         return 'Interrupted';
     }
+  }
+
+  /** a time of day, for when a paused run will be abandoned */
+  protected timeOf(stamp: string | undefined): string {
+    const parsed = stamp ? new Date(stamp) : null;
+    return parsed && !Number.isNaN(parsed.getTime())
+      ? parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
+  }
+
+  /** whether starting the same run again is how to carry on, rather than Resume */
+  protected startAgainInstead(run: RunHistory): boolean {
+    return !['bookmarks', 'quick', 'custom'].includes(run.action);
   }
 
   /** when it ran, in the reader's own locale rather than as an iso stamp */

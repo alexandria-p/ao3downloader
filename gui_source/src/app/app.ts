@@ -101,6 +101,14 @@ export class App {
     this.dialogAction.set(action);
   }
 
+  /** a time of day, for when a paused background run will be abandoned */
+  protected timeOf(stamp: string): string {
+    const parsed = new Date(stamp);
+    return Number.isNaN(parsed.getTime())
+      ? ''
+      : parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
   /** from the banner: the history, where the run in progress is pinned to the top */
   protected goToRun(): void {
     this.view.set('history');

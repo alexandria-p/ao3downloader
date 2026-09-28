@@ -1,4 +1,13 @@
-import { Component, OnDestroy, computed, inject, input, output, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  OnDestroy,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import {
   ActiveRun,
@@ -68,6 +77,7 @@ export class DownloadDialog implements OnDestroy {
   private readonly jobs = inject(Jobs);
   private readonly library = inject(Library);
   private readonly dropbox = inject(DropboxSession);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly action = input.required<JobAction>();
   /** a run to open set to resume - from the history's Resume button */
@@ -661,6 +671,32 @@ export class DownloadDialog implements OnDestroy {
   protected readonly runningInBackground = signal(false);
   /** the run this window was opened onto, rather than started - see `attach` */
   private readonly attachedTo = signal<ActiveRun | null>(null);
+  /**
+   * The id of the run on screen, as a signal - what the pause deadline is looked up by.
+   * (`jobId` stays a plain field for everything that only needs to send it.)
+   */
+  private readonly runId = signal('');
+
+  /** minutes a paused background run is kept, from settings.ini; 0 is never */
+  protected readonly pauseTimeout = computed(
+    () => this.config()?.settings?.pausedRunTimeoutMinutes ?? 10,
+  );
+
+  /** asking whether to pause, before a background run is paused */
+  protected readonly confirmingPause = signal(false);
+
+  /** the time a paused background run will be abandoned unless resumed, for the reader */
+  protected readonly abandonsAt = computed(() => {
+    const at = this.jobs.activeRuns().find((run) => run.id === this.runId())?.abandonsAt;
+    const when = at ? new Date(at) : null;
+    return when && !Number.isNaN(when.getTime())
+      ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : '';
+  });
+
+  /** the run ended because it was left paused too long */
+  protected readonly abandoned = signal(false);
+
   /** the file types the run said it was saving, as it started - replayed to a late window */
   private readonly announcedFiletypes = signal<string[]>([]);
 
@@ -763,6 +799,7 @@ export class DownloadDialog implements OnDestroy {
     this.attachedTo.set(run);
     this.step.set('running');
     this.jobId = run.id;
+    this.runId.set(run.id);
     this.runningInBackground.set(true);
     this.held.set(run.paused);
     this.append(`showing the ${run.actionName} started ${new Date(run.started).toLocaleString()}`);
@@ -1078,6 +1115,7 @@ export class DownloadDialog implements OnDestroy {
     }
 
     this.jobId = jobId;
+    this.runId.set(jobId);
     void this.jobs.refreshActiveRuns();
     // the run reads and writes through this library for as long as it lasts, even if the
     // page is switched to another one meanwhile - a run half in each would be no use
@@ -1115,6 +1153,8 @@ export class DownloadDialog implements OnDestroy {
     this.notRemoved.set([]);
     this.steps.set([]);
     this.question.set('');
+    this.abandoned.set(false);
+    this.confirmingPause.set(false);
     this.held.set(false);
     this.holdPending.set(false);
     this.paused.set(null);
@@ -1246,10 +1286,13 @@ export class DownloadDialog implements OnDestroy {
       case 'held':
         this.held.set(true);
         this.holdPending.set(false);
+        // the helper knows when a paused background run will be abandoned
+        if (this.runningInBackground()) void this.jobs.refreshActiveRuns();
         break;
       case 'released':
         this.held.set(false);
         this.holdPending.set(false);
+        if (this.runningInBackground()) void this.jobs.refreshActiveRuns();
         break;
       case 'authenticated':
         this.loginVerified.set(true);
@@ -1296,6 +1339,7 @@ export class DownloadDialog implements OnDestroy {
         break;
       case 'finished':
         this.wasCancelled.set(!!event.cancelled);
+        this.abandoned.set(!!event.abandoned);
         if (!event.cancelled) this.percent.set(100);
         this.summary.set('');
         this.currentTitle.set('');
@@ -1398,6 +1442,17 @@ export class DownloadDialog implements OnDestroy {
     if (!this.jobId || this.holdPending() || this.cancelling()) return;
 
     const wanted = !this.held();
+    // a background run left paused is abandoned after a while, which is worth knowing
+    // before pressing pause rather than after
+    if (wanted && this.runningInBackground() && this.pauseTimeout() && !this.confirmingPause()) {
+      this.confirmingPause.set(true);
+      // the window may be scrolled down to the log; the question has to be seen to be answered
+      setTimeout(() =>
+        this.host.nativeElement.querySelector('.confirm-pause')?.scrollIntoView?.({ block: 'nearest' }),
+      );
+      return;
+    }
+    this.confirmingPause.set(false);
     this.holdPending.set(true);
     try {
       await this.jobs.setPaused(this.jobId, wanted);

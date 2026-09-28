@@ -23,6 +23,12 @@
       @if (active.step) {
         <p class="hint">Now: <strong>{{ active.step }}</strong></p>
       }
+      @if (active.paused && active.abandonsAt) {
+        <p class="hint">
+          <strong>Abandoned at {{ timeOf(active.abandonsAt) }} unless resumed</strong> - a
+          background run left paused ends, keeping what it saved, and can be resumed.
+        </p>
+      }
       @if (active.background) {
         <div class="run-resume">
           <button type="button" class="button primary" (click)="viewProgress.emit(active)">
@@ -66,6 +72,16 @@
           {{ when(run.started) }}
           @if (run.finished) { &ndash; {{ when(run.finished) }} }
         </p>
+
+        @if (run.status === 'abandoned') {
+          <p class="hint">
+            This background run was left paused, so the helper ended it rather than keep
+            waiting. Anything it had already saved is kept.
+            @if (startAgainInstead(run)) {
+              Start the same run again and it carries on from what is still missing.
+            }
+          </p>
+        }
 
         @if (run.status === 'interrupted') {
           <p class="hint">

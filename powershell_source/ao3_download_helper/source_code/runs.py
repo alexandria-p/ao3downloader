@@ -22,6 +22,9 @@ STATUS_RUNNING = 'running'
 STATUS_SUCCESS = 'success'
 STATUS_FAILED = 'failed'
 STATUS_STOPPED = 'stopped'
+# a background run the helper ended because it was left paused too long. ended the same way a
+# stop ends one - everything saved is kept - and, like a stopped run, it can be resumed
+STATUS_ABANDONED = 'abandoned'
 # a run that never wrote its ending - the page left, or the helper stopped - once the page
 # has checked the helper is not still working on it. the helper never writes this itself
 STATUS_INTERRUPTED = 'interrupted'

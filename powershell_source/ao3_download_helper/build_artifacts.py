@@ -884,7 +884,9 @@ this computer, which the helper can only reach through the open page.
 
 Anything the run might stop to ask is asked before it starts. Only one run goes at a time;
 while one is going the page says so at the top, and the History tab has it pinned, with
-**View progress** to open it again. Closing this window's helper ends a background run -
+**View progress** to open it again. A background run left paused for
+`PausedRunTimeoutMinutes` (10 by default) is abandoned: it ends keeping what it saved, and
+can be resumed from History. Closing this window's helper ends a background run -
 what it saved stays saved, and starting it again carries on from what is still missing.
 
 Every run in the History tab has **Download issues** when it reported anything: one text file

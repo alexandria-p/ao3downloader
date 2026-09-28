@@ -12,7 +12,7 @@ import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from source_code import access, dropbox_library, progress, runs, server, strings
+from source_code import access, dropbox_library, exceptions, progress, runs, server, strings
 from source_code.storage import PageStorage
 
 
@@ -362,7 +362,7 @@ def test_the_runs_going_are_described_without_anything_they_were_given():
     assert described == [{'id': job.id, 'action': server.ACTION_SYNC,
                           'actionName': server.action_name(server.ACTION_SYNC),
                           'background': True, 'started': job.started, 'paused': True,
-                          'step': ''}]
+                          'abandonsAt': '', 'step': ''}]
     said = json.dumps(described)
     assert 'refresh-me' not in said and 'a-password' not in said
 
@@ -504,5 +504,169 @@ def test_an_ordinary_run_does_not_keep_the_helper_awake():
                                           server.resolve_options({}))
     get = MagicMock()
     assert server.keep_awake_once('https://helper.example', get) is False
+
+# endregion
+
+
+# region a background run left paused
+
+def paused_background_job(minutes_ago: float, now: float = 1000.0):
+    job = a_background_job()
+    job.held.set()
+    job.held_since = now - minutes_ago * 60
+    server.Handler.jobs[job.id] = job
+    return job
+
+
+def test_a_background_run_paused_past_the_timeout_is_abandoned():
+    job = paused_background_job(11)
+
+    assert server.abandon_overdue(now=1000.0, minutes=10) == [job.id]
+    # ended the way a stop ends it, so it unwinds at the pause gate keeping what it saved
+    assert job.cancel.is_set()
+    assert job.abandoned is True
+    assert 'abandoned it' in job.history[-1]['text']
+
+
+def test_a_pause_inside_the_timeout_is_left_alone():
+    job = paused_background_job(9)
+    assert server.abandon_overdue(now=1000.0, minutes=10) == []
+    assert not job.cancel.is_set()
+
+
+def test_a_timeout_of_nought_never_abandons_anything():
+    job = paused_background_job(600)
+    assert server.abandon_overdue(now=1000.0, minutes=0) == []
+    assert not job.cancel.is_set()
+
+
+def test_a_run_that_is_not_in_the_background_is_never_abandoned():
+    # it needs its page, and ends when the page goes anyway
+    job = server.Job(server.ACTION_SYNC, ['JSON'], 'Someone', server.resolve_options({}))
+    job.held.set()
+    job.held_since = 0.0
+    server.Handler.jobs[job.id] = job
+
+    assert server.abandon_overdue(now=10_000.0, minutes=10) == []
+
+
+def test_a_working_background_run_is_never_abandoned():
+    job = a_background_job()
+    server.Handler.jobs[job.id] = job
+    assert server.abandon_overdue(now=10_000.0, minutes=10) == []
+
+
+def test_the_timeout_comes_from_settings_ini(tmp_path, monkeypatch):
+    monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, str(tmp_path))
+    (tmp_path / strings.INI_FILE_NAME).write_text('[settings]\nPausedRunTimeoutMinutes=25\n',
+                                                  encoding='utf-8')
+    assert server.paused_run_timeout() == 25
+
+
+def test_the_timeout_is_ten_minutes_unless_settings_ini_says_otherwise(tmp_path, monkeypatch):
+    monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, str(tmp_path))
+    assert server.paused_run_timeout() == 10
+
+
+def holding(job, hold):
+    handler = MagicMock()
+    server.Handler.hold_job(handler, job.id, hold)
+
+
+def test_pausing_starts_the_clock_and_resuming_stops_it():
+    job = a_background_job()
+    server.Handler.jobs[job.id] = job
+
+    holding(job, True)
+    first = job.held_since
+    assert first is not None and job.held_at
+
+    # a second press does not buy more time
+    holding(job, True)
+    assert job.held_since == first
+
+    holding(job, False)
+    assert job.held_since is None and job.held_at == ''
+
+
+def test_a_paused_background_run_does_not_keep_the_helper_awake():
+    # it is waiting for someone, not working; if nobody comes it is abandoned anyway
+    job = paused_background_job(1)
+    get = MagicMock()
+
+    assert server.keep_awake_once('https://helper.example', get) is False
+    get.assert_not_called()
+    job.held.clear()
+    assert server.keep_awake_once('https://helper.example', get) is True
+
+
+def test_the_page_is_told_when_a_paused_run_will_be_abandoned(monkeypatch):
+    monkeypatch.setattr(server, 'paused_run_timeout', lambda: 10)
+    job = a_background_job()
+    server.Handler.jobs[job.id] = job
+    holding(job, True)
+    job.held_at = '2026-09-28T13:00:00'
+
+    assert server.active_jobs()[0]['abandonsAt'] == '2026-09-28T13:10:00'
+
+
+def test_an_abandoned_run_is_recorded_as_abandoned_not_as_stopped():
+    job = a_background_job()
+
+    def left_paused(job, *args):
+        job.abandoned = True
+        job.cancel.set()
+
+    sent = []
+    with patch.object(job, 'emit', side_effect=sent.append), \
+         patch.object(server, 'Repository'), patch.object(server, 'FileOps'), \
+         patch.object(server.runs, 'RunRecord') as record, \
+         patch.object(server, 'begin_record'), \
+         patch.object(server, 'runners', return_value={job.action: left_paused}):
+        server.run_job(job, 'a-password')
+
+    record.return_value.finish.assert_called_once_with(runs.STATUS_ABANDONED, '')
+    finished = [e for e in sent if e['type'] == progress.FINISHED][0]
+    assert finished['abandoned'] is True and finished['cancelled'] is True
+
+
+def test_an_abandoned_run_can_be_resumed():
+    record = {'id': 'x', 'action': server.ACTION_QUICK, 'status': runs.STATUS_ABANDONED,
+              'options': {}, 'progress': {'step': 'index'}}
+    assert server.resume_problem(record, set()) == ''
+
+def ending_with(job, runner):
+    sent = []
+    with patch.object(job, 'emit', side_effect=sent.append), \
+         patch.object(server, 'Repository'), patch.object(server, 'FileOps'), \
+         patch.object(server.runs, 'RunRecord') as record, \
+         patch.object(server, 'begin_record'), \
+         patch.object(server, 'runners', return_value={job.action: runner}):
+        server.run_job(job, 'a-password')
+    return record.return_value.finish.call_args.args[0], [e for e in sent if e['type'] in ('finished', 'failed')]
+
+
+def test_a_stop_that_escapes_the_runner_is_a_stop_not_a_failure():
+    # a pause gate outside the runner's own loops - during the login, say - raises straight up
+    def stopped_at_a_gate(job, *args):
+        job.cancel.set()
+        raise exceptions.CancelledException()
+
+    status, ends = ending_with(a_background_job(), stopped_at_a_gate)
+
+    assert status == runs.STATUS_STOPPED
+    assert ends == [{'type': 'finished', 'cancelled': True, 'abandoned': False}]
+
+
+def test_an_abandonment_that_escapes_the_runner_is_still_recorded_as_abandoned():
+    def abandoned_at_a_gate(job, *args):
+        job.abandoned = True
+        job.cancel.set()
+        raise exceptions.CancelledException()
+
+    status, ends = ending_with(a_background_job(), abandoned_at_a_gate)
+
+    assert status == runs.STATUS_ABANDONED
+    assert ends[0]['abandoned'] is True
 
 # endregion

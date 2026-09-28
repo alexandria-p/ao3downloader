@@ -81,6 +81,9 @@
       <strong>A run is already in progress</strong> -
       {{ run.actionName }}, {{ run.paused ? 'paused' : 'running' }}{{ run.background ? ' in the background' : '' }}.
       You must wait until it is complete to start a new one.
+      @if (run.paused && run.abandonsAt) {
+        It will be abandoned at {{ timeOf(run.abandonsAt) }} unless resumed.
+      }
     </span>
     <button type="button" class="button" (click)="goToRun()">Go to this run</button>
   </p>

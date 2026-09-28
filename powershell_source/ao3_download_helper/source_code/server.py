@@ -11,6 +11,7 @@ nobody without a passcode and takes the login only encrypted - see `access.py`.
 """
 
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -44,6 +45,9 @@ ENV_PORT = 'PORT'
 ENV_EXTERNAL_URL = 'RENDER_EXTERNAL_URL'
 # a free Render service is stopped after about 15 minutes without a request from outside
 KEEP_AWAKE_SECONDS = 10 * 60
+# how often the helper looks at its background runs - for one paused too long, and for
+# whether it is time to keep itself awake
+WATCH_SECONDS = 30
 
 # a full walk of the whole bookmarks listing. thorough and slow.
 ACTION_BOOKMARKS = 'bookmarks'
@@ -282,6 +286,9 @@ def read_settings(fileops: FileOps) -> dict:
         'debugLogging': fileops.get_ini_value_boolean(strings.INI_DEBUG_LOGGING, False),
         'debugTools': fileops.get_ini_value_boolean(strings.INI_DEBUG_TOOLS, False),
         'consoleLogging': fileops.get_ini_value_boolean(strings.INI_CONSOLE_LOGGING, False),
+        # how long a paused background run is kept before it is abandoned - the page warns
+        # with this number before a background run is paused
+        'pausedRunTimeoutMinutes': paused_run_timeout(),
     }
 
 
@@ -312,6 +319,12 @@ class Job:
         self.background = background
         self.library = library
         self.started = runs.now()
+        # when the user paused it, by the helper's own clock, or None while it is not paused.
+        # a background run paused longer than `PausedRunTimeoutMinutes` is abandoned
+        self.held_since: float | None = None
+        self.held_at = ''
+        # set when the helper ends it for that reason, rather than the user stopping it
+        self.abandoned = False
         # requests to the page about the library that have not been answered yet, by id, and
         # the bytes waiting for the page to collect for each write. see `storage_call`
         self.storage_pending: dict[str, dict] = {}
@@ -820,9 +833,16 @@ def run_job(job: Job, password: str) -> None:
                 # the reporting has happened. marked here rather than inside that function
                 # so the step is ticked once per run and not once per place it is called.
                 job.steps.done('report')
-        close_record(job, runs.STATUS_STOPPED if job.cancel.is_set()
-                     else runs.STATUS_SUCCESS)
-        job.emit({'type': progress.FINISHED, 'cancelled': job.cancel.is_set()})
+        close_record(job, runs.STATUS_ABANDONED if job.abandoned
+                     else runs.STATUS_STOPPED if job.cancel.is_set() else runs.STATUS_SUCCESS)
+        job.emit({'type': progress.FINISHED, 'cancelled': job.cancel.is_set(),
+                  'abandoned': job.abandoned})
+    except exceptions.CancelledException:
+        # a stop the runner did not catch - taken at a pause gate outside its loops, say, or
+        # during the login - is still a stop, not a failure. everything written stays
+        # written either way, and a run abandoned while paused must say it was abandoned
+        close_record(job, runs.STATUS_ABANDONED if job.abandoned else runs.STATUS_STOPPED)
+        job.emit({'type': progress.FINISHED, 'cancelled': True, 'abandoned': job.abandoned})
     except Exception as e:
         # the step that was running is the one that failed; the ones after it never started
         job.steps.fail_current()
@@ -935,7 +955,7 @@ def active_jobs() -> list[dict]:
         going = [job for job in Handler.jobs.values() if not job.done.is_set()]
     return [{'id': job.id, 'action': job.action, 'actionName': action_name(job.action),
              'background': job.background, 'started': job.started,
-             'paused': job.held.is_set(),
+             'paused': job.held.is_set(), 'abandonsAt': abandons_at(job),
              'step': job.steps.label_of(job.steps.current) if job.steps.current else ''}
             for job in sorted(going, key=lambda x: x.started)]
 
@@ -3172,9 +3192,15 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if hold:
+            # a second press does not restart the clock on a pause already going
+            if not job.held.is_set():
+                job.held_since = time.monotonic()
+                job.held_at = runs.now()
             job.held.set()
         else:
             job.held.clear()
+            job.held_since = None
+            job.held_at = ''
         self.send_json(202, {'paused': hold})
 
     def answer_job(self, job_id: str) -> None:
@@ -3318,8 +3344,65 @@ def already_listening(host: str, port: int, timeout: float = 0.5) -> bool:
 
 
 def background_running() -> bool:
+    """Whether a background run is going and working - one paused is not.
+
+    A paused run is waiting for someone, not doing anything, so it is not worth keeping a
+    host awake for: if nobody comes back it is abandoned anyway (`abandon_overdue`).
+    """
+
     with Handler.jobs_lock:
-        return any(job.background and not job.done.is_set() for job in Handler.jobs.values())
+        return any(job.background and not job.done.is_set() and not job.held.is_set()
+                   for job in Handler.jobs.values())
+
+
+def paused_run_timeout() -> int:
+    """Minutes a background run may sit paused before it is abandoned; 0 for never."""
+
+    try:
+        minutes = FileOps().get_ini_value_integer(strings.INI_PAUSED_RUN_TIMEOUT,
+                                                  strings.INI_DEFAULT_PAUSED_RUN_TIMEOUT)
+    except Exception:
+        return strings.INI_DEFAULT_PAUSED_RUN_TIMEOUT
+    return max(0, minutes)
+
+
+def abandon_overdue(now: float | None = None, minutes: int | None = None) -> list[str]:
+    """End every background run left paused longer than the timeout, and say which.
+
+    Abandoning is a stop the helper takes on the user's behalf, so it goes the way a stop
+    goes: `cancel` is set, the run unwinds at the pause gate it is waiting at - nothing is
+    part-written there - and everything saved is kept. `abandoned` is what makes its record
+    say so, rather than claim the user stopped it. A run that is not in the background is
+    never abandoned: it needs its page, and ends when the page goes anyway.
+    """
+
+    minutes = paused_run_timeout() if minutes is None else minutes
+    if not minutes: return []
+    now = time.monotonic() if now is None else now
+    ended = []
+    with Handler.jobs_lock:
+        jobs = list(Handler.jobs.values())
+    for job in jobs:
+        if not job.background or job.done.is_set() or job.cancel.is_set(): continue
+        if not job.held.is_set() or job.held_since is None: continue
+        if now - job.held_since < minutes * 60: continue
+        job.abandoned = True
+        job.emit({'type': progress.MESSAGE, 'text': strings.AO3_INFO_ABANDONED.format(minutes)})
+        job.cancel.set()
+        ended.append(job.id)
+    return ended
+
+
+def abandons_at(job: Job) -> str:
+    """When a paused background run will be abandoned, as an iso time, or '' for never."""
+
+    minutes = paused_run_timeout()
+    if not job.background or not job.held.is_set() or not job.held_at or not minutes: return ''
+    try:
+        paused = datetime.datetime.fromisoformat(job.held_at)
+    except ValueError:
+        return ''
+    return (paused + datetime.timedelta(minutes=minutes)).isoformat(timespec='seconds')
 
 
 def keep_awake_once(url: str, get=None) -> bool:
@@ -3340,9 +3423,17 @@ def keep_awake_once(url: str, get=None) -> bool:
     return True
 
 
-def keep_awake(stop: threading.Event, url: str) -> None:
-    while not stop.wait(KEEP_AWAKE_SECONDS):
-        keep_awake_once(url)
+def watch_background(stop: threading.Event, url: str) -> None:
+    """Look after background runs while nobody's page is: abandon one paused too long, and
+    keep a host that sleeps awake for one that is working."""
+
+    since_knock = 0.0
+    while not stop.wait(WATCH_SECONDS):
+        abandon_overdue()
+        since_knock += WATCH_SECONDS
+        if since_knock >= KEEP_AWAKE_SECONDS:
+            since_knock = 0.0
+            keep_awake_once(url)
 
 
 def is_loopback(host: str) -> bool:
@@ -3398,10 +3489,9 @@ def serve(port: int | None = None, host: str | None = None) -> None:
         print('helper, which has its own settings and may be running older code.')
         raise SystemExit(1)
 
-    external = os.environ.get(ENV_EXTERNAL_URL, '')
-    if external:
-        threading.Thread(target=keep_awake, args=(threading.Event(), external),
-                         daemon=True).start()
+    threading.Thread(target=watch_background,
+                     args=(threading.Event(), os.environ.get(ENV_EXTERNAL_URL, '')),
+                     daemon=True).start()
 
     httpd = ThreadingHTTPServer((host, port), Handler)
     print(f'ao3downloader local api listening on http://{host}:{port}')

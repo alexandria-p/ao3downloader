@@ -429,4 +429,33 @@ describe('History', () => {
   });
 
   // endregion
+
+  // region abandoned runs
+
+  it('calls a run the helper ended for being left paused abandoned, and offers to resume it', async () => {
+    await show([aRun({ action: 'quick', actionName: 'Quick Scan', status: 'abandoned',
+                       progress: { step: 'index', stepLabel: 'Index bookmarks' } })]);
+
+    expect(element.querySelector('.run-status')?.textContent).toContain('Abandoned');
+    expect(element.textContent).toContain('left paused, so the helper ended it');
+    expect(Array.from(element.querySelectorAll('button')).some(
+      (b) => b.textContent?.includes('Resume'))).toBe(true);
+  });
+
+  it('says to start again a run that cannot be resumed', async () => {
+    await show([aRun({ action: 'sync', status: 'abandoned' })]);
+    expect(element.textContent).toContain('Start the same run again');
+  });
+
+  it('says when a paused run in progress will be abandoned', async () => {
+    jobs.activeRuns.set([{ ...going, paused: true, abandonsAt: '2026-09-28T13:10:00' }]);
+    await show([]);
+
+    const expected = new Date('2026-09-28T13:10:00')
+      .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    expect(element.querySelector('[data-active-run]')?.textContent).toContain(
+      `Abandoned at ${expected} unless resumed`);
+  });
+
+  // endregion
 });

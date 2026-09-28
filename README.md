@@ -96,6 +96,9 @@ the helper can only reach that folder through the open page.
   run buttons wait, and **Go to this run** opens the History tab with it pinned at the top.
   **View progress** there shows the usual progress window, where you can pause or stop it,
   and **Continue in background** closes the window again and leaves it going.
+- Pausing a background run asks first: one left paused for 10 minutes
+  (`PausedRunTimeoutMinutes`) is **abandoned** - the helper ends it, keeping everything it
+  saved, and it can be resumed from History.
 - Restarting the helper - closing its window, or deploying a new version of a hosted one -
   ends a background run. What it saved stays saved, and starting it again carries on from
   what is still missing.

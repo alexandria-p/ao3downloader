@@ -49,6 +49,8 @@ export interface ServerSettings {
    * so this stays off unless somebody has deliberately asked for it.
    */
   debugTools?: boolean;
+  /** minutes a paused background run is kept before the helper abandons it; 0 is never */
+  pausedRunTimeoutMinutes?: number;
 }
 
 export interface ServerConfig {
@@ -166,7 +168,17 @@ export interface RunStep {
  * that into `interrupted` once the helper confirms it is not working on it - see
  * `Jobs.settleInterrupted`.
  */
-export type RunStatus = 'running' | 'success' | 'failed' | 'stopped' | 'interrupted';
+/**
+ * How a run ended. `abandoned` is a background run the helper ended because it was left
+ * paused past `PausedRunTimeoutMinutes` - ended the way a stop ends one, and resumable.
+ */
+export type RunStatus =
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'stopped'
+  | 'interrupted'
+  | 'abandoned';
 
 /** something a run stopped to ask, what was answered, and what came of it */
 export interface RunChoice {
@@ -346,6 +358,8 @@ export interface JobEvent {
   filetypes?: string[];
   options?: JobOptions;
   cancelled?: boolean;
+  /** on `finished`: a background run the helper ended because it was left paused too long */
+  abandoned?: boolean;
 }
 
 export interface StartRequest {
@@ -383,6 +397,8 @@ export interface ActiveRun {
   started: string;
   /** paused by the user */
   paused: boolean;
+  /** when a paused background run will be abandoned unless resumed, or '' for never */
+  abandonsAt?: string;
   /** the step it is on, as the checklist words it */
   step: string;
 }

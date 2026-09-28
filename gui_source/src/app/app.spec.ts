@@ -243,6 +243,18 @@ describe('App', () => {
     expect(element.querySelector('.run-in-progress')?.textContent).toContain('Quick Scan, paused');
   });
 
+  it('says when a paused background run will be abandoned', async () => {
+    TestBed.inject(Jobs).activeRuns.set([
+      { ...going, paused: true, abandonsAt: '2026-09-28T13:10:00' },
+    ]);
+    const element = await withFolder();
+
+    const expected = new Date('2026-09-28T13:10:00')
+      .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    expect(element.querySelector('.run-in-progress')?.textContent).toContain(
+      `It will be abandoned at ${expected} unless resumed`);
+  });
+
   it('holds every run button while one is going', async () => {
     TestBed.inject(Jobs).activeRuns.set([going]);
     const element = await withFolder();

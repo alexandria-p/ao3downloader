@@ -47,6 +47,9 @@ INI_DEBUG_LOGGING = 'EnableDebugLogging'
 INI_DEBUG_TOOLS = 'EnableDebugTools'
 # prints every request and every line a run says to the helper's own console
 INI_CONSOLE_LOGGING = 'EnableConsoleLogging'
+# how long a background run may sit paused before the helper abandons it
+INI_PAUSED_RUN_TIMEOUT = 'PausedRunTimeoutMinutes'
+INI_DEFAULT_PAUSED_RUN_TIMEOUT = 10
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
 # a hosted helper: every request needs the passcode, whose value is an environment variable
@@ -576,6 +579,7 @@ FAILED_LOGIN_NO_TOKEN_VALUE = 'authenticity token field was empty'
 AO3_INFO_RESUMING = 'resuming the {} that started {} - it stopped at: {}'
 AO3_INFO_RESUME_NO_STEP = 'before its first step'
 AO3_INFO_RESUME_ANSWER = 'using the answer the earlier attempt was given: {}'
+AO3_INFO_ABANDONED = 'this background run was left paused for {} minutes, so the helper has abandoned it. everything it saved is kept - resume it from the History tab, or start the same run again and it carries on from what is still missing.'
 AO3_INFO_BACKGROUND_ANSWER = 'using the answer given before this background run started: {}'
 AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it does what changes nothing: {}'
 AO3_INFO_RESUME_SCOPE = ('the earlier attempt had finished indexing - checking and downloading '
