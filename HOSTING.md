@@ -70,6 +70,7 @@ In the repo: **Settings → Secrets and variables → Actions**.
 | `FILE_NAME_LENGTH` | `FileNameLength` | `50` | longest file name before the title is shortened; `0` never shortens |
 | `ENABLE_DEBUG_LOGGING` | `EnableDebugLogging` | `false` | more detail in the helper's log |
 | `ENABLE_DEBUG_TOOLS` | `EnableDebugTools` | `false` | the debug panel and the single-pass runs in the page |
+| `ENABLE_CONSOLE_LOGGING` | `EnableConsoleLogging` | `false` | print every request and every line a run says to Render's **Logs** tab |
 
 Numbers have to be whole numbers and switches `true` or `false`; anything else fails the
 deploy, naming the variable. `SavePassword` is the one key left out: the page never stores

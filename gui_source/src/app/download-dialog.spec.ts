@@ -1464,6 +1464,18 @@ describe('DownloadDialog', () => {
     expect(shown).toContain('50');
   });
 
+  it('says when the helper is printing everything to its console, and not when it is not', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    expect(element.querySelector('.settings')?.textContent).not.toContain('Console logging');
+
+    jobs.settingsOverride = { ...CONFIG.settings!, consoleLogging: true };
+    fixture.destroy();
+    await open('bookmarks');
+    await advanceTo('running');
+    expect(element.querySelector('.settings')?.textContent).toContain('Console logging');
+  });
+
   // the wizard pages are gone by the time the run is working, so this panel is the only
   // place the answers given on them still exist
   it('reads back the file types chosen on the way in', async () => {

@@ -39,6 +39,8 @@ export interface ServerSettings {
   maxRetries: number;
   maxTimeouts: number;
   debugLogging: boolean;
+  /** whether the helper prints every request and every run line to its own console */
+  consoleLogging?: boolean;
   /**
    * Whether settings.ini turns on the debug panel in the download window.
    *

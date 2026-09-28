@@ -65,7 +65,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1283 python passed; 509 gui passed** (on Windows). On Linux one python test,
+Current: **1294 python passed; 510 gui passed** (on Windows). On Linux one python test,
 `test_the_same_file_reached_by_a_different_path_is_still_not_deleted`, fails because it is
 built on `C:\` paths - that is the platform, not a regression.
 
@@ -191,6 +191,15 @@ image that exists: the first run publishes it and stops, saying what is left to 
 
 **Render must run exactly one instance.** Jobs live in `Handler.jobs`, in memory; a second
 instance would receive half a run's requests and know nothing about the run.
+
+**Console logging is opt-in, and goes to the real console.** `EnableConsoleLogging` makes
+`Handler.log_request` print `[request] METHOD path status` and `run_job` echo each run line as
+`[run <id>] ...` alongside sending it to the page. Both write through `to_console`, which uses
+`sys.__stdout__` rather than `print`: a run's `redirect_stdout` is process-wide, so a plain
+print from a request thread mid-run would land in that run's messages to the page. Only the
+method, path and status are printed - never headers (the passcode) or bodies (the sealed
+login). `EnableDebugLogging` is something else: it only adds entries to the log file, which on
+a hosted helper nobody can read.
 
 The request log (`logs/log.jsonl`) is **written and never read** - the one reader,
 `shared.get_last_page_downloaded`, is only called from the console prompt `shared.link`,
