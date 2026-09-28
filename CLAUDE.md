@@ -65,9 +65,12 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1294 python passed; 510 gui passed** (on Windows). On Linux one python test,
-`test_the_same_file_reached_by_a_different_path_is_still_not_deleted`, fails because it is
-built on `C:\` paths - that is the platform, not a regression.
+Current: **1294 python passed; 510 gui passed**, on Windows and on Linux alike - the hosted
+helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
+**Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
+resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
+tests nothing there. `test_the_same_file_reached_by_a_different_path_is_still_not_deleted`
+failed on Linux for exactly that reason until it was rewritten.
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 

@@ -2178,9 +2178,12 @@ def test_a_download_that_kept_its_name_deletes_nothing():
 
 
 def test_the_same_file_reached_by_a_different_path_is_still_not_deleted():
-    ao3, fileops = superseding(r'C:\downloads\sub\..\123 A 2024-01-01.html')
+    # built with os.path.join, not written as C:\ paths: `sub/..` is only resolved by the
+    # running system's own rules, and a hosted helper runs on linux, so this has to hold there
+    # too. a windows path on linux is one long file name, and the check would not be tested
+    ao3, fileops = superseding(os.path.join('downloads', 'sub', '..', '123 A 2024-01-01.html'))
 
-    ao3.replace_superseded(WORK, 'HTML', r'C:\downloads\123 A 2024-01-01.html', 10)
+    ao3.replace_superseded(WORK, 'HTML', os.path.join('downloads', '123 A 2024-01-01.html'), 10)
 
     fileops.delete_file.assert_not_called()
 
