@@ -344,6 +344,8 @@ describe('Jobs.start', () => {
 
     const body = JSON.parse(String(fetching.mock.calls[0][1]?.body));
     expect(body).toMatchObject({ username: 'Someone', password: 'pw' });
+    // which helper it was started on, for the history file
+    expect(body.helper).toBe('http://127.0.0.1:4400');
     expect(fetching.mock.calls[0][0]).toBe('http://127.0.0.1:4400/api/jobs');
   });
 });

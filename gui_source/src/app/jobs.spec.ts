@@ -50,15 +50,39 @@ describe('Jobs.settleInterrupted', () => {
     expect(statusOf(store, 'b.json')).toBe('running');
   });
 
-  it('marks every one of them when the helper is not running at all', async () => {
-    // nothing can be running without the helper
+  it('leaves them alone when the helper does not answer', async () => {
+    // a hosted helper waking up, or a dropped connection, looks just like one that is gone -
+    // and a background run may be going on it perfectly well. settled next time it answers
     const store = runsFolder({ 'a.json': run('a', 'running') });
     vi.stubGlobal('fetch', vi.fn(async () => {
       throw new TypeError('Failed to fetch');
     }));
 
+    expect(await new Jobs().settleInterrupted(store)).toBe(0);
+    expect(statusOf(store, 'a.json')).toBe('running');
+  });
+
+  it('goes by the run\'s own id, so another run going cannot stand in for it', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'running') });
+    helperWorkingOn('someone-elses-run');
+
     expect(await new Jobs().settleInterrupted(store)).toBe(1);
     expect(statusOf(store, 'a.json')).toBe('interrupted');
+  });
+
+  it('leaves alone a run started on a different helper', async () => {
+    // the helper on this computer knows nothing of what the hosted one is doing in the same
+    // Dropbox library, and must not end it on paper
+    const store = runsFolder({
+      'a.json': { ...run('a', 'running'), helper: 'https://helper.example.com' },
+      'b.json': { ...run('b', 'running'), helper: 'http://127.0.0.1:4400/' },
+    });
+    helperWorkingOn();
+
+    expect(await new Jobs().settleInterrupted(store)).toBe(1);
+    expect(statusOf(store, 'a.json')).toBe('running');
+    // the same helper, written a little differently
+    expect(statusOf(store, 'b.json')).toBe('interrupted');
   });
 
   it('leaves runs that ended alone, and does not ask the helper when none is running', async () => {

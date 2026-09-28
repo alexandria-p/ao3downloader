@@ -230,6 +230,11 @@ export interface RunHistory {
   resumedBy?: string;
   /** carried on in the helper after the page closed - absent on older runs */
   background?: boolean;
+  /** the helper it was started on, as the page named it - absent on older runs */
+  helper?: string;
+  /** how many lines of the run window's account its history file holds, and how many it dropped */
+  logLines?: number;
+  logTrimmed?: number;
   /** how far the run got, as it saved it - see RESUMING.md */
   progress?: { step?: string; stepLabel?: string } & Record<string, unknown>;
 }
@@ -508,18 +513,35 @@ export class Jobs {
    * Mark the runs that were interrupted as such, and return how many there were.
    *
    * A run's record says `running` until the run writes its ending, and one that never got
-   * the chance - the page was closed, the helper stopped - says it for ever. Any that the
-   * helper is not working on right now were interrupted. With the helper not running at
-   * all, nothing can be, so every one of them was. Whatever cannot be read or rewritten is
-   * left as it is: this is a correction, never worth failing over.
+   * the chance - the page was closed, the helper stopped or was shut down - says it for ever.
+   * Any the helper is not working on right now were interrupted, matched **by the run's own
+   * id**, so no other run anybody started can stand in for it.
+   *
+   * Two things are left alone rather than guessed at:
+   *
+   * - **a helper that does not answer.** A hosted helper waking up, or a dropped connection,
+   *   looks exactly like one that is gone - and a background run may be going on it perfectly
+   *   well. Marking it interrupted would offer it for resuming while it runs. The next time
+   *   the helper answers, anything really interrupted is settled then.
+   * - **a run started on a different helper** (its record's `helper`). The one on this
+   *   computer knows nothing of a run the hosted one is doing in the same Dropbox library,
+   *   and must not end it on paper. Records from before this was written say nothing, and
+   *   are taken as this helper's.
+   *
+   * Whatever cannot be read or rewritten is left as it is: this is a correction, never worth
+   * failing over.
    */
   async settleInterrupted(store: LibraryStore | null): Promise<number> {
     if (!store) return 0;
     let settled = 0;
     try {
-      const running = (await readRunHistory(store)).filter((run) => run.status === 'running');
+      const running = (await readRunHistory(store)).filter(
+        (run) => run.status === 'running' && this.isThisHelpers(run),
+      );
       if (!running.length) return 0;
-      const active = new Set((await this.activeJobs()) ?? []);
+      const answered = await this.activeJobs();
+      if (answered === null) return 0;
+      const active = new Set(answered);
       for (const run of running) {
         if (active.has(run.id)) continue;
         const path = `runs/${run.file}`;
@@ -537,6 +559,11 @@ export class Jobs {
       return settled;
     }
     return settled;
+  }
+
+  /** whether a run was started on the helper this page talks to, as far as its record says */
+  isThisHelpers(run: RunHistory): boolean {
+    return !run.helper || sameHelper(run.helper, this.helper.settings().helperUrl);
   }
 
   /**
@@ -615,7 +642,9 @@ export class Jobs {
     const response = await this.helper.call(`/api/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...rest, ...login }),
+      // which helper this is, as this page names it - written into the history file, so a
+      // page talking to another helper can tell the run is not one of its own
+      body: JSON.stringify({ ...rest, ...login, helper: this.helper.settings().helperUrl }),
     });
     const answer = await response.json();
     if (response.status === 409) {
@@ -703,4 +732,10 @@ export class Jobs {
       onError,
     );
   }
+}
+
+/** two helper addresses naming the same helper - case and a trailing slash aside */
+export function sameHelper(a: string, b: string): boolean {
+  const clean = (url: string) => url.trim().replace(/\/+$/, '').toLowerCase();
+  return clean(a) === clean(b);
 }

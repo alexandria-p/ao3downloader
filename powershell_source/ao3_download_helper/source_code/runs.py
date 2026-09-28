@@ -11,6 +11,7 @@ mid-flight cannot write its own epitaph, so the absence of an ending is the evid
 
 import datetime
 import json
+import time
 import os
 
 from source_code import strings
@@ -36,6 +37,11 @@ STATUS_INTERRUPTED = 'interrupted'
 # while still leaving an interrupted run's output nearly complete - which is exactly the
 # run whose output is worth having.
 LOG_FLUSH_EVERY = 25
+# and no more often than this. `save` rewrites the whole file, and for a library in Dropbox
+# that is an upload of a file that grows to hundreds of kilobytes - saving every 25 lines of a
+# long run would upload it hundreds of times. a run killed outright loses at most this much
+# of its log; everything else - a stop, a failure, a finish - saves on the way out anyway
+LOG_FLUSH_SECONDS = 60
 
 # A run over a large library prints a line per fic per format, so this is a ceiling rather
 # than an expectation; most runs never approach it. The **last** lines are kept when it is
@@ -60,10 +66,12 @@ class RunRecord:
     def __init__(self, fileops, job_id: str, action: str, action_name: str,
                  filetypes: list[str], options: dict,
                  printed: list[str] | None = None,
-                 settings: dict | None = None, background: bool = False) -> None:
+                 settings: dict | None = None, background: bool = False,
+                 helper: str = '') -> None:
         self.fileops = fileops
-        # lines counted since the last write, not since the run began
+        # lines counted since the last write, not since the run began, and when that was
         self.unsaved = 0
+        self.last_saved = float('-inf')
         self.path = os.path.join(
             fileops.runsfolder, f'{now().replace(":", "")}-{job_id[:8]}.json')
         self.data: dict = {
@@ -77,6 +85,10 @@ class RunRecord:
             'options': dict(options or {}),
             # a run the helper carried on with after the page closed, reaching Dropbox itself
             'background': bool(background),
+            # the helper the page started it on, as the page names it (its address). a page
+            # talking to another helper - the one on this computer, say, while the hosted one
+            # runs this - must not take this run for an interrupted one of its own
+            'helper': helper,
             # what settings.ini said at the time. it decides pacing, file naming and
             # retries, so a run cannot be explained afterwards without it - and which
             # settings.ini was in force depends on where the helper was started from,
@@ -140,6 +152,7 @@ class RunRecord:
             # history there too, beside the works it describes
             self.fileops.write_text(self.path, json.dumps(self.data, indent=2))
             self.unsaved = 0
+            self.last_saved = time.monotonic()
         except Exception:
             # a note about the run is not worth taking the run down for
             pass
@@ -162,7 +175,9 @@ class RunRecord:
                 del log[:dropped]
                 self.data['logTrimmed'] += dropped
             self.unsaved += 1
-            if self.unsaved >= LOG_FLUSH_EVERY: self.save()
+            if self.unsaved >= LOG_FLUSH_EVERY and \
+                    time.monotonic() - self.last_saved >= LOG_FLUSH_SECONDS:
+                self.save()
         except Exception:
             pass
 

@@ -168,9 +168,10 @@ def test_lines_printed_before_the_record_existed_are_not_lost(tmp_path):
     assert written(tmp_path)[0]['log'] == ['logging in as someone', 'logged in']
 
 
-def test_the_log_is_not_written_to_disk_a_line_at_a_time(tmp_path):
+def test_the_log_is_not_written_to_disk_a_line_at_a_time(tmp_path, monkeypatch):
     # save rewrites the whole file, so a line per fic per format would rewrite a growing
     # file thousands of times over a long run
+    monkeypatch.setattr(runs, 'LOG_FLUSH_SECONDS', 0)
     record = a_record(tmp_path)
     record.save = MagicMock()
 
@@ -182,14 +183,39 @@ def test_the_log_is_not_written_to_disk_a_line_at_a_time(tmp_path):
     record.save.assert_called_once()
 
 
-def test_an_interrupted_run_still_has_most_of_what_it_said(tmp_path):
+def test_an_interrupted_run_still_has_most_of_what_it_said(tmp_path, monkeypatch):
     # nothing closes the file, so what is on disk is whatever the last batch left
+    monkeypatch.setattr(runs, 'LOG_FLUSH_SECONDS', 0)
     record = a_record(tmp_path)
 
     for n in range(runs.LOG_FLUSH_EVERY * 2):
         record.line(f'line {n}')
 
     assert len(written(tmp_path)[0]['log']) == runs.LOG_FLUSH_EVERY * 2
+
+
+def test_the_log_is_not_saved_more_than_once_a_minute_however_much_is_said(tmp_path):
+    # for a library in Dropbox every save is an upload of the whole, growing file
+    record = a_record(tmp_path)
+    record.save()
+    record.save = MagicMock()
+
+    for n in range(runs.LOG_FLUSH_EVERY * 10):
+        record.line(f'line {n}')
+
+    record.save.assert_not_called()
+
+
+def test_a_batch_waiting_a_minute_goes_out_with_the_next_line_after_it(tmp_path, monkeypatch):
+    record = a_record(tmp_path)
+    record.save()
+    for n in range(runs.LOG_FLUSH_EVERY): record.line(f'line {n}')
+    record.save = MagicMock()
+    record.last_saved -= runs.LOG_FLUSH_SECONDS
+
+    record.line('a minute later')
+
+    record.save.assert_called_once()
 
 
 def test_a_very_long_run_keeps_the_end_of_its_log_and_says_what_it_dropped(tmp_path):

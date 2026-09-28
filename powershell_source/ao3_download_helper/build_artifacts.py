@@ -890,7 +890,8 @@ can be resumed from History. Closing this window's helper ends a background run 
 what it saved stays saved, and starting it again carries on from what is still missing.
 
 Every run in the History tab has **Download issues** when it reported anything: one text file
-of what failed, what to check by hand, and the bookmarks that are not works.
+of what failed, what to check by hand, and the bookmarks that are not works. **Download log**
+saves the whole account the run gave in its window.
 
 ## A caveat about deploying this to a server
 

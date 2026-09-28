@@ -65,7 +65,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1354 python passed; 562 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1362 python passed; 568 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -271,7 +271,19 @@ with the page closed. The rules that matter:
   `GET /api/jobs`), and names an abandoned run as such. **`run_job` treats a
   `CancelledException` that escapes the runner as a stop**, not a failure - a stop taken at a
   pause gate outside a runner's own loops (during the login, say) used to be recorded as
-  failed, which an abandonment made easy to hit. **Restarting the helper - a deploy
+  failed, which an abandonment made easy to hit.
+- **A stopped background run lets the host sleep at once.** `background_running` ignores a
+  run whose `cancel` is set - it is only unwinding - as well as a paused one. Every run drops
+  its Dropbox sign-in when it ends (`job.library = None` in `run_job`'s `finally`), and
+  `forget_finished` drops runs that ended over an hour ago from `Handler.jobs`.
+- **A helper that dies mid-run leaves the record saying `running`**, with its last saved
+  progress. `Jobs.settleInterrupted` marks such a record `interrupted` once the helper answers
+  `GET /api/jobs` without that run's **id** - and only then: a helper that does not answer
+  may be waking up with the run going on it, so nothing is marked on a guess. It also skips
+  a record started on a different helper: `run_job` writes the page's `helperUrl` into the
+  record (`helper`, sent in the start request), so the local helper cannot end a run the
+  hosted one is doing in the same Dropbox library. History says "Running - not confirmed by
+  the helper" or "Running on another helper" meanwhile, never plain "Running". **Restarting the helper - a deploy
   included - ends a background run**; the page warns before one starts, and the history then
   shows it interrupted and resumable like any other.
 
@@ -590,18 +602,18 @@ the whole point of writing it up front. Everything in `runs.py`
 swallows its own errors: a run that downloaded a library must not be reported as failed
 because a note about it could not be saved.
 
-**`RunRecord.line` can keep the console output too (`log`), but nothing currently calls
-it.** The machinery is built and tested - lines are batched because `save` rewrites the
-whole file and a run prints a line per fic per format, so `LOG_FLUSH_EVERY` lines go out at
-a time; `LOG_MAX_LINES` caps it and drops the **start** when reached, because whatever went
-wrong is at the end, with `logTrimmed` counting what went. `read_runs` leaves `log` out of
-the listing by default and reports `logLines` instead, since a hundred records of thousands
-of lines each would be tens of megabytes for a page that does not show them.
-
-The wiring in `server.run_job` that fed it was reverted at the user's request, so no run
-writes a log today. Either finish it - the missing piece is passing printed lines to
-`record.line`, plus somewhere to hold the ones printed before the record exists - or delete
-the machinery; do not leave it half-connected and assume it works.
+**Every run keeps the account its window showed (`log`), and History offers it as a
+file.** `run_job`'s `said` hands each printed line to `RunRecord.line` as well as to the page;
+lines printed before the record exists (the setup, 'logging in') are held and passed in as
+`printed`, so the log is the whole account. A message the helper emits without printing - the
+abandonment notice - is added by hand. `save` rewrites the whole file, so lines are batched:
+at least `LOG_FLUSH_EVERY` lines **and** `LOG_FLUSH_SECONDS` since the last save. The second
+matters for Dropbox, where every save is an upload of a file that grows to hundreds of KB. A
+run killed outright loses at most its last minute; a stop, a failure or a finish saves on the
+way out. `LOG_MAX_LINES` caps it and drops the **start**, because whatever went wrong is at
+the end, with `logTrimmed` counting what went. The page's `readRunHistory` drops `log` from the
+listing and keeps `logLines`, and History's **Download log** reads the one file again when
+asked - a hundred records of thousands of lines would be a lot to read to draw a list.
 
 **settings.ini goes in beside the run's own choices** (`settings`). `filetypes` and
 `options` are what the user picked in the dialog; this is what the run inherited - pacing,

@@ -104,7 +104,12 @@ the helper can only reach that folder through the open page.
   what is still missing.
 - Every run in the History tab has a **Download issues** button when it reported anything:
   one text file of the works that failed, the copies to check by hand and the bookmarks that
-  are not works.
+  are not works - and a **Download log** button, the whole account the run gave in its
+  window.
+- If the helper is shut down mid-run, the run's History entry says **Running - not
+  confirmed by the helper** until the helper is back, then **Interrupted**, with Resume
+  offered. Nothing is marked interrupted while the helper cannot be asked, since a hosted
+  one may just be waking up with the run still going.
 
 # Original Readme
 

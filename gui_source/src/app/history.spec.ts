@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { History } from './history';
 import { ActiveRun, Jobs, RunHistory } from './jobs';
+import { Library } from './library';
 
 function aRun(over: Partial<RunHistory> = {}): RunHistory {
   return {
@@ -38,8 +39,12 @@ class FakeJobs extends Jobs {
     return this.activeRuns();
   }
 
+  /** set to stand for a helper that does not answer, which settles nothing */
+  leaveRunning = false;
+
   override async settleInterrupted(): Promise<number> {
     this.settles++;
+    if (this.leaveRunning) return 0;
     const running = (this.runs ?? []).filter((run) => run.status === 'running');
     for (const run of running) run.status = 'interrupted';
     return running.length;
@@ -53,8 +58,13 @@ let element: HTMLElement;
 async function show(runs: RunHistory[] | null) {
   jobs.runs = runs;
   fixture = TestBed.createComponent(History);
-  await fixture.whenStable();
   element = fixture.nativeElement as HTMLElement;
+  // the history is read in a few awaited steps; wait for all of them, not just the first
+  for (let tries = 0; tries < 10; tries++) {
+    await fixture.whenStable();
+    if (!element.textContent?.includes('Reading past runs')) break;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 describe('History', () => {
@@ -455,6 +465,61 @@ describe('History', () => {
       .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     expect(element.querySelector('[data-active-run]')?.textContent).toContain(
       `Abandoned at ${expected} unless resumed`);
+  });
+
+  // endregion
+
+  // region the log, and runs the helper has not confirmed
+
+  it('offers the log of any run that kept one', async () => {
+    await show([aRun({ logLines: 12 }), aRun({ file: 'b.json', id: 'b', logLines: 0 })]);
+
+    const buttons = Array.from(element.querySelectorAll('button')).filter(
+      (b) => b.textContent?.includes('Download log'),
+    );
+    expect(buttons).toHaveLength(1);
+  });
+
+  it('saves the log read back out of the run\'s own file, saying what was dropped', async () => {
+    let saved: Blob | null = null;
+    let name = '';
+    Object.assign(URL, { createObjectURL: vi.fn((blob: Blob) => ((saved = blob), 'blob:x')),
+                         revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      name = this.download;
+    });
+    const read = vi.fn(async () => JSON.stringify({
+      log: ['logging in as Someone', 'new download: 1 A.html'], logTrimmed: 3,
+    }));
+    TestBed.inject(Library).store.set({ read } as never);
+    await show([aRun({ id: 'abcdef123', file: 'r.json', logLines: 2 })]);
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Download log'))!.click();
+    await fixture.whenStable();
+
+    expect(read).toHaveBeenCalledWith('runs/r.json');
+    const text = await saved!.text();
+    expect(text).toContain('# Download new bookmarks and update incomplete fics, started');
+    expect(text).toContain('the first 3 lines were dropped');
+    expect(text.trim().split('\n').slice(-2)).toEqual(['logging in as Someone', 'new download: 1 A.html']);
+    expect(name).toBe('run-log-2026-09-13-abcdef12.txt');
+    click.mockRestore();
+  });
+
+  it('does not call a run running when the helper has not said it is', async () => {
+    jobs.leaveRunning = true;
+    await show([aRun({ status: 'running', finished: null })]);
+    // settleInterrupted is stubbed to leave it, as when the helper does not answer
+    expect(element.querySelector('.run-status')?.textContent).toContain('not confirmed');
+  });
+
+  it('names a run going on another helper as such', async () => {
+    jobs.leaveRunning = true;
+    await show([aRun({ status: 'running', finished: null, helper: 'https://elsewhere.example' })]);
+    expect(element.querySelector('.run-status')?.textContent).toContain('Running on another helper');
   });
 
   // endregion

@@ -85,7 +85,12 @@
 
         @if (run.status === 'interrupted') {
           <p class="hint">
-            This run never reported finishing - the page was closed, or the helper stopped.
+            @if (run.background) {
+              This background run never reported finishing - the helper stopped or restarted
+              while it was going (a crash, a deploy, or its window closed).
+            } @else {
+              This run never reported finishing - the page was closed, or the helper stopped.
+            }
             Anything it had already saved is still on disk.
           </p>
         }
@@ -134,15 +139,21 @@
           <p class="run-error">{{ run.error }}</p>
         }
 
-        @if (issuesIn(run)) {
+        @if (issuesIn(run) || run.logLines) {
           <div class="run-issues">
-            <button type="button" class="button" (click)="downloadIssues(run)">
-              Download issues ({{ issuesIn(run) | number }})
-            </button>
-            <span class="hint">
-              One text file: works that could not be downloaded, copies to check by hand, and
-              bookmarks that are not works - with their links and reasons.
-            </span>
+            @if (issuesIn(run)) {
+              <button type="button" class="button" (click)="downloadIssues(run)"
+                      title="Works that could not be downloaded, copies to check by hand, and bookmarks that are not works - with their links and reasons">
+                Download issues ({{ issuesIn(run) | number }})
+              </button>
+            }
+            @if (run.logLines) {
+              <button type="button" class="button" [disabled]="readingLog() === run.id"
+                      (click)="downloadLog(run)"
+                      title="Everything the run said in its window, line by line">
+                {{ readingLog() === run.id ? 'Reading the log...' : 'Download log' }}
+              </button>
+            }
           </div>
         }
 

@@ -77,11 +77,9 @@ export class History {
    * long as its history file is there, not only in the window of a run just finished.
    */
   protected downloadIssues(run: RunHistory): void {
-    const started = run.started ? new Date(run.started) : new Date();
-    const stamp = Number.isNaN(started.getTime()) ? '' : started.toISOString().slice(0, 10);
     saveText(
       issuesReport(issuesOf(run), `Issues from ${run.actionName} started ${this.when(run.started)}`),
-      `run-issues-${stamp}-${run.id.slice(0, 8)}`,
+      `run-issues-${this.stampOf(run)}`,
     );
   }
 
@@ -117,12 +115,57 @@ export class History {
       case 'failed':
         return 'Failed';
       case 'running':
-        return 'Running';
+        // only the helper can say a run is really going; a record can only say it started
+        if (!this.jobs.isThisHelpers(run)) return 'Running on another helper';
+        return this.activeRuns().some((active) => active.id === run.id)
+          ? 'Running'
+          : 'Running - not confirmed by the helper';
       case 'abandoned':
         return 'Abandoned';
       default:
         return 'Interrupted';
     }
+  }
+
+  /** set while a run's log is being read to be saved, so it cannot be asked for twice */
+  protected readonly readingLog = signal('');
+
+  /**
+   * Save the account a run gave in its window - every line it printed - as a text file.
+   *
+   * Read from the run's history file when asked for, not with the history: a log can run to
+   * thousands of lines, and a hundred of them would be a lot to read to draw a list.
+   */
+  protected async downloadLog(run: RunHistory): Promise<void> {
+    const store = this.library.store();
+    if (!store || this.readingLog()) return;
+    this.readingLog.set(run.id);
+    try {
+      const record = JSON.parse((await store.read(`runs/${run.file}`)) ?? '{}') as {
+        log?: string[];
+        logTrimmed?: number;
+      };
+      const lines = Array.isArray(record.log) ? record.log : [];
+      const head = [
+        `# ${run.actionName}, started ${this.when(run.started)}`,
+        `# ${this.outcome(run)}${run.finished ? `, ${this.when(run.finished)}` : ''}`,
+      ];
+      if (record.logTrimmed) {
+        head.push(`# the first ${record.logTrimmed} lines were dropped to keep the file small`);
+      }
+      saveText([...head, '', ...lines].join('\n') + '\n', `run-log-${this.stampOf(run)}`);
+    } catch {
+      // the file is gone or unreadable; the button stays, and the list says what there was
+    } finally {
+      this.readingLog.set('');
+    }
+  }
+
+  /** a run's start and id, for naming the files saved from it */
+  private stampOf(run: RunHistory): string {
+    const started = run.started ? new Date(run.started) : new Date();
+    const day = Number.isNaN(started.getTime()) ? '' : started.toISOString().slice(0, 10);
+    return `${day}-${run.id.slice(0, 8)}`;
   }
 
   /** a time of day, for when a paused run will be abandoned */

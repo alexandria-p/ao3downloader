@@ -325,6 +325,12 @@ class Job:
         self.held_at = ''
         # set when the helper ends it for that reason, rather than the user stopping it
         self.abandoned = False
+        # when it ended, by the helper's clock - a finished run is forgotten after a while
+        self.finished_at: float | None = None
+        # the helper the page was talking to when it started this, as the page names it - so
+        # a page talking to a different helper does not mistake this run for an interrupted
+        # one of its own. see `Jobs.settleInterrupted`
+        self.helper = ''
         # requests to the page about the library that have not been answered yet, by id, and
         # the bytes waiting for the page to collect for each write. see `storage_call`
         self.storage_pending: dict[str, dict] = {}
@@ -537,6 +543,7 @@ class Job:
 
 
     def finish(self) -> None:
+        self.finished_at = time.monotonic()
         self.done.set()
         self.events.put(None)
 
@@ -780,9 +787,15 @@ def run_job(job: Job, password: str) -> None:
     echo = console_logging()
     tag = f'[run {job.id[:8]}]'
 
+    # what a run says before its history file exists - the setup, the 'logging in' - kept to
+    # start that file's log with, so the log is the whole account the run window showed
+    before_record: list[str] = []
+
     def said(line: str) -> None:
         job.emit({'type': progress.MESSAGE, 'text': line})
         if echo: to_console(f'{tag} {line}')
+        if job.record: job.record.line(line)
+        else: before_record.append(line)
 
     stream = LineStream(said)
 
@@ -821,7 +834,8 @@ def run_job(job: Job, password: str) -> None:
                                             action_name(job.action), job.filetypes,
                                             job.options,
                                             settings=settings_for_record(fileops),
-                                            background=job.background)
+                                            background=job.background,
+                                            printed=before_record, helper=job.helper)
                 repo.login(job.username, password)
                 print(strings.AO3_INFO_LOGGED_IN)
                 begin_record(job, fileops)
@@ -863,6 +877,10 @@ def run_job(job: Job, password: str) -> None:
         job.emit({'type': progress.FAILED, 'error': str(e), 'sessionExpired': expired,
                   'detail': traceback.format_exc()})
     finally:
+        # the Dropbox sign-in a background run was handed goes with the run - the page
+        # promised it would. the job stays listed a while for a page reattaching, and must
+        # not keep the token for that long
+        job.library = None
         job.finish()
 
 
@@ -3131,6 +3149,8 @@ class Handler(BaseHTTPRequestHandler):
 
         job = Job(action, filetypes, username, options, url, background=background,
                   library=library, answers=answers)
+        # only a label, written into the history file: which helper the page started it on
+        job.helper = str(body.get('helper') or '')[:300]
         # one run at a time, checked and taken under the same lock so two starts arriving
         # together cannot both get in. two runs writing one library would each plan from a
         # folder the other is changing
@@ -3347,12 +3367,14 @@ def background_running() -> bool:
     """Whether a background run is going and working - one paused is not.
 
     A paused run is waiting for someone, not doing anything, so it is not worth keeping a
-    host awake for: if nobody comes back it is abandoned anyway (`abandon_overdue`).
+    host awake for: if nobody comes back it is abandoned anyway (`abandon_overdue`). Nor is
+    one told to stop: it is only unwinding, and a stop has to leave the host free to sleep
+    whether the unwinding is quick or not.
     """
 
     with Handler.jobs_lock:
         return any(job.background and not job.done.is_set() and not job.held.is_set()
-                   for job in Handler.jobs.values())
+                   and not job.cancel.is_set() for job in Handler.jobs.values())
 
 
 def paused_run_timeout() -> int:
@@ -3387,10 +3409,29 @@ def abandon_overdue(now: float | None = None, minutes: int | None = None) -> lis
         if not job.held.is_set() or job.held_since is None: continue
         if now - job.held_since < minutes * 60: continue
         job.abandoned = True
-        job.emit({'type': progress.MESSAGE, 'text': strings.AO3_INFO_ABANDONED.format(minutes)})
+        said = strings.AO3_INFO_ABANDONED.format(minutes)
+        job.emit({'type': progress.MESSAGE, 'text': said})
+        if job.record: job.record.line(said)
         job.cancel.set()
         ended.append(job.id)
     return ended
+
+
+# how long a finished run stays listed - long enough for a page to reattach and be shown how
+# it ended, not so long that a helper up for weeks holds every run it ever did
+FORGET_FINISHED_SECONDS = 60 * 60
+
+
+def forget_finished(now: float | None = None) -> list[str]:
+    """Drop runs that ended more than an hour ago. Their history files say how they went."""
+
+    now = time.monotonic() if now is None else now
+    with Handler.jobs_lock:
+        old = [job_id for job_id, job in Handler.jobs.items()
+               if job.done.is_set() and job.finished_at is not None
+               and now - job.finished_at >= FORGET_FINISHED_SECONDS]
+        for job_id in old: del Handler.jobs[job_id]
+    return old
 
 
 def abandons_at(job: Job) -> str:
@@ -3430,6 +3471,7 @@ def watch_background(stop: threading.Event, url: str) -> None:
     since_knock = 0.0
     while not stop.wait(WATCH_SECONDS):
         abandon_overdue()
+        forget_finished()
         since_knock += WATCH_SECONDS
         if since_knock >= KEEP_AWAKE_SECONDS:
             since_knock = 0.0

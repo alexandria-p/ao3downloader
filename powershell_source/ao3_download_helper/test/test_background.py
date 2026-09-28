@@ -669,4 +669,86 @@ def test_an_abandonment_that_escapes_the_runner_is_still_recorded_as_abandoned()
     assert status == runs.STATUS_ABANDONED
     assert ends[0]['abandoned'] is True
 
+def test_a_run_lets_go_of_the_dropbox_sign_in_when_it_ends():
+    # the page promised it would; the job stays listed a while after for a page reattaching
+    job = a_background_job()
+    job.library = dropbox_library.DropboxChannel('refresh-me', 'app-key')
+
+    ending_with(job, lambda job, *args: None)
+
+    assert job.library is None
+    assert job.done.is_set()
+
+
+def test_a_background_run_told_to_stop_no_longer_keeps_the_helper_awake():
+    # it is only unwinding, and a stop has to leave the host free to sleep
+    job = a_background_job()
+    server.Handler.jobs[job.id] = job
+    job.cancel.set()
+    get = MagicMock()
+
+    assert server.keep_awake_once('https://helper.example', get) is False
+    get.assert_not_called()
+
+
+def test_a_stopped_background_run_is_recorded_as_stopped_and_can_be_resumed():
+    def stopped(job, *args):
+        job.cancel.set()
+
+    status, ends = ending_with(a_background_job(), stopped)
+
+    assert status == runs.STATUS_STOPPED
+    assert ends[0]['cancelled'] is True and ends[0]['abandoned'] is False
+    assert server.resume_problem({'id': 'x', 'action': server.ACTION_QUICK, 'status': status,
+                                  'options': {}, 'progress': {'step': 'index'}}, set()) == ''
+
+
+def test_a_run_that_ended_an_hour_ago_is_forgotten_and_one_still_going_is_not():
+    recent = a_background_job()
+    recent.finish()
+    ended = a_background_job()
+    ended.finish()
+    ended.finished_at = recent.finished_at - server.FORGET_FINISHED_SECONDS - 1
+    going = a_background_job()
+    for job in (ended, going, recent): server.Handler.jobs[job.id] = job
+
+    assert server.forget_finished(now=recent.finished_at + 10) == [ended.id]
+    assert set(server.Handler.jobs) == {going.id, recent.id}
+
+# endregion
+
+
+# region the run's log
+
+def test_everything_a_run_says_goes_into_its_history_file_including_before_it_existed():
+    job = a_background_job()
+
+    def says(job, *args):
+        print('new download: 1 A.html')
+
+    with patch.object(job, 'emit'), patch.object(server, 'Repository'), \
+         patch.object(server, 'FileOps'), patch.object(server.runs, 'RunRecord') as record, \
+         patch.object(server, 'begin_record'), \
+         patch.object(server, 'runners', return_value={job.action: says}):
+        server.run_job(job, 'a-password')
+
+    # the lines before the file existed start its log - the login being tried, for one
+    printed = record.call_args.kwargs['printed']
+    assert any('logging in' in line for line in printed)
+    lines = [c.args[0] for c in record.return_value.line.call_args_list]
+    assert 'new download: 1 A.html' in lines
+
+
+def test_the_history_file_says_which_helper_the_run_was_started_on():
+    sent = starting({'background': True, 'dropbox': DROPBOX,
+                     'helper': 'https://helper.example.com'})
+    job = server.Handler.jobs[sent['body']['jobId']]
+    assert job.helper == 'https://helper.example.com'
+
+    fileops = MagicMock()
+    fileops.runsfolder = '/tmp'
+    record = runs.RunRecord(fileops, 'abcdef123456', 'sync', 'Sync', ['JSON'], {},
+                            helper=job.helper)
+    assert record.data['helper'] == 'https://helper.example.com'
+
 # endregion
