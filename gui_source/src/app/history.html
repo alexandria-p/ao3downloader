@@ -72,6 +72,11 @@
           {{ when(run.started) }}
           @if (run.finished) { &ndash; {{ when(run.finished) }} }
         </p>
+        @if (run.url) {
+          <p class="hint run-link">
+            <a [href]="run.url" target="_blank" rel="noopener">{{ run.url }}</a>
+          </p>
+        }
 
         @if (run.status === 'abandoned') {
           <p class="hint">
@@ -131,6 +136,19 @@
             </button>
             @if (resumeProblem(run)) {
               <span class="hint">{{ resumeProblem(run) }}</span>
+            }
+          </div>
+        }
+
+        @if (canRunAgain(run)) {
+          <div class="run-resume">
+            <button type="button" class="button" (click)="runAgain.emit(run)"
+                    title="Open this run's window again, filled in with the choices it was started with">
+              Run again
+            </button>
+            @if (run.action === 'collection' && !run.url) {
+              <span class="hint">This run is from before the collection's link was saved, so
+                you will need to paste it in again.</span>
             }
           </div>
         }

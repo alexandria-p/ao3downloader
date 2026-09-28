@@ -86,6 +86,11 @@ export interface JobOptions {
    */
   nonBookmarks?: boolean;
   /**
+   * A collections run: index every work in the collections as it crawls them, and download
+   * those as a scan would. The two collection runs only.
+   */
+  collectionWorks?: boolean;
+  /**
    * Whether to read AO3's listing at all, or work from what the index already holds.
    *
    * Only a custom run offers this. It defaults to true everywhere else: a run that quietly
@@ -207,6 +212,8 @@ export interface RunHistory {
   status: RunStatus;
   filetypes: string[];
   options: Record<string, unknown>;
+  /** the link the run was pointed at - a collection, or a fic - absent on older runs */
+  url?: string;
   reindexed: string[];
   downloaded: string[];
   updated: string[];

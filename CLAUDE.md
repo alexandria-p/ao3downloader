@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1362 python passed; 568 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1403 python passed; 576 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -998,6 +998,38 @@ on a normal crawl would show up as a spurious change in the version history.
 
 Flags are matched exactly, never as substrings: ao3 writes both `Moderated` and
 `Unmoderated`, and a substring test reads the second as the first.
+
+### A collection run can take the works in it too
+
+`collectionWorks` (*Index and download encountered works*) is the two collection runs' alone -
+`do_POST` clamps it off for everything else, and clamps `series` off and the file types to
+json for a collection run without it, so the record never claims html or series walks it did
+not do. With it on, `Ao3.collection_works` is a list rather than `None`, and
+`collect_work_ids` indexes each work blurb off the page it was reading anyway
+(`save_collection_work`) - free, like any listing. What follows is borrowed, not rebuilt:
+`index_marked_series` when `series` is on, then `download_planned`, the scans' own download
+step. Don't give it a download path of its own.
+
+The rules, and why:
+
+- **An unchanged count does not skip the listing** while indexing works. `unchanged_items`
+  says the work numbers are the same, not that the works are - and indexing them *is*
+  reading the listing.
+- **Someone else's bookmark is never written in as yours.** A collection's `/bookmarks`
+  listing is other people's bookmarks, and `get_blurb_metadata` reads the bookmarker's notes
+  and tags off each one. `save_collection_work` blanks `BOOKMARK_OWN_FIELDS` (to the empty
+  shape a series work has), then restores the existing entry's own - the same rule as
+  `save_series_work`. A new entry is `bookmarked: false`.
+- **A work is read once per run** (`indexed_this_run`), however many collections hold it;
+  meeting it again only adds that collection to `from_collections`, which, like
+  `from_series`, `indexing.merge` only ever adds to (`ACCUMULATED_FIELDS`).
+- Unrevealed works go through `note_unrevealed`, shared with `get_metadata`: indexed, held
+  back from download, listed as skipped.
+
+The run record keeps its `url` (a collection or a fic), and History's **Run again** - offered
+on the collection runs only, since they cannot be resumed - hands the whole record to the
+dialog as `repeatOf`, which `fillFrom` reads **after `init`'s first await**, like the other
+inputs. A record from before `url` was saved opens with the link box empty and says so.
 
 ### Stopping must unwind, not just stop waiting
 

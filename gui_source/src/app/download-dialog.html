@@ -414,14 +414,42 @@
           </p>
         }
 
+        @if (picksCollectionWorks()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="collectionWorks"
+              [checked]="collectionWorks()"
+              (change)="collectionWorks.set($any($event.target).checked)"
+            />
+            <span>Index and download encountered works</span>
+          </label>
+          <p class="hint">
+            Every work in {{ action() === 'collection' ? 'the collection' : 'your collections' }}
+            - its works and its bookmarked items - is indexed as it is read, then downloaded, or
+            updated where AO3 has a newer version than your copy. A work you have not bookmarked
+            is indexed as not bookmarked.
+          </p>
+          <p class="hint">
+            Indexing them is free: it is read off the same pages the collection is. But with this
+            on, every collection's works are read again even when its count has not changed, and
+            each download is a request per format.
+          </p>
+        }
+
         @if (picksSeries()) {
           <label class="check">
             <input type="checkbox" [checked]="series()" (change)="series.set($any($event.target).checked)" />
             <span>Get all works from encountered series</span>
           </label>
           <p class="hint">
-            If a bookmarked work belongs to a series, download the rest of the series too - even
-            if its other works are not bookmarked.
+            @if (picksCollectionWorks()) {
+              If a work in the collection belongs to a series, download the rest of the series
+              too - even if its other works are not in the collection.
+            } @else {
+              If a bookmarked work belongs to a series, download the rest of the series too - even
+              if its other works are not bookmarked.
+            }
           </p>
         }
 

@@ -16,7 +16,7 @@ import { DownloadDialog } from './download-dialog';
 import { Faq } from './faq';
 import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
-import { ActiveRun, JobAction, Jobs } from './jobs';
+import { ActiveRun, JobAction, Jobs, RunHistory } from './jobs';
 import { HelperConnection } from './helper-connection';
 import { Library } from './library';
 import { LibrarySetup } from './library-setup';
@@ -57,6 +57,8 @@ export class App {
   protected readonly dialogAction = signal<JobAction | null>(null);
   /** the run a custom run opens set to resume, when opened from the history */
   protected readonly resumeFrom = signal('');
+  /** a run the window opens filled in with, from the history's Run again */
+  protected readonly repeatOf = signal<RunHistory | null>(null);
   /** a background run the window opens onto, from the history's View progress */
   protected readonly attachTo = signal<ActiveRun | null>(null);
 
@@ -124,8 +126,15 @@ export class App {
   protected dialogClosed(): void {
     this.dialogAction.set(null);
     this.resumeFrom.set('');
+    this.repeatOf.set(null);
     this.attachTo.set(null);
     void this.jobs.refreshActiveRuns();
+  }
+
+  /** from the history: the same run again, its window filled in with that run's choices */
+  protected runAgain(run: RunHistory): void {
+    this.repeatOf.set(run);
+    void this.openRun(run.action as JobAction);
   }
 
   /** from the history: a custom run, set to pick up where that run left off */

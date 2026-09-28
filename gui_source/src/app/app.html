@@ -203,7 +203,7 @@
 }
 
 @if (dialogAction(); as action) {
-  <app-download-dialog [action]="action" [resumeFrom]="resumeFrom()" [attachTo]="attachTo()"
+  <app-download-dialog [action]="action" [resumeFrom]="resumeFrom()" [repeatOf]="repeatOf()" [attachTo]="attachTo()"
                        (closed)="dialogClosed()" />
 }
 
@@ -310,7 +310,7 @@
 } @else if (view() === 'collections') {
   <app-collections-view />
 } @else if (view() === 'history') {
-  <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)" />
+  <app-history (resume)="resumeRun($event)" (runAgain)="runAgain($event)" (viewProgress)="viewProgress($event)" />
 } @else {
   <app-faq />
 }

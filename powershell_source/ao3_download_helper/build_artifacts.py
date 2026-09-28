@@ -536,12 +536,22 @@ reaching for one part when you wanted the whole is the easy mistake to make.
 ### Collections
 
 **Index my collections** reads `/users/<you>/collections` and writes a json file describing
-each collection you own - its metadata, and the work numbers it holds. No works are
-downloaded.
+each collection you own - its metadata, and the work numbers it holds.
 
 **Index collection by URL** does the same for any one collection on ao3, yours or not. Paste
 a link to it; any page of the collection will do. The file it writes sits alongside your own
 and has the same shape.
+
+Both ask first whether to **Index and download encountered works**. Left off, nothing is
+downloaded. Ticked, every work in the collection's works and bookmarked items is indexed off
+the pages the crawl reads anyway, then downloaded or updated as a scan would; a work you
+have not bookmarked is indexed as not bookmarked, and somebody else's bookmark notes are
+never written in as yours. It then offers **Get all works from encountered series** and asks
+for file types, and reads every collection's works again even when its count is unchanged.
+
+History shows the link a collection run used and offers **Run again**, which opens the
+window filled in with that run's choices. Running one again skips what is already
+downloaded and current, so it is the retry.
 
 Clicking a collection opens what was recorded about it, along with the works in it, in the
 same listing the Bookmarks tab uses. Works it holds that are not in your index are still
@@ -754,8 +764,10 @@ page of it will do. Both write one json file per collection into
 `<downloads>/collections/`, named after the collection's ao3 name - the part of the url
 after `/collections/` - cut to the same `FileNameLength` limit.
 
-No works are downloaded by either. A collection file records what the collection
-*contains*, by work id, which is what lets it pair up with fics you already have. Works it
+Neither downloads works unless asked to **index and download encountered works** - then
+each work gets its own index entry too, naming the collection in `from_collections`. A
+collection file records what the collection *contains*, by work id, which is what lets it
+pair up with fics you already have. Works it
 lists that are not in your index are still shown on the collections page, by work number
 with a link to ao3, since the number is all that is known about them. It is versioned
 exactly like an index file:

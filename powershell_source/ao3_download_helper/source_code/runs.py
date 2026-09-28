@@ -67,7 +67,7 @@ class RunRecord:
                  filetypes: list[str], options: dict,
                  printed: list[str] | None = None,
                  settings: dict | None = None, background: bool = False,
-                 helper: str = '') -> None:
+                 helper: str = '', url: str = '') -> None:
         self.fileops = fileops
         # lines counted since the last write, not since the run began, and when that was
         self.unsaved = 0
@@ -83,6 +83,10 @@ class RunRecord:
             'status': STATUS_RUNNING,
             'filetypes': list(filetypes),
             'options': dict(options or {}),
+            # the link the run was pointed at - a collection, or a fic - so History can start
+            # the same run again without it being typed in. empty for the runs that work
+            # their link out from the username
+            'url': url or '',
             # a run the helper carried on with after the page closed, reaching Dropbox itself
             'background': bool(background),
             # the helper the page started it on, as the page names it (its address). a page

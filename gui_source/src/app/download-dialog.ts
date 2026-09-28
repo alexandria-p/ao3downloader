@@ -83,6 +83,12 @@ export class DownloadDialog implements OnDestroy {
   /** a run to open set to resume - from the history's Resume button */
   readonly resumeFrom = input('');
   /**
+   * An earlier run to start again with the same choices - from the history's Run again
+   * button. The window opens filled in rather than starting it: the choices are shown back,
+   * and the login is still asked for.
+   */
+  readonly repeatOf = input<RunHistory | null>(null);
+  /**
    * A run already going in the background, to open straight onto its progress - from the
    * history's View progress button. Everything so far is replayed, so the window reads as
    * it would have had it been open all along.
@@ -110,6 +116,8 @@ export class DownloadDialog implements OnDestroy {
   protected readonly overwrite = signal(false);
   /** also check every non-bookmark in the index for updates */
   protected readonly nonBookmarks = signal(false);
+  /** a collections run: index and download every work in the collections as well */
+  protected readonly collectionWorks = signal(false);
 
   /** the collection to index, for the action that works from a link */
   protected readonly collectionUrl = signal('');
@@ -306,9 +314,9 @@ export class DownloadDialog implements OnDestroy {
       case 'bookmarks':
         return 'Walks every page of your AO3 bookmarks, reindexes all of them, and downloads anything missing or out of date. Thorough, and slow.';
       case 'collections':
-        return 'Saves a json file describing each of your collections, including the work IDs it contains. The works themselves are not downloaded - they come from your index.';
+        return 'Saves a json file describing each of your collections, including the work IDs it contains. It can index and download the works in them too.';
       case 'collection':
-        return 'Indexes any one collection on AO3, whether or not it is yours. Saved alongside your own collections, in the same shape.';
+        return 'Indexes any one collection on AO3, whether or not it is yours. Saved alongside your own collections, in the same shape. It can index and download the works in it too.';
       case 'new':
         return 'Indexes your newest bookmarks and stops at the first one you already have, then downloads what it found. Usually a request or two.';
       case 'sync':
@@ -364,8 +372,22 @@ export class DownloadDialog implements OnDestroy {
    * part of, and each marked series is walked once indexing is over, the same as a series
    * you bookmarked. The runs kept for debugging and the update run leave it out.
    */
-  protected readonly picksSeries = computed(() =>
-    (['bookmarks', 'quick', 'custom', 'work'] as JobAction[]).includes(this.action()),
+  protected readonly picksSeries = computed(
+    () =>
+      (['bookmarks', 'quick', 'custom', 'work'] as JobAction[]).includes(this.action()) ||
+      // a collections run meets works only when it was asked to index them
+      (this.picksCollectionWorks() && this.collectionWorks()),
+  );
+
+  /**
+   * Indexing and downloading the works in the collections: the two collection runs.
+   *
+   * The crawl reads every page of each collection's works anyway, and each blurb says
+   * everything a bookmarks listing would, so indexing them costs nothing more - only the
+   * downloads do. What follows is the download step every scan ends with.
+   */
+  protected readonly picksCollectionWorks = computed(
+    () => this.action() === 'collections' || this.action() === 'collection',
   );
 
   /**
@@ -415,12 +437,11 @@ export class DownloadDialog implements OnDestroy {
   protected readonly picksReindex = computed(() => this.action() === 'custom');
 
   /**
-   * Indexing collections writes metadata only, so there is nothing to pick: no file types
-   * and no download options. The two link actions ask for their link first; indexing your
-   * own collections goes straight to the login.
+   * Indexing collections on their own writes metadata only, so there are no file types to
+   * pick - unless the run was asked to download the works in them too.
    */
   protected readonly picksFiletypes = computed(
-    () => this.action() !== 'collections' && this.action() !== 'collection',
+    () => !this.picksCollectionWorks() || this.collectionWorks(),
   );
   protected readonly needsLink = computed(
     () => this.action() === 'collection' || this.action() === 'work',
@@ -461,6 +482,7 @@ export class DownloadDialog implements OnDestroy {
       this.picksReindex() ||
       this.picksOverwrite() ||
       this.picksNonBookmarks() ||
+      this.picksCollectionWorks() ||
       // it can always be pointed at an earlier scan, so it always has a choice to offer
       this.action() === 'quick',
   );
@@ -531,6 +553,7 @@ export class DownloadDialog implements OnDestroy {
     if (this.picksReindex() && !this.reindex()) chosen.push('no reindexing');
     if (this.picksOverwrite() && this.overwrite()) chosen.push('overwrite existing files');
     if (this.picksNonBookmarks() && this.nonBookmarks()) chosen.push('check non-bookmarks');
+    if (this.picksCollectionWorks() && this.collectionWorks()) chosen.push('the works in them');
     return chosen;
   });
 
@@ -617,6 +640,14 @@ export class DownloadDialog implements OnDestroy {
         value: this.reindex()
           ? "reading AO3's listing"
           : 'skipped - working from the saved index',
+      });
+    }
+    if (this.picksCollectionWorks()) {
+      rows.push({
+        label: 'Works in the collections',
+        value: this.collectionWorks()
+          ? 'indexed, and downloaded or updated as necessary'
+          : 'only their work numbers recorded',
       });
     }
     if (this.picksSeries()) {
@@ -741,7 +772,8 @@ export class DownloadDialog implements OnDestroy {
     if (this.action() === 'quick' && this.coverage() !== 'run' && this.coverage() !== 'dates') {
       asked.push('quick-floor');
     }
-    if (this.downloads() && this.action() !== 'collections' && this.action() !== 'collection') {
+    // `downloads` already says no for a collections run not downloading their works
+    if (this.downloads()) {
       if (!this.overwrites()) asked.push('undated');
       asked.push('duplicates');
     }
@@ -829,6 +861,7 @@ export class DownloadDialog implements OnDestroy {
     this.folder.set(this.library.store()?.label ?? '');
     // the defaults are a starting point, not a rule: only `forced` cannot be unticked
     this.selected.set([...(config.defaults ?? config.forced)]);
+    this.fillFrom(this.repeatOf());
     this.step.set(this.firstStep());
     if (this.resumeFrom() && this.action() === 'custom') {
       this.coverage.set('resume');
@@ -839,6 +872,20 @@ export class DownloadDialog implements OnDestroy {
     this.remember.set(remembered);
     // the saved username can come from the browser or from ao3downloader's own data.json
     this.username.set((remembered ? safeGet(USERNAME_KEY) : '') || config.username || '');
+  }
+
+  /** the choices of the run being started again, where they apply to this one */
+  private fillFrom(run: RunHistory | null): void {
+    if (!run || run.action !== this.action()) return;
+    const options = run.options ?? {};
+    if (this.needsLink() && run.url) this.collectionUrl.set(run.url);
+    this.collectionWorks.set(!!options['collectionWorks']);
+    this.series.set(!!options['series']);
+    // an older record, or a run indexing collections alone, says nothing worth keeping here
+    const kept = (run.filetypes ?? []).filter((x) => (this.config()?.filetypes ?? []).includes(x));
+    if (this.picksFiletypes() && kept.length) {
+      this.selected.set([...new Set([...(this.config()?.forced ?? []), ...kept])]);
+    }
   }
 
   ngOnDestroy(): void {
@@ -908,6 +955,8 @@ export class DownloadDialog implements OnDestroy {
     // a window opened onto a run already going shows what the run said it was saving
     if (this.attachedTo()) return this.announcedFiletypes();
     if (this.resuming()) return this.chosenResume()?.filetypes ?? [];
+    // collections on their own are only ever indexed
+    if (!this.picksFiletypes()) return [METADATA];
     if (!this.picksReindex()) return this.selected();
     const rest = this.selected().filter((x) => x !== METADATA);
     return this.reindex() ? [METADATA, ...rest] : rest;
@@ -1171,7 +1220,9 @@ export class DownloadDialog implements OnDestroy {
         // carry a limit it no longer shows
         start: this.picksPages() ? this.start() : 1,
         pages: this.picksPages() ? this.pages() : 0,
-        series: this.series(),
+        // only sent by a run that offered it - a collections run offers it only with its works
+        series: this.picksSeries() && this.series(),
+        collectionWorks: this.picksCollectionWorks() && this.collectionWorks(),
         images: this.images(),
         workdates: this.workdates(),
         // only offered on the runs that can be pointed at a known set of works

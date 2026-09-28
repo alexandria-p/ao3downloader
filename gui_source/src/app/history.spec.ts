@@ -523,4 +523,46 @@ describe('History', () => {
   });
 
   // endregion
+
+  // region running a collections run again
+
+  function runAgainButton(): HTMLButtonElement | undefined {
+    return Array.from(element.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Run again',
+    );
+  }
+
+  it('offers to run a collections run again, handing over the whole run', async () => {
+    const emitted: RunHistory[] = [];
+    const run = aRun({ action: 'collection', url: 'https://archiveofourown.org/collections/x',
+                       options: { collectionWorks: true } });
+    await show([run]);
+    fixture.componentInstance.runAgain.subscribe((r) => emitted.push(r));
+
+    runAgainButton()!.click();
+
+    expect(emitted).toEqual([run]);
+    // the link it was pointed at is shown on the entry
+    expect(element.querySelector('.run-link')?.textContent).toContain('collections/x');
+    expect(element.textContent).toContain('indexed and downloaded the works in them');
+  });
+
+  it('says a collection run from before links were saved needs its link again', async () => {
+    await show([aRun({ action: 'collection' })]);
+
+    expect(runAgainButton()).toBeTruthy();
+    expect(element.textContent).toContain('paste it in again');
+  });
+
+  it('offers Run again on the collection runs alone, and not while one is going', async () => {
+    jobs.leaveRunning = true;
+    await show([aRun({ action: 'collections', status: 'running' }), aRun({ file: 'b', id: 'b' })]);
+    expect(runAgainButton()).toBeUndefined();
+
+    jobs.activeRuns.set([{ ...going, action: 'quick' }]);
+    await show([aRun({ action: 'collections' })]);
+    expect(runAgainButton()).toBeUndefined();
+  });
+
+  // endregion
 });

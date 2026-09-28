@@ -135,6 +135,10 @@ ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTIO
 # actions that need a link from the caller rather than working it out from the username
 ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK)
 
+# the two collection runs. On their own they write only the collections' files; asked to
+# (`collectionWorks`) they index every work they meet as well, and download those
+COLLECTION_ACTIONS = (ACTION_COLLECTIONS, ACTION_COLLECTION)
+
 # The runs whose overwrite choice is the caller's to make. Refetching a copy nothing says is
 # out of date is the answer to a damaged file, and it costs a request per format per work -
 # so it belongs to the two runs that are pointed at a library and told to spend more on it,
@@ -217,6 +221,8 @@ def resolve_options(requested) -> dict:
         'start': start,
         'pages': pages,
         'series': bool(given.get('series')),
+        # a collections run also indexing, and downloading, every work in the collections
+        'collectionWorks': bool(given.get('collectionWorks')),
         'images': bool(given.get('images')),
         'workdates': bool(given.get('workdates')),
         # fetch every requested format again, however current the copy on disk looks. the
@@ -649,10 +655,21 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
     metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
     plan: list[tuple[str, str]] = [('login', strings.STEP_LOGIN)]
 
-    if job.action == ACTION_COLLECTIONS:
-        plan.append(('collections', strings.STEP_INDEX_COLLECTIONS))
-    elif job.action == ACTION_COLLECTION:
-        plan.append(('collection', strings.STEP_INDEX_COLLECTION))
+    if job.action in COLLECTION_ACTIONS:
+        works = bool(job.options.get('collectionWorks'))
+        if job.action == ACTION_COLLECTIONS:
+            plan.append(('collections', strings.STEP_INDEX_COLLECTIONS_WORKS if works
+                         else strings.STEP_INDEX_COLLECTIONS))
+        else:
+            plan.append(('collection', strings.STEP_INDEX_COLLECTION_WORKS if works
+                         else strings.STEP_INDEX_COLLECTION))
+        # the works met on the way are downloaded the way any scan downloads what it indexed.
+        # nothing marks a series here unless the run was asked to follow them
+        if works and job.options.get('series'):
+            plan.append(('series', strings.STEP_SERIES))
+        if works and downloads:
+            plan.append(('check', strings.STEP_CHECK_FILES))
+            plan.append(('download', strings.STEP_DOWNLOAD))
     elif job.action == ACTION_WORK:
         plan.append(('index', strings.STEP_INDEX_ONE))
         plan.append(('series', strings.STEP_SERIES))
@@ -835,7 +852,8 @@ def run_job(job: Job, password: str) -> None:
                                             job.options,
                                             settings=settings_for_record(fileops),
                                             background=job.background,
-                                            printed=before_record, helper=job.helper)
+                                            printed=before_record, helper=job.helper,
+                                            url=job.url)
                 repo.login(job.username, password)
                 print(strings.AO3_INFO_LOGGED_IN)
                 begin_record(job, fileops)
@@ -2410,10 +2428,7 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
     progress.report(report, progress.PHASE, name=progress.COLLECTIONS)
     print(strings.AO3_INFO_COLLECTIONS)
 
-    ao3 = Ao3(repo, fileops, [], pages, False, False,
-              progress=report, cancelled=job.cancel.is_set)
-    # the run record reads its fic lists off this when the run ends
-    job.ao3 = ao3
+    ao3 = collections_ao3(job, fileops, repo, report, pages)
     job.steps.start('collections')
     records = ao3.get_collections(link)
     job.steps.done('collections')
@@ -2425,6 +2440,7 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
     else:
         print(strings.AO3_INFO_COLLECTIONS_NONE)
 
+    download_collection_works(job, fileops, ao3, report)
     # a collection crawl can leave gaps too, and used not to say so at all
     finish_run(job, fileops, ao3, report)
 
@@ -2438,10 +2454,7 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
 
     progress.report(report, progress.PHASE, name=progress.COLLECTIONS)
 
-    ao3 = Ao3(repo, fileops, [], None, False, False,
-              progress=report, cancelled=job.cancel.is_set)
-    # the run record reads its fic lists off this when the run ends
-    job.ao3 = ao3
+    ao3 = collections_ao3(job, fileops, repo, report, None)
     job.steps.start('collection')
     records = ao3.get_collection(job.url)
     job.steps.done('collection')
@@ -2451,7 +2464,40 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
             len(records), fileops.describe(
                 os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME))))
 
+    download_collection_works(job, fileops, ao3, report)
     finish_run(job, fileops, ao3, report)
+
+
+def collections_ao3(job: Job, fileops: FileOps, repo: Repository, report,
+                    pages: int | None) -> Ao3:
+    """The Ao3 a collections run crawls with - told to index the works it meets, when the
+    run was asked to, and to follow their series when that was asked too."""
+
+    works = bool(job.options.get('collectionWorks'))
+    downloadtypes = ([x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+                     if works else [])
+    ao3 = Ao3(repo, fileops, downloadtypes, pages, works and job.options['series'], False,
+              progress=report, cancelled=job.cancel.is_set)
+    if works: ao3.collection_works = []
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
+    return ao3
+
+
+def download_collection_works(job: Job, fileops: FileOps, ao3: Ao3, report) -> None:
+    """The works a collections run indexed on its way through, downloaded as a scan would.
+
+    Everything after the crawl is borrowed: their series are walked as any run walks the
+    series it marked, and the download step is the one every scan ends with - so a copy on
+    disk that is current is skipped, and one ao3 has moved past is replaced.
+    """
+
+    if ao3.collection_works is None: return
+    print(strings.AO3_INFO_COLLECTION_WORKS_TOTAL.format(len(ao3.collection_works)))
+    records = ao3.collection_works
+    if job.options.get('series'):
+        records = merge_by_work(records, index_marked_series(job, ao3, report))
+    download_planned(job, fileops, ao3, records, list(ao3.filetypes), report)
 
 
 def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -3109,11 +3155,19 @@ class Handler(BaseHTTPRequestHandler):
         # a chosen floor is the quick scan's alone, and has to name a run that can be one -
         # refused here rather than discovered on the thread, so a bad pick is a straight answer
         if action != ACTION_QUICK: options['floorRun'] = ''
+        # indexing the works a collection holds is the collection runs' alone. without it they
+        # write nothing but the collections' files, so no series is followed either
+        if action not in COLLECTION_ACTIONS: options['collectionWorks'] = False
+        elif not options['collectionWorks']: options['series'] = False
         # a chosen floor is checked by the run, once it can read the history through the page:
         # one that turns out not to qualify falls back to the usual rules and says so
         # a custom run told to skip indexing writes no json, because json is the index
         indexing_run = options['reindex'] or action != ACTION_CUSTOM
         filetypes = resolve_filetypes(body.get('filetypes'), force=indexing_run)
+        # a collections run that is not indexing their works downloads nothing, so its record
+        # must not say it saved html
+        if action in COLLECTION_ACTIONS and not options['collectionWorks']:
+            filetypes = list(FORCED_FILETYPES)
         # re-reading a non-bookmark writes its entry, which a run told not to index has ruled out
         if not indexing_run: options['nonBookmarks'] = False
 

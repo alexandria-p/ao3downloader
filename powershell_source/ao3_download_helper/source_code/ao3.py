@@ -110,6 +110,12 @@ class Ao3:
         # because the work is in a collection that has not been revealed. they index fine;
         # it is only the download that is impossible, so they are held back from it.
         self.unrevealed: set[str] = set()
+        # the works of every collection this run crawls, indexed as they are met - or None
+        # when the run was not asked to, and a collection records only their work numbers
+        self.collection_works: list[dict] | None = None
+        # each work a collection crawl indexed, by id, so one met again in a second
+        # collection is downloaded from what was read rather than read twice
+        self.indexed_this_run: dict[str, dict] = {}
         self.series = series
         self.images = images
         self.mark = mark
@@ -271,15 +277,9 @@ class Ao3:
                         # bookmark was passed over or to go and look at it
                         self.skipped_works.append(parse_soup.get_blurb_skip_reason(blurb))
                         continue
-                    if parse_soup.is_unrevealed_blurb(blurb):
-                        # it still gets indexed below - it has a number and a place in the
-                        # listing - but asking ao3 for the file would fail by definition
-                        self.unrevealed.add(str(worknum))
-                        self.skipped_works.append(
-                            {'id': str(worknum),
-                             'link': parse_soup.get_full_work_url('/works/' + str(worknum)) or '',
-                             'title': parse_soup.get_text_or_empty(blurb, 'h4.heading'),
-                             'error': strings.SKIPPED_UNREVEALED})
+                    # it still gets indexed below - it has a number and a place in the
+                    # listing - but asking ao3 for the file would fail by definition
+                    self.note_unrevealed(blurb, worknum)
 
                     if known is not None and str(worknum) in known:
                         # the first fic we already hold. everything past it on this page,
@@ -681,19 +681,77 @@ class Ao3:
             if self.pages and parse_text.get_page_number(link) == self.pages + 1: break
 
 
-    def collect_work_ids(self, link: str) -> list[str]:
+    def collect_work_ids(self, link: str, collection: str = '') -> list[str]:
         """Every work id on a listing, which is all a collection needs to record.
 
         The works themselves are described by the index in downloads/indexing, so there
         is nothing to gain from repeating their metadata here.
+
+        When the run was asked to index the works too (`collection_works`), each one is
+        indexed off the same page - the blurb carries everything a bookmarks listing would -
+        so it costs nothing on top of the crawl. A page is written once it has been read in
+        full, as a bookmarks listing is.
         """
 
         found: list[str] = []
         for soup in self.walk_pages(link):
+            readings: list[dict] = []
             for blurb in parse_soup.get_blurbs(soup):
                 work = parse_soup.get_blurb_work_number(blurb)
-                if work and work not in found: found.append(work)
+                if not work or work in found: continue
+                found.append(work)
+                if self.collection_works is None: continue
+                self.note_unrevealed(blurb, work)
+                if work in self.indexed_this_run:
+                    # read already this run, off another collection: not read twice, only
+                    # noted as found through this one too, and downloaded with the rest
+                    again = {**self.indexed_this_run[work], indexing.FROM_COLLECTIONS: [collection]}
+                    if collection: self.save_metadata(again)
+                    self.keep_collection_work(self.indexed_this_run[work])
+                    continue
+                readings.append(parse_soup.get_blurb_metadata(blurb))
+            for document in readings:
+                self.keep_collection_work(self.save_collection_work(document, collection, link))
         return found
+
+
+    def keep_collection_work(self, document: dict) -> None:
+        """Add a work to the ones this run will download, once."""
+
+        if self.collection_works is None: return
+        work = str(document.get('id') or '')
+        if work and all(str(x.get('id') or '') != work for x in self.collection_works):
+            self.collection_works.append(document)
+
+
+    def save_collection_work(self, document: dict, collection: str, listing: str) -> dict:
+        """Index one work read off a collection's listing.
+
+        The same rules as a work read off a series page (`save_series_work`): a collection
+        knows the work but nothing about your own bookmark of it. A listing of the
+        collection's *bookmarks* carries somebody else's bookmark - their notes, their tags -
+        so those fields are dropped rather than written in as yours. An entry that already
+        exists keeps its own; a new one is recorded as **not bookmarked**.
+        """
+
+        # blanked rather than removed, so the entry has the shape a series work's does
+        for field in strings.BOOKMARK_OWN_FIELDS:
+            if field in document:
+                value = document[field]
+                document[field] = [] if isinstance(value, list) else \
+                    False if isinstance(value, bool) else ''
+        document.pop(strings.BOOKMARKED_FIELD, None)
+        existing = indexing.flatten(self.fileops.load_json(self.metadata_path(document))) or {}
+        for field in strings.BOOKMARK_OWN_FIELDS:
+            if field in existing: document[field] = existing[field]
+        document.setdefault(strings.BOOKMARKED_FIELD, False)
+        document['source'] = existing.get('source') or listing
+        document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_WORK
+        if collection: document[indexing.FROM_COLLECTIONS] = [collection]
+        self.save_metadata(document)
+        if document.get('id'): self.indexed_this_run[str(document['id'])] = document
+        self.mark_series_of(document)
+        return document
 
 
     def collect_collection_links(self, link: str) -> list[str]:
@@ -812,21 +870,30 @@ class Ao3:
         # what we already know about this collection, to avoid re-walking what has not moved
         previous = self.previous_collection(slug)
 
+        indexing_works = self.collection_works is not None
+        before = len(self.collection_works or [])
         for key, count_key, label, url in (
                 ('work_ids', 'work_count', 'works', f'{base}/works'),
                 ('bookmark_ids', 'bookmark_count', 'bookmarked items', f'{base}/bookmarks')):
-            kept = self.unchanged_items(previous, document, key, count_key)
+            # an unchanged count says the work numbers are the same, not that the works are:
+            # indexing them means reading the listing, so a run asked to never skips it
+            kept = None if indexing_works else self.unchanged_items(
+                previous, document, key, count_key)
             if kept is not None:
                 document[key] = kept
                 print(strings.AO3_INFO_COLLECTION_UNCHANGED.format(slug, len(kept), label))
                 continue
             try:
-                document[key] = self.collect_work_ids(url)
+                document[key] = self.collect_work_ids(url, slug)
             except exceptions.CancelledException:
                 raise
             except Exception as e:
                 document[key] = []
                 self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': url}, e)
+
+        if indexing_works:
+            print(strings.AO3_INFO_COLLECTION_WORKS.format(
+                slug, len(self.collection_works or []) - before))
 
         # only worth asking for when the sidebar says there are some
         document['subcollections'] = []
@@ -939,6 +1006,22 @@ class Ao3:
         return os.path.join(
             strings.INDEXING_FOLDER_NAME, *([subfolder] if subfolder else []),
             filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA))
+
+
+    def note_unrevealed(self, blurb, worknum) -> None:
+        """Hold back a work in a collection that has not been revealed yet, and say why.
+
+        It indexes fine - it has a number and a place in the listing - but ao3 will not serve
+        its file until the collection is revealed, so asking would fail by definition.
+        """
+
+        if not parse_soup.is_unrevealed_blurb(blurb) or str(worknum) in self.unrevealed: return
+        self.unrevealed.add(str(worknum))
+        self.skipped_works.append(
+            {'id': str(worknum),
+             'link': parse_soup.get_full_work_url('/works/' + str(worknum)) or '',
+             'title': parse_soup.get_text_or_empty(blurb, 'h4.heading'),
+             'error': strings.SKIPPED_UNREVEALED})
 
 
     def save_metadata(self, document: dict) -> None:

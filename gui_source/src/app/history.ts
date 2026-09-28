@@ -58,6 +58,21 @@ export class History {
   readonly resume = output<string>();
   /** a background run to open the progress window onto */
   readonly viewProgress = output<ActiveRun>();
+  /** a run to start again with the same choices, in a window filled in with them */
+  readonly runAgain = output<RunHistory>();
+
+  /**
+   * Whether a run can be started again from here: the collection runs, which have no Resume
+   * - a repeat is cheap, and is the retry. Not while it is still going, nor while another run
+   * is, since the helper takes one at a time.
+   */
+  protected canRunAgain(run: RunHistory): boolean {
+    return (
+      (run.action === 'collections' || run.action === 'collection') &&
+      run.status !== 'running' &&
+      !this.activeRuns().length
+    );
+  }
 
   /**
    * The runs the helper is working on right now, pinned above the history.
@@ -195,6 +210,7 @@ export class History {
     if (options['reindex'] === false) said.push('no reindexing');
     if (options['pages']) said.push(`up to page ${options['pages']}`);
     if (Number(options['start'] ?? 1) > 1) said.push(`from page ${options['start']}`);
+    if (options['collectionWorks']) said.push('indexed and downloaded the works in them');
     if (options['series']) said.push('all works from encountered series');
     if (options['images']) said.push('save images separately');
     return said;

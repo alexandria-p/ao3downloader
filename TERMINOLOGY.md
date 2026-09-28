@@ -12,13 +12,15 @@ the same thing in conversation.
 - **Series** - an AO3 series: an ordered set of works.
 - **Series bookmark** [bookmarked series] - a bookmark of a whole series rather than one of its works.
 - **External work** - a bookmark of a work hosted somewhere other than AO3; indexed, never downloaded.
-- **Collection** - an AO3 collection; indexed as a list of the works it holds.
+- **Collection** - an AO3 collection; indexed as a list of the works it holds, and optionally the works themselves.
 
 ## Index properties
 
 - **Bookmark type** [type] - what an index entry is: `individual work`, `series bookmark` or `external work`.
 - **Bookmarked** [is_bookmark] - whether you bookmarked a work or series yourself (`true`/`false`, or absent when unknown).
-- **Non-bookmark** - an individual work in the index with `bookmarked: false`: there because a run was led to it some other way, usually through another work's series.
+- **Non-bookmark** - an individual work in the index with `bookmarked: false`: there because a run was led to it some other way, usually through another work's series or a collection.
+- **From series** [from_series] - the series a work was found through; added to, never replaced.
+- **From collections** [from_collections] - the collections a work was found through, by short name, when a collection run indexed its works; added to, never replaced.
 
 ## Reading AO3
 
@@ -109,7 +111,7 @@ the same thing in conversation.
 
 **Every workflow** also offers, on its login step:
 
-- *Run as background task* - only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), and *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range. A workflow that downloads nothing (the collections ones, or JSON only) asks none. Its steps are the workflow's own, unchanged.
+- *Run as background task* - only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), and *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range. A workflow that downloads nothing (a collection run not taking its works, or JSON only) asks none. Its steps are the workflow's own, unchanged.
 
 ## Quick scan
 
@@ -201,6 +203,29 @@ With a date range, steps 2 and 3 read "…in that date range".
   7. Download or update each fic as necessary
   8. Cleanup
   9. Report any failures
+
+## Index my collections / Index collection by URL
+
+- **Programmatic names:** `collections` (your own, from `/users/<you>/collections`) and `collection` (any one, from a link)
+- **Options:**
+  - A collection link (`collection` only)
+  - *Index and download encountered works* [collection works, `collectionWorks`] - index every work in the collections' works and bookmarked-items listings as they are crawled, then download them. Off: only the collections' files are written.
+  - *Get all works from encountered series* - only offered with the option above
+  - File types - only asked with the option above; without it the run is JSON only
+- **Steps (collections only):**
+  1. Log in to AO3
+  2. Index your collections / Index this collection
+  3. Cleanup
+  4. Report any failures
+- **Steps (with their works):**
+  1. Log in to AO3
+  2. Index your collections and the works in them / Index this collection and the works in it
+  3. Index works in series marked for walkthrough (only when chosen)
+  4. Read your existing downloaded files (only when downloading)
+  5. Download or update works as necessary (only when downloading)
+  6. Cleanup
+  7. Report any failures
+- Not resumable. History offers **Run again**, which opens the window filled in with the run's choices and, for `collection`, its link (saved as the run's `url`).
 
 ---
 
@@ -312,4 +337,5 @@ Used by: every workflow.
 - **Read existing index for unfinished fics** - the update run; lists works the index says are unfinished.
 - **Re-index each fic, then download or update as necessary** - the update run and the combined run; re-reads each unfinished fic's page.
 - **Fetch any format still missing** - the combined run; fills formats missing from works the other passes left alone.
-- **Index your collections** / **Index this collection** - the two collection runs.
+- **Index your collections** / **Index this collection** - the two collection runs. Reads each collection's profile, then its works and bookmarked-items listings (one request per 20), skipping a listing whose count has not changed.
+- **Index your collections and the works in them** / **Index this collection and the works in it** - the same, with *Index and download encountered works*. Never skips a listing on its count, because it indexes every work blurb on it: an existing entry keeps its own bookmark fields; a new one gets `bookmarked: false`; somebody else's bookmark notes and tags from a bookmarked-items listing are blanked, never written in as yours. Each work records the collection in `from_collections`, is read once however many collections hold it, and has its series marked when that option is on. Works in an unrevealed collection are indexed and held back from download. The works go on to the ordinary series, check and download steps.

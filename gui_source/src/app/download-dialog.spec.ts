@@ -646,6 +646,8 @@ describe('DownloadDialog', () => {
       floorRun: '',
       // only a custom run picking up an earlier run sends one
       resume: '',
+      // the collection runs' alone
+      collectionWorks: false,
     });
   });
 
@@ -839,15 +841,6 @@ describe('DownloadDialog', () => {
   // endregion
 
   // region syncing collections
-
-  async function startCollections() {
-    const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
-    password.value = 'a-password';
-    password.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    button('Start download')?.click();
-    await fixture.whenStable();
-  }
 
   // endregion
 
@@ -1432,7 +1425,7 @@ describe('DownloadDialog', () => {
     await typeLink(LINK);
     button('Continue')!.click();
     await fixture.whenStable();
-    await startCollections();
+    await advanceTo('running');
 
     expect(jobs.started[0].action).toBe('collection');
     expect(jobs.started[0].url).toBe(LINK);
@@ -1586,25 +1579,97 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('.dialog h2')?.textContent?.trim()).toBe('Index my collections');
   });
 
-  it('goes straight to the login, since there is nothing to choose', async () => {
-    // collections write metadata only: no file types, no download options
+  it('opens on its one question - whether to take the works in them too', async () => {
     await open('collections');
 
-    expect(element.querySelector('input[name="password"]')).toBeTruthy();
-    expect(element.querySelector('.dialog fieldset')).toBeNull();
+    expect(currentStep()).toBe('options');
+    expect(checkbox('Index and download encountered works')?.checked).toBe(false);
+    // series only mean anything once there are works to follow them from
+    expect(checkbox('encountered series')).toBeUndefined();
     expect(element.querySelector('.dialog input[type="number"]')).toBeNull();
   });
 
-  it('offers no way back past the login', async () => {
+  it('offers no way back past its first step', async () => {
     await open('collections');
 
     expect(button('Back')).toBeUndefined();
     expect(button('Cancel')).toBeTruthy();
   });
 
+  it('goes straight from its question to the login when only indexing the collections', async () => {
+    // collections on their own write metadata only: there are no file types to pick
+    await open('collections');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('credentials');
+  });
+
+  it('indexes the collections alone unless asked for their works', async () => {
+    await open('collections');
+    await advanceTo('running');
+
+    expect(jobs.started[0].filetypes).toEqual(['JSON']);
+    expect(jobs.started[0].options.collectionWorks).toBe(false);
+    expect(jobs.started[0].options.series).toBe(false);
+  });
+
+  it('asks for file types and offers series once asked for the works', async () => {
+    await open('collection');
+    await advanceTo('options');
+    checkbox('Index and download encountered works')!.click();
+    await fixture.whenStable();
+
+    expect(element.textContent).toContain('the collection');
+    checkbox('encountered series')!.click();
+    await fixture.whenStable();
+    button('Continue')!.click();
+    await fixture.whenStable();
+    expect(currentStep()).toBe('filetypes');
+
+    await advanceTo('running');
+    expect(jobs.started[0].filetypes).toEqual(['JSON', 'HTML']);
+    expect(jobs.started[0].options.collectionWorks).toBe(true);
+    expect(jobs.started[0].options.series).toBe(true);
+  });
+
+  it('says back that it is taking the works too', async () => {
+    await open('collections');
+    checkbox('Index and download encountered works')!.click();
+    await fixture.whenStable();
+    await advanceTo('running');
+
+    const said = element.querySelector('.settings')?.textContent ?? '';
+    expect(said).toContain('Works in the collections');
+    expect(said).toContain('downloaded or updated as necessary');
+  });
+
+  it('opens filled in with an earlier run to run it again', async () => {
+    fixture = TestBed.createComponent(DownloadDialog);
+    fixture.componentRef.setInput('action', 'collection');
+    fixture.componentRef.setInput('repeatOf', {
+      ...scanOnRecord('earlier', '2026-09-01T12:00:00', 'collection'),
+      url: LINK,
+      filetypes: ['JSON', 'EPUB'],
+      options: { collectionWorks: true, series: true },
+    });
+    await fixture.whenStable();
+    element = fixture.nativeElement as HTMLElement;
+
+    expect(linkBox().value).toBe(LINK);
+    button('Continue')!.click();
+    await fixture.whenStable();
+    expect(checkbox('Index and download encountered works')?.checked).toBe(true);
+    expect(checkbox('encountered series')?.checked).toBe(true);
+
+    await advanceTo('running');
+    expect(jobs.started[0].url).toBe(LINK);
+    expect([...jobs.started[0].filetypes].sort()).toEqual(['EPUB', 'JSON']);
+  });
+
   it('sends the collections action', async () => {
     await open('collections');
-    await startCollections();
+    await advanceTo('running');
 
     expect(jobs.started).toHaveLength(1);
     expect(jobs.started[0].action).toBe('collections');
@@ -1612,7 +1677,7 @@ describe('DownloadDialog', () => {
 
   it('still shows progress and a stop button while it runs', async () => {
     await open('collections');
-    await startCollections();
+    await advanceTo('running');
 
     jobs.push!({ type: 'phase', name: 'collections' });
     jobs.push!({ type: 'work', title: 'Best of DCMK', phase: 'collections', done: 1 });

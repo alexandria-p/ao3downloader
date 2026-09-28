@@ -155,6 +155,9 @@ AO3_INFO_COLLECTIONS = 'syncing collections'
 AO3_INFO_COLLECTION_SAVED = 'saved collection {}'
 AO3_INFO_COLLECTION_UNCHANGED = 'collection {} still has {} {}, so the saved ones are kept'
 AO3_INFO_COLLECTIONS_DONE = 'saved {} collections to {}'
+# said per collection when the run indexes the works it holds as well
+AO3_INFO_COLLECTION_WORKS = 'collection {}: indexed {} works not already found this run'
+AO3_INFO_COLLECTION_WORKS_TOTAL = '{} works found across the collections'
 AO3_INFO_COLLECTIONS_NONE = 'no collections found for that user'
 AO3_INFO_COLLECTION_ONE = 'indexing the collection {}'
 
@@ -324,6 +327,9 @@ STEP_INDEX_UPDATED_WINDOW = 'Index works AO3 updated in that date range'
 STEP_INDEX_ONE = 'Index this fic'
 STEP_INDEX_COLLECTIONS = 'Index your collections'
 STEP_INDEX_COLLECTION = 'Index this collection'
+# the same crawl, told to index each work it meets as well - see Ao3.collect_work_ids
+STEP_INDEX_COLLECTIONS_WORKS = 'Index your collections and the works in them'
+STEP_INDEX_COLLECTION_WORKS = 'Index this collection and the works in it'
 STEP_USE_INDEX = 'Read the index already saved'
 STEP_CHECK_FILES = 'Read your existing downloaded files'
 # a scan indexes first, so by the time this runs it knows which copies ao3 has moved

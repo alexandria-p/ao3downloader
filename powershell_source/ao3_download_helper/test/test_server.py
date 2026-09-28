@@ -92,6 +92,7 @@ def test_resolve_options_defaults_match_the_console_defaults():
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
         'reindex': True, 'dates': False, 'dateFrom': '', 'dateTo': '',
         'overwrite': False, 'floorRun': '', 'nonBookmarks': False, 'resume': '',
+        'collectionWorks': False,
     }
 
 
@@ -99,13 +100,14 @@ def test_resolve_options_reads_what_was_asked_for():
     result = server.resolve_options(
         {'start': '5', 'pages': '8', 'series': True, 'images': True, 'workdates': True,
          'reindex': False, 'dates': True, 'dateFrom': '2026-01-01',
-         'dateTo': '2026-06-30', 'overwrite': True, 'nonBookmarks': True})
+         'dateTo': '2026-06-30', 'overwrite': True, 'nonBookmarks': True,
+         'collectionWorks': True})
 
     assert result == {'start': 5, 'pages': 8, 'series': True, 'images': True,
                       'workdates': True, 'reindex': False, 'dates': True,
                       'dateFrom': '2026-01-01', 'dateTo': '2026-06-30',
                       'overwrite': True, 'floorRun': '', 'nonBookmarks': True,
-                      'resume': ''}
+                      'resume': '', 'collectionWorks': True}
 
 
 def test_a_date_that_cannot_be_read_is_no_date_at_all():

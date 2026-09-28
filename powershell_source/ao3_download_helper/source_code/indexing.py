@@ -23,11 +23,16 @@ LAST_INDEXED = 'last_indexed'
 
 # these identify the file rather than describing the work, so they live at the root and
 # are not versioned.
-IDENTITY_FIELDS = ('id', 'link', 'source', 'bookmark_type', 'from_series')
+IDENTITY_FIELDS = ('id', 'link', 'source', 'bookmark_type', 'from_series', 'from_collections')
 
 # the bookmarked series a work was found through. added to, never replaced: a work in two
 # bookmarked series was found through both, whichever was read last
 FROM_SERIES = 'from_series'
+# the collections a work was found through, by short name, when a collections run was asked
+# to index their works. added to the same way, for the same reason
+FROM_COLLECTIONS = 'from_collections'
+# the fields that only ever grow
+ACCUMULATED_FIELDS = (FROM_SERIES, FROM_COLLECTIONS)
 
 # written by earlier versions: a fic's place in the listing, which the page now sorts and
 # filters for itself. dropped from any file as it is next saved
@@ -120,11 +125,14 @@ def merge(existing: dict | None, document: dict, indexed_on: str,
     for field in RETIRED_FIELDS:
         result.pop(field, None)
         for reading in entries: reading.pop(field, None)
-    known_series = [str(x) for x in (result.get(FROM_SERIES) or [])]
+    known = {field: [str(x) for x in (result.get(field) or [])] for field in ACCUMULATED_FIELDS}
     result.update(identity)
-    if FROM_SERIES in identity or known_series:
-        added = [str(x) for x in (identity.get(FROM_SERIES) or [])]
-        result[FROM_SERIES] = sorted(set(known_series) | set(added), key=lambda x: (len(x), x))
+    for field in ACCUMULATED_FIELDS:
+        if field in identity or known[field]:
+            added = [str(x) for x in (identity.get(field) or [])]
+            # series ids are numbers, so shorter first keeps them in numeric order
+            result[field] = sorted(set(known[field]) | set(added),
+                                   key=(lambda x: (len(x), x)) if field == FROM_SERIES else None)
     result[LAST_INDEXED] = indexed_on
     result[INDEXES] = entries
     return result
