@@ -57,7 +57,7 @@ class RunRecord:
     def __init__(self, fileops, job_id: str, action: str, action_name: str,
                  filetypes: list[str], options: dict,
                  printed: list[str] | None = None,
-                 settings: dict | None = None) -> None:
+                 settings: dict | None = None, background: bool = False) -> None:
         self.fileops = fileops
         # lines counted since the last write, not since the run began
         self.unsaved = 0
@@ -72,6 +72,8 @@ class RunRecord:
             'status': STATUS_RUNNING,
             'filetypes': list(filetypes),
             'options': dict(options or {}),
+            # a run the helper carried on with after the page closed, reaching Dropbox itself
+            'background': bool(background),
             # what settings.ini said at the time. it decides pacing, file naming and
             # retries, so a run cannot be explained afterwards without it - and which
             # settings.ini was in force depends on where the helper was started from,

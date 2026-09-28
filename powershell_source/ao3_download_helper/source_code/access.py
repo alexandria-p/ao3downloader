@@ -125,7 +125,18 @@ def private_key():
 
 
 def login_from(body: dict) -> tuple[str, str]:
-    """The ao3 username and password a start request carries.
+    """The ao3 username and password a start request carries - see `credentials_from`."""
+
+    username, password, _ = credentials_from(body)
+    return username, password
+
+
+def credentials_from(body: dict) -> tuple[str, str, dict | None]:
+    """The ao3 username and password a start request carries, and the Dropbox sign-in a
+    background run is handed (`{refreshToken, appKey}`, or None).
+
+    The Dropbox sign-in travels the same way the login does - inside the sealed blob when
+    there is a key - because it is worth as much: whoever holds it can write to the library.
 
     With a private key configured, **only a sealed login is accepted**. A page built without
     the public key would otherwise send the password in the clear to a helper that was set
@@ -134,14 +145,25 @@ def login_from(body: dict) -> tuple[str, str]:
 
     key = private_key()
     if key is None:
-        return (body.get('username') or '').strip(), body.get('password') or ''
+        return ((body.get('username') or '').strip(), body.get('password') or '',
+                dropbox_from(body.get('dropbox')))
 
     sealed = body.get('credentials')
     if not isinstance(sealed, str) or not sealed:
         raise AccessError('this helper only accepts an encrypted login, and the page sent '
                           'a plain one - the page was built without the public key')
-    username, password = open_login(sealed, key)
-    return username.strip(), password
+    login = open_login(sealed, key, whole=True)
+    return login['username'].strip(), login['password'], dropbox_from(login.get('dropbox'))
+
+
+def dropbox_from(value) -> dict | None:
+    """A Dropbox sign-in as handed over, or None when there is none or it is not one."""
+
+    if not isinstance(value, dict): return None
+    token, app_key = value.get('refreshToken'), value.get('appKey')
+    if not isinstance(token, str) or not token or not isinstance(app_key, str) or not app_key:
+        return None
+    return {'refreshToken': token, 'appKey': app_key}
 
 
 def public_key_pem(key) -> str:
@@ -171,7 +193,7 @@ SEEN = Seen()
 
 
 def open_login(sealed: str, key, now: float | None = None,
-               seen: Seen = SEEN) -> tuple[str, str]:
+               seen: Seen = SEEN, whole: bool = False):
     """The username and password out of a login the page sealed.
 
     The page encrypts `{"username", "password", "sent", "nonce"}` - `sent` in milliseconds
@@ -212,6 +234,6 @@ def open_login(sealed: str, key, now: float | None = None,
     if not seen.first_time(nonce, now):
         raise AccessError('that login has already been used - start the run again')
 
-    return username, password
+    return login if whole else (username, password)
 
 # endregion

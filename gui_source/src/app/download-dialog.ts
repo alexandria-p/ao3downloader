@@ -1,7 +1,9 @@
 import { Component, OnDestroy, computed, inject, input, output, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import {
+  ActiveRun,
   AnswerChoice,
+  BackgroundAnswers,
   JobAction,
   JobEvent,
   JobOptions,
@@ -10,11 +12,16 @@ import {
   RunHistory,
   baselineOf,
   RunStep,
+  QuestionName,
+  RunInProgressError,
+  StartRequest,
   WorkFailure,
 } from './jobs';
+import { DropboxSession } from './dropbox';
 import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
-import { LibraryStore, StorageRequest } from './library-store';
+import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
+import { RunIssues, issueCount, issuesReport } from './issues';
 
 type Step =
   | 'link'
@@ -60,10 +67,17 @@ const MAX_LOG = 200;
 export class DownloadDialog implements OnDestroy {
   private readonly jobs = inject(Jobs);
   private readonly library = inject(Library);
+  private readonly dropbox = inject(DropboxSession);
 
   readonly action = input.required<JobAction>();
   /** a run to open set to resume - from the history's Resume button */
   readonly resumeFrom = input('');
+  /**
+   * A run already going in the background, to open straight onto its progress - from the
+   * history's View progress button. Everything so far is replayed, so the window reads as
+   * it would have had it been open all along.
+   */
+  readonly attachTo = input<ActiveRun | null>(null);
   readonly closed = output<void>();
 
   protected readonly step = signal<Step>('filetypes');
@@ -492,6 +506,9 @@ export class DownloadDialog implements OnDestroy {
 
   /** what the run was asked to do, shown back while it works */
   protected readonly chosenOptions = computed(() => {
+    // a window opened onto a run already going chose nothing, so it has nothing to show
+    // back - the run's own options are on its entry in the History tab
+    if (this.attachedTo()) return [];
     const chosen: string[] = [];
     // only what this run was actually offered: showing back a setting it cannot act on
     // would read as a promise it is not going to keep
@@ -636,6 +653,124 @@ export class DownloadDialog implements OnDestroy {
   /** set once a skip has been asked for, so it cannot be sent twice by accident */
   protected readonly skipping = signal(false);
 
+  // region running in the background
+
+  /** ticked: the run carries on in the helper with this page closed */
+  protected readonly background = signal(false);
+  /** whether the run on screen is a background one - chosen here, or attached to */
+  protected readonly runningInBackground = signal(false);
+  /** the run this window was opened onto, rather than started - see `attach` */
+  private readonly attachedTo = signal<ActiveRun | null>(null);
+  /** the file types the run said it was saving, as it started - replayed to a late window */
+  private readonly announcedFiletypes = signal<string[]>([]);
+
+  /**
+   * Why a background run cannot be chosen, or '' when it can.
+   *
+   * Only a library in Dropbox can be reached without the page. A folder on this computer is
+   * open in this tab alone - the helper asks the page for every file, so closing it would
+   * leave the run with nowhere to write.
+   */
+  protected readonly backgroundBlocked = computed(() => {
+    if (!(this.library.store() instanceof DropboxLibraryStore)) {
+      return 'Only for a library in Dropbox: a folder on this computer can only be reached ' +
+        'while this page is open.';
+    }
+    if (this.dropbox.status() !== 'signed-in') return 'Sign in to Dropbox first.';
+    return '';
+  });
+
+  /** whether this run writes any downloaded works, rather than only the index */
+  private readonly downloads = computed(() =>
+    this.chosenFiletypes().some((x) => x !== METADATA),
+  );
+
+  /** whether the run replaces every copy anyway, which decides the undated question for it */
+  private readonly overwrites = computed(
+    () => this.action() === 'work' || (this.picksOverwrite() && this.overwrite()),
+  );
+
+  /**
+   * The questions this run could stop to ask, which a background run is asked up front.
+   *
+   * Worked out from the workflow and its options the same way the helper decides whether
+   * to ask: a run that downloads nothing has no copies to judge; one that overwrites has
+   * already settled every undated copy; only a quick scan with no earlier scan to measure
+   * back to asks how far to go. Whether a question actually comes up depends on what is in
+   * the library - these are answers held ready, used only if it does.
+   */
+  protected readonly backgroundQuestions = computed<QuestionName[]>(() => {
+    if (this.resuming()) return ['undated', 'duplicates'];
+    const asked: QuestionName[] = [];
+    if (this.action() === 'quick' && this.coverage() !== 'run' && this.coverage() !== 'dates') {
+      asked.push('quick-floor');
+    }
+    if (this.downloads() && this.action() !== 'collections' && this.action() !== 'collection') {
+      if (!this.overwrites()) asked.push('undated');
+      asked.push('duplicates');
+    }
+    return asked;
+  });
+
+  /** what to do about files with no date in their name - nothing, by default */
+  protected readonly undatedAnswer = signal<'skip' | 'refresh' | 'stamp'>('skip');
+  protected readonly undatedDate = signal(today());
+  /** what to do about older copies beside the newest - leave them, by default */
+  protected readonly duplicatesAnswer = signal<'leave' | 'newest'>('leave');
+  /** how far back a quick scan goes with nothing to measure to - everything, by default */
+  protected readonly quickFloorAnswer = signal<'full' | 'since'>('full');
+
+  /** the up-front answers, for the questions this run could ask */
+  private readonly backgroundAnswers = computed<BackgroundAnswers>(() => {
+    const answers: BackgroundAnswers = {};
+    for (const name of this.backgroundQuestions()) {
+      if (name === 'undated') {
+        answers.undated = this.undatedAnswer() === 'stamp'
+          ? { choice: 'stamp', date: this.undatedDate() }
+          : { choice: this.undatedAnswer() };
+      }
+      if (name === 'duplicates') answers.duplicates = { choice: this.duplicatesAnswer() };
+      if (name === 'quick-floor') answers['quick-floor'] = { choice: this.quickFloorAnswer() };
+    }
+    return answers;
+  });
+
+  /** a stamp needs a real date, or the run would be refused before it started */
+  protected readonly backgroundAnswersReady = computed(
+    () => !this.background() || this.undatedAnswer() !== 'stamp' ||
+      !this.backgroundQuestions().includes('undated') || isDate(this.undatedDate()),
+  );
+
+  protected setBackground(value: boolean): void {
+    this.background.set(value && !this.backgroundBlocked());
+  }
+
+  /**
+   * Close this window and leave the run going. Only a background run can: it reaches the
+   * library itself, so nothing here is needed for it to carry on.
+   */
+  protected continueInBackground(): void {
+    if (!this.runningInBackground()) return;
+    this.stop?.();
+    this.stop = null;
+    this.releaseUnloadGuard();
+    this.closed.emit();
+  }
+
+  /** open onto a background run already going, replaying everything it has said */
+  private attach(run: ActiveRun): void {
+    this.resetRunState();
+    this.attachedTo.set(run);
+    this.step.set('running');
+    this.jobId = run.id;
+    this.runningInBackground.set(true);
+    this.held.set(run.paused);
+    this.append(`showing the ${run.actionName} started ${new Date(run.started).toLocaleString()}`);
+    this.stop = this.jobs.stream(run.id, (event) => this.onEvent(event), () => this.onStreamEnd());
+  }
+
+  // endregion
+
   constructor() {
     void this.init();
   }
@@ -643,6 +778,15 @@ export class DownloadDialog implements OnDestroy {
   private async init(): Promise<void> {
     const config = await this.jobs.loadConfig();
     if (!config) return;
+
+    // read after the await, not before: inputs are set once the constructor has returned
+    const attaching = this.attachTo();
+    if (attaching) {
+      // nothing to choose: the run is already going, so this opens straight onto it
+      this.folder.set(this.library.store()?.label ?? '');
+      this.attach(attaching);
+      return;
+    }
 
     // the library the page has open is where everything goes - the helper has none of its own
     this.folder.set(this.library.store()?.label ?? '');
@@ -724,6 +868,8 @@ export class DownloadDialog implements OnDestroy {
    * rather than the helper being left to guess which of them meant it.
    */
   protected readonly chosenFiletypes = computed(() => {
+    // a window opened onto a run already going shows what the run said it was saving
+    if (this.attachedTo()) return this.announcedFiletypes();
     if (this.resuming()) return this.chosenResume()?.filetypes ?? [];
     if (!this.picksReindex()) return this.selected();
     const rest = this.selected().filter((x) => x !== METADATA);
@@ -900,6 +1046,54 @@ export class DownloadDialog implements OnDestroy {
 
   private async run(): Promise<void> {
     this.step.set('running');
+    this.resetRunState();
+    this.runningInBackground.set(this.background());
+
+    let jobId: string;
+    try {
+      // a resumed run is started as the run it picks up - a quick scan stays a quick scan
+      const resumed = this.resuming() ? this.chosenResume() : null;
+      const background = this.background() && !this.backgroundBlocked();
+      // an ordinary run sends nothing about the background at all - in particular never the
+      // Dropbox sign-in, which only a background run has any use for
+      jobId = await this.jobs.start(
+        background
+          ? {
+              ...this.startRequest(resumed),
+              background: true,
+              answers: this.backgroundAnswers(),
+              dropbox: this.dropbox.handover(),
+            }
+          : this.startRequest(resumed),
+      );
+    } catch (e) {
+      this.error.set(e instanceof Error ? e.message : String(e));
+      this.step.set('failed');
+      // the page's idea of what is running is out of date, so it is asked again
+      if (e instanceof RunInProgressError) void this.jobs.refreshActiveRuns();
+      return;
+    } finally {
+      // the password has been handed over; don't keep it in component state
+      this.password.set('');
+    }
+
+    this.jobId = jobId;
+    void this.jobs.refreshActiveRuns();
+    // the run reads and writes through this library for as long as it lasts, even if the
+    // page is switched to another one meanwhile - a run half in each would be no use
+    this.runStore = this.library.store();
+    this.handledStorage.clear();
+    // a background run does not need this page, so leaving it is not worth a warning
+    if (!this.runningInBackground()) this.holdUnloadGuard();
+    this.stop = this.jobs.stream(
+      jobId,
+      (event) => this.onEvent(event),
+      () => this.onStreamEnd(),
+    );
+  }
+
+  /** everything a run on screen shows, back to how it starts */
+  private resetRunState(): void {
     this.log.set([]);
     this.percent.set(null);
     this.error.set('');
@@ -920,64 +1114,47 @@ export class DownloadDialog implements OnDestroy {
     this.keptCopies.set([]);
     this.notRemoved.set([]);
     this.steps.set([]);
+    this.question.set('');
+    this.held.set(false);
+    this.holdPending.set(false);
+    this.paused.set(null);
+  }
 
-    let jobId: string;
-    try {
-      // a resumed run is started as the run it picks up - a quick scan stays a quick scan
-      const resumed = this.resuming() ? this.chosenResume() : null;
-      jobId = await this.jobs.start({
-        action: resumed ? (resumed.action as JobAction) : this.action(),
-        filetypes: this.chosenFiletypes(),
-        options: {
-          // a slice is only sent by the run that asked for one. the inputs keep whatever
-          // was typed in them, so a run switched back to 'all bookmarks' would otherwise
-          // carry a limit it no longer shows
-          start: this.picksPages() ? this.start() : 1,
-          pages: this.picksPages() ? this.pages() : 0,
-          series: this.series(),
-          images: this.images(),
-          workdates: this.workdates(),
-          // only offered on the runs that can be pointed at a known set of works
-          overwrite: this.picksOverwrite() && this.overwrite(),
-          // only the scans offer it, and not while skipping the indexing
-          nonBookmarks: this.picksNonBookmarks() && this.nonBookmarks(),
-          // only a custom run can turn this off; everything else always indexes
-          reindex: this.picksReindex() ? this.reindex() : true,
-          // a window of time and a slice of the listing are alternatives, so the one not
-          // chosen is not sent at all rather than sent and ignored
-          dates: this.picksDates() && this.useDates(),
-          dateFrom: this.useDates() ? this.dateFrom() : '',
-          // an open-topped window has no newer end, so it must not carry one left behind
-          // from a moment when 'between two dates' was ticked
-          dateTo: this.useDates() && this.betweenDates() ? this.dateTo() : '',
-          floorRun: this.picksFloorRun() ? this.floorRun() : '',
-          // the helper takes everything else from that run's own record
-          resume: resumed ? resumed.id : '',
-        } satisfies JobOptions,
-        username: this.username().trim(),
-        password: this.password(),
-        url: this.needsLink() ? this.collectionUrl().trim() : undefined,
-      });
-    } catch (e) {
-      this.error.set(e instanceof Error ? e.message : String(e));
-      this.step.set('failed');
-      return;
-    } finally {
-      // the password has been handed over; don't keep it in component state
-      this.password.set('');
-    }
-
-    this.jobId = jobId;
-    // the run reads and writes through this library for as long as it lasts, even if the
-    // page is switched to another one meanwhile - a run half in each would be no use
-    this.runStore = this.library.store();
-    this.handledStorage.clear();
-    this.holdUnloadGuard();
-    this.stop = this.jobs.stream(
-      jobId,
-      (event) => this.onEvent(event),
-      () => this.onStreamEnd(),
-    );
+  /** what the run is started with - everything but whether it runs in the background */
+  private startRequest(resumed: ResumableRun | null): StartRequest {
+    return {
+      action: resumed ? (resumed.action as JobAction) : this.action(),
+      filetypes: this.chosenFiletypes(),
+      options: {
+        // a slice is only sent by the run that asked for one. the inputs keep whatever
+        // was typed in them, so a run switched back to 'all bookmarks' would otherwise
+        // carry a limit it no longer shows
+        start: this.picksPages() ? this.start() : 1,
+        pages: this.picksPages() ? this.pages() : 0,
+        series: this.series(),
+        images: this.images(),
+        workdates: this.workdates(),
+        // only offered on the runs that can be pointed at a known set of works
+        overwrite: this.picksOverwrite() && this.overwrite(),
+        // only the scans offer it, and not while skipping the indexing
+        nonBookmarks: this.picksNonBookmarks() && this.nonBookmarks(),
+        // only a custom run can turn this off; everything else always indexes
+        reindex: this.picksReindex() ? this.reindex() : true,
+        // a window of time and a slice of the listing are alternatives, so the one not
+        // chosen is not sent at all rather than sent and ignored
+        dates: this.picksDates() && this.useDates(),
+        dateFrom: this.useDates() ? this.dateFrom() : '',
+        // an open-topped window has no newer end, so it must not carry one left behind
+        // from a moment when 'between two dates' was ticked
+        dateTo: this.useDates() && this.betweenDates() ? this.dateTo() : '',
+        floorRun: this.picksFloorRun() ? this.floorRun() : '',
+        // the helper takes everything else from that run's own record
+        resume: resumed ? resumed.id : '',
+      } satisfies JobOptions,
+      username: this.username().trim(),
+      password: this.password(),
+      url: this.needsLink() ? this.collectionUrl().trim() : undefined,
+    };
   }
 
   /**
@@ -1001,6 +1178,7 @@ export class DownloadDialog implements OnDestroy {
         break;
       case 'started':
         this.append('starting');
+        this.announcedFiletypes.set(event.filetypes ?? []);
         break;
       case 'phase':
         this.phase.set(event.name ?? '');
@@ -1143,7 +1321,12 @@ export class DownloadDialog implements OnDestroy {
     // the stream also drops when the helper stops; only treat that as a failure
     // if the job never reported an outcome
     if (this.step() === 'running') {
-      this.error.set('Lost contact with the local helper. Check the window it is running in.');
+      this.error.set(
+        this.runningInBackground()
+          ? 'Lost contact with the helper. The run may still be going there - the History ' +
+              'tab shows it while it is, and View progress picks it up again.'
+          : 'Lost contact with the local helper. Check the window it is running in.',
+      );
       this.step.set('failed');
       this.finishUp();
     }
@@ -1239,6 +1422,8 @@ export class DownloadDialog implements OnDestroy {
     this.stop?.();
     this.stop = null;
     this.releaseUnloadGuard();
+    // the banner and the run buttons go by what the helper says is running
+    void this.jobs.refreshActiveRuns();
   }
 
   private append(text: string): void {
@@ -1333,92 +1518,31 @@ export class DownloadDialog implements OnDestroy {
     void this.answerQuestion('stamp', this.stampDate());
   }
 
+  /** everything this run reported, by kind, as the report builds it */
+  private readonly issues = computed<RunIssues>(() => ({
+    failures: this.failures(),
+    keptCopies: this.keptCopies(),
+    notRemoved: this.notRemoved(),
+    skipped: this.skipped(),
+  }));
+
   /** how many entries there are across every list of issues this run reported */
-  protected readonly issueCount = computed(
-    () =>
-      this.failures().length +
-      this.keptCopies().length +
-      this.notRemoved().length +
-      this.skipped().length,
-  );
+  protected readonly issueCount = computed(() => issueCount(this.issues()));
 
   /**
-   * Every issue the run reported, as the one text file that gets saved.
-   *
-   * One file with a heading per kind rather than a file per list: the lists answer different
-   * questions and stay apart on screen, but somebody saving them wants the whole account of
-   * the run in one place. A kind with nothing in it gets no heading at all.
+   * Every issue the run reported, as the text file the History tab saves for it. Built here
+   * too so the account on screen and the file can be checked against each other.
    */
   protected issuesReport(): string {
-    const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-    const clean = (text: string | undefined) => (text ?? '').replace(/\s+/g, ' ');
-    const lines = [
-      '# Issues from this run',
-      `# ${new Date().toISOString()}`,
-      '# rows are tab separated',
-    ];
-    const section = (heading: string, columns: string, rows: string[]) => {
-      if (!rows.length) return;
-      lines.push('', `## ${heading}`, `# ${columns}`, ...rows);
-    };
-
-    section(
-      plural(this.failures().length, 'work that could not be downloaded',
-        'works that could not be downloaded'),
-      'work id, link, reason',
-      this.failures().map((row) => [row.id ?? '', row.link ?? '', clean(row.error)].join('\t')),
-    );
-    section(
-      plural(this.keptCopies().length,
-        'new copy downloaded that needs checking by hand',
-        'new copies downloaded that need checking by hand'),
-      'work id, link, new file, older copy still on disk (if any), reason',
-      this.keptCopies().map((row) =>
-        [row.id ?? '', row.link ?? '', row.file ?? '', row.old ?? '', clean(row.error)].join('\t'),
-      ),
-    );
-    section(
-      plural(this.notRemoved().length,
-        'older copy marked for removal that is still there',
-        'older copies marked for removal that are still there'),
-      'work id, older copy, newest copy (kept), reason',
-      this.notRemoved().map((row) =>
-        [row.id ?? '', row.file ?? '', row.old ?? '', clean(row.error)].join('\t'),
-      ),
-    );
-    section(
-      plural(this.skipped().length, 'bookmark that is not a work', 'bookmarks that are not works'),
-      'work or series id, link, reason',
-      this.skipped().map((row) => [row.id ?? '', row.link ?? '', clean(row.error)].join('\t')),
-    );
-    return lines.join('\n') + '\n';
-  }
-
-  /**
-   * Hand every issue over as a single text file.
-   *
-   * Done in the page rather than by the helper: it is a few lines the browser can save
-   * directly, so it does not need a round trip or a second thing that writes to disk.
-   */
-  protected exportIssues(): void {
-    this.saveText(this.issuesReport(), 'run-issues', this.issueCount());
-  }
-
-  private saveText(text: string, name: string, rows: number): void {
-    if (!rows) return;
-
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${name}-${new Date().toISOString().slice(0, 10)}.txt`;
-    link.click();
-    // the save has its own copy once started, so the handle can go
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return issuesReport(this.issues());
   }
 
   protected close(): void {
-    if (this.step() === 'running') return; // the guard message explains why
+    // the guard message explains why - unless the run carries on without this page
+    if (this.step() === 'running') {
+      this.continueInBackground();
+      return;
+    }
     this.closed.emit();
   }
 }

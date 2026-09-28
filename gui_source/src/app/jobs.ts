@@ -1,6 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { LibraryStore, StorageRequest, answerStorage, readRunHistory } from './library-store';
 import { HelperConnection } from './helper-connection';
+import { DropboxHandover } from './dropbox';
 
 /**
  * Talks to the local helper (ao3downloader.server) that actually performs downloads.
@@ -215,6 +216,8 @@ export interface RunHistory {
   resumesFirst?: string | null;
   /** the run that later picked this one up */
   resumedBy?: string;
+  /** carried on in the helper after the page closed - absent on older runs */
+  background?: boolean;
   /** how far the run got, as it saved it - see RESUMING.md */
   progress?: { step?: string; stepLabel?: string } & Record<string, unknown>;
 }
@@ -353,6 +356,45 @@ export interface StartRequest {
   password: string;
   /** the collection to index, for the one action that works from a link */
   url?: string;
+  /**
+   * Carry on in the helper with the page closed - see `dropbox_library.py`. Needs `dropbox`,
+   * since a folder on this computer can only be reached through the page.
+   */
+  background?: boolean;
+  /** a background run's answers to the questions it may meet, by question name */
+  answers?: BackgroundAnswers;
+  /** a background run's way into the library; sealed with the login when there is a key */
+  dropbox?: DropboxHandover | null;
+}
+
+/** the questions a run can stop to ask, by the name the helper gives them */
+export type QuestionName = 'undated' | 'quick-floor' | 'duplicates';
+
+/** answers given before a background run starts, since nobody will be there to give them */
+export type BackgroundAnswers = Partial<Record<QuestionName, { choice: AnswerChoice; date?: string }>>;
+
+/** a run the helper is working on right now */
+export interface ActiveRun {
+  id: string;
+  action: JobAction;
+  actionName: string;
+  /** carried on in the helper, with or without a page - one the page can attach to */
+  background: boolean;
+  started: string;
+  /** paused by the user */
+  paused: boolean;
+  /** the step it is on, as the checklist words it */
+  step: string;
+}
+
+/** the helper's answer when a run is already in progress */
+export class RunInProgressError extends Error {
+  constructor(
+    message: string,
+    readonly activeJob: string,
+  ) {
+    super(message);
+  }
 }
 
 @Injectable({ providedIn: 'root' })
@@ -366,6 +408,12 @@ export class Jobs {
   /** null until checked; false means the helper is not running */
   readonly available = signal<boolean | null>(null);
   readonly config = signal<ServerConfig | null>(null);
+  /**
+   * The runs the helper is working on, as last asked. Shared, because the banner, the
+   * history's pinned panel and the run buttons all go by it - and a page that has just
+   * started or finished a run has to change all three at once.
+   */
+  readonly activeRuns = signal<ActiveRun[]>([]);
 
   async loadConfig(): Promise<ServerConfig | null> {
     try {
@@ -414,6 +462,22 @@ export class Jobs {
   /**
    * The runs the helper is working on right now, or null when it cannot be asked.
    */
+  /**
+   * Ask the helper which runs it is working on, and keep the answer in `activeRuns`.
+   * Returns null, leaving the last answer, when it cannot be asked.
+   */
+  async refreshActiveRuns(): Promise<ActiveRun[] | null> {
+    try {
+      const response = await this.helper.call(`/api/jobs`);
+      if (!response.ok) throw new Error(String(response.status));
+      const runs = ((await response.json()) as { jobs?: ActiveRun[] }).jobs ?? [];
+      this.activeRuns.set(runs);
+      return runs;
+    } catch {
+      return null;
+    }
+  }
+
   async activeJobs(): Promise<string[] | null> {
     try {
       const response = await this.helper.call(`/api/jobs`);
@@ -528,15 +592,22 @@ export class Jobs {
   }
 
   async start(request: StartRequest): Promise<string> {
-    // the login goes sealed when this page was built with the helper's public key
-    const { username, password, ...rest } = request;
-    const login = await this.helper.sealLogin(username, password);
+    // the login goes sealed when this page was built with the helper's public key, and a
+    // background run's Dropbox sign-in inside it - it is worth as much
+    const { username, password, dropbox, ...rest } = request;
+    const login = await this.helper.sealLogin(username, password, dropbox ? { dropbox } : {});
     const response = await this.helper.call(`/api/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...rest, ...login }),
     });
     const answer = await response.json();
+    if (response.status === 409) {
+      throw new RunInProgressError(
+        answer?.error ?? 'A run is already in progress.',
+        answer?.activeJob ?? '',
+      );
+    }
     if (!response.ok) throw new Error(answer?.error ?? `request failed (${response.status})`);
     return answer.jobId as string;
   }

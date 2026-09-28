@@ -65,7 +65,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1294 python passed; 510 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1340 python passed; 551 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -209,6 +209,57 @@ The request log (`logs/log.jsonl`) is **written and never read** - the one reade
 which nothing calls - so a hosted helper losing it on every restart costs nothing.
 `ignorelist.txt` is the one helper-side file that does change a run, and a hosted helper
 has none.
+
+### A run can carry on in the background
+
+*Run as background task* (on every workflow's login step) starts a run the helper finishes
+with the page closed. The rules that matter:
+
+- **Only for a library in Dropbox.** A run reaches the library through the page
+  (`PageStorage` asking the page), and a folder on this computer is open in that tab alone.
+  For a background run the page hands over its Dropbox sign-in (`DropboxSession.handover`:
+  refresh token and app key, nothing else) and `dropbox_library.DropboxChannel` answers the
+  storage requests the page would have, **in the page's exact shapes** (`answerStorage`). So
+  `PageStorage` sits in front of it unchanged - its caches, and every rule about what may be
+  written or deleted, are the same code for both. The sign-in travels inside the sealed login
+  (`access.credentials_from`) and lives in the job's memory for the one run; it is never
+  written, logged or put in the history. `do_POST` refuses a background run without one, and
+  an ordinary run never gets one even if sent it. The page sends **no** background fields at
+  all on an ordinary run - a spec holds that.
+- **Questions are answered before it starts.** Nobody will be there, so the login step lists
+  the questions the workflow could ask (`backgroundQuestions`, mirroring when the helper asks:
+  undated and duplicates when it downloads, not undated when it overwrites, quick-floor on a
+  quick scan with nothing chosen to measure to) and sends them as `answers`.
+  `background_answers` checks them against `CHOICES_FOR` before the run exists. They become
+  `Job.prior_answers` - the mechanism a resumed run already used - and a resume merges the
+  earlier run's real answers over them. **A background run never waits on a question**:
+  `Job.ask` with no answer takes the default at once (always the one that changes nothing)
+  rather than stalling half an hour.
+- **One run at a time, for every run.** `do_POST` checks and registers under one lock and
+  answers 409 (`RunInProgressError` on the page) while any run is going. The page reads
+  `GET /api/jobs`'s `jobs` into `Jobs.activeRuns`, which drives the banner at the top, holds
+  the run buttons, and pins the run at the top of History. The app polls it every 30s **only
+  while a run is going**, so a hosted helper is otherwise left to sleep. `conftest.py` empties
+  `Handler.jobs` around every test for this reason: a test that starts a run with its thread
+  stubbed leaves it going for ever.
+- **Coming back replays everything.** `stream_events` takes the backlog and counts the
+  listener under one lock (a background job queues events only while someone listens, or an
+  unread queue would hold hours of them), dedupes the queue against the backlog **by
+  identity**, and ends at once for a run already over. It sets `close_connection` when the
+  stream ends: its `Connection: keep-alive` header otherwise tells `BaseHTTPRequestHandler`
+  to hold the socket open, and a page reading to the end waited for ever - found in testing.
+  Printed lines are capped in a background job's replay (`BACKGROUND_KEPT_MESSAGES`); nothing
+  else is dropped, because the checklist is rebuilt from it. The dialog attaches with
+  `attachTo` (**read after `init`'s first await** - inputs are not set in the constructor,
+  which is also why `resumeFrom` is read late), shows the file types the run announced in its
+  `started` event rather than its own, and offers **Continue in background**, which closes the
+  window without stopping anything. No unload guard for a background run.
+- **A free Render service sleeps after ~15 minutes with no request from outside**, which is
+  exactly a background run's situation. While one is going, `keep_awake` requests the
+  helper's own `RENDER_EXTERNAL_URL` every 10 minutes (it answers 404 without the passcode;
+  arriving is the point). Nothing else keeps it awake. **Restarting the helper - a deploy
+  included - ends a background run**; the page warns before one starts, and the history then
+  shows it interrupted and resumable like any other.
 
 ### Indexing runs before downloading
 
@@ -1111,10 +1162,13 @@ download) - reported as a `keptCopies` event, stored by `RunRecord.collect`, lis
 History as "needs checking by hand", amber rather than red. `replace_superseded` still
 checks `saved_intact` as a second line of defence and answers `UNCONFIRMED` if it fails.
 
-**The end-of-run export is one file.** `issuesReport()` writes a `## heading` per kind
-(failures, kept copies, bookmarks that are not works) with tab-separated rows under each, and
-leaves out a kind with nothing in it; one `Export all issues` button replaces the per-list
-buttons. The step that does the reporting is `STEP_REPORT` = `Report any failures`, and it is
+**The issues export is one file, and it lives in the History tab.** `issues.ts` builds it:
+`issuesReport()` writes a `## heading` per kind (failures, kept copies, older copies not
+removed, bookmarks that are not works) with tab-separated rows under each, leaving out a kind
+with nothing in it, and `issuesOf(run)` reads those lists back out of a run's history file.
+So **Download issues** is on every History entry with anything to report, for as long as the
+run is recorded - a background run finishes with nobody looking, so the end-of-run window can
+no longer be where the file is offered. That window lists the issues and points at History. The step that does the reporting is `STEP_REPORT` = `Report any failures`, and it is
 the last step of **every** plan - there is a test over `ACTIONS` asserting it.
 
 ### A run can stop and ask a question

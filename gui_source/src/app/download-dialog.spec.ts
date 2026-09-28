@@ -4,6 +4,7 @@ import { DownloadDialog } from './download-dialog';
 import { Library } from './library';
 import { LibraryStore, StorageRequest } from './library-store';
 import {
+  ActiveRun,
   AnswerChoice,
   JobAction,
   JobEvent,
@@ -57,6 +58,10 @@ class FakeJobs extends Jobs {
 
   override async loadFloorRuns(): Promise<RunHistory[] | null> {
     return this.floorRunsOnRecord;
+  }
+
+  override async refreshActiveRuns(): Promise<ActiveRun[] | null> {
+    return this.activeRuns();
   }
 
   /** the unfinished runs the helper would offer for resuming */
@@ -997,10 +1002,12 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('.failures')?.textContent).toContain('7 more');
   });
 
-  it('offers one export for every issue', async () => {
+  it('points at the History tab for the issues file rather than offering it here', async () => {
+    // the file is on every run's history entry, where it stays available
     await finishWithFailures();
 
-    expect(button('Export all issues')).toBeTruthy();
+    expect(button('Export all issues')).toBeUndefined();
+    expect(element.querySelector('.export-issues')?.textContent).toContain('History');
   });
 
   it('exports the work numbers, links and reasons', async () => {
@@ -2428,10 +2435,8 @@ describe('DownloadDialog', () => {
       { id: null, link: '', title: 'Gone', error: 'the work has been deleted' },
     ]);
 
-    const exportButtons = Array.from(element.querySelectorAll('button')).filter(
-      (b) => b.textContent?.trim() === 'Export all issues',
-    );
-    expect(exportButtons).toHaveLength(1);
+    // saved from the History tab now; this window says so
+    expect(element.querySelector('.export-issues')?.textContent).toContain('History');
 
     const report = (fixture.componentInstance as unknown as {
       issuesReport(): string;
@@ -2461,10 +2466,8 @@ describe('DownloadDialog', () => {
     expect(kept).toContain('checking by hand');
     expect(kept).toContain('3 New 2026-09-14.html');
 
-    const exportButtons = Array.from(element.querySelectorAll('button')).filter(
-      (b) => b.textContent?.trim() === 'Export all issues',
-    );
-    expect(exportButtons).toHaveLength(1);
+    // saved from the History tab now; this window says so
+    expect(element.querySelector('.export-issues')?.textContent).toContain('History');
 
     const report = (fixture.componentInstance as unknown as {
       issuesReport(): string;

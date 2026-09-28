@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { History } from './history';
-import { Jobs, RunHistory } from './jobs';
+import { ActiveRun, Jobs, RunHistory } from './jobs';
 
 function aRun(over: Partial<RunHistory> = {}): RunHistory {
   return {
@@ -32,6 +32,10 @@ class FakeJobs extends Jobs {
 
   override async loadRuns(): Promise<RunHistory[] | null> {
     return this.runs;
+  }
+
+  override async refreshActiveRuns(): Promise<ActiveRun[] | null> {
+    return this.activeRuns();
   }
 
   override async settleInterrupted(): Promise<number> {
@@ -320,4 +324,109 @@ describe('History', () => {
 
     expect(element.querySelectorAll('.run').length).toBe(2);
   });
+
+  // region the run going now
+
+  const going: ActiveRun = {
+    id: 'job-7', action: 'quick', actionName: 'Quick Scan', background: true,
+    started: '2026-09-28T10:00:00', paused: false, step: 'Index bookmarks added since your last run',
+  };
+
+  it('pins the run going now above the history, saying where it has got to', async () => {
+    jobs.activeRuns.set([going]);
+    await show([aRun()]);
+
+    const pinned = element.querySelector('[data-active-run]')!;
+    expect(element.querySelector('.run')).toBe(pinned);
+    expect(pinned.textContent).toContain('Quick Scan');
+    expect(pinned.textContent).toContain('In progress - running');
+    expect(pinned.textContent).toContain('in the background');
+    expect(pinned.textContent).toContain('Index bookmarks added since your last run');
+  });
+
+  it('says a paused run is paused', async () => {
+    jobs.activeRuns.set([{ ...going, paused: true }]);
+    await show([]);
+
+    expect(element.querySelector('[data-active-run]')?.textContent).toContain('In progress - paused');
+  });
+
+  it('offers to view a background run\'s progress', async () => {
+    jobs.activeRuns.set([going]);
+    await show([]);
+    const viewed = vi.fn();
+    fixture.componentInstance.viewProgress.subscribe(viewed);
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'View progress')!.click();
+
+    expect(viewed).toHaveBeenCalledWith(going);
+  });
+
+  it('does not offer to view a run that is not in the background', async () => {
+    // it needs the page that started it, which is where its progress is
+    jobs.activeRuns.set([{ ...going, background: false }]);
+    await show([]);
+
+    const pinned = element.querySelector('[data-active-run]')!;
+    expect(pinned.textContent).not.toContain('View progress');
+    expect(pinned.textContent).toContain('only in the window that started it');
+  });
+
+  it('pins nothing when no run is going', async () => {
+    await show([aRun()]);
+    expect(element.querySelector('[data-active-run]')).toBeNull();
+  });
+
+  it('marks a run from the history as having been in the background', async () => {
+    await show([aRun({ background: true })]);
+    expect(element.querySelector('.run-status')?.textContent).toContain('background');
+  });
+
+  // endregion
+
+  // region the issues file, for any run
+
+  it('offers every run with issues its issues as a file, saying how many', async () => {
+    await show([
+      aRun({ failures: [{ id: '1', link: 'l', error: 'gone' }],
+             skipped: [{ id: '2', link: 'm', error: 'a series' }] }),
+      aRun({ file: 'b.json', id: 'b' }),
+    ]);
+
+    const buttons = Array.from(element.querySelectorAll('button')).filter(
+      (b) => b.textContent?.includes('Download issues'),
+    );
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toContain('(2)');
+  });
+
+  it('saves the same report the run window used to, headed with the run', async () => {
+    // caught where the browser would be handed the file
+    let saved: Blob | null = null;
+    let name = '';
+    const created = vi.fn((blob: Blob) => {
+      saved = blob;
+      return 'blob:report';
+    });
+    Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      name = this.download;
+    });
+    await show([aRun({ id: 'abcdef123', failures: [{ id: '1', link: 'l', error: 'gone' }] })]);
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Download issues'))!.click();
+
+    const text = await saved!.text();
+    expect(text).toContain('# Issues from Download new bookmarks and update incomplete fics');
+    expect(text).toContain('## 1 work that could not be downloaded');
+    expect(text).toContain('1\tl\tgone');
+    expect(name).toBe('run-issues-2026-09-13-abcdef12.txt');
+    click.mockRestore();
+  });
+
+  // endregion
 });

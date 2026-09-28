@@ -71,6 +71,21 @@
   </div>
 </header>
 
+<!--
+  one run at a time: while the helper has one going - in the background or in another tab -
+  nothing else can start, and saying so up here beats a run window refused at its last step
+-->
+@if (activeRun(); as run) {
+  <p class="run-in-progress" role="status">
+    <span>
+      <strong>A run is already in progress</strong> -
+      {{ run.actionName }}, {{ run.paused ? 'paused' : 'running' }}{{ run.background ? ' in the background' : '' }}.
+      You must wait until it is complete to start a new one.
+    </span>
+    <button type="button" class="button" (click)="goToRun()">Go to this run</button>
+  </p>
+}
+
 <!-- covers everything while a library's folders are made or its works moved -->
 <app-setup-overlay />
 
@@ -138,10 +153,10 @@
       they should be reached for. the rest are each useful for one job and confusing as a
       default, so they wait behind a disclosure rather than sitting in the way
     -->
-    <button type="button" class="button primary" (click)="openRun('quick')">
+    <button type="button" class="button primary" [disabled]="!!activeRun()" (click)="openRun('quick')">
       Quick Scan
     </button>
-    <button type="button" class="button" (click)="openRun('bookmarks')">
+    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('bookmarks')">
       (Full scan) Reindex &amp; Update All
     </button>
 
@@ -155,29 +170,29 @@
           debug control, so nobody reaches for one by habit
         -->
         @if (debugTools()) {
-          <button type="button" class="button debug" (click)="openRun('sync')">
+          <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('sync')">
             [DEBUG] Download new bookmarks and update incomplete fics
           </button>
-          <button type="button" class="button debug" (click)="openRun('update')">
+          <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('update')">
             [DEBUG] Just update any bookmarks marked as incomplete
           </button>
-          <button type="button" class="button debug" (click)="openRun('new')">
+          <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('new')">
             [DEBUG] Just download newly added bookmarks
           </button>
         }
-        <button type="button" class="button" (click)="openRun('work')">
+        <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('work')">
           Download/update a specific fic
         </button>
-        <button type="button" class="button" (click)="openRun('custom')">
+        <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('custom')">
           Custom run
         </button>
       </div>
     </details>
   } @else {
-    <button type="button" class="button primary" (click)="openRun('collections')">
+    <button type="button" class="button primary" [disabled]="!!activeRun()" (click)="openRun('collections')">
       Index my collections
     </button>
-    <button type="button" class="button" (click)="openRun('collection')">
+    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('collection')">
       Index collection by URL
     </button>
   }
@@ -185,8 +200,8 @@
 }
 
 @if (dialogAction(); as action) {
-  <app-download-dialog [action]="action" [resumeFrom]="resumeFrom()"
-                       (closed)="dialogAction.set(null); resumeFrom.set('')" />
+  <app-download-dialog [action]="action" [resumeFrom]="resumeFrom()" [attachTo]="attachTo()"
+                       (closed)="dialogClosed()" />
 }
 
 <!--
@@ -292,7 +307,7 @@
 } @else if (view() === 'collections') {
   <app-collections-view />
 } @else if (view() === 'history') {
-  <app-history (resume)="resumeRun($event)" />
+  <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)" />
 } @else {
   <app-faq />
 }

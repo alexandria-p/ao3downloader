@@ -1,5 +1,6 @@
 import {
   Component,
+  DestroyRef,
   ElementRef,
   computed,
   effect,
@@ -15,7 +16,7 @@ import { DownloadDialog } from './download-dialog';
 import { Faq } from './faq';
 import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
-import { JobAction, Jobs } from './jobs';
+import { ActiveRun, JobAction, Jobs } from './jobs';
 import { HelperConnection } from './helper-connection';
 import { Library } from './library';
 import { LibrarySetup } from './library-setup';
@@ -25,6 +26,9 @@ import { WorkList } from './work-list';
 import { Bookmark, ownerFromSource } from './bookmarks';
 import { APP_FOLDER_PATH, DropboxSession } from './dropbox';
 import { StorageChoice, StorageMode } from './storage-choice';
+
+/** how often the page asks whether a run in progress has finished, while one is */
+const ACTIVE_RUN_POLL_MS = 30_000;
 
 /** the two things this folder holds, the pages that show them, and the two reading pages */
 export type View = 'bookmarks' | 'collections' | 'history' | 'faq';
@@ -53,6 +57,17 @@ export class App {
   protected readonly dialogAction = signal<JobAction | null>(null);
   /** the run a custom run opens set to resume, when opened from the history */
   protected readonly resumeFrom = signal('');
+  /** a background run the window opens onto, from the history's View progress */
+  protected readonly attachTo = signal<ActiveRun | null>(null);
+
+  /**
+   * The run the helper is working on, if any.
+   *
+   * The helper runs one at a time, so while there is one nothing else can start: the page
+   * says so at the top and the run buttons wait, rather than letting someone fill in a
+   * whole run window only to be refused at the end of it.
+   */
+  protected readonly activeRun = computed(() => this.jobs.activeRuns()[0] ?? null);
   /** set while the run history is checked for interrupted runs, before a window opens */
   protected readonly checkingRuns = signal(false);
   /**
@@ -76,7 +91,7 @@ export class App {
    * is marked interrupted first, so what the window offers - resuming it - is up to date.
    */
   protected async openRun(action: JobAction): Promise<void> {
-    if (this.checkingRuns()) return;
+    if (this.checkingRuns() || this.activeRun()) return;
     this.checkingRuns.set(true);
     try {
       await this.jobs.settleInterrupted(this.library.store());
@@ -84,6 +99,25 @@ export class App {
       this.checkingRuns.set(false);
     }
     this.dialogAction.set(action);
+  }
+
+  /** from the banner: the history, where the run in progress is pinned to the top */
+  protected goToRun(): void {
+    this.view.set('history');
+  }
+
+  /** from the history: open the progress window onto a background run already going */
+  protected viewProgress(run: ActiveRun): void {
+    this.attachTo.set(run);
+    this.dialogAction.set(run.action);
+  }
+
+  /** the run window closed - whatever it was, what is running may have changed */
+  protected dialogClosed(): void {
+    this.dialogAction.set(null);
+    this.resumeFrom.set('');
+    this.attachTo.set(null);
+    void this.jobs.refreshActiveRuns();
   }
 
   /** from the history: a custom run, set to pick up where that run left off */
@@ -160,7 +194,18 @@ export class App {
     // the buttons on offer depend on settings.ini, so it is read as the page opens
     // rather than when a dialog first needs it
     void this.jobs.loadConfig();
+    // a run left going in the background, from this page or another, is said at once
+    void this.jobs.refreshActiveRuns();
+    // and asked about again while one is going, so the banner goes when it finishes. only
+    // then: with nothing running there is nothing to watch for, and a hosted helper is left
+    // to sleep
+    this.watch = setInterval(() => {
+      if (this.activeRun()) void this.jobs.refreshActiveRuns();
+    }, ACTIVE_RUN_POLL_MS);
+    inject(DestroyRef).onDestroy(() => clearInterval(this.watch));
   }
+
+  private watch: ReturnType<typeof setInterval> | undefined;
 
   protected readonly works = computed<Bookmark[]>(() => this.data()?.works ?? []);
   protected readonly owner = computed(() => ownerFromSource(this.data()?.source ?? ''));

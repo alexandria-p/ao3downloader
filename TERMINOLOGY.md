@@ -85,6 +85,12 @@ the same thing in conversation.
 - **Setting** [config] - the properties in the config/settings.ini file which are used by the Page and Helper (for example, it specifies the length of cooldown in seconds between each request to AO3)
 - **Hosting settings** - `HelperUrl` (where the page finds the helper), `RequirePasscode` and `PageOrigin` (the page allowed to call a hosted helper). For a hosted copy the deploy workflow writes every setting from a GitHub variable named after it in upper snake case (`HELPER_URL`, `EXTRA_WAIT_TIME`, ...).
 - **Console logging** [EnableConsoleLogging, ENABLE_CONSOLE_LOGGING] - a setting that makes the helper print every request (method, path, answer) and every line a run says, tagged `[run xxxxxxxx]`, to its own console - the PowerShell window, or Render's Logs tab. Never the passcode or the login. Off by default. Not the same as debug logging, which writes more to the helper's log file.
+- **Background run** [background task, backgrounded run] - a run the helper carries on with after the page is closed, reaching the Dropbox library itself. Chosen with *Run as background task*; recorded as `background` in its run history.
+- **Up-front answers** [pre-answered questions] - a background run's answers to the questions it could stop to ask (undated files, older copies, how far back a quick scan goes), given before it starts because nobody will be there to answer. A question it was not given an answer for gets the one that changes nothing.
+- **Run in progress** [active run] - a run the helper is working on right now. Only one at a time: while there is one, a banner says so at the top of the page, the run buttons are held, and a second start is refused.
+- **Pinned run** [in-progress panel] - the run in progress, shown at the top of the History tab. *View progress* opens its progress window again for a background run.
+- **Continue in background** - the button that closes a background run's progress window and leaves the run going.
+- **Download issues** - the button on a run's History entry that saves everything it reported (failures, copies to check, bookmarks that are not works) as one text file. Was *Export all issues* at the end of a run.
 - **Deployment variable** [GitHub variable, repository variable] - a GitHub Actions variable the deploy workflow turns into a `settings.ini` key: `EXTRA_WAIT_TIME` becomes `ExtraWaitTime`. Every key has one except `SavePassword`.
 
 ---
@@ -97,6 +103,10 @@ the same thing in conversation.
 * Options (run configuration)
 
 - **Workflow** [action, button] - describes the logic executed by a run. Each workflow type is a different collection of steps that will be executed by a run using that workflow: full scan, quick scan, custom run, and so on.
+
+**Every workflow** also offers, on its login step:
+
+- *Run as background task* - only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), and *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range. A workflow that downloads nothing (the collections ones, or JSON only) asks none. Its steps are the workflow's own, unchanged.
 
 ## Quick scan
 

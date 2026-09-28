@@ -163,6 +163,16 @@ A new key needs the page rebuilt too, which the same run does.
 
 ## Things to know
 
+- **Background runs keep the helper awake.** A free Render service is stopped after about 15
+  minutes without a request from outside, and a run with the page closed has nothing talking
+  to it. So while a background run is going, the helper requests its own address
+  (`RENDER_EXTERNAL_URL`, which Render sets) every 10 minutes. Nothing else keeps it awake,
+  and one service running all month is within the free plan's hours.
+- **Deploying ends a background run.** The helper holds runs in memory, so a new version
+  starting means the old run is gone. Wait for a background run to finish before running
+  **deploy hosted app**; if you don't, it shows in History as interrupted, and starting it
+  again carries on from what is still missing.
+
 - **A free Render service sleeps** after about 15 minutes without requests, and takes up to a
   minute to wake. If the passcode window says it couldn't reach the helper, wait and try
   again. A run in progress should keep it awake, since the page holds an event stream open

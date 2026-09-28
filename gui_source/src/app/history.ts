@@ -1,6 +1,7 @@
 import { Component, effect, inject, signal, untracked, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
-import { Jobs, RunHistory, RunRemoval } from './jobs';
+import { ActiveRun, Jobs, RunHistory, RunRemoval } from './jobs';
+import { issueCount, issuesOf, issuesReport, saveText } from './issues';
 import { Library } from './library';
 
 /** why a custom run over a slice of the listing is never offered for resuming */
@@ -55,9 +56,40 @@ export class History {
 
   /** a run to pick up where it left off, in a custom run */
   readonly resume = output<string>();
+  /** a background run to open the progress window onto */
+  readonly viewProgress = output<ActiveRun>();
+
+  /**
+   * The runs the helper is working on right now, pinned above the history.
+   *
+   * From the helper rather than from the history files: a file saying `running` might be a
+   * run that was interrupted, and only the helper knows which ones really are going.
+   */
+  protected readonly activeRuns = this.jobs.activeRuns;
+
+  /** how many issues a run reported, across every kind */
+  protected issuesIn(run: RunHistory): number {
+    return issueCount(issuesOf(run));
+  }
+
+  /**
+   * Save every issue a run reported as one text file - available for every run, for as
+   * long as its history file is there, not only in the window of a run just finished.
+   */
+  protected downloadIssues(run: RunHistory): void {
+    const started = run.started ? new Date(run.started) : new Date();
+    const stamp = Number.isNaN(started.getTime()) ? '' : started.toISOString().slice(0, 10);
+    saveText(
+      issuesReport(issuesOf(run), `Issues from ${run.actionName} started ${this.when(run.started)}`),
+      `run-issues-${stamp}-${run.id.slice(0, 8)}`,
+    );
+  }
 
   protected async load(): Promise<void> {
     this.loading.set(true);
+    // what is going now, for the pinned panel - not waited on: the history is read out of
+    // the library, and is worth showing whether or not the helper answers
+    void this.jobs.refreshActiveRuns();
     let found = await this.jobs.loadRuns(this.library.store());
     // a run the history calls 'running' that the helper is not working on was interrupted:
     // marked so, and read again. only asked when there is one, which is seldom

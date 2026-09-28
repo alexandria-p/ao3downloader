@@ -1020,7 +1020,9 @@ def started_options(action, asked, url=''):
         'filetypes': ['JSON', 'HTML'], 'options': asked, 'url': url}
     handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
 
-    with patch.object(server.threading, 'Thread'):
+    # each start on a helper running nothing: the thread is stubbed, so the run it registers
+    # never ends, and the next start in the same test would be refused as a second run
+    with patch.object(server.threading, 'Thread'), patch.dict(server.Handler.jobs, clear=True):
         server.Handler.do_POST(handler)
 
     assert sent['status'] == 202, sent

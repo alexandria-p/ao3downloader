@@ -24,7 +24,9 @@ import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from source_code import access, exceptions, indexing, parse_soup, parse_text, progress, runs, strings
+import requests
+
+from source_code import access, dropbox_library, exceptions, indexing, parse_soup, parse_text, progress, runs, strings
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -38,6 +40,10 @@ DEFAULT_PORT = 4400
 # Render and most other hosts use
 ENV_HOST = 'AO3DOWNLOADER_HOST'
 ENV_PORT = 'PORT'
+# the helper's own public address, which Render sets. see `keep_awake`
+ENV_EXTERNAL_URL = 'RENDER_EXTERNAL_URL'
+# a free Render service is stopped after about 15 minutes without a request from outside
+KEEP_AWAKE_SECONDS = 10 * 60
 
 # a full walk of the whole bookmarks listing. thorough and slow.
 ACTION_BOOKMARKS = 'bookmarks'
@@ -110,6 +116,14 @@ DUPLICATES_CHOICES = (DUPLICATES_NEWEST, DUPLICATES_LEAVE)
 # every choice any question may be answered with. the run reads only the answer to the
 # question it actually asked, so one list is enough to keep nonsense out at the door
 ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES
+# which choices belong to which question - a background run is answered up front, by name
+CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
+               DUPLICATES_QUESTION: DUPLICATES_CHOICES}
+
+# a background run keeps every event for a page that reattaches, but not every line it
+# printed: hours of 'new download:' would be megabytes replayed to a page that shows the
+# last few hundred. the older lines are dropped from what is replayed, never from the run
+BACKGROUND_KEPT_MESSAGES = 1000
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
            ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_CUSTOM, ACTION_QUICK)
@@ -290,8 +304,14 @@ class Job:
     """One download run, executing on its own thread and publishing progress events."""
 
     def __init__(self, action: str, filetypes: list[str], username: str,
-                 options: dict | None = None, url: str = '') -> None:
+                 options: dict | None = None, url: str = '', background: bool = False,
+                 library=None, answers: dict | None = None) -> None:
         self.id = uuid.uuid4().hex
+        # a run the page is not there for - see `dropbox_library`. it reaches the library
+        # itself (`library`), and every question it could ask was answered before it started
+        self.background = background
+        self.library = library
+        self.started = runs.now()
         # requests to the page about the library that have not been answered yet, by id, and
         # the bytes waiting for the page to collect for each write. see `storage_call`
         self.storage_pending: dict[str, dict] = {}
@@ -334,14 +354,38 @@ class Job:
         # the run this one picks up from - see `prepare_resume` - and the answers it gave to
         # the questions it asked, by question name, which are used rather than asked again
         self.resume: dict | None = None
-        self.prior_answers: dict[str, dict] = {}
+        # a background run's up-front answers are the same thing, given before it started
+        self.prior_answers: dict[str, dict] = dict(answers or {})
         # the moment the login succeeded, or the first attempt's when resuming
         self.baseline = ''
 
     def emit(self, event: dict) -> None:
         with self.lock:
             self.history.append(event)
-        self.events.put(event)
+            if self.background and event.get('type') == progress.MESSAGE:
+                self.trim_history()
+            # a background run with no page attached keeps its events in `history` alone: a
+            # queue nobody reads would hold every one of them for hours. a page that attaches
+            # replays `history` first, and only then starts reading the queue
+            if self.listeners or not self.background: self.events.put(event)
+
+    def trim_history(self) -> None:
+        """Drop the oldest printed lines from a background run's replay, keeping the rest.
+
+        Called with the lock held. Trimmed in a batch rather than per line, so a long run
+        does not rebuild the list on every line it prints.
+        """
+
+        messages = sum(1 for e in self.history if e.get('type') == progress.MESSAGE)
+        excess = messages - BACKGROUND_KEPT_MESSAGES
+        if excess < BACKGROUND_KEPT_MESSAGES // 10: return
+        kept = []
+        for event in self.history:
+            if excess and event.get('type') == progress.MESSAGE:
+                excess -= 1
+                continue
+            kept.append(event)
+        self.history = kept
 
     def ask(self, question: dict, default: dict) -> dict:
         """Put a question to the ui and wait for the answer.
@@ -355,9 +399,16 @@ class Job:
 
         prior = self.prior_answers.get(str(question.get('name') or ''))
         if prior is not None:
-            # a resumed run does not ask again what the attempt before it was already told
-            print(strings.AO3_INFO_RESUME_ANSWER.format(prior.get('choice')))
+            # a resumed run does not ask again what the attempt before it was already told,
+            # and a background run was told before it started
+            print((strings.AO3_INFO_BACKGROUND_ANSWER if self.background
+                   else strings.AO3_INFO_RESUME_ANSWER).format(prior.get('choice')))
             return dict(prior)
+        if self.background:
+            # nobody is there to answer, so waiting would stall the run for half an hour and
+            # then take the default anyway. the default is always the one that changes nothing
+            print(strings.AO3_INFO_BACKGROUND_DEFAULT.format(default.get('choice')))
+            return dict(default)
 
         self.answer = {}
         self.answered.clear()
@@ -500,6 +551,9 @@ class Steps:
 
     def _set(self, step: str, status: str) -> None:
         progress.report(self.report, progress.STEP, id=step, status=status)
+
+    def label_of(self, step: str) -> str:
+        return dict(self.plan).get(step, step)
 
     def start(self, step: str) -> None:
         self.current = step
@@ -720,8 +774,9 @@ def run_job(job: Job, password: str) -> None:
     stream = LineStream(said)
 
     try:
-        # the library is the page's: every file goes through it
-        fileops = FileOps(storage=PageStorage(job))
+        # the library is the page's: every file goes through it - or, for a background run,
+        # through the helper's own line to Dropbox, answering exactly as the page would
+        fileops = FileOps(storage=PageStorage(job.library or job))
         fileops.initialize()
         # before anything is announced: a resumed run takes the earlier run's workflow, file
         # types and options, so the checklist and the history file describe that run
@@ -752,7 +807,8 @@ def run_job(job: Job, password: str) -> None:
                 job.record = runs.RunRecord(fileops, job.id, job.action,
                                             action_name(job.action), job.filetypes,
                                             job.options,
-                                            settings=settings_for_record(fileops))
+                                            settings=settings_for_record(fileops),
+                                            background=job.background)
                 repo.login(job.username, password)
                 print(strings.AO3_INFO_LOGGED_IN)
                 begin_record(job, fileops)
@@ -812,10 +868,13 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
         'baseline': earlier.get('baseline') or '',
         'progress': json.loads(json.dumps(earlier.get('progress') or {})),
     }
-    job.prior_answers = {str(c['question']): {k: v for k, v in c.items()
-                                               if k in ('choice', 'date')}
-                         for c in earlier.get('choices') or []
-                         if isinstance(c, dict) and c.get('question') and c.get('choice')}
+    # what the earlier attempt was actually told wins; a background run's up-front answers
+    # stand in for any question it never reached
+    job.prior_answers = {**job.prior_answers,
+                         **{str(c['question']): {k: v for k, v in c.items()
+                                                 if k in ('choice', 'date')}
+                            for c in earlier.get('choices') or []
+                            if isinstance(c, dict) and c.get('question') and c.get('choice')}}
     print(strings.AO3_INFO_RESUMING.format(
         earlier.get('actionName') or earlier['action'],
         str(earlier.get('started') or '')[:16].replace('T', ' '),
@@ -840,6 +899,45 @@ def begin_record(job: Job, fileops: FileOps) -> None:
         if resume.get('file'): runs.amend_run(fileops, resume['file'], {'resumedBy': job.id})
     else:
         job.record.logged_in(job.baseline)
+
+
+def background_answers(raw) -> dict[str, dict]:
+    """A background run's answers to the questions it may meet, checked before it starts.
+
+    Nobody will be there to answer, so they are given up front, by question name - the same
+    shape a resumed run carries over (`prior_answers`). A question left out gets the answer
+    that changes nothing when it comes up. Anything that could not be acted on is refused
+    here, while there is still someone to tell.
+    """
+
+    if raw is None: return {}
+    if not isinstance(raw, dict): raise ValueError('the answers have to be given by question')
+    answers = {}
+    for name, answer in raw.items():
+        if name not in CHOICES_FOR:
+            raise ValueError(f"there is no question called '{name}'")
+        choice = (answer or {}).get('choice') if isinstance(answer, dict) else None
+        if choice not in CHOICES_FOR[name]:
+            raise ValueError(f"'{choice}' is not an answer to '{name}' - it is one of "
+                             f"{', '.join(CHOICES_FOR[name])}")
+        date = parse_text.get_date_stamp(answer.get('date') or '')
+        if choice == UNDATED_STAMP and not date:
+            raise ValueError('dating the undated files needs the date to give them')
+        answers[name] = {'choice': choice, 'date': date}
+    return answers
+
+
+def active_jobs() -> list[dict]:
+    """The runs going right now, as the page's warning and the history's pinned panel need
+    them: enough to name one and say what state it is in, never anything it was given."""
+
+    with Handler.jobs_lock:
+        going = [job for job in Handler.jobs.values() if not job.done.is_set()]
+    return [{'id': job.id, 'action': job.action, 'actionName': action_name(job.action),
+             'background': job.background, 'started': job.started,
+             'paused': job.held.is_set(),
+             'step': job.steps.label_of(job.steps.current) if job.steps.current else ''}
+            for job in sorted(going, key=lambda x: x.started)]
 
 
 def active_job_ids(exclude: str = '') -> set[str]:
@@ -2866,7 +2964,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/jobs':
             # which runs are really going, so the page can tell an interrupted run's record -
             # still saying 'running' - from one that is
-            self.send_json(200, {'active': sorted(active_job_ids())})
+            self.send_json(200, {'active': sorted(active_job_ids()), 'jobs': active_jobs()})
             return
 
         if self.path.startswith('/api/jobs/') and self.path.endswith('/events'):
@@ -2952,7 +3050,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            username, password = access.login_from(body)
+            username, password, dropbox = access.credentials_from(body)
         except access.AccessError as e:
             self.send_json(400, {'error': str(e)})
             return
@@ -2996,9 +3094,32 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {'error': strings.ERROR_NOT_A_COLLECTION})
                 return
 
-        job = Job(action, filetypes, username, options, url)
+        background = body.get('background') is True
+        library, answers = None, {}
+        if background:
+            # the page is not going to be there, so the library has to be reachable without
+            # it - which only a library in Dropbox is
+            if not dropbox:
+                self.send_json(400, {'error': strings.ERROR_BACKGROUND_NEEDS_DROPBOX})
+                return
+            try:
+                answers = background_answers(body.get('answers'))
+            except ValueError as e:
+                self.send_json(400, {'error': str(e)})
+                return
+            library = dropbox_library.DropboxChannel(dropbox['refreshToken'], dropbox['appKey'])
+
+        job = Job(action, filetypes, username, options, url, background=background,
+                  library=library, answers=answers)
+        # one run at a time, checked and taken under the same lock so two starts arriving
+        # together cannot both get in. two runs writing one library would each plan from a
+        # folder the other is changing
         with Handler.jobs_lock:
-            Handler.jobs[job.id] = job
+            busy = next((j for j in Handler.jobs.values() if not j.done.is_set()), None)
+            if busy is None: Handler.jobs[job.id] = job
+        if busy is not None:
+            self.send_json(409, {'error': strings.ERROR_RUN_IN_PROGRESS, 'activeJob': busy.id})
+            return
 
         thread = threading.Thread(target=run_job, args=(job, password), daemon=True)
         thread.start()
@@ -3127,10 +3248,16 @@ class Handler(BaseHTTPRequestHandler):
         self.cors()
         self.end_headers()
 
-        # anything that happened before this connection opened
+        # anything that happened before this connection opened. taken, and the listener
+        # counted, in one go: a background run only queues events while someone is listening,
+        # so one emitted between the two would otherwise reach neither
         with job.lock:
             backlog = list(job.history)
-        job.page_connected(True)
+            job.listeners += 1
+            job.last_listener = time.monotonic()
+        # by identity: the queue holds the same dicts as the history, and comparing each one
+        # by value against hours of backlog would be slow
+        replayed = {id(event) for event in backlog}
         try:
             for event in backlog:
                 self.write_event(event)
@@ -3139,6 +3266,9 @@ class Handler(BaseHTTPRequestHandler):
             # does each request once, by id
             for event in job.unanswered():
                 self.write_event(event)
+            # a page attaching to a run that has already ended has everything it will get -
+            # the end was consumed by whoever was listening then, so nothing is coming
+            if job.done.is_set(): return
             while True:
                 try:
                     event = job.events.get(timeout=STREAM_HEARTBEAT_SECONDS)
@@ -3148,12 +3278,16 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                     continue
                 if event is None: break
-                if event in backlog: continue
+                if id(event) in replayed: continue
                 self.write_event(event)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass # the page navigated away
         finally:
             job.page_connected(False)
+            # the stream is over, so the connection is too. the `keep-alive` header above
+            # tells BaseHTTPRequestHandler to hold it open for another request, and a page
+            # reading to the end of the stream would then wait for ever
+            self.close_connection = True
 
     def write_event(self, event: dict) -> None:
         self.wfile.write(f'data: {json.dumps(event)}\n\n'.encode('utf-8'))
@@ -3181,6 +3315,34 @@ def already_listening(host: str, port: int, timeout: float = 0.5) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.settimeout(timeout)
         return probe.connect_ex((host, port)) == 0
+
+
+def background_running() -> bool:
+    with Handler.jobs_lock:
+        return any(job.background and not job.done.is_set() for job in Handler.jobs.values())
+
+
+def keep_awake_once(url: str, get=None) -> bool:
+    """Knock on the helper's own front door, if a background run needs it kept awake.
+
+    A free Render service is stopped after about 15 minutes with no request from outside -
+    and a background run is exactly one with nobody's page talking to it. A request to its
+    own public address goes out and back in through Render, which counts. Only while a
+    background run is going: the rest of the time the service is left to sleep as usual.
+    The answer does not matter (it is a 404 without the passcode); arriving is the point.
+    """
+
+    if not url or not background_running(): return False
+    try:
+        (get or requests.get)(url.rstrip('/') + '/api/awake', timeout=30)
+    except Exception:
+        pass # a knock that did not land costs nothing; the next one may
+    return True
+
+
+def keep_awake(stop: threading.Event, url: str) -> None:
+    while not stop.wait(KEEP_AWAKE_SECONDS):
+        keep_awake_once(url)
 
 
 def is_loopback(host: str) -> bool:
@@ -3235,6 +3397,11 @@ def serve(port: int | None = None, host: str | None = None) -> None:
         print('then start this again. carrying on would leave the page talking to the old')
         print('helper, which has its own settings and may be running older code.')
         raise SystemExit(1)
+
+    external = os.environ.get(ENV_EXTERNAL_URL, '')
+    if external:
+        threading.Thread(target=keep_awake, args=(threading.Event(), external),
+                         daemon=True).start()
 
     httpd = ThreadingHTTPServer((host, port), Handler)
     print(f'ao3downloader local api listening on http://{host}:{port}')

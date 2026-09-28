@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PAGE_CONFIG, HelperConnection, drainEvents, readPageConfig } from './helper-connection';
-import { Jobs } from './jobs';
+import { Jobs, RunInProgressError } from './jobs';
 
 const HOSTED = 'https://helper.example.com';
 
@@ -211,13 +211,16 @@ describe('HelperConnection.sealLogin', () => {
     const { pem, privateKey } = await keyPair();
     const before = Date.now();
 
-    const login = await hosted(pem).sealLogin('Someone', 'pw');
+    // long and not base64-shaped: random ciphertext contains any two given letters often
+    // enough that a short password makes this fail by chance
+    const password = 'correct-horse-battery-staple';
+    const login = await hosted(pem).sealLogin('Someone', password);
 
     expect('password' in login).toBe(false);
-    expect(JSON.stringify(login)).not.toContain('pw');
+    expect(JSON.stringify(login)).not.toContain(password);
     const opened = await open((login as { credentials: string }).credentials, privateKey);
     expect(opened['username']).toBe('Someone');
-    expect(opened['password']).toBe('pw');
+    expect(opened['password']).toBe(password);
     expect(opened['sent']).toBeGreaterThanOrEqual(before);
     expect(typeof opened['nonce']).toBe('string');
   });
@@ -247,6 +250,23 @@ describe('HelperConnection.sealLogin', () => {
     await expect(hosted(pem).sealLogin('a', 'b')).rejects.toThrow(/https/);
   });
 
+  it('seals anything else worth as much inside the same blob', async () => {
+    // a background run's Dropbox sign-in travels with the login, not beside it in the clear
+    const { pem, privateKey } = await keyPair();
+    const dropbox = { refreshToken: 'refresh-token-value', appKey: 'app-key-value' };
+
+    const login = await hosted(pem).sealLogin('Someone', 'pw', { dropbox });
+
+    expect(JSON.stringify(login)).not.toContain('refresh-token-value');
+    const opened = await open((login as { credentials: string }).credentials, privateKey);
+    expect(opened['dropbox']).toEqual(dropbox);
+  });
+
+  it('sends anything else beside the login to a helper with no key', async () => {
+    const login = await new HelperConnection().sealLogin('a', 'b', { dropbox: { x: 1 } });
+    expect(login).toEqual({ username: 'a', password: 'b', dropbox: { x: 1 } });
+  });
+
   it('explains a login too long for the key rather than failing blankly', async () => {
     const { pem } = await keyPair();
     await expect(hosted(pem).sealLogin('a', 'x'.repeat(400))).rejects.toThrow(/too long/);
@@ -265,6 +285,36 @@ describe('Jobs and the page', () => {
 });
 
 describe('Jobs.start', () => {
+  it('turns the helper refusing a second run into its own error, naming the run going', async () => {
+    answering(409, { error: 'A run is already in progress.', activeJob: 'job-0' });
+
+    const refused = await new Jobs().start({
+      action: 'sync', filetypes: ['JSON'], options: {} as never, username: 'a', password: 'b',
+    }).catch((e) => e);
+
+    expect(refused).toBeInstanceOf(RunInProgressError);
+    expect(refused.activeJob).toBe('job-0');
+  });
+
+  it('puts a background run\'s Dropbox sign-in inside the sealed login', async () => {
+    const { pem, privateKey } = await keyPair();
+    const fetching = answering(202, { jobId: 'job-1' });
+
+    await new Jobs(hosted(pem)).start({
+      action: 'sync', filetypes: ['JSON'], options: {} as never, username: 'a', password: 'b',
+      background: true, answers: { duplicates: { choice: 'leave' } },
+      dropbox: { refreshToken: 'refresh-token-value', appKey: 'k' },
+    });
+
+    const body = JSON.parse(String(fetching.mock.calls[0][1]?.body));
+    expect(body.dropbox).toBeUndefined();
+    expect(body.background).toBe(true);
+    expect(body.answers).toEqual({ duplicates: { choice: 'leave' } });
+    expect((await open(body.credentials, privateKey))['dropbox']).toEqual({
+      refreshToken: 'refresh-token-value', appKey: 'k',
+    });
+  });
+
   it('sends the sealed login and never the password', async () => {
     const { pem } = await keyPair();
     const fetching = answering(202, { jobId: 'job-1' });
@@ -295,6 +345,29 @@ describe('Jobs.start', () => {
     const body = JSON.parse(String(fetching.mock.calls[0][1]?.body));
     expect(body).toMatchObject({ username: 'Someone', password: 'pw' });
     expect(fetching.mock.calls[0][0]).toBe('http://127.0.0.1:4400/api/jobs');
+  });
+});
+
+describe('Jobs.refreshActiveRuns', () => {
+  it('keeps what the helper says is running, for the banner and the history', async () => {
+    const run = { id: 'job-1', action: 'quick', actionName: 'Quick Scan', background: true,
+                  started: '2026-09-28T10:00:00', paused: false, step: '' };
+    answering(200, { active: ['job-1'], jobs: [run] });
+    const jobs = new Jobs();
+
+    expect(await jobs.refreshActiveRuns()).toEqual([run]);
+    expect(jobs.activeRuns()).toEqual([run]);
+  });
+
+  it('leaves what it last knew when the helper cannot be asked', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    }));
+    const jobs = new Jobs();
+    jobs.activeRuns.set([{ id: 'x' } as never]);
+
+    expect(await jobs.refreshActiveRuns()).toBeNull();
+    expect(jobs.activeRuns()).toHaveLength(1);
   });
 });
 

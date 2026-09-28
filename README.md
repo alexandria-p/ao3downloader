@@ -82,6 +82,27 @@ For a hosted copy the deploy workflow writes **every** setting in `settings.ini`
 variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TIME`,
 `HelperUrl` from `HELPER_URL`), so you never edit it by hand. HOSTING.md lists them all.
 
+## Running in the background
+
+Every run offers **Run as background task** on its login step, when your library is in
+Dropbox and you are signed in. The helper then carries on with the page closed: start a run,
+go away, and come back hours later. It is greyed out for a folder on this computer, because
+the helper can only reach that folder through the open page.
+
+- Anything the run might stop to ask - what to do about files with no date, about older
+  copies, and on a quick scan how far back to go - is asked before it starts. An answer is
+  only used if the question comes up.
+- Only one run at a time. While one is going, a banner at the top of the page says so, the
+  run buttons wait, and **Go to this run** opens the History tab with it pinned at the top.
+  **View progress** there shows the usual progress window, where you can pause or stop it,
+  and **Continue in background** closes the window again and leaves it going.
+- Restarting the helper - closing its window, or deploying a new version of a hosted one -
+  ends a background run. What it saved stays saved, and starting it again carries on from
+  what is still missing.
+- Every run in the History tab has a **Download issues** button when it reported anything:
+  one text file of the works that failed, the copies to check by hand and the bookmarks that
+  are not works.
+
 # Original Readme
 
 > **Out of date for this fork.** The console program described below has been removed - the

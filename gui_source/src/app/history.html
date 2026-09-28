@@ -4,6 +4,43 @@
     <button type="button" class="button subtle" (click)="load()">Refresh</button>
   </div>
 
+  <!--
+    the run going now, pinned above everything: while it is going nothing else can start,
+    and this is where the banner at the top of the page sends people
+  -->
+  @for (active of activeRuns(); track active.id) {
+    <article class="run run-active" data-active-run>
+      <header class="run-head">
+        <span class="run-name">{{ active.actionName }}</span>
+        <span class="run-status">
+          In progress - {{ active.paused ? 'paused' : 'running' }}
+        </span>
+      </header>
+      <p class="run-when">
+        Started {{ when(active.started) }}
+        @if (active.background) { &middot; in the background }
+      </p>
+      @if (active.step) {
+        <p class="hint">Now: <strong>{{ active.step }}</strong></p>
+      }
+      @if (active.background) {
+        <div class="run-resume">
+          <button type="button" class="button primary" (click)="viewProgress.emit(active)">
+            View progress
+          </button>
+          <span class="hint">
+            Shows the run as it goes - pause it, stop it, or leave it to carry on.
+          </span>
+        </div>
+      } @else {
+        <p class="hint">
+          This run is not in the background, so its progress is shown only in the window that
+          started it - it needs that page open to reach the library.
+        </p>
+      }
+    </article>
+  }
+
   @if (loading()) {
     <p class="notice">Reading past runs...</p>
   } @else if (unavailable()) {
@@ -20,7 +57,9 @@
       <article class="run" [class]="'run-' + run.status">
         <header class="run-head">
           <span class="run-name">{{ run.actionName }}</span>
-          <span class="run-status">{{ outcome(run) }}</span>
+          <span class="run-status">
+            {{ outcome(run) }}@if (run.background) { &middot; background }
+          </span>
         </header>
 
         <p class="run-when">
@@ -77,6 +116,18 @@
 
         @if (run.error) {
           <p class="run-error">{{ run.error }}</p>
+        }
+
+        @if (issuesIn(run)) {
+          <div class="run-issues">
+            <button type="button" class="button" (click)="downloadIssues(run)">
+              Download issues ({{ issuesIn(run) | number }})
+            </button>
+            <span class="hint">
+              One text file: works that could not be downloaded, copies to check by hand, and
+              bookmarks that are not works - with their links and reasons.
+            </span>
+          </div>
         }
 
         <dl class="run-settings">

@@ -875,6 +875,21 @@ One caveat: an ao3 login does not last forever. A run left paused a long time ma
 session gone when you resume, which shows up as works failing to download. Stop it and start
 a new run if that happens.
 
+## Leaving a run to finish on its own
+
+Every run offers **Run as background task** on its login step, when the library is in
+Dropbox and signed in. The helper then carries on with the page closed, reaching Dropbox
+itself: start a run, close the page, come back hours later. It is not offered for a folder on
+this computer, which the helper can only reach through the open page.
+
+Anything the run might stop to ask is asked before it starts. Only one run goes at a time;
+while one is going the page says so at the top, and the History tab has it pinned, with
+**View progress** to open it again. Closing this window's helper ends a background run -
+what it saved stays saved, and starting it again carries on from what is still missing.
+
+Every run in the History tab has **Download issues** when it reported anything: one text file
+of what failed, what to check by hand, and the bookmarks that are not works.
+
 ## A caveat about deploying this to a server
 
 The web app is static and will serve from anywhere. The download buttons will not, as built

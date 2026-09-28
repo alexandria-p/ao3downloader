@@ -552,6 +552,8 @@ ERROR_SESSION_EXPIRED = (
     'AO3 has stopped recognising your login, so the rest of this run would fail. '
     'Everything downloaded so far has been kept - log in again and start the same run, '
     'and it will carry on from what is still missing.')
+ERROR_RUN_IN_PROGRESS = 'A run is already in progress. Wait until it is complete to start a new one - the History tab shows it.'
+ERROR_BACKGROUND_NEEDS_DROPBOX = 'A background run needs a library in Dropbox, and this request came without a Dropbox sign-in. Sign in to Dropbox and try again.'
 ERROR_NOT_A_WORK_LINK = 'That is not an ao3 work. Paste a link like https://archiveofourown.org/works/34816549, or just the work number.'
 ERROR_COLLECTION_PROFILE = 'Problem reading a collection profile page'
 ERROR_COLLECTION_ITEMS = 'Problem reading the items in a collection'
@@ -574,6 +576,8 @@ FAILED_LOGIN_NO_TOKEN_VALUE = 'authenticity token field was empty'
 AO3_INFO_RESUMING = 'resuming the {} that started {} - it stopped at: {}'
 AO3_INFO_RESUME_NO_STEP = 'before its first step'
 AO3_INFO_RESUME_ANSWER = 'using the answer the earlier attempt was given: {}'
+AO3_INFO_BACKGROUND_ANSWER = 'using the answer given before this background run started: {}'
+AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it does what changes nothing: {}'
 AO3_INFO_RESUME_SCOPE = ('the earlier attempt had finished indexing - checking and downloading '
                          'its {} works')
 AO3_INFO_RESUME_WALK_DONE = 'the earlier attempt finished this walk - taking its works from the index'

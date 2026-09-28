@@ -219,6 +219,63 @@ describe('App', () => {
 
   // writing into a folder you chose needs an API only Chromium has, and the moment it bites
   // is after a folder is picked and a run started - far too late to be told
+  // region a run already in progress
+
+  const going = {
+    id: 'job-7', action: 'quick' as const, actionName: 'Quick Scan', background: true,
+    started: '2026-09-28T10:00:00', paused: false, step: '',
+  };
+
+  it('says at the top when a run is already in progress, and that a new one must wait', async () => {
+    TestBed.inject(Jobs).activeRuns.set([going]);
+    const element = await withFolder();
+
+    const banner = element.querySelector('.run-in-progress')?.textContent ?? '';
+    expect(banner).toContain('A run is already in progress');
+    expect(banner).toContain('Quick Scan, running in the background');
+    expect(banner).toContain('You must wait until it is complete to start a new one');
+  });
+
+  it('says a paused run is paused', async () => {
+    TestBed.inject(Jobs).activeRuns.set([{ ...going, paused: true }]);
+    const element = await withFolder();
+
+    expect(element.querySelector('.run-in-progress')?.textContent).toContain('Quick Scan, paused');
+  });
+
+  it('holds every run button while one is going', async () => {
+    TestBed.inject(Jobs).activeRuns.set([going]);
+    const element = await withFolder();
+
+    const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('.actions button'));
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.every((b) => b.disabled)).toBe(true);
+  });
+
+  it('takes you to the run from the banner', async () => {
+    TestBed.inject(Jobs).activeRuns.set([going]);
+    const fixture = TestBed.createComponent(App);
+    openLibrary();
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Go to this run')!.click();
+    await fixture.whenStable();
+
+    expect(tab(element, 'History')?.getAttribute('aria-current')).toBe('page');
+  });
+
+  it('says nothing and holds nothing when no run is going', async () => {
+    const element = await withFolder();
+
+    expect(element.querySelector('.run-in-progress')).toBeNull();
+    const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('.actions button'));
+    expect(buttons.some((b) => !b.disabled)).toBe(true);
+  });
+
+  // endregion
+
   it('opens with no passcode window on a copy that needs none', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
@@ -569,8 +626,8 @@ describe('App', () => {
     expect(said).toContain('An external work');
     expect(said).toContain('A deleted work');
     expect(said).toContain('made private, or hidden');
-    // and what the export gives you
-    expect(said).toContain('Export all issues');
+    // and where the file is to be had, and what it gives you
+    expect(said).toContain('Download issues');
     expect(element.querySelector('app-faq .mock')).toBeTruthy();
   });
 
