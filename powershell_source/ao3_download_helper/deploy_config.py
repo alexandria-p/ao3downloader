@@ -3,12 +3,22 @@
     python deploy_config.py settings --out hosted-settings.ini
     python deploy_config.py page-config --settings hosted-settings.ini --out app-config.json
 
-`settings` starts from the settings.ini template and fills in the three keys a hosted setup
-changes, from the workflow's variables:
+`settings` starts from the settings.ini template and sets **every key in it** from a GitHub
+variable of the same name in upper snake case - `ExtraWaitTime` from `EXTRA_WAIT_TIME`,
+`HelperUrl` from `HELPER_URL`, and so on (`variable_for`). The names are worked out from the
+template rather than listed here, so a key added to settings.ini later can be set from a
+variable the moment it exists, without anyone remembering to wire it up. The workflow hands
+over all its variables at once (`DEPLOY_VARIABLES`, which is `toJSON(vars)`) for the same
+reason.
 
-    HELPER_URL        -> HelperUrl        where the page finds the helper
-    REQUIRE_PASSCODE  -> RequirePasscode  true/false
-    PAGE_ORIGIN       -> PageOrigin       the page's address, allowed through CORS
+A variable that is not set leaves the template's default, except where a hosted copy needs
+something else (`HOSTED_DEFAULTS`): `RequirePasscode` is on, and `PageOrigin` is the GitHub
+Pages address the workflow passes in. The log says which value came from where.
+`SavePassword` is left out altogether (`LEFT_OUT`), as the bundle leaves it out: the web page
+never stores a password, so the setting would only invite confusion.
+
+Values are checked against the kind the template's default is - `true`/`false`, or a whole
+number - so a typo fails the build instead of the helper.
 
 The result is baked into the helper's image **and** read back by `page-config`, so the page
 and the helper are built from one settings.ini and cannot disagree about where the helper is
@@ -37,6 +47,8 @@ from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives import serialization
 
+from build_artifacts import strip_setting
+
 HERE = Path(__file__).resolve().parent
 TEMPLATE = HERE / 'source_code' / 'settings' / 'settings.ini'
 
@@ -45,8 +57,20 @@ HELPER_URL = 'HelperUrl'
 REQUIRE_PASSCODE = 'RequirePasscode'
 PAGE_ORIGIN = 'PageOrigin'
 
-ENV_FOR = {HELPER_URL: 'HELPER_URL', REQUIRE_PASSCODE: 'REQUIRE_PASSCODE', PAGE_ORIGIN: 'PAGE_ORIGIN'}
 ENV_PRIVATE_KEY = 'AO3DOWNLOADER_PRIVATE_KEY'
+# every GitHub variable, as json - the workflow passes `toJSON(vars)`
+ENV_VARIABLES = 'DEPLOY_VARIABLES'
+# the page's own address, worked out by the workflow, for when PAGE_ORIGIN is not set
+ENV_DEFAULT_PAGE_ORIGIN = 'DEFAULT_PAGE_ORIGIN'
+
+# the web page never stores a password, so a hosted copy has no use for this; the bundle
+# strips it for the same reason
+LEFT_OUT = ('SavePassword',)
+# where a hosted copy needs something other than the template's default. a hosted helper
+# refuses to start without a passcode, so asking for one is the only default that can work
+HOSTED_DEFAULTS = {REQUIRE_PASSCODE: 'true'}
+
+KEY_LINE = re.compile(r'^([A-Za-z][A-Za-z0-9]*)\s*=(.*)$', re.MULTILINE)
 
 
 class DeployError(Exception):
@@ -62,6 +86,34 @@ def boolean(value: str) -> bool:
     if lowered in ('true', 'yes', '1', 'on'): return True
     if lowered in ('false', 'no', '0', 'off', ''): return False
     raise DeployError(f"'{value}' is not true or false")
+
+
+def variable_for(key: str) -> str:
+    """The GitHub variable a settings.ini key is set from: `ExtraWaitTime` -> `EXTRA_WAIT_TIME`."""
+
+    return re.sub(r'(?<=[a-z0-9])(?=[A-Z])', '_', key).upper()
+
+
+def template_keys(template: str) -> dict[str, str]:
+    """Every key in the template, in order, with its default value."""
+
+    return {m.group(1): m.group(2).strip() for m in KEY_LINE.finditer(template)}
+
+
+def checked(key: str, value: str, default: str) -> str:
+    """A value of the kind the template's default is, or a DeployError saying what is wrong."""
+
+    variable = variable_for(key)
+    if default.lower() in ('true', 'false'):
+        try:
+            return str(boolean(value)).lower()
+        except DeployError:
+            raise DeployError(f"{variable} is '{value}', but {key} is true or false") from None
+    if default.isdigit():
+        if not value.strip().isdigit():
+            raise DeployError(f"{variable} is '{value}', but {key} is a whole number")
+        return str(int(value))
+    return value.strip()
 
 
 def set_key(text: str, key: str, value: str) -> str:
@@ -103,17 +155,52 @@ def check(helper_url: str, require_passcode: bool, page_origin: str) -> None:
                           'the page read its answers')
 
 
-def write_settings(environ: dict, template: str) -> str:
+def resolve(variables: dict, template: str, default_page_origin: str = '') -> dict:
+    """Every key the hosted settings.ini will hold: `{key: (value, where it came from)}`."""
+
+    defaults = dict(HOSTED_DEFAULTS)
+    if default_page_origin: defaults[PAGE_ORIGIN] = default_page_origin
+    resolved = {}
+    for key, template_default in template_keys(template).items():
+        if key in LEFT_OUT: continue
+        given = str(variables.get(variable_for(key)) or '').strip()
+        if given:
+            value, source = given, f'variable {variable_for(key)}'
+        elif key in defaults:
+            value, source = defaults[key], 'hosted default'
+        else:
+            value, source = template_default, 'template default'
+        value = checked(key, value, template_default)
+        if key == PAGE_ORIGIN: value = value.rstrip('/')
+        resolved[key] = (value, source)
+    return resolved
+
+
+def write_settings(variables: dict, template: str, default_page_origin: str = '') -> str:
+    """settings.ini for a hosted helper: the template, every key set from `variables`."""
+
     text = template
-    values = {key: environ.get(env, '').strip() for key, env in ENV_FOR.items()}
-    if values[REQUIRE_PASSCODE]: values[REQUIRE_PASSCODE] = str(boolean(values[REQUIRE_PASSCODE])).lower()
-    values[PAGE_ORIGIN] = values[PAGE_ORIGIN].rstrip('/')
-    for key, value in values.items():
-        if value: text = set_key(text, key, value)
+    # the bundler's own stripping, so a setting left out goes the same way in both
+    for key in LEFT_OUT: text = strip_setting(text, key)
+    for key, (value, _) in resolve(variables, template, default_page_origin).items():
+        text = set_key(text, key, value)
 
     config = read_settings(text)
     check(config[HELPER_URL], config[REQUIRE_PASSCODE], config[PAGE_ORIGIN])
     return text
+
+
+def deploy_variables(environ: dict) -> dict:
+    """The GitHub variables, from `DEPLOY_VARIABLES`, over any set directly in the environment.
+
+    The environment is read too so the script can be run by hand with ordinary variables.
+    """
+
+    try:
+        given = json.loads(environ.get(ENV_VARIABLES) or '{}')
+    except json.JSONDecodeError as e:
+        raise DeployError(f'{ENV_VARIABLES} is not json') from e
+    return {**environ, **(given if isinstance(given, dict) else {})}
 
 
 def read_settings(text: str) -> dict:
@@ -165,10 +252,15 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == 'settings':
-            text = write_settings(dict(os.environ), TEMPLATE.read_text(encoding='utf-8'))
+            template = TEMPLATE.read_text(encoding='utf-8')
+            variables = deploy_variables(dict(os.environ))
+            origin = os.environ.get(ENV_DEFAULT_PAGE_ORIGIN, '')
+            text = write_settings(variables, template, origin)
             Path(args.out).write_text(text, encoding='utf-8')
-            shown = read_settings(text)
-            print(f'wrote {args.out}: ' + ', '.join(f'{k}={v}' for k, v in shown.items()))
+            print(f'wrote {args.out}:')
+            # nothing in settings.ini is secret, so every value can be shown
+            for key, (value, source) in resolve(variables, template, origin).items():
+                print(f'  {key}={value}  ({source})')
         else:
             config = page_config(Path(args.settings).read_text(encoding='utf-8'), dict(os.environ))
             Path(args.out).write_text(json.dumps(config, indent=2) + '\n', encoding='utf-8')

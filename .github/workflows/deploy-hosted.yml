@@ -35,16 +35,18 @@ jobs:
       - name: write the files
         working-directory: powershell_source/ao3_download_helper
         env:
-          HELPER_URL: ${{ vars.HELPER_URL }}
-          # a hosted helper will not start without it, so it is on unless turned off
-          REQUIRE_PASSCODE: ${{ vars.REQUIRE_PASSCODE || 'true' }}
-          PAGE_ORIGIN: ${{ vars.PAGE_ORIGIN }}
+          # every repository variable at once. each settings.ini key is set from the variable
+          # of the same name in upper snake case (ExtraWaitTime from EXTRA_WAIT_TIME), and
+          # passing them all means a key added to settings.ini later needs no change here.
+          # variables only - secrets are never in `vars`
+          DEPLOY_VARIABLES: ${{ toJSON(vars) }}
           OWNER: ${{ github.repository_owner }}
           # read only to derive the public key for the page; never written anywhere
           AO3DOWNLOADER_PRIVATE_KEY: ${{ secrets.AO3DOWNLOADER_PRIVATE_KEY }}
         run: |
-          # the pages site's own address, unless one is given. a browser sends it lowercase
-          export PAGE_ORIGIN="${PAGE_ORIGIN:-https://${OWNER,,}.github.io}"
+          # the pages site's own address, used when PAGE_ORIGIN is not set. a browser sends
+          # it lowercase
+          export DEFAULT_PAGE_ORIGIN="https://${OWNER,,}.github.io"
           uv sync --frozen
           uv run --no-sync python deploy_config.py settings --out hosted-settings.ini
           uv run --no-sync python deploy_config.py page-config --settings hosted-settings.ini --out app-config.json

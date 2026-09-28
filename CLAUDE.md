@@ -65,7 +65,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1262 python passed; 508 gui passed** (on Windows). On Linux one python test,
+Current: **1283 python passed; 509 gui passed** (on Windows). On Linux one python test,
 `test_the_same_file_reached_by_a_different_path_is_still_not_deleted`, fails because it is
 built on `C:\` paths - that is the platform, not a regression.
 
@@ -166,9 +166,18 @@ the caller closed it.
 plain http from any other host cannot seal a login, and `sealLogin` says so rather than
 failing on an undefined. This was hit in testing, not guessed.
 
-**One settings.ini feeds both halves.** `deploy_config.py settings` writes `HelperUrl`,
-`RequirePasscode` and `PageOrigin` into the template from the workflow's variables (keeping
-its comments), and `page-config` reads that same file back into `app-config.json`, deriving
+**One settings.ini feeds both halves, and every key in it comes from a deployment
+variable.** `deploy_config.py settings` sets each key in the template from the GitHub variable
+named after it in upper snake case (`variable_for`: `ExtraWaitTime` from `EXTRA_WAIT_TIME`),
+keeping the comments. The names are **derived from the template, not listed**, and the
+workflow passes every variable at once as `DEPLOY_VARIABLES` (`toJSON(vars)`, which never
+holds secrets) - so a key added to settings.ini is settable from a variable with no change to
+either file, and a test adds one to prove it. Unset variables keep the template default, except
+`HOSTED_DEFAULTS` (`RequirePasscode` on) and `PageOrigin` (the workflow's
+`DEFAULT_PAGE_ORIGIN`). Values are checked against the kind of the template's default -
+`true`/`false` or a whole number - so a typo fails the deploy, not the helper. `SavePassword`
+is left out through the bundler's own `strip_setting`, for the bundler's reason. The log
+prints every key with where its value came from; nothing in settings.ini is secret. Then `page-config` reads that same file back into `app-config.json`, deriving
 the public key from the private-key secret - so the page and the helper cannot disagree, and
 a hand-typed public key cannot drift from its private half. Both refuse, at build time, a
 setup that could not work: a plain-http hosted helper (an https page may not call it), no
