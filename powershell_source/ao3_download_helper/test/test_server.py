@@ -2394,6 +2394,47 @@ def test_a_run_records_the_settings_it_worked_from(fake_environment, tmp_path):
     assert saved['settings'] == ini
 
 
+def test_a_run_saves_its_record_as_often_as_settings_ini_says(fake_environment, tmp_path):
+    fake_environment['fileops'].runsfolder = str(tmp_path / 'runs')
+    fake_environment['fileops'].get_ini_value_integer.side_effect = \
+        lambda key, default: 30 if key == strings.INI_RUN_LOG_SAVE_SECONDS else default
+    job = server.Job(server.ACTION_SYNC, ['JSON'], 'Someone')
+
+    with patch.object(server, 'Repository'), patch.object(server, 'run_sync'):
+        server.run_job(job, 'a-password')
+
+    assert job.record.flush_seconds == 30
+
+
+def test_a_run_record_reads_its_issues_off_the_runs_downloader_at_every_save(fake_environment,
+                                                                           tmp_path):
+    # so a run killed partway keeps the failures it had met, not an empty list
+    fake_environment['fileops'].runsfolder = str(tmp_path / 'runs')
+    job = server.Job(server.ACTION_SYNC, ['JSON'], 'Someone')
+    ao3 = MagicMock()
+
+    def runner(job, *_):
+        job.ao3 = ao3
+
+    with patch.object(server, 'Repository'), patch.object(server, 'run_sync', runner):
+        server.run_job(job, 'a-password')
+
+    assert job.record.source() is ao3
+
+
+@pytest.mark.parametrize('value, expected', [(45, 45), (0, 0), (-5, 0)])
+def test_the_save_interval_is_never_negative(value, expected):
+    fileops = MagicMock()
+    fileops.get_ini_value_integer.return_value = value
+    assert server.run_log_save_seconds(fileops) == expected
+
+
+def test_an_unreadable_save_interval_is_the_default():
+    fileops = MagicMock()
+    fileops.get_ini_value_integer.side_effect = ValueError('two minutes')
+    assert server.run_log_save_seconds(fileops) == 120
+
+
 def test_settings_that_cannot_be_read_do_not_take_the_run_down(fake_environment):
     # a note about the run is not worth failing a run that downloaded a library
     with patch.object(server, 'read_settings', side_effect=OSError('gone')):

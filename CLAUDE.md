@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1403 python passed; 577 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1413 python passed; 577 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -618,11 +618,20 @@ because a note about it could not be saved.
 file.** `run_job`'s `said` hands each printed line to `RunRecord.line` as well as to the page;
 lines printed before the record exists (the setup, 'logging in') are held and passed in as
 `printed`, so the log is the whole account. A message the helper emits without printing - the
-abandonment notice - is added by hand. `save` rewrites the whole file, so lines are batched:
-at least `LOG_FLUSH_EVERY` lines **and** `LOG_FLUSH_SECONDS` since the last save. The second
-matters for Dropbox, where every save is an upload of a file that grows to hundreds of KB. A
-run killed outright loses at most its last minute; a stop, a failure or a finish saves on the
-way out. `LOG_MAX_LINES` caps it and drops the **start**, because whatever went wrong is at
+abandonment notice - is added by hand. `save` rewrites the whole file, so a line saves the
+record only once `RunLogSaveSeconds` (default 120, `RUN_LOG_SAVE_SECONDS` on a hosted copy;
+`RunRecord.flush_seconds`) have passed since the last save. **Time alone decides** - it was
+also 25 lines, which left a slow step (an index walk held up by the rate limit prints a few
+lines an hour) waiting for a batch that never came. It matters for Dropbox, where every save
+is an upload of a file that grows to hundreds of KB. The trigger is a line arriving, not a
+timer, so a run killed outright loses what it printed in its last stretch that long; a
+checkpoint, an answered question, and a stop, failure or finish save at once anyway.
+
+**Every save carries the issues and fic lists too**, not only the last: `run_job` sets
+`record.source` to the job's `Ao3`, and `save` runs `collect` on it first (swallowing any
+error). An interrupted run therefore keeps its failures, skipped bookmarks, copies to check
+and fic lists as of its last save, rather than the empty lists it had when only
+`close_record` collected them. `LOG_MAX_LINES` caps it and drops the **start**, because whatever went wrong is at
 the end, with `logTrimmed` counting what went. The page's `readRunHistory` drops `log` from the
 listing and keeps `logLines`, and History's **Download log** reads the one file again when
 asked - a hundred records of thousands of lines would be a lot to read to draw a list.

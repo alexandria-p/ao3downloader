@@ -50,6 +50,9 @@ INI_CONSOLE_LOGGING = 'EnableConsoleLogging'
 # how long a background run may sit paused before the helper abandons it
 INI_PAUSED_RUN_TIMEOUT = 'PausedRunTimeoutMinutes'
 INI_DEFAULT_PAUSED_RUN_TIMEOUT = 10
+# seconds between saves of a run's history file while it prints - see runs.LOG_FLUSH_SECONDS
+INI_RUN_LOG_SAVE_SECONDS = 'RunLogSaveSeconds'
+INI_DEFAULT_RUN_LOG_SAVE_SECONDS = 120
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
 # a hosted helper: every request needs the passcode, whose value is an environment variable

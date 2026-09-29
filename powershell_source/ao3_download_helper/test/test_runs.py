@@ -168,54 +168,98 @@ def test_lines_printed_before_the_record_existed_are_not_lost(tmp_path):
     assert written(tmp_path)[0]['log'] == ['logging in as someone', 'logged in']
 
 
-def test_the_log_is_not_written_to_disk_a_line_at_a_time(tmp_path, monkeypatch):
-    # save rewrites the whole file, so a line per fic per format would rewrite a growing
-    # file thousands of times over a long run
-    monkeypatch.setattr(runs, 'LOG_FLUSH_SECONDS', 0)
-    record = a_record(tmp_path)
-    record.save = MagicMock()
-
-    for n in range(runs.LOG_FLUSH_EVERY - 1):
-        record.line(f'line {n}')
-
-    record.save.assert_not_called()
-    record.line('one more')
-    record.save.assert_called_once()
-
-
-def test_an_interrupted_run_still_has_most_of_what_it_said(tmp_path, monkeypatch):
-    # nothing closes the file, so what is on disk is whatever the last batch left
-    monkeypatch.setattr(runs, 'LOG_FLUSH_SECONDS', 0)
-    record = a_record(tmp_path)
-
-    for n in range(runs.LOG_FLUSH_EVERY * 2):
-        record.line(f'line {n}')
-
-    assert len(written(tmp_path)[0]['log']) == runs.LOG_FLUSH_EVERY * 2
-
-
-def test_the_log_is_not_saved_more_than_once_a_minute_however_much_is_said(tmp_path):
-    # for a library in Dropbox every save is an upload of the whole, growing file
+def test_a_line_saves_the_record_only_once_enough_time_has_passed(tmp_path):
+    # save rewrites the whole file - an upload, for a library in Dropbox - so a line per fic
+    # per format must not rewrite a growing file thousands of times
     record = a_record(tmp_path)
     record.save()
     record.save = MagicMock()
 
-    for n in range(runs.LOG_FLUSH_EVERY * 10):
+    for n in range(500):
         record.line(f'line {n}')
 
     record.save.assert_not_called()
 
 
-def test_a_batch_waiting_a_minute_goes_out_with_the_next_line_after_it(tmp_path, monkeypatch):
+def test_a_few_lines_over_a_long_stretch_still_reach_disk(tmp_path):
+    # an index walk held up by ao3's rate limit prints a handful of lines an hour. time alone
+    # decides, so it is not left waiting for a batch of lines that never comes
     record = a_record(tmp_path)
     record.save()
-    for n in range(runs.LOG_FLUSH_EVERY): record.line(f'line {n}')
+    record.line('fetching page 3')
     record.save = MagicMock()
     record.last_saved -= runs.LOG_FLUSH_SECONDS
 
-    record.line('a minute later')
+    record.line('fetching page 4')
 
     record.save.assert_called_once()
+
+
+def test_the_wait_between_saves_is_the_one_the_run_was_given(tmp_path):
+    record = runs.RunRecord(fake_fileops(tmp_path), 'abcdef1234', 'sync', 'A Button',
+                            ['JSON'], {}, flush_seconds=5)
+    record.save()
+    record.save = MagicMock()
+    record.last_saved -= 4
+    record.line('not yet')
+    record.save.assert_not_called()
+
+    record.last_saved -= 1
+    record.line('now')
+    record.save.assert_called_once()
+
+
+def test_no_wait_at_all_saves_every_line(tmp_path):
+    record = runs.RunRecord(fake_fileops(tmp_path), 'abcdef1234', 'sync', 'A Button',
+                            ['JSON'], {}, flush_seconds=0)
+
+    for n in range(3):
+        record.line(f'line {n}')
+
+    assert written(tmp_path)[0]['log'] == ['line 0', 'line 1', 'line 2']
+
+
+def test_the_default_wait_is_two_minutes():
+    assert runs.LOG_FLUSH_SECONDS == 120
+
+
+def test_an_interrupted_run_keeps_its_issues_and_fics_as_of_its_last_save(tmp_path):
+    # nothing closes the record of a run killed outright, so every save carries what the run
+    # has gathered so far - not only the one at the end it never reaches
+    record = a_record(tmp_path)
+    ao3 = MagicMock()
+    ao3.reindexed, ao3.downloaded, ao3.updated = {'2', '1'}, {'1'}, set()
+    ao3.failures = [{'id': '9', 'link': 'l', 'error': 'gone'}]
+    ao3.skipped_works = [{'id': '', 'link': 's', 'error': 'a series'}]
+    ao3.kept_copies = []
+    record.source = lambda: ao3
+
+    record.checkpoint(step='download')
+
+    saved = written(tmp_path)[0]
+    assert saved['reindexed'] == ['1', '2']
+    assert saved['downloaded'] == ['1']
+    assert saved['failures'] == [{'id': '9', 'link': 'l', 'error': 'gone'}]
+    assert saved['skipped'] == [{'id': '', 'link': 's', 'error': 'a series'}]
+    assert saved['status'] == runs.STATUS_RUNNING
+
+
+def test_a_run_with_no_downloader_yet_saves_as_it_did(tmp_path):
+    record = a_record(tmp_path)
+    record.source = lambda: None
+
+    record.checkpoint(step='login')
+
+    assert written(tmp_path)[0]['failures'] == []
+
+
+def test_a_source_that_cannot_be_read_never_stops_the_save(tmp_path):
+    record = a_record(tmp_path)
+    record.source = lambda: 1 / 0
+
+    record.checkpoint(step='login')
+
+    assert written(tmp_path)[0]['progress'] == {'step': 'login'}
 
 
 def test_a_very_long_run_keeps_the_end_of_its_log_and_says_what_it_dropped(tmp_path):

@@ -111,6 +111,11 @@ the helper can only reach that folder through the open page.
   one text file of the works that failed, the copies to check by hand and the bookmarks that
   are not works - and a **Download log** button, the whole account the run gave in its
   window.
+- A run saves its History entry - log, issues and the fics it touched - as it goes: at every
+  checkpoint, and whenever it prints a line at least `RunLogSaveSeconds` (120 by default)
+  after the last save. So a run cut off outright - the helper crashing, or a deploy - keeps
+  everything up to about its last two minutes. A run that is stopped, abandoned or fails
+  saves everything on the way out.
 - If the helper is shut down mid-run, the run's History entry says **Running - not
   confirmed by the helper** until the helper is back, then **Interrupted**, with Resume
   offered. Nothing is marked interrupted while the helper cannot be asked, since a hosted

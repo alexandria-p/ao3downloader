@@ -30,18 +30,19 @@ STATUS_ABANDONED = 'abandoned'
 # has checked the helper is not still working on it. the helper never writes this itself
 STATUS_INTERRUPTED = 'interrupted'
 
-# How much of the console output one record keeps, and how often it reaches disk.
+# How often a line of console output takes the record to disk: `RunLogSaveSeconds` in
+# settings.ini, this when it is not set.
 #
-# The whole file is rewritten on every save, so saving per line would mean thousands of
-# writes of a growing file over a long run. Batching keeps that to one write per batch,
-# while still leaving an interrupted run's output nearly complete - which is exactly the
-# run whose output is worth having.
-LOG_FLUSH_EVERY = 25
-# and no more often than this. `save` rewrites the whole file, and for a library in Dropbox
-# that is an upload of a file that grows to hundreds of kilobytes - saving every 25 lines of a
-# long run would upload it hundreds of times. a run killed outright loses at most this much
-# of its log; everything else - a stop, a failure, a finish - saves on the way out anyway
-LOG_FLUSH_SECONDS = 60
+# The whole file is rewritten on every save, and for a library in Dropbox that is an upload of
+# a file that grows to hundreds of kilobytes - so a line saves the record only once this long
+# has passed since the last save. Time alone decides, not a count of lines: a slow step (an
+# index walk held up by ao3's rate limit prints a few lines an hour) must still reach disk, and
+# a fast one must not upload the file every few seconds. Checkpoints, answered questions and
+# the run ending save at once whatever this says.
+#
+# The trigger is a line arriving: nothing saves on a timer, so a run killed outright loses the
+# lines of its last stretch this long, however quiet it was afterwards.
+LOG_FLUSH_SECONDS = strings.INI_DEFAULT_RUN_LOG_SAVE_SECONDS
 
 # A run over a large library prints a line per fic per format, so this is a ceiling rather
 # than an expectation; most runs never approach it. The **last** lines are kept when it is
@@ -67,8 +68,14 @@ class RunRecord:
                  filetypes: list[str], options: dict,
                  printed: list[str] | None = None,
                  settings: dict | None = None, background: bool = False,
-                 helper: str = '', url: str = '') -> None:
+                 helper: str = '', url: str = '',
+                 flush_seconds: int | None = None) -> None:
         self.fileops = fileops
+        self.flush_seconds = LOG_FLUSH_SECONDS if flush_seconds is None else max(0, flush_seconds)
+        # where the run keeps its issues and fic lists as it goes - the downloader, handed
+        # over once the run has one (`run_job`). read on every save, so an interrupted run's
+        # record is as current as its log rather than empty until an ending it never reaches
+        self.source = None
         # lines counted since the last write, not since the run began, and when that was
         self.unsaved = 0
         self.last_saved = float('-inf')
@@ -152,6 +159,10 @@ class RunRecord:
 
     def save(self) -> None:
         try:
+            if self.source is not None: self.collect(self.source())
+        except Exception:
+            pass
+        try:
             # through the library's own storage, so a run writing to Dropbox keeps its
             # history there too, beside the works it describes
             self.fileops.write_text(self.path, json.dumps(self.data, indent=2))
@@ -165,9 +176,10 @@ class RunRecord:
         """Keep one line of console output, writing to disk in batches.
 
         Not saved per line on purpose: `save` rewrites the whole file, so a run printing a
-        line per fic per format would rewrite a growing file thousands of times. A batch
-        loses at most the last few lines of a run that is killed outright, and everything
-        else - a stop, a failure, a finish - goes through `save` anyway.
+        line per fic per format would rewrite a growing file thousands of times. A line
+        saves the record once `flush_seconds` have passed since the last save; a run killed
+        outright loses what it said since then, and everything else - a stop, a failure, a
+        finish - goes through `save` anyway.
         """
 
         try:
@@ -179,8 +191,7 @@ class RunRecord:
                 del log[:dropped]
                 self.data['logTrimmed'] += dropped
             self.unsaved += 1
-            if self.unsaved >= LOG_FLUSH_EVERY and \
-                    time.monotonic() - self.last_saved >= LOG_FLUSH_SECONDS:
+            if time.monotonic() - self.last_saved >= self.flush_seconds:
                 self.save()
         except Exception:
             pass
