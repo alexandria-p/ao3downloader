@@ -143,7 +143,9 @@ def launch_detached(command: list[str], output: Path | None = None) -> None:
 
     flags = 0
     if sys.platform == 'win32':
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        # a hidden console of its own rather than none: Windows PowerShell started with no
+        # console at all (DETACHED_PROCESS) was seen to end before running a single line
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     sink = open(output, 'ab') if output else subprocess.DEVNULL
     try:
         subprocess.Popen(command, creationflags=flags, close_fds=True, env=launch_environment(),
@@ -280,7 +282,7 @@ class Updater:
             with self.lock:
                 self.state = {'state': 'restarting', 'version': release.version}
             print(f'updating to {release.version}: the app will close and start again in a moment')
-            self.launch(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            self.launch(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
                          '-WindowStyle', 'Hidden', '-File', str(script),
                          '-AppDir', str(self.app_dir), '-ProcessId', str(os.getpid())],
                         self.update_dir / OUTPUT_NAME)

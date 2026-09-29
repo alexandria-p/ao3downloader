@@ -306,7 +306,8 @@ a version and a repository has an `Updater` (`desktop.make_updater`, set on
   skips `config/`, `logs/` and `update/` even if a zip carried them. Any failure leaves the app
   untouched and `state: failed` with the reason.
 - **The swap is a PowerShell script** (`SWAP_SCRIPT`, written to `update/apply-update.ps1`,
-  started detached and hidden), because a running exe cannot replace its own files. The app
+  started with `CREATE_NO_WINDOW` - a hidden console of its own, not `DETACHED_PROCESS`: started with no
+  console at all, the script never wrote a line of its log on the Windows runner), because a running exe cannot replace its own files. The app
   exits (`os._exit` after `EXIT_DELAY_SECONDS`, so the 202 gets out); the script waits for its
   process, moves each top-level item into `update/previous/` and the new one in, **retrying a
   locked file for ~20s and clearing any half-made copy between tries** (`Move-Carefully` - where

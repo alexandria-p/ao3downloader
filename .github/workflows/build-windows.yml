@@ -211,6 +211,9 @@ jobs:
             # everything that says why, since nobody can look at the runner afterwards
             Write-Host '--- what the app folder holds ---'
             Get-ChildItem -Force $root | ForEach-Object { Write-Host $_.Name }
+            Write-Host '--- what update\ holds ---'
+            Get-ChildItem -Force -Recurse -Depth 1 (Join-Path $root 'update') -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host $_.FullName.Substring($root.Length) }
             foreach ($evidence in @('update\update.log', 'update\swap-output.txt')) {
               $path = Join-Path $root $evidence
               if (Test-Path $path) { Write-Host "--- $evidence ---"; Get-Content -Raw $path | Write-Host }
