@@ -20,7 +20,7 @@ the same thing in conversation.
 - **Bookmarked** [is_bookmark] - whether you bookmarked a work or series yourself (`true`/`false`, or absent when unknown).
 - **Non-bookmark** - an individual work in the index with `bookmarked: false`: there because a run was led to it some other way, usually through another work's series or a collection.
 - **From series** [from_series] - the series a work was found through; added to, never replaced.
-- **From collections** [from_collections] - the collections a work was found through, by short name, when a collection run indexed its works; added to, never replaced.
+- **From collections** [from_collections] - the collections that hold a work or external work, by short name; set by the cleanup step of every workflow but the debug ones, from the collection files in the library; added to, never replaced.
 
 ## Reading AO3
 
@@ -335,9 +335,9 @@ Used by: custom run, when chosen.
 Used by: every workflow.
 - Removes the older copies you chose to remove at the older-copies question.
 - Keeps any file this run has since downloaded over, and anything if the run was stopped.
-- Notes which collections hold an indexed work, adding them to its `from_collections`:
-  - a collection run: every work and external work the collections it read list that is already in the index - whether or not *Index and download encountered works* was ticked;
-  - a full, quick or custom scan: every work it indexed, against every collection saved in the library.
+- Notes which collections hold each work, adding them to its `from_collections`. **The only place that field is set.** Every workflow but the debug ones (the combined run, new bookmarks only, update incomplete):
+  - every work the run covered - what it indexed, and everything its saved progress names (so a resumed run covers what its earlier attempt indexed) - and every external work it saved, against every collection saved in the library;
+  - a collection run also: every work and external work the collections it read list that is already in the index - whether or not *Index and download encountered works* was ticked.
   Only entries already in the index, only when a collection is missing, and without adding a reading - no AO3 requests.
 - Skipped when there is nothing to remove or note, and when the run was stopped.
 
@@ -354,4 +354,4 @@ Used by: every workflow.
 - **Fetch any format still missing** - the combined run; fills formats missing from works the other passes left alone.
 - **Index your collections** / **Index this collection** - the two collection runs. Reads each collection's profile, then its works and bookmarked-items listings (one request per 20), skipping a listing whose count has not changed.
 - Either step, with *Include subcollections* or *Include parent collections*, then reads each related collection once the ones asked for are done - one at a time, queueing theirs in turn, never the same collection twice.
-- **Index your collections and the works in them** / **Index this collection and the works in it** - the same, with *Index and download encountered works*. Never skips a listing on its count, because it indexes every work blurb on it: an existing entry keeps its own bookmark fields; a new one gets `bookmarked: false`; somebody else's bookmark notes and tags from a bookmarked-items listing are blanked, never written in as yours. Each work records the collection in `from_collections`, is read once however many collections hold it, and has its series marked when that option is on. Works in an unrevealed collection are indexed and held back from download. External works among a collection's bookmarked items are indexed too, into `indexing/external/` with your own, by the same rules (bookmark fields not yours, new ones not bookmarked, `from_collections`); never downloaded. Every collection run records them in the collection's file as `external_ids` (AO3's numbers for them, a separate numbering from works), and the collection view lists them after the bookmarked works. The works go on to the ordinary series, check and download steps.
+- **Index your collections and the works in them** / **Index this collection and the works in it** - the same, with *Index and download encountered works*. Never skips a listing on its count, because it indexes every work blurb on it: an existing entry keeps its own bookmark fields; a new one gets `bookmarked: false`; somebody else's bookmark notes and tags from a bookmarked-items listing are blanked, never written in as yours. Each work is read once however many collections hold it (the cleanup step notes the collection in `from_collections`), and has its series marked when that option is on. Works in an unrevealed collection are indexed and held back from download. External works among a collection's bookmarked items are indexed too, into `indexing/external/` with your own, by the same rules (bookmark fields not yours, new ones not bookmarked); never downloaded. Every collection run records them in the collection's file as `external_ids` (AO3's numbers for them, a separate numbering from works), and the collection view lists them after the bookmarked works. The works go on to the ordinary series, check and download steps.

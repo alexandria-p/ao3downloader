@@ -5,45 +5,39 @@ of an assumption nobody enforces. Each says what the weakness is, what it costs 
 bites, and what a proper fix would look like. `CLAUDE.md` explains how things work; this is
 where they are thin.
 
-## `from_collections` is brittle
+## `from_collections` is still thinner than it looks
 
-An index entry's `from_collections` lists the collections a work (or external work) was
-found in. It is right most of the time, but it is not kept by one mechanism with one rule -
-it is patched in from several places, and nothing ever checks it as a whole.
-
-**Four writers.** It is written by:
-
-1. a collection run with *Index and download encountered works*, as each work is saved
-   (`save_collection_work`, through `indexing.merge`, which only ever adds to it)
-2. the same run, for an external work (`save_collection_external` / `save_entry`)
-3. the cleanup step of a collection run, for works already indexed (`collection_links` /
-   `write_collection_links`, which writes the identity field straight onto the file,
-   bypassing `merge`)
-4. the cleanup step of a full, quick or custom scan, for the works it indexed
-
-Each has its own idea of which works to look at. They agree today because they were written
-together; a change to one is easy to make without the others.
+An index entry's `from_collections` lists the collections that hold a work (or external
+work). It is now written in **one place** - the cleanup step (`collection_links` /
+`write_collection_links`) - for every workflow but the debug ones, over every work the run
+covered, a resumed run's earlier attempt included. It used to have four writers, each with its
+own idea of which works to look at; that was the brittle part, and it is gone. What is left:
 
 **It only ever grows.** Nothing removes a name. A work taken out of a collection, a
 collection deleted on AO3, a collection file deleted from the library - the entry still
-names the collection. Fixing this needs a pass that rebuilds the field from every collection
-file, not an update per run.
+names the collection. Fixing this means the cleanup setting the field to exactly the
+collections that list the work - removing as well as adding - which needs every collection
+in the library to be current first, or it would remove names that are right.
 
-**It is only as right as the collection files.** Every writer trusts `work_ids`,
+**It is only as right as the collection files.** The cleanup trusts `work_ids`,
 `bookmark_ids` and `external_ids`. Those can be stale: a collection run without the works
 option skips re-reading a listing whose count has not changed (`unchanged_items`), so a
 collection that gained one work and lost another keeps its old list, and the entries are
 linked from that old list.
 
-**Coverage has holes.** The cleanup linking runs on collection runs and on the full, quick
-and custom scans. The combined run, 'new bookmarks only', the single-fic run and the update
-run never link. A quick scan links only what it indexed, which is only what changed since
-its floor, so older works wait for a full scan.
+**Coverage still has edges.**
+- The debug workflows (the combined run, 'new bookmarks only', update incomplete) never
+  link - by choice.
+- A run that is stopped, abandoned or fails never reaches its cleanup, so it links nothing -
+  until it is resumed, when the resume links what both attempts covered. One never resumed
+  waits for the next run to cover those works.
+- A quick scan covers only what changed since its floor, so older works wait for a full scan.
+- An external work covered by a resumed attempt that the earlier attempt saved is not in
+  `externals_saved`, which is per attempt - it waits for a run that saves it again.
 
-**Entries are found by the number their file name starts with.** The cleanup linking and
-the collection runs look entries up that way (`entries_missing`, `Ao3.entry_path`). A file
-renamed by hand so it no longer starts with the work number is not found. Nothing in the app
-does that, but people do.
+**Entries are found by the number their file name starts with.** A file renamed by hand so
+it no longer starts with the work number is not found. Nothing in the app does that, but
+people do.
 
 **Numbering.** External works have AO3's separate numbering (`/external_works/<n>`), kept in
 `external_ids` and `indexing/external/`. Mixing the two - an external number looked up among
@@ -53,28 +47,25 @@ hand.
 **Nothing shows it.** The page does not display `from_collections`, so a wrong or missing
 value is not noticed by anyone using the app.
 
-**A proper fix** would be one function that, given every collection file, sets
-`from_collections` on every entry to exactly the collections that list it - adding and
-removing - run as its own step, and the only writer. The per-run writers above would then be
-removed.
+## Older libraries can hold two index files for one work
 
-## Most index writes find an entry by the name it would have now
+Index writes used to go to the name a work would be given from its current title and author
+(`Ao3.metadata_path`). When a work was retitled on AO3, or its author renamed themselves, the
+next scan or series walk wrote a **second file** for the same work, left the old one as it
+was, and - for a work found through a series or a collection - recorded the new one as not
+bookmarked.
 
-`Ao3.metadata_path` builds a file name from the work number, title and author. The scans'
-walks (`get_metadata`) and the series walk (`save_series_work`) write to that name, built
-from what the listing says now. (The single-fic and update runs do not have this problem:
-they start from the entry already in the index and rewrite only its stats, so its title -
-and so its name - is the one it already has.) When a work is retitled on AO3, or its author renames themselves, the
-name changes: the next write goes to a **second file** for the same work, the old one is left
-as it was, and the page shows whichever it reads last. For a work found through a series or
-a collection, the new file is also recorded as not bookmarked, since the lookup that would
-have found your bookmark missed.
+**Every index write now finds its entry by the number its file name starts with**
+(`Ao3.entry_path`), so no new duplicates are made. The ones already in a library are left
+where they are: `list_entries` picks the most recently indexed file for a number, writes only
+to that one, and the run says which numbers it found doubled. The older file is never
+touched or deleted. The page, reading every file, shows whichever it reads last for that
+number - usually, not always, the same one.
 
-Collection runs no longer do this - they find the entry by its number (`Ao3.entry_path`),
-as series entries already were (`series_path`) - because a test caught a collection run
-creating the second file and losing the bookmark. The rest of the index writes have not been
-changed yet. Moving them all to `entry_path` would stop the duplicates; cleaning up the
-duplicates already in someone's library would need a separate pass that merges them.
+**A proper fix** is a one-off pass that merges each number's files into one - their readings
+in date order, the union of `from_series` and `from_collections`, `bookmarked` true if either
+said so - and deletes the rest. It needs care, since it deletes files, and it has not been
+written.
 
 ## Other known gaps
 

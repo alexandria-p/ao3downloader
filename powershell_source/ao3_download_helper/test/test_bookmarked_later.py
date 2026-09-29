@@ -57,6 +57,11 @@ def entry_path(root: str, work: str) -> str:
     return os.path.join(folder, next(n for n in os.listdir(folder) if n.startswith(work + ' ')))
 
 
+def entry_files(root: str, work: str) -> list[str]:
+    folder = os.path.join(root, strings.INDEXING_FOLDER_NAME)
+    return [n for n in os.listdir(folder) if n.startswith(work + ' ') and n.endswith('.json')]
+
+
 def entry(root: str, work: str) -> dict:
     with open(entry_path(root, work), encoding='utf-8') as f:
         return indexing.flatten(json.load(f))
@@ -314,35 +319,16 @@ def test_with_the_works_on_an_unchanged_work_still_learns_its_collection(bookmar
     assert entry(bookmarked, NEWEST)[strings.BOOKMARKED_FIELD] is True
 
 
-def test_with_the_works_on_the_crawl_alone_would_note_it(bookmarked):
-    # two ways write it on a run with the works on - the crawl's own save, and the cleanup.
-    # each is enough on its own: here the cleanup is kept out of it
+def test_with_the_works_on_only_the_cleanup_notes_it(bookmarked):
+    # one place sets from_collections, for every run - the cleanup step. with it kept out,
+    # the crawl indexes the work and leaves the field alone
     run_collection(bookmarked, works=True)
     forget_collections(bookmarked, NEWEST)
 
     with patch.object(server, 'collection_links', return_value=[]):
         run_collection(bookmarked, works=True)
 
-    assert entry(bookmarked, NEWEST)[indexing.FROM_COLLECTIONS] == ['alpha']
-
-
-def test_with_the_works_on_the_cleanup_alone_would_note_it(bookmarked):
-    run_collection(bookmarked, works=True)
-    forget_collections(bookmarked, NEWEST)
-    real_save = server.Ao3.save_collection_work
-
-    def save_without_the_collection(self, document, collection, listing):
-        return real_save(self, document, '', listing)
-
-    with patch.object(server.Ao3, 'save_collection_work', save_without_the_collection):
-        run_collection(bookmarked, works=True)
-
-    assert entry(bookmarked, NEWEST)[indexing.FROM_COLLECTIONS] == ['alpha']
-
-
-def entry_files(root: str, work: str) -> list[str]:
-    folder = os.path.join(root, strings.INDEXING_FOLDER_NAME)
-    return [n for n in os.listdir(folder) if n.startswith(work + ' ') and n.endswith('.json')]
+    assert indexing.FROM_COLLECTIONS not in entry(bookmarked, NEWEST)
 
 
 def test_a_work_retitled_since_it_was_indexed_keeps_its_one_entry_and_your_bookmark(bookmarked):
@@ -357,3 +343,161 @@ def test_a_work_retitled_since_it_was_indexed_keeps_its_one_entry_and_your_bookm
     assert found[strings.BOOKMARKED_FIELD] is True
     assert found[indexing.FROM_COLLECTIONS] == ['alpha']
     assert found['title'] == f'Work {NEWEST}'
+
+
+# region every workflow notes collections in its cleanup, resumed or not
+
+def earlier_attempt(root: str, action: str) -> str:
+    """Run `action`, then make its history file read as an attempt that was interrupted
+    after its listing walk finished - so a resume takes that walk's works from the index
+    rather than reading them again. Returns the run's id."""
+
+    run(root, action)
+    folder = os.path.join(root, 'runs')
+    name = sorted(os.listdir(folder))[-1]
+    with open(os.path.join(folder, name), encoding='utf-8') as f:
+        data = json.load(f)
+    data['status'] = 'interrupted'
+    data['finished'] = None
+    with open(os.path.join(folder, name), 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+    return data['id']
+
+
+def test_a_resumed_scan_notes_collections_on_what_the_earlier_attempt_indexed(tmp_path):
+    # the resumed attempt does not read the listing again - its walk was done - so nothing is
+    # indexed this attempt; the works are still covered, through the progress it carries
+    root = str(tmp_path / 'library')
+    earlier = earlier_attempt(root, server.ACTION_BOOKMARKS)
+    saved_collection(root, [NEWEST])
+    asked = run(root, server.ACTION_CUSTOM, {'resume': earlier})
+
+    assert not any('/bookmarks' in url for url in asked)
+    assert entry(root, NEWEST)[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def test_the_single_fic_run_notes_the_collections_holding_its_fic(bookmarked):
+    saved_collection(bookmarked, [NEXT])
+    work_page = os.path.join(FIXTURES, 'unlockedWork.html')
+    with open(work_page, encoding='utf-8') as f:
+        page = f.read()
+    number = __import__('re').search(r'/works/(\d+)', page).group(1)
+    saved_collection(bookmarked, [number])
+
+    repo = MagicMock()
+    repo.__enter__ = MagicMock(return_value=repo)
+    repo.__exit__ = MagicMock(return_value=False)
+    repo.get_soup.side_effect = lambda url: BeautifulSoup(page, 'html.parser')
+    job = server.Job(server.ACTION_WORK, ['JSON'], 'Someone', server.resolve_options({}),
+                     url=f'https://archiveofourown.org/works/{number}')
+    job.emit = lambda event: None
+    with patch.object(server, 'FileOps', side_effect=lambda *a, **k: FileOps(LocalStorage(bookmarked))), \
+         patch.object(server, 'Repository', return_value=repo):
+        server.run_job(job, 'a-password')
+
+    assert entry(bookmarked, number)[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+@pytest.mark.parametrize('action', [server.ACTION_SYNC, server.ACTION_NEW])
+def test_the_debug_runs_do_not_note_collections(tmp_path, action):
+    root = str(tmp_path / 'library')
+    saved_collection(root, [NEWEST])
+
+    run(root, action)
+
+    assert indexing.FROM_COLLECTIONS not in entry(root, NEWEST)
+
+# endregion
+
+
+# region every index write finds its entry by the number its name starts with
+
+def retitle(root: str, work: str, title: str) -> str:
+    """Give an entry's file the name it would have had under an older title."""
+
+    old = entry_path(root, work)
+    new = os.path.join(os.path.dirname(old), f'{work} {title} - someone.json')
+    os.rename(old, new)
+    return new
+
+
+def test_a_scan_writes_to_a_retitled_works_existing_file(bookmarked):
+    kept = retitle(bookmarked, NEWEST, 'An Older Title')
+
+    run(bookmarked, server.ACTION_BOOKMARKS)
+
+    assert len(entry_files(bookmarked, NEWEST)) == 1
+    with open(kept, encoding='utf-8') as f:
+        data = json.load(f)
+    assert indexing.flatten(data)[strings.BOOKMARKED_FIELD] is True
+    # the reading this scan took is in that file
+    assert len(data['indexes']) >= 1 and data['last_indexed'] != ''
+
+
+def test_a_series_walk_writes_to_a_retitled_works_existing_file(bookmarked):
+    # the series on the fixture page lists works the scan indexed through it
+    series_works = [n.split(' ')[0] for n in os.listdir(os.path.join(
+        bookmarked, strings.INDEXING_FOLDER_NAME)) if n.endswith('.json')]
+    work = next(w for w in series_works
+                if indexing.FROM_SERIES in entry(bookmarked, w))
+    retitle(bookmarked, work, 'An Older Title')
+
+    run(bookmarked, server.ACTION_BOOKMARKS)
+
+    assert len(entry_files(bookmarked, work)) == 1
+
+
+def test_duplicates_an_older_version_left_are_written_to_the_newest_and_named(bookmarked, capsys):
+    newest = entry_path(bookmarked, NEWEST)
+    with open(newest, encoding='utf-8') as f:
+        data = json.load(f)
+    stale = dict(data, last_indexed='2000-01-01T00:00:00+00:00')
+    older = os.path.join(os.path.dirname(newest), f'{NEWEST} An Older Title - someone.json')
+    with open(older, 'w', encoding='utf-8') as f:
+        json.dump(stale, f)
+    with open(older, encoding='utf-8') as f:
+        before_older = f.read()
+
+    run(bookmarked, server.ACTION_BOOKMARKS)
+
+    # the older copy is left as it was; nothing is deleted
+    with open(older, encoding='utf-8') as f:
+        assert f.read() == before_older
+    assert len(entry_files(bookmarked, NEWEST)) == 2
+    # the most recently indexed one is the entry, and got this run's reading
+    with open(newest, encoding='utf-8') as f:
+        assert json.load(f)['last_indexed'] > data['last_indexed']
+
+# endregion
+
+
+def test_a_resumed_collection_run_notes_its_collection_on_what_it_holds(bookmarked):
+    # the earlier attempt finished the collection, so the resume reads nothing of it - its
+    # cleanup still notes the collection on the works it holds
+    run_collection(bookmarked, works=False)
+    forget_collections(bookmarked, NEWEST)
+    folder = os.path.join(bookmarked, 'runs')
+    name = sorted(os.listdir(folder))[-1]
+    with open(os.path.join(folder, name), encoding='utf-8') as f:
+        data = json.load(f)
+    assert data['action'] == server.ACTION_COLLECTION
+    data['status'] = 'interrupted'
+    with open(os.path.join(folder, name), 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+
+    asked = run(bookmarked, server.ACTION_CUSTOM, {'resume': data['id']})
+
+    assert asked == []
+    assert entry(bookmarked, NEWEST)[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def test_a_new_series_entry_is_named_from_its_title_not_from_a_lookup_by_number(tmp_path):
+    # the series walk looks a series up by its number before it has read the series page. a
+    # name built from that lookup alone - no title, no author - must never be the file's name
+    root = str(tmp_path / 'library')
+    run(root, server.ACTION_BOOKMARKS, {'series': True})
+
+    folder = os.path.join(root, strings.INDEXING_FOLDER_NAME, strings.SERIES_INDEX_FOLDER_NAME)
+    names = [n for n in os.listdir(folder) if n.endswith('.json')]
+    assert names
+    assert not [n for n in names if n.endswith(' -.json') or '  ' in n]

@@ -2363,20 +2363,57 @@ def cleanup(job: Job, fileops: FileOps, ao3) -> None:
     job.steps.done('cleanup')
 
 
-# the runs whose cleanup notes collections on the works they indexed - the scans. the
-# collection runs note the works their collections hold instead
-LINKING_SCANS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
+# the runs whose cleanup notes which collections hold the works they covered: every
+# workflow but the debug ones (the combined run, new bookmarks only, update incomplete)
+LINKING_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM, ACTION_WORK,
+                   ACTION_COLLECTIONS, ACTION_COLLECTION)
+
+
+def covered_works(job: Job, ao3) -> set[str]:
+    """Every work this run covered - not only what it indexed this attempt.
+
+    What it indexed (`reindexed`), and everything its progress names: its scope, every
+    walk's works, the works its series walk found, the non-bookmarks and date-window fics it
+    got through. A resumed run starts its progress with a copy of the earlier attempt's, and
+    the earlier attempt's own is read too, so a work that attempt indexed - which this one
+    takes from the index rather than reading again - is still covered.
+    """
+
+    found: set[str] = set()
+
+    def take(values) -> None:
+        for value in values or []:
+            if isinstance(value, (str, int)) and str(value): found.add(str(value))
+
+    reindexed = getattr(ao3, 'reindexed', None)
+    if isinstance(reindexed, set): take(reindexed)
+    for saved in (job.progress(), job.earlier_progress()):
+        if not isinstance(saved, dict): continue
+        take(saved.get('scope'))
+        for walk in (saved.get('walks') or {}).values():
+            if isinstance(walk, dict): take(walk.get('works'))
+        for key in ('seriesWorks', 'nonBookmarksDone', 'updateDone'):
+            take(saved.get(key))
+    return found
+
+
+def covered_externals(ao3) -> set[str]:
+    """The external works this run saved an entry for, by ao3's number for them."""
+
+    saved = getattr(ao3, 'externals_saved', None)
+    return {str(x) for x in saved} if isinstance(saved, set) else set()
 
 
 def collection_links(job: Job, fileops: FileOps, ao3) -> list[tuple[str, list[str]]]:
     """The index entries that are missing a collection that holds them, and the whole list
     each should have - `(path, from_collections)`.
 
-    Which works are looked at depends on the run. A collection run looks at every work (and
-    external work) the collections it read list - so with *Index and download encountered
-    works* off, a work you had already indexed still learns it is in the collection. A full,
-    quick or custom scan looks at every work it indexed, against every collection saved in
-    the library - so a work bookmarked after its collection was indexed learns it too.
+    **This is the one place `from_collections` is set**, for every workflow but the debug
+    ones. Each looks at every work it covered (`covered_works`) and every external work it
+    saved, against every collection saved in the library - so a work bookmarked after its
+    collection was indexed learns it too. A collection run also looks at every work and
+    external work the collections it read list - so with *Index and download encountered
+    works* off, a work you had already indexed still learns it is in the collection.
 
     Only entries already in the index are touched, and only when a collection is missing
     from them. Nothing here reaches ao3, and anything that goes wrong is left undone rather
@@ -2384,7 +2421,7 @@ def collection_links(job: Job, fileops: FileOps, ao3) -> list[tuple[str, list[st
     """
 
     try:
-        if job.action not in COLLECTION_ACTIONS and job.action not in LINKING_SCANS: return []
+        if job.action not in LINKING_ACTIONS: return []
         held: dict[str, dict] = {}
         folder = os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)
         for name in fileops.list_files(folder):
@@ -2402,14 +2439,12 @@ def collection_links(job: Job, fileops: FileOps, ao3) -> list[tuple[str, list[st
             for external in collection.get('external_ids') or []:
                 by_external.setdefault(str(external), set()).add(name)
 
+        works = covered_works(job, ao3)
+        externals = covered_externals(ao3)
         if job.action in COLLECTION_ACTIONS:
-            read = [x for x in job.collections_read if x in held]
-            works = {w for w, names in by_work.items() if names & set(read)}
-            externals = {e for e, names in by_external.items() if names & set(read)}
-        else:
-            reindexed = getattr(ao3, 'reindexed', None)
-            works = {str(x) for x in reindexed} if isinstance(reindexed, set) else set()
-            externals = set()
+            read = {x for x in job.collections_read if x in held}
+            works |= {w for w, names in by_work.items() if names & read}
+            externals |= {e for e, names in by_external.items() if names & read}
 
         return [*entries_missing(fileops, strings.INDEXING_FOLDER_NAME, works, by_work),
                 *entries_missing(fileops, os.path.join(strings.INDEXING_FOLDER_NAME,

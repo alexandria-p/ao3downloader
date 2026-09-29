@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1468 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1477 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1029,15 +1029,13 @@ The rules, and why:
   and tags off each one. `save_collection_work` blanks `BOOKMARK_OWN_FIELDS` (to the empty
   shape a series work has), then restores the existing entry's own - the same rule as
   `save_series_work`. A new entry is `bookmarked: false`.
-- **A work is read once per run** (`indexed_this_run`), however many collections hold it;
-  meeting it again only adds that collection to `from_collections`, which, like
-  `from_series`, `indexing.merge` only ever adds to (`ACCUMULATED_FIELDS`).
+- **A work is read once per run** (`indexed_this_run`), however many collections hold it.
+  The crawl does **not** write `from_collections` - see below.
 - Unrevealed works go through `note_unrevealed`, shared with `get_metadata`: indexed, held
   back from download, listed as skipped.
 - **External works** among a collection's bookmarked items are indexed by
   `save_collection_external` into `indexing/external/`, under the same rules through the
-  shared `as_not_yours`; `externals_indexed` reads each once per run and only adds a second
-  collection to `from_collections`; never downloaded. Every collection run records them in
+  shared `as_not_yours`; `externals_indexed` reads each once per run; never downloaded. Every collection run records them in
   the collection's file as `external_ids` - read off the page anyway, kept through an
   unchanged count and through a resume (`listings.bookmark_ids.externals`), reported by
   `collect_work_ids` on `last_externals`. **They are numbered apart from works**: the page
@@ -1045,22 +1043,36 @@ The rules, and why:
   as work 1. Missing ones render as `placeholderExternal`, linking `/external_works/<n>`
   (the address real ao3 markup uses). Blurbs are told apart by `get_blurb_kind`.
 
-**`from_collections` is also filled in by the cleanup step**, for works a run did not index
-through a collection. `collection_links` reads every saved collection file and returns
-`(path, list)` for each index entry missing one that holds it; `write_collection_links` sets
-the identity field straight onto the file (no new reading). A collection run looks at every
-work and external work its collections list (`job.collections_read`, from
-`note_collections_read`) - so with *Index and download encountered works* off, an indexed
-bookmark still learns it is in the collection. A full, quick or custom scan (`LINKING_SCANS`)
-looks at `ao3.reindexed` - so a work indexed after its collection learns it too. Entries are
-found by the number their file name starts with and read only when they might need it; it
-never creates an entry, never reaches ao3, skips when stopped, and swallows its own errors.
+**`from_collections` is set in one place: the cleanup step**, for every workflow but the
+debug ones (`LINKING_ACTIONS`: full, quick and custom scans, the single fic, both collection
+runs). No crawl or walk writes it - don't add a second writer; `TECH_DEBT.md` says why it was
+brittle when there were four. `collection_links` reads every saved collection file and
+returns `(path, list)` for each index entry missing a collection that holds it;
+`write_collection_links` sets the identity field straight onto the file (no new reading).
+What it looks at is **every work the run covered** (`covered_works`): `ao3.reindexed` plus
+everything the run's progress names - scope, every walk's works, the series walk's works,
+`nonBookmarksDone`, `updateDone` - from both `job.progress()` and `job.earlier_progress()`.
+That is what makes a **resumed** run link the works its earlier attempt indexed and it took
+from the index without reading again. External works come from `ao3.externals_saved`. A
+collection run also looks at every work and external work its collections list
+(`job.collections_read`, from `note_collections_read`, which includes collections a resume
+skipped as finished) - so with *Index and download encountered works* off, an indexed
+bookmark still learns it is in the collection. Entries are found by number and read only
+when they might need it; it never creates an entry, never reaches ao3, skips when stopped,
+and swallows its own errors.
 
-**A collection run finds an existing entry by its number, not its name** (`Ao3.entry_path`,
-used by `as_not_yours` and the collection savers). The name is built from title and author,
-which change: looking up by the new name missed the entry, wrote a second file for the same
-work and recorded it not bookmarked - a test caught exactly that. The scans' walks and the
-series walk still write by name; `TECH_DEBT.md` has it.
+**Every index write finds its entry by the number its file name starts with**, never by the
+name it would be given now (`Ao3.entry_path`: `save_metadata` and `save_entry` default to
+it, `series_path` goes through it, `save_series_work` and `as_not_yours` read the existing
+entry through it). The name is built from title and author, which change - writing by the new
+name left a second file for the same work, and for a series- or collection-found work
+recorded it not bookmarked; a test caught that. Each index folder is listed once per run
+(`list_entries`); **a name is remembered only once a file is written under it**
+(`remember_entry`) - a lookup made with only a number, as `series_existing` does, would
+otherwise name the new file `<id>  -.json`, which the comparison against `main` caught. Where
+an older version left **two files for one number**, the most recently indexed is the entry,
+chosen the same way every time, and the run prints which (`AO3_INFO_DUPLICATE_ENTRIES`);
+nothing is merged or deleted.
 
 **A collection's family can be followed** (`subcollections`, `parentCollections` - clamped to
 the collection runs in `do_POST`). Every collection goes through `Ao3.take_collection`, which

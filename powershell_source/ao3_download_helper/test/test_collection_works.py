@@ -76,10 +76,24 @@ def make_ao3(on_disk: dict | None = None, series: bool = False):
     files = dict(on_disk or {})
     fileops.load_json.side_effect = lambda path: files.get(path)
     fileops.save_json.side_effect = lambda path, data: files.__setitem__(path, data)
+    # the library is rooted at '', so a folder is listed straight off the paths saved in it
+    fileops.downloadfolder = ''
+    fileops.list_files.side_effect = lambda folder: [
+        os.path.basename(path) for path in files if os.path.dirname(path) == folder]
     ao3 = Ao3(repo=repo, fileops=fileops, filetypes=['HTML'], pages=None, series=series,
               images=False)
     ao3.collection_works = []
     return ao3, repo, fileops, files
+
+
+def linked(ao3, fileops, records: list[dict], action: str = 'collections') -> None:
+    """End the crawl the way a run does: its cleanup step, which is where `from_collections`
+    is set - never the crawl itself."""
+
+    job = server.Job(action, ['JSON'], 'Someone')
+    job.collections_read = [str(r['name']) for r in records if r.get('name')]
+    job.steps = MagicMock()
+    server.cleanup(job, fileops, ao3)
 
 
 def entries(files: dict) -> dict[str, dict]:
@@ -108,17 +122,18 @@ def test_every_work_a_collection_holds_is_indexed_off_the_listing():
 def test_a_work_new_to_the_index_is_recorded_as_not_bookmarked():
     # the same rule as a work met through a series: it is in the index because of the
     # collection, not because you bookmarked it
-    ao3, repo, _, files = make_ao3()
+    ao3, repo, fileops, files = make_ao3()
     repo.get_soup.side_effect = pages({'alpha': ['111']})
 
-    ao3.get_collections(COLLECTIONS_URL)
+    records = ao3.get_collections(COLLECTIONS_URL)
+    linked(ao3, fileops, records)
 
     assert entries(files)['111'][strings.BOOKMARKED_FIELD] is False
     assert entries(files)['111'][indexing.FROM_COLLECTIONS] == ['alpha']
 
 
 def test_a_work_you_bookmarked_keeps_your_bookmark():
-    ao3, repo, _, files = make_ao3()
+    ao3, repo, fileops, files = make_ao3()
     repo.get_soup.side_effect = pages({'alpha': ['111']})
     path = ao3.metadata_path({'id': '111', 'title': 'Work 111', 'authors': ['writer']})
     files[path] = {'id': '111', 'source': 'https://archiveofourown.org/users/me/bookmarks',
@@ -126,7 +141,8 @@ def test_a_work_you_bookmarked_keeps_your_bookmark():
                                        'authors': ['writer'], 'bookmark_notes': 'mine',
                                        strings.BOOKMARKED_FIELD: True}]}
 
-    ao3.get_collections(COLLECTIONS_URL)
+    records = ao3.get_collections(COLLECTIONS_URL)
+    linked(ao3, fileops, records, 'collections')
 
     entry = entries(files)['111']
     assert entry[strings.BOOKMARKED_FIELD] is True
@@ -138,14 +154,15 @@ def test_a_work_you_bookmarked_keeps_your_bookmark():
 
 
 def test_a_bookmarked_work_found_through_a_series_too_keeps_that_as_well():
-    ao3, repo, _, files = make_ao3()
+    ao3, repo, fileops, files = make_ao3()
     repo.get_soup.side_effect = pages({'alpha': ['111'], 'beta': ['111']})
     path = ao3.metadata_path({'id': '111', 'title': 'Work 111', 'authors': ['writer']})
     files[path] = {'id': '111', indexing.FROM_SERIES: ['77'],
                    indexing.INDEXES: [{indexing.INDEXED_ON: 'earlier', 'title': 'Work 111',
                                        'authors': ['writer'], strings.BOOKMARKED_FIELD: True}]}
 
-    ao3.get_collections(COLLECTIONS_URL)
+    records = ao3.get_collections(COLLECTIONS_URL)
+    linked(ao3, fileops, records, 'collections')
 
     entry = entries(files)['111']
     assert entry[indexing.FROM_SERIES] == ['77']
@@ -166,6 +183,16 @@ def test_without_the_works_option_a_bookmarked_work_is_not_touched():
     assert indexing.FROM_COLLECTIONS not in files[path]
 
 
+def test_the_crawl_itself_never_writes_from_collections():
+    # it is set in one place only, the run's cleanup step - see `server.collection_links`
+    ao3, repo, _, files = make_ao3()
+    repo.get_soup.side_effect = pages({'alpha': ['111']}, {'alpha': ['333']})
+
+    ao3.get_collections(COLLECTIONS_URL)
+
+    assert all(indexing.FROM_COLLECTIONS not in e for e in entries(files).values())
+
+
 def test_somebody_elses_bookmark_is_not_written_in_as_yours():
     # a collection's bookmarked items are other people's bookmarks, notes and all
     ao3, repo, _, files = make_ao3()
@@ -181,10 +208,11 @@ def test_somebody_elses_bookmark_is_not_written_in_as_yours():
 
 
 def test_a_work_in_two_collections_is_read_once_and_found_through_both():
-    ao3, repo, _, files = make_ao3()
+    ao3, repo, fileops, files = make_ao3()
     repo.get_soup.side_effect = pages({'alpha': ['111'], 'beta': ['111', '222']})
 
-    ao3.get_collections(COLLECTIONS_URL)
+    records = ao3.get_collections(COLLECTIONS_URL)
+    linked(ao3, fileops, records, 'collections')
 
     assert [w['id'] for w in ao3.collection_works] == ['111', '222']
     assert entries(files)['111'][indexing.FROM_COLLECTIONS] == ['alpha', 'beta']
@@ -752,11 +780,12 @@ def test_your_own_collections_are_not_read_again_as_each_others_family():
 
 
 def test_the_works_of_the_family_are_indexed_with_the_rest():
-    ao3, repo, _, files = make_ao3()
+    ao3, repo, fileops, files = make_ao3()
     ao3.follow_subcollections = True
     repo.get_soup.side_effect = family({'a': (None, ['b']), 'b': ('a', [])})
 
-    ao3.get_collection('https://archiveofourown.org/collections/a')
+    records = ao3.get_collection('https://archiveofourown.org/collections/a')
+    linked(ao3, fileops, records, 'collection')
 
     assert len(ao3.collection_works) == 2
     assert sorted(e[indexing.FROM_COLLECTIONS][0] for e in entries(files).values()) == ['a', 'b']
@@ -834,10 +863,11 @@ def externals(files: dict) -> dict[str, dict]:
 
 
 def test_an_external_work_in_a_collections_bookmarks_is_indexed_with_your_external_works():
-    ao3, repo, _, files = make_ao3()
+    ao3, repo, fileops, files = make_ao3()
     repo.get_soup.side_effect = with_external()
 
     records = ao3.get_collections(COLLECTIONS_URL)
+    linked(ao3, fileops, records, 'collections')
 
     entry = externals(files)['1']
     assert entry[strings.BOOKMARK_TYPE_FIELD] == strings.BOOKMARK_TYPE_EXTERNAL
@@ -880,10 +910,11 @@ def test_an_external_work_you_bookmarked_keeps_your_bookmark():
 
 
 def test_an_external_work_in_two_collections_is_found_through_both():
-    ao3, repo, _, files = make_ao3()
+    ao3, repo, fileops, files = make_ao3()
     repo.get_soup.side_effect = with_external(['alpha', 'beta'])
 
-    ao3.get_collections(COLLECTIONS_URL)
+    records = ao3.get_collections(COLLECTIONS_URL)
+    linked(ao3, fileops, records, 'collections')
 
     assert externals(files)['1'][indexing.FROM_COLLECTIONS] == ['alpha', 'beta']
 

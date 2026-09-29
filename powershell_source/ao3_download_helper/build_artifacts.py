@@ -557,9 +557,10 @@ subcollections or parent as well, and theirs in turn, however far removed - inde
 rest, with their works when those are asked for. Each collection is read at most once per
 run, so collections that link back to each other cannot loop, and a run follows at most 200.
 
-Either way, a collection run's last step notes the collection on every work it holds that
-is already in your index (`from_collections`), and a full, quick or custom scan notes the
-saved collections that hold each work it indexes. Neither costs an ao3 request.
+Every run but the debug ones ends by noting, on each indexed work, which of your saved
+collections hold it (`from_collections`): a collection run on every work its collections
+hold that is already indexed, a scan or single fic on every work it covered - a resumed run
+included. None of this costs an ao3 request.
 
 History shows the link a collection run used. An unfinished one offers **Resume**: it saves
 its place after every page of each collection, so resuming skips the collections already
@@ -777,7 +778,8 @@ page of it will do. Both write one json file per collection into
 after `/collections/` - cut to the same `FileNameLength` limit.
 
 Neither downloads works unless asked to **index and download encountered works** - then
-each work gets its own index entry too, naming the collection in `from_collections`. A
+each work gets its own index entry too, and the run's cleanup names the collection in
+its `from_collections`. A
 collection file records what the collection *contains*, by work id, which is what lets it
 pair up with fics you already have. Works it
 lists that are not in your index are still shown on the collections page, by work number

@@ -124,6 +124,10 @@ class Ao3:
         # each index folder's entries by the number their file name starts with - see
         # `entry_path`. listed when first asked for, once per run
         self.entries_by_id: dict[str, dict[str, str]] = {}
+        # numbers found with more than one index file, and the one written to
+        self.duplicate_entries: list[dict] = []
+        # external works this run saved an entry for - its cleanup notes their collections
+        self.externals_saved: set[str] = set()
         # collections saved with a listing that failed partway, which are not finished
         self.unfinished_collections: set[str] = set()
         # whether a collection run follows each collection's subcollections, its parent, or
@@ -754,15 +758,9 @@ class Ao3:
                 if kind == parse_soup.BLURB_EXTERNAL:
                     if work and work not in external_ids: external_ids.append(work)
                     if self.collection_works is None or not work: continue
-                    if work in self.externals_indexed:
-                        # read already this run, off another collection: only noted as found
-                        # through this one too
-                        if collection:
-                            again = {**self.externals_indexed[work],
-                                     indexing.FROM_COLLECTIONS: [collection]}
-                            self.save_entry(again, strings.EXTERNAL_INDEX_FOLDER_NAME,
-                                            self.entry_path(again, strings.EXTERNAL_INDEX_FOLDER_NAME))
-                        continue
+                    # read already this run, off another collection: not read twice. which
+                    # collections hold it is noted by the run's cleanup, from the files
+                    if work in self.externals_indexed: continue
                     externals.append(parse_soup.get_external_bookmark_metadata(blurb, work))
                     continue
                 if kind != parse_soup.BLURB_WORK or not work or work in found: continue
@@ -771,9 +769,8 @@ class Ao3:
                 self.note_unrevealed(blurb, work)
                 if work in self.indexed_this_run:
                     # read already this run, off another collection: not read twice, only
-                    # noted as found through this one too, and downloaded with the rest
-                    again = {**self.indexed_this_run[work], indexing.FROM_COLLECTIONS: [collection]}
-                    if collection: self.save_metadata(again, self.entry_path(again))
+                    # downloaded with the rest. which collections hold it is noted by the
+                    # run's cleanup step, from the collections' own files
                     self.keep_collection_work(self.indexed_this_run[work])
                     continue
                 readings.append(parse_soup.get_blurb_metadata(blurb))
@@ -812,16 +809,54 @@ class Ao3:
 
         The rules of `save_collection_work`: it is somebody else's bookmark, so their notes and
         tags are not written in as yours, an entry that exists keeps its own, and a new one is
-        not bookmarked. Never downloaded - there is nothing on ao3 to download.
+        not bookmarked. Never downloaded - there is nothing on ao3 to download. Which
+        collections hold it is noted by the run's cleanup step, as for every entry.
         """
 
         path = self.as_not_yours(document, strings.EXTERNAL_INDEX_FOLDER_NAME)
         document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_EXTERNAL
         document['source'] = document.get('source') or listing
-        if collection: document[indexing.FROM_COLLECTIONS] = [collection]
         self.save_entry(document, strings.EXTERNAL_INDEX_FOLDER_NAME, path)
         if document.get('id'): self.externals_indexed[str(document['id'])] = document
         self.collection_externals += 1
+
+
+    def list_entries(self, folder: str) -> dict[str, str]:
+        """Every entry in an index folder by the number its file name starts with.
+
+        A library written by an older version can hold **two files for one work** - it used
+        to write by the name a work would be given from its current title, so a retitled work
+        got a second file. Where a number has more than one, the one written most recently
+        (`last_indexed`) is the entry, the same one every time, and the run says which
+        numbers it found doubled rather than quietly choosing. Nothing is deleted.
+        """
+
+        names: dict[str, list[str]] = {}
+        try:
+            for name in self.fileops.list_files(os.path.join(self.fileops.downloadfolder, folder)):
+                if not str(name).lower().endswith('.json'): continue
+                number = parse_text.get_work_number_from_filename(str(name))
+                if number: names.setdefault(number, []).append(str(name))
+        except Exception:
+            return {}
+
+        chosen: dict[str, str] = {}
+        for number, found in names.items():
+            if len(found) == 1:
+                chosen[number] = found[0]
+                continue
+
+            def written(name: str) -> str:
+                try:
+                    data = self.fileops.load_json(os.path.join(folder, name))
+                    return str((data or {}).get(indexing.LAST_INDEXED) or '')
+                except Exception:
+                    return ''
+            chosen[number] = max(sorted(found), key=written)
+            self.duplicate_entries.append({'id': number, 'files': sorted(found),
+                                           'kept': chosen[number]})
+            print(strings.AO3_INFO_DUPLICATE_ENTRIES.format(number, len(found), chosen[number]))
+        return chosen
 
 
     def as_not_yours(self, document: dict, subfolder: str = '') -> str:
@@ -863,20 +898,23 @@ class Ao3:
             else strings.INDEXING_FOLDER_NAME
         known = self.entries_by_id.get(folder)
         if known is None:
-            known = {}
-            try:
-                for name in self.fileops.list_files(os.path.join(self.fileops.downloadfolder, folder)):
-                    if not str(name).lower().endswith('.json'): continue
-                    number = parse_text.get_work_number_from_filename(str(name))
-                    if number: known.setdefault(number, str(name))
-            except Exception:
-                known = {}
+            known = self.list_entries(folder)
             self.entries_by_id[folder] = known
         number = str(document.get('id') or '')
         if number and number in known: return os.path.join(folder, known[number])
-        path = self.metadata_path(document, subfolder)
-        if number: known[number] = os.path.basename(path)
-        return path
+        # not remembered here: a lookup can be made with little more than a number (a
+        # series' `series_existing`), and the name built from that is not one to reuse. a
+        # name is remembered once a file has been written under it - `remember_entry`
+        return self.metadata_path(document, subfolder)
+
+
+    def remember_entry(self, path: str) -> None:
+        """Note a file just written, so the rest of the run finds it by its number."""
+
+        folder, name = os.path.split(path)
+        number = parse_text.get_work_number_from_filename(name)
+        known = self.entries_by_id.get(folder)
+        if number and known is not None: known.setdefault(number, name)
 
 
     def save_collection_work(self, document: dict, collection: str, listing: str) -> dict:
@@ -892,7 +930,6 @@ class Ao3:
         path = self.as_not_yours(document)
         document['source'] = document.get('source') or listing
         document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_WORK
-        if collection: document[indexing.FROM_COLLECTIONS] = [collection]
         self.save_metadata(document, path)
         if document.get('id'): self.indexed_this_run[str(document['id'])] = document
         self.mark_series_of(document)
@@ -1293,15 +1330,21 @@ class Ao3:
 
 
     def save_metadata(self, document: dict, path: str | None = None) -> None:
-        """Write one work to its own json file, in the indexing subfolder - at `path` when
-        the caller has found where its entry already is."""
+        """Write one work to its own json file, in the indexing subfolder.
+
+        Into the file its entry already has, found by the work number its name starts with
+        (`entry_path`) - never by the name it would be given from today's title and author,
+        which a retitled work or a renamed author would not match, leaving a second file for
+        the same work beside the first.
+        """
 
         try:
-            path = path or self.metadata_path(document)
+            path = path or self.entry_path(document)
             # keep whatever readings the file already holds, and add this one only if it
             # says something new
             merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
             self.fileops.save_json(path, merged)
+            self.remember_entry(path)
             if document.get('id'): self.reindexed.add(str(document['id']))
         except Exception as e:
             # one unwritable file shouldn't end the run
@@ -1313,9 +1356,12 @@ class Ao3:
         inside indexing/, keeping its history the way a work's file does."""
 
         try:
-            path = path or self.metadata_path(document, subfolder)
+            path = path or self.entry_path(document, subfolder)
             merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
             self.fileops.save_json(path, merged)
+            self.remember_entry(path)
+            if subfolder == strings.EXTERNAL_INDEX_FOLDER_NAME and document.get('id'):
+                self.externals_saved.add(str(document['id']))
         except Exception as e:
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
 
@@ -1477,17 +1523,7 @@ class Ao3:
         """Where a series' entry lives - found by its id when it is already there, so a
         series renamed on ao3 keeps its one file rather than starting a second."""
 
-        folder = os.path.join(self.fileops.downloadfolder, strings.INDEXING_FOLDER_NAME,
-                              strings.SERIES_INDEX_FOLDER_NAME)
-        series_id = str(document.get('id') or '')
-        try:
-            for name in self.fileops.list_files(folder):
-                if parse_text.get_work_number_from_filename(name) == series_id:
-                    return os.path.join(strings.INDEXING_FOLDER_NAME,
-                                        strings.SERIES_INDEX_FOLDER_NAME, name)
-        except Exception:
-            pass
-        return self.metadata_path(document, strings.SERIES_INDEX_FOLDER_NAME)
+        return self.entry_path(document, strings.SERIES_INDEX_FOLDER_NAME)
 
 
     def series_existing(self, series_id: str) -> dict:
@@ -1506,6 +1542,7 @@ class Ao3:
                 document = {**document, strings.SERIES_WORKS_FIELD: current[strings.SERIES_WORKS_FIELD]}
             merged = indexing.merge(existing, document, self.indexed_on)
             self.fileops.save_json(path, merged)
+            self.remember_entry(path)
         except Exception as e:
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
 
@@ -1520,14 +1557,15 @@ class Ao3:
         meets it in your bookmarks listing, that reading says bookmarked, as any does.
         """
 
-        existing = indexing.flatten(self.fileops.load_json(self.metadata_path(document))) or {}
+        path = self.entry_path(document)
+        existing = indexing.flatten(self.fileops.load_json(path)) or {}
         for field in strings.BOOKMARK_OWN_FIELDS:
             if field in existing: document[field] = existing[field]
         document.setdefault(strings.BOOKMARKED_FIELD, False)
         document['source'] = existing.get('source') or series_link
         document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_WORK
         document[indexing.FROM_SERIES] = [series_id]
-        self.save_metadata(document)
+        self.save_metadata(document, path)
         return document
 
     # endregion
