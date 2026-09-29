@@ -110,6 +110,19 @@ class Ao3:
         # because the work is in a collection that has not been revealed. they index fine;
         # it is only the download that is impossible, so they are held back from it.
         self.unrevealed: set[str] = set()
+        # told after each page of a collection's listings, and after each collection is saved,
+        # so a collection run can be resumed from there - see server.collections_ao3
+        self.on_collection_page = None
+        self.on_collection_done = None
+        # what an earlier attempt of a resumed collection run saved, by collection
+        self.collections_before: dict[str, dict] = {}
+        # reads works back out of the index by number - a resumed run downloads what the
+        # earlier attempt indexed without reading it from ao3 again
+        self.records_for = None
+        # set when a resumed collection run went straight back to its download step
+        self.scoped = False
+        # collections saved with a listing that failed partway, which are not finished
+        self.unfinished_collections: set[str] = set()
         # the works of every collection this run crawls, indexed as they are met - or None
         # when the run was not asked to, and a collection records only their work numbers
         self.collection_works: list[dict] | None = None
@@ -665,8 +678,9 @@ class Ao3:
         return done, max(1, last - self.start + 1)
 
 
-    def walk_pages(self, link: str):
-        """Yield each page of a paginated ao3 listing, following 'next' until it runs out."""
+    def walk_pages(self, link: str, stop: int | None = None):
+        """Yield each page of a paginated ao3 listing, following 'next' until it runs out -
+        or until page `stop`, when given. It starts on whatever page `link` names."""
 
         total_pages = None
         while True:
@@ -677,11 +691,13 @@ class Ao3:
                 total_pages = parse_soup.get_total_pages(soup)
             pagenum = parse_text.get_page_number(link)
             if not total_pages or pagenum >= total_pages: break
+            if stop and pagenum >= stop: break
             link = parse_text.get_next_page(link)
             if self.pages and parse_text.get_page_number(link) == self.pages + 1: break
 
 
-    def collect_work_ids(self, link: str, collection: str = '') -> list[str]:
+    def collect_work_ids(self, link: str, collection: str = '', key: str = '',
+                         earlier: dict | None = None, stop: int | None = None) -> list[str]:
         """Every work id on a listing, which is all a collection needs to record.
 
         The works themselves are described by the index in downloads/indexing, so there
@@ -691,10 +707,23 @@ class Ao3:
         indexed off the same page - the blurb carries everything a bookmarks listing would -
         so it costs nothing on top of the crawl. A page is written once it has been read in
         full, as a bookmarks listing is.
+
+        `on_collection_page` is told after every page - which one, and every work number found
+        so far - so a run can be resumed from there. `earlier` is that saved state from the
+        attempt being resumed: the walk starts again **on the last page it saved**, not the
+        one after. Works removed from the collection since pull later ones up a place, and
+        reading that page again catches a work that moved onto it; works added since push
+        others down, which only means one is seen twice, and is kept once.
         """
 
-        found: list[str] = []
-        for soup in self.walk_pages(link):
+        found: list[str] = [str(x) for x in (earlier or {}).get('ids') or []]
+        start = int((earlier or {}).get('page') or 1)
+        if found:
+            # read before this attempt: indexed then, so downloaded with the rest now
+            self.keep_indexed(found)
+        page = start
+        for soup in self.walk_pages(parse_text.set_page_number(link, start) if start > 1
+                                    else link, stop):
             readings: list[dict] = []
             for blurb in parse_soup.get_blurbs(soup):
                 work = parse_soup.get_blurb_work_number(blurb)
@@ -712,7 +741,19 @@ class Ao3:
                 readings.append(parse_soup.get_blurb_metadata(blurb))
             for document in readings:
                 self.keep_collection_work(self.save_collection_work(document, collection, link))
+            if self.on_collection_page and key:
+                self.on_collection_page(collection, key, page, list(found))
+            page += 1
         return found
+
+
+    def keep_indexed(self, ids: list[str]) -> None:
+        """Add works an earlier attempt indexed to the ones this run downloads, from the index."""
+
+        if self.collection_works is None or not self.records_for: return
+        for record in self.records_for(ids):
+            if record.get('id'): self.indexed_this_run.setdefault(str(record['id']), record)
+            self.keep_collection_work(record)
 
 
     def keep_collection_work(self, document: dict) -> None:
@@ -786,9 +827,13 @@ class Ao3:
                 for blurb in parse_soup.get_collection_blurbs(soup):
                     slug = parse_soup.get_collection_slug(blurb)
                     if not slug: continue
+                    if self.finished_before(slug):
+                        records.append({'name': slug})
+                        continue
                     document = self.read_collection(slug, source, blurb)
                     records.append(document)
                     self.save_collection(document)
+                    self.collection_saved(slug, document)
                     progress.report(self.progress, progress.WORK,
                                     title=document.get('title') or slug,
                                     phase=progress.COLLECTIONS, done=len(records))
@@ -823,9 +868,11 @@ class Ao3:
 
         try:
             print(strings.AO3_INFO_COLLECTION_ONE.format(slug))
+            if self.finished_before(slug): return [{'name': slug}]
             document = self.read_collection(slug, link)
             records.append(document)
             self.save_collection(document)
+            self.collection_saved(slug, document)
             progress.report(self.progress, progress.WORK,
                             title=document.get('title') or slug,
                             phase=progress.COLLECTIONS, done=1, total=1)
@@ -839,6 +886,26 @@ class Ao3:
             print(strings.INFO_LINKS_LIST_CANCELED)
 
         return records
+
+
+    def finished_before(self, slug: str) -> bool:
+        """Whether the attempt being resumed finished this collection - in which case it is
+        not read again, and the works it found are downloaded from the index."""
+
+        before = self.collections_before.get(slug) or {}
+        if not before.get('done'): return False
+        print(strings.AO3_INFO_RESUME_COLLECTION_DONE.format(slug))
+        self.keep_indexed([str(x) for x in before.get('works') or []])
+        return True
+
+
+    def collection_saved(self, slug: str, document: dict) -> None:
+        """Tell the run a collection is finished - unless one of its listings failed partway,
+        which a resumed run has to read again rather than skip."""
+
+        if self.on_collection_done and slug not in self.unfinished_collections:
+            self.on_collection_done(slug, [str(x) for x in (document.get('work_ids') or []) +
+                                           (document.get('bookmark_ids') or [])])
 
 
     def read_collection(self, slug: str, source: str, blurb=None) -> dict:
@@ -883,12 +950,38 @@ class Ao3:
                 document[key] = kept
                 print(strings.AO3_INFO_COLLECTION_UNCHANGED.format(slug, len(kept), label))
                 continue
+            earlier = ((self.collections_before.get(slug) or {}).get('listings') or {}).get(key)
             try:
-                document[key] = self.collect_work_ids(url, slug)
+                if earlier and earlier.get('done'):
+                    document[key] = [str(x) for x in earlier.get('ids') or []]
+                    self.keep_indexed(document[key])
+                    if self.on_collection_page:
+                        self.on_collection_page(slug, key, None, document[key], done=True)
+                    continue
+                if earlier and int(earlier.get('page') or 1) > 1:
+                    print(strings.AO3_INFO_RESUME_COLLECTION_PAGE.format(
+                        slug, label, earlier['page']))
+                ids = self.collect_work_ids(url, slug, key, earlier)
+                resumed_from = int((earlier or {}).get('page') or 1)
+                count = document.get(count_key)
+                if key == 'work_ids' and resumed_from > 1 and isinstance(count, int) \
+                        and len(ids) < count:
+                    # fewer than the collection says it holds: works that moved to the front
+                    # since the earlier attempt - updated ones, if the listing is ordered by
+                    # date updated - sit on pages it had already read, so read those again
+                    print(strings.AO3_INFO_RESUME_COLLECTION_SHORT.format(
+                        slug, len(ids), count, resumed_from - 1))
+                    ids = self.collect_work_ids(url, slug, key, {'ids': ids, 'page': 1},
+                                                stop=resumed_from - 1)
+                document[key] = ids
+                if self.on_collection_page:
+                    self.on_collection_page(slug, key, None, ids, done=True)
             except exceptions.CancelledException:
                 raise
             except Exception as e:
                 document[key] = []
+                # saved with what it has, as ever - but not finished, so a resumed run reads it
+                self.unfinished_collections.add(slug)
                 self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': url}, e)
 
         if indexing_works:

@@ -1,7 +1,7 @@
 # Resuming interrupted runs [EXPERIMENTAL]
 
-How a full scan, quick scan or custom run that did not finish can be picked up where it left
-off, and why each part works the way it does. The words used here are defined in
+How a full scan, quick scan, custom run or collection run that did not finish can be picked up
+where it left off, and why each part works the way it does. The words used here are defined in
 `TERMINOLOGY.md`.
 
 ## Which runs can be resumed
@@ -13,9 +13,10 @@ off, and why each part works the way it does. The words used here are defined in
 | Custom run over **all bookmarks** (indexing or not) | Yes |
 | Custom run over **a date range** | Yes |
 | Custom run over **a slice of your bookmarks listing** | **No** - see below |
-| Specific fic, collections, the debug runs | No - they are short, so starting again is the resume |
+| Index my collections, Index collection by URL | Yes - see [Collection runs](#collection-runs). A collection-by-URL run from before runs saved their link cannot be |
+| Specific fic, the debug runs | No - they are short, so starting again is the resume |
 
-A run can be resumed when it **stopped**, **failed**, or was **interrupted**, and was made by a
+A run can be resumed when it **stopped**, **failed**, was **abandoned** or was **interrupted**, and was made by a
 version of the app that saves its progress (older runs have nothing to pick up from).
 
 **Why a slice cannot be resumed.** A slice is chosen by page number, and page numbers do not
@@ -92,6 +93,8 @@ A `progress` section in the history file, written straight away each time:
 | a non-bookmark is re-read | the ones done so far (`nonBookmarksDone`) |
 | the file check starts | the **scope**: every work this run covers (`scope`) |
 | a custom run over a date range finishes a fic | the fics done so far (`updateDone`) |
+| a page of a collection's works or bookmarked items is read | per collection and listing (`collections.<name>.listings.work_ids` / `bookmark_ids`): the page number, every work number found so far, and whether the listing finished; plus `seriesMarked` |
+| a collection is saved | that collection is `done`, with every work number it holds (`collections.<name>.works`) |
 
 A resumed run starts its own history file with a copy of this, and carries on adding to it, so
 a resume that is itself interrupted can be resumed from wherever it got to.
@@ -166,6 +169,33 @@ checks them against your files again, and downloads what is still missing or out
 the earlier attempt already downloaded are now current, so they are skipped by the ordinary
 rules - no list of finished downloads is needed. A custom run over a date range also skips the
 fics it had already finished.
+
+### Collection runs
+
+Both collection runs save their place after **every page** of each collection's works and
+bookmarked-items listings, and mark each collection finished once its file is written.
+
+- A collection the earlier attempt **finished** is not read at all. The works it holds are
+  taken from the index (the earlier attempt indexed them) and downloaded with the rest.
+- An **unfinished** collection has its profile read again (one request), then each listing
+  that had not finished carries on from its **last saved page** - that page is read again, not
+  skipped. A listing that had finished is not read again.
+- Reading the saved page again is what keeps the resume from missing anything when the
+  collection changed in between. A work removed pulls everything after it up a place, so a
+  work that was at the top of the next page is now on the saved page, and gets read. A work
+  added pushes everything down, which only means a work is read twice and kept once. Up to 20
+  removals between attempts are covered this way.
+- A collection's works listing may be ordered by **date updated**, where an updated work jumps
+  to the front - onto a page the earlier attempt had already read. So when a resumed works
+  listing ends with **fewer works than the collection's own count**, the pages before the
+  saved one are read again for them. (Its order could not be checked against the live site
+  when this was written; this makes the resume safe either way.)
+- Your own collections listing is always walked again from the start - one request per 20
+  collections - so a collection added since is not missed.
+- A collection whose listing **failed** partway (an error, not a stop) is saved with what it
+  had, as always, but not counted as finished, so a resume reads it again.
+- Stopped once the download step had started: the collections are not read again at all, as
+  with the scans - see above.
 
 ### Failed runs
 

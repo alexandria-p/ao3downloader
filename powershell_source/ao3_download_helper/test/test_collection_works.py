@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from bs4 import BeautifulSoup
 
-from source_code import indexing, runs, server, strings
+from source_code import indexing, parse_text, runs, server, strings
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
 from source_code.repo import Repository
@@ -376,5 +376,225 @@ def test_run_job_hands_the_record_the_jobs_link():
         server.run_job(job, 'a-password')
 
     assert record.call_args.kwargs['url'] == 'https://archiveofourown.org/collections/alpha'
+
+# endregion
+
+
+# region resuming a collection run from the page it got to
+
+def paged(ids_by_page: list[list[str]], blurb: str = WORK_BLURB):
+    """A listing served a page at a time, with ao3's pagination on every page."""
+
+    def page_of(url: str) -> BeautifulSoup:
+        number = parse_text.get_page_number(url)
+        ids = ids_by_page[number - 1] if number <= len(ids_by_page) else []
+        nav = ''.join(f'<li><a>{n}</a></li>' for n in range(1, len(ids_by_page) + 1))
+        return BeautifulSoup('<ol class="index group">' +
+                             ''.join(blurb.format(id=i) for i in ids) + '</ol>' +
+                             f'<ol class="pagination">{nav}</ol>', 'html.parser')
+    return page_of
+
+
+def profile_holding(slug: str, works: int, bookmarks: int = 0) -> BeautifulSoup:
+    return BeautifulSoup(str(collection_profile(slug))
+                         .replace('Works (2)', f'Works ({works})')
+                         .replace('Bookmarked Items (3)', f'Bookmarked Items ({bookmarks})'),
+                         'html.parser')
+
+
+def one_collection(works_pages: list[list[str]], count: int):
+    def dispatch(url: str) -> BeautifulSoup:
+        if url.endswith('/profile'): return profile_holding('alpha', count)
+        if '/alpha/works' in url: return paged(works_pages)(url)
+        if '/alpha/bookmarks' in url: return listing(BOOKMARK_BLURB, [])
+        return collections_listing([])
+    return dispatch
+
+
+ALPHA = 'https://archiveofourown.org/collections/alpha'
+
+
+def test_every_page_of_a_collection_listing_is_checkpointed():
+    ao3, repo, _, _ = make_ao3()
+    repo.get_soup.side_effect = one_collection([['1', '2'], ['3', '4'], ['5']], 5)
+    pages = []
+    ao3.on_collection_page = lambda slug, key, page, ids, done=False: \
+        pages.append((slug, key, page, ids, done))
+
+    ao3.get_collection(ALPHA)
+
+    works = [x for x in pages if x[1] == 'work_ids']
+    assert works[:3] == [('alpha', 'work_ids', 1, ['1', '2'], False),
+                         ('alpha', 'work_ids', 2, ['1', '2', '3', '4'], False),
+                         ('alpha', 'work_ids', 3, ['1', '2', '3', '4', '5'], False)]
+    assert works[-1] == ('alpha', 'work_ids', None, ['1', '2', '3', '4', '5'], True)
+
+
+def test_a_finished_collection_says_so_with_every_work_it_holds():
+    ao3, repo, _, _ = make_ao3()
+    repo.get_soup.side_effect = one_collection([['1', '2']], 2)
+    finished = []
+    ao3.on_collection_done = lambda slug, works: finished.append((slug, works))
+
+    ao3.get_collection(ALPHA)
+
+    assert finished == [('alpha', ['1', '2'])]
+
+
+def test_a_collection_whose_listing_failed_partway_is_not_counted_as_finished():
+    ao3, repo, _, _ = make_ao3()
+
+    def dispatch(url):
+        if '/alpha/works' in url and 'page=2' in url: raise ConnectionError('gone')
+        return one_collection([['1', '2'], ['3']], 3)(url)
+    repo.get_soup.side_effect = dispatch
+    finished = []
+    ao3.on_collection_done = lambda slug, works: finished.append(slug)
+
+    ao3.get_collection(ALPHA)
+
+    assert finished == []
+
+
+def test_a_resumed_listing_carries_on_from_the_last_page_it_saved():
+    ao3, repo, _, files = make_ao3()
+    repo.get_soup.side_effect = one_collection([['1', '2'], ['3', '4'], ['5']], 5)
+    ao3.records_for = lambda ids: [{'id': x} for x in ids]
+    ao3.collections_before = {'alpha': {'listings': {'work_ids': {'page': 2, 'ids': ['1', '2', '3', '4']}}}}
+
+    records = ao3.get_collection(ALPHA)
+
+    works_pages = [u for u in requested(repo) if '/alpha/works' in u]
+    # the saved page is read again, the ones before it are not
+    assert works_pages == [ALPHA + '/works?page=2', ALPHA + '/works?page=3']
+    assert records[0]['work_ids'] == ['1', '2', '3', '4', '5']
+    # the works read before are downloaded with the rest
+    assert sorted(w['id'] for w in ao3.collection_works) == ['1', '2', '3', '4', '5']
+
+
+def test_reading_the_saved_page_again_catches_a_work_pulled_up_by_a_removal():
+    # work 1 left the collection, so everything moved up a place: work 5 is now on page 2,
+    # which the earlier attempt had already finished
+    ao3, repo, _, _ = make_ao3()
+    repo.get_soup.side_effect = one_collection([['2', '3'], ['4', '5'], ['6']], 5)
+    ao3.records_for = lambda ids: [{'id': x} for x in ids]
+    ao3.collections_before = {'alpha': {'listings': {'work_ids': {'page': 2, 'ids': ['1', '2', '3', '4']}}}}
+
+    records = ao3.get_collection(ALPHA)
+
+    assert '5' in records[0]['work_ids']
+
+
+def test_a_resumed_listing_short_of_the_collections_count_reads_the_earlier_pages_again():
+    # work 9 was updated since, and jumped to the front - onto a page already read
+    ao3, repo, _, _ = make_ao3()
+    repo.get_soup.side_effect = one_collection([['9', '1'], ['2', '3'], ['4', '5']], 6)
+    ao3.records_for = lambda ids: [{'id': x} for x in ids]
+    ao3.collections_before = {'alpha': {'listings': {'work_ids': {'page': 2, 'ids': ['1', '2']}}}}
+
+    records = ao3.get_collection(ALPHA)
+
+    assert sorted(records[0]['work_ids']) == ['1', '2', '3', '4', '5', '9']
+    assert ALPHA + '/works' in requested(repo)
+
+
+def test_a_listing_the_earlier_attempt_finished_is_not_read_again():
+    ao3, repo, _, _ = make_ao3()
+    repo.get_soup.side_effect = one_collection([['1', '2']], 2)
+    ao3.records_for = lambda ids: [{'id': x} for x in ids]
+    ao3.collections_before = {'alpha': {'listings': {
+        'work_ids': {'page': 1, 'ids': ['1', '2'], 'done': True}}}}
+
+    records = ao3.get_collection(ALPHA)
+
+    assert not any('/alpha/works' in u for u in requested(repo))
+    assert records[0]['work_ids'] == ['1', '2']
+
+
+def test_a_collection_the_earlier_attempt_finished_is_skipped_and_its_works_kept():
+    ao3, repo, _, _ = make_ao3()
+    repo.get_soup.side_effect = one_collection([['1', '2']], 2)
+    ao3.records_for = lambda ids: [{'id': x, 'link': 'l' + x} for x in ids]
+    ao3.collections_before = {'alpha': {'done': True, 'works': ['1', '2']}}
+
+    ao3.get_collection(ALPHA)
+
+    repo.get_soup.assert_not_called()
+    assert [w['id'] for w in ao3.collection_works] == ['1', '2']
+
+
+def resumable_record(**over) -> dict:
+    return {'id': 'r1', 'action': server.ACTION_COLLECTION, 'status': runs.STATUS_INTERRUPTED,
+            'options': {'collectionWorks': True}, 'filetypes': ['JSON', 'HTML'],
+            'url': ALPHA, 'progress': {}, **over}
+
+
+@pytest.mark.parametrize('action', server.COLLECTION_ACTIONS)
+def test_collection_runs_can_be_resumed(action):
+    assert server.resume_problem(resumable_record(action=action), set()) == ''
+
+
+def test_a_collection_run_from_before_links_were_saved_cannot_be_resumed():
+    assert server.resume_problem(resumable_record(url=''), set()) == strings.RESUME_NO_LINK
+
+
+def test_a_resumed_collection_run_is_pointed_at_the_same_collection():
+    job = server.Job(server.ACTION_CUSTOM, ['JSON'], 'Someone',
+                     server.resolve_options({'resume': 'r1'}))
+    with patch.object(server.runs, 'find_run', return_value=resumable_record()):
+        server.prepare_resume(job, MagicMock())
+
+    assert job.action == server.ACTION_COLLECTION
+    assert job.url == ALPHA
+    assert job.options['collectionWorks'] is True
+
+
+def test_a_collection_run_saves_where_it_got_to_after_every_page():
+    job = job_for(collectionWorks=True)
+    job.record = MagicMock()
+    job.record.data = {'progress': {}}
+    ao3 = Ao3(MagicMock(), MagicMock(), ['HTML'], None, False, False)
+
+    server.watch_collections(job, MagicMock(), ao3)
+    ao3.on_collection_page('alpha', 'work_ids', 3, ['1', '2'])
+    ao3.on_collection_done('beta', ['7'])
+
+    saved = job.record.checkpoint.call_args.kwargs['collections']
+    assert saved['alpha']['listings']['work_ids'] == {'ids': ['1', '2'], 'done': False, 'page': 3}
+    assert saved['beta'] == {'done': True, 'works': ['7']}
+
+
+def test_a_resumed_collection_run_starts_from_what_the_earlier_attempt_saved():
+    job = job_for(collectionWorks=True)
+    job.record = MagicMock()
+    job.record.data = {'progress': {}}
+    earlier = {'alpha': {'done': True, 'works': ['1']},
+               'beta': {'done': False, 'listings': {'work_ids': {'page': 4, 'ids': ['2']}}}}
+    job.resume = {'id': 'r1', 'progress': {'collections': earlier}}
+    ao3 = Ao3(MagicMock(), MagicMock(), ['HTML'], None, False, False)
+
+    server.watch_collections(job, MagicMock(), ao3)
+
+    assert ao3.collections_before == earlier
+    # a second resume skips what the first attempt finished, too
+    assert job.record.data['progress']['collections']['alpha'] == {'done': True, 'works': ['1']}
+
+
+def test_a_run_resumed_at_its_download_step_goes_straight_back_to_it():
+    job = job_for(collectionWorks=True, series=True)
+    job.resume = {'id': 'r1', 'progress': {'scope': ['1', '2']}}
+    ao3 = MagicMock()
+    ao3.filetypes = ['HTML']
+
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server, 'records_by_id', return_value=[{'id': '1'}, {'id': '2'}]), \
+         patch.object(server, 'index_marked_series') as series, \
+         patch.object(server, 'download_planned') as download, \
+         patch.object(server, 'finish_run'):
+        server.run_collection(job, MagicMock(), MagicMock(), MagicMock())
+
+    ao3.get_collection.assert_not_called()
+    series.assert_not_called()
+    assert [x['id'] for x in download.call_args.args[3]] == ['1', '2']
 
 # endregion

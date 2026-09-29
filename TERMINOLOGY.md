@@ -40,7 +40,7 @@ the same thing in conversation.
   - **Failed** - an error ended it early (login refused, login lapsed, library unreachable); the reason is on the entry. Record status `failed`.
   - **Interrupted** - see below. Record status `interrupted`.
 - **Interrupted** - a run that never wrote its ending (the page closed, the helper stopped, crashed or restarted - a deploy included). The page marks its history file `interrupted` once the helper confirms it is not working on it. Its log and issues go up to its last save, at most about two minutes behind.
-- **Resume** [pick up where it left off, re-attempt] - carry on a stopped, failed or interrupted scan as that same workflow, with its settings. See `RESUMING.md`. [EXPERIMENTAL]
+- **Resume** [pick up where it left off, re-attempt] - carry on a stopped, failed, abandoned or interrupted scan or collection run as that same workflow, with its settings. See `RESUMING.md`. [EXPERIMENTAL]
 - **Baseline** - the moment a run's AO3 login succeeded; a resumed run keeps its first attempt's. What a quick scan measures back to.
 - **Progress** [checkpoint] - what a run saves in its history file as it goes, so it can be resumed: its step, each walk's page and last bookmark, series walked, and its scope.
 - **Scope** - every work a run covers, saved as its file check starts; a run resumed after that point works from it without indexing.
@@ -234,7 +234,8 @@ With a date range, steps 2 and 3 read "…in that date range".
   5. Download or update works as necessary (only when downloading)
   6. Cleanup
   7. Report any failures
-- Not resumable. History offers **Run again**, which opens the window filled in with the run's choices and, for `collection`, its link (saved as the run's `url`).
+- Resumable (**Resume**, [EXPERIMENTAL]): a checkpoint after every page of each collection's works and bookmarked-items listings, and when each collection is saved. A resumed run skips finished collections, carries each unfinished listing on from its last saved page (read again, in case works moved), and re-reads the earlier pages if a resumed works listing comes up short of the collection's count. A `collection` run from before the link was saved cannot be resumed. See `RESUMING.md`.
+- History also offers **Run again**, which opens the window filled in with the run's choices and, for `collection`, its link (saved as the run's `url`).
 
 ---
 

@@ -4,6 +4,9 @@ import { ActiveRun, Jobs, RunHistory, RunRemoval } from './jobs';
 import { issueCount, issuesOf, issuesReport, saveText } from './issues';
 import { Library } from './library';
 
+/** the workflows History offers Resume on - the helper's RESUME_ACTIONS */
+const RESUMABLE = ['bookmarks', 'quick', 'custom', 'collections', 'collection'];
+
 /** why a custom run over a slice of the listing is never offered for resuming */
 export const SLICE_CANNOT_RESUME =
   'A custom run over a slice of your bookmarks listing cannot be resumed: bookmarks added or ' +
@@ -193,7 +196,7 @@ export class History {
 
   /** whether starting the same run again is how to carry on, rather than Resume */
   protected startAgainInstead(run: RunHistory): boolean {
-    return !['bookmarks', 'quick', 'custom'].includes(run.action);
+    return !RESUMABLE.includes(run.action);
   }
 
   /** when it ran, in the reader's own locale rather than as an iso stamp */
@@ -221,8 +224,11 @@ export class History {
    * for the button. The helper checks again, properly, when the run starts.
    */
   protected resumeProblem(run: RunHistory): string | null {
-    if (!['bookmarks', 'quick', 'custom'].includes(run.action)) return null;
+    if (!RESUMABLE.includes(run.action)) return null;
     if (run.status === 'success' || run.status === 'running') return null;
+    if (run.action === 'collection' && !run.url) {
+      return 'This run is from before collection runs saved their link - use Run again and paste it in.';
+    }
     const options = run.options ?? {};
     if (run.action === 'custom' && !options['dates'] &&
         (Number(options['pages'] ?? 0) || Number(options['start'] ?? 1) > 1)) {

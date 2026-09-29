@@ -136,8 +136,9 @@ when it reported anything, **Download issues**.
 | **Failed** | Something ended it early - AO3 refused the login, the login lapsed partway, or the library could not be reached. The reason is on its entry. |
 | **Interrupted** | It never got to say how it ended: the helper stopped, crashed or restarted (a deploy does this) while it was going. Marked once the helper answers without it. Its log and issues go up to its last save - at most about two minutes before it was cut off. |
 
-Anything that did not finish can be carried on: a full scan, quick scan or custom run offers
-**Resume**, a collection run offers **Run again**, and anything else you start again. Every
+Anything that did not finish can be carried on: a full scan, quick scan, custom run or
+collection run offers **Resume**, which picks up where it got to (a collection run from the
+page of the collection it had reached), and anything else you start again. Every
 run skips what is already downloaded and current, so going again only costs what is missing.
 
 # Original Readme
@@ -259,7 +260,7 @@ The **Collections** tab lists your indexed collections and has:
 
 Both ask one question first: **Index and download encountered works**. Left off, the run only records the work numbers each collection holds, and downloads nothing. Ticked, every work in the collection's works and bookmarked items is indexed as it is read - off the same pages, so indexing them costs nothing extra - and then downloaded, or updated where AO3 has a newer version than your copy, exactly as a scan downloads what it indexed. A work you have not bookmarked is indexed as not bookmarked (`"bookmarked": false`), and somebody else's bookmark notes on a bookmarked item are never written in as yours. With it ticked the run also offers **Get all works from encountered series** and asks which file types you want. It reads every collection's works again even when the count has not changed, since that is how their works are indexed. You can leave it off if you are only scanning a collection of your own bookmarks, since those works are already in your index; it is recommended for a collection you think has works or bookmarks outside your own bookmarks.
 
-History shows the link a collection run was pointed at, and offers **Run again** on both collection runs, opening the window filled in with that run's choices and link. They are not resumable; running one again skips everything already downloaded and current, which is the retry.
+History shows the link a collection run was pointed at. An unfinished collection run offers **Resume** [EXPERIMENTAL]: it saves its place after every page of each collection, so a resumed run skips the collections already finished and carries on from the page it reached (see `RESUMING.md`). Both collection runs also offer **Run again**, opening the window filled in with that run's choices and link.
 
 Clicking a collection opens what was recorded about it - maintainers, tags, challenge type, counts, the collection it belongs to and any subcollections - along with the works in it, in the same listing the Bookmarks tab uses. A collection records only the *work numbers* it holds, so a work that is in your bookmarks index is shown in full. A collection can also hold works you have never bookmarked: those are still listed, in the collection's own order, but by work number alone with a link to the work on AO3 - because the number really is all that is known about them. A line above the table says how many of them there are. A parent or subcollection that has been indexed too opens in the page; one that has not links out to AO3.
 

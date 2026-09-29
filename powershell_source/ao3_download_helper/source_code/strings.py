@@ -591,6 +591,11 @@ AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here,
 AO3_INFO_RESUME_SCOPE = ('the earlier attempt had finished indexing - checking and downloading '
                          'its {} works')
 AO3_INFO_RESUME_WALK_DONE = 'the earlier attempt finished this walk - taking its works from the index'
+# a collection run picking up where it left off
+AO3_INFO_RESUME_COLLECTION_DONE = 'collection {}: finished by the earlier attempt - taking its works from the index'
+AO3_INFO_RESUME_COLLECTION_PAGE = 'collection {}: carrying on through its {} from page {}, where the earlier attempt got to'
+AO3_INFO_RESUME_COLLECTION_SHORT = ('collection {}: found {} works of the {} it holds - some have moved to '
+                                    'the front since, so reading pages 1 to {} again')
 AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: it is sorted by '
                               'date updated, so nothing in it stays in place between attempts')
 AO3_INFO_RESUME_LOOKING = 'looking for where the earlier attempt stopped: page {}'
@@ -605,7 +610,9 @@ AO3_INFO_RESUME_CEILING = ('keeping works ao3 updated up to {}, when the first a
 AO3_INFO_RESUME_UPDATE_DONE = 'the earlier attempt already finished {} of these fics'
 
 RESUME_NOT_FOUND = 'That run is not in this library\'s history.'
-RESUME_WRONG_ACTION = 'Only full scans, quick scans and custom runs can be resumed.'
+RESUME_WRONG_ACTION = 'Only full scans, quick scans, custom runs and collection runs can be resumed.'
+RESUME_NO_LINK = ('This run is from before collection runs saved their link, so it cannot be '
+                  'resumed - use Run again and paste the link in.')
 RESUME_SLICE = ('A custom run over a slice of your bookmarks listing cannot be resumed: '
                 'bookmarks added or removed since move every page, so the same page numbers '
                 'no longer hold the same bookmarks.')

@@ -153,8 +153,10 @@ OVERWRITE_ACTIONS = (ACTION_BOOKMARKS, ACTION_CUSTOM)
 NON_BOOKMARK_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
 
 # The runs that can be picked up where an earlier attempt left off - see RESUMING.md. The
-# three scans; the rest are short enough that starting again is the resume.
-RESUME_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
+# three scans and the two collection runs; the rest are short enough that starting again is
+# the resume.
+RESUME_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM,
+                  ACTION_COLLECTIONS, ACTION_COLLECTION)
 
 # How many pages a resumed walk looks through for the last bookmark the earlier attempt
 # saved, before giving up and starting that walk from the first page.
@@ -918,6 +920,8 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
 
     job.action = earlier['action']
     job.filetypes = list(earlier.get('filetypes') or [])
+    # the collection it was pointed at; a resume request carries no link of its own
+    job.url = earlier.get('url') or job.url
     job.options = {**resolve_options(earlier.get('options')), 'resume': earlier['id']}
     job.resume = {
         'id': earlier['id'],
@@ -1015,6 +1019,8 @@ def resume_problem(record: dict | None, active: set[str]) -> str:
     if record.get('action') == ACTION_CUSTOM and not options.get('dates') and \
             (int(options.get('pages') or 0) or int(options.get('start') or 1) > 1):
         return strings.RESUME_SLICE
+    if record.get('action') == ACTION_COLLECTION and not record.get('url'):
+        return strings.RESUME_NO_LINK
     if record.get('status') == runs.STATUS_SUCCESS: return strings.RESUME_FINISHED
     if record.get('status') == runs.STATUS_RUNNING and record.get('id') in active:
         return strings.RESUME_STILL_RUNNING
@@ -1034,8 +1040,9 @@ def resumable_among(records: list[dict], active: set[str]) -> list[dict]:
         problem = resume_problem(record, active)
         warnings = []
         if record.get('resumedBy'): warnings.append(strings.RESUME_ALREADY_RESUMED)
-        # a later scan that finished has most likely covered what this one had left
-        if any(isinstance(x, dict) and x.get('status') == runs.STATUS_SUCCESS
+        # a later scan that finished has most likely covered what this one had left - a
+        # scan says nothing about a collection, so a collection run is never warned of one
+        if record.get('action') not in COLLECTION_ACTIONS and any(isinstance(x, dict) and x.get('status') == runs.STATUS_SUCCESS
                and covered_the_whole_listing(x) for x in records[:index]):
             warnings.append(strings.RESUME_NEWER_SCAN)
         found.append({**record, 'resumable': not problem, 'reason': problem,
@@ -2431,11 +2438,12 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
     print(strings.AO3_INFO_COLLECTIONS)
 
     ao3 = collections_ao3(job, fileops, repo, report, pages)
-    job.steps.start('collections')
-    records = ao3.get_collections(link)
-    job.steps.done('collections')
+    records = crawl_collections(job, fileops, ao3, 'collections',
+                                lambda: ao3.get_collections(link))
 
-    if records:
+    if records is None:
+        pass # resumed at its download step: every collection was read by the earlier attempt
+    elif records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
             len(records), fileops.describe(
                 os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME))))
@@ -2457,9 +2465,8 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
     progress.report(report, progress.PHASE, name=progress.COLLECTIONS)
 
     ao3 = collections_ao3(job, fileops, repo, report, None)
-    job.steps.start('collection')
-    records = ao3.get_collection(job.url)
-    job.steps.done('collection')
+    records = crawl_collections(job, fileops, ao3, 'collection',
+                                lambda: ao3.get_collection(job.url))
 
     if records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
@@ -2483,7 +2490,62 @@ def collections_ao3(job: Job, fileops: FileOps, repo: Repository, report,
     if works: ao3.collection_works = []
     # the run record reads its fic lists off this when the run ends
     job.ao3 = ao3
+    watch_collections(job, fileops, ao3)
     return ao3
+
+
+def crawl_collections(job: Job, fileops: FileOps, ao3: Ao3, step: str, crawl) -> list[dict] | None:
+    """Read the collections - or, for a run resumed after the earlier attempt reached its
+    download step, nothing at all: that attempt saved the works it was downloading (`scope`),
+    so the run goes straight back to them. None in that case."""
+
+    scoped = resumed_scope(job, fileops)
+    if scoped is not None:
+        mark_earlier(job, step, 'series')
+        ao3.collection_works = list(scoped)
+        ao3.scoped = True
+        return None
+    job.steps.start(step)
+    records = crawl()
+    job.steps.done(step)
+    return records
+
+
+def watch_collections(job: Job, fileops: FileOps, ao3: Ao3) -> None:
+    """Save a collection run's progress as it goes, and give a resumed one what the earlier
+    attempt saved.
+
+    Checkpointed after **every page** of each collection's works and bookmarked-items
+    listings - the page and the work numbers found so far - and when a collection is saved,
+    with every work number it holds. A resumed run skips the collections finished before and
+    carries each unfinished listing on from its last saved page (`Ao3.collect_work_ids`).
+    """
+
+    state = job.progress().setdefault('collections', {})
+    if job.resume:
+        earlier = job.earlier_progress().get('collections') or {}
+        ao3.collections_before = json.loads(json.dumps(earlier))
+        # what was finished stays finished in this attempt's record too, so a second resume
+        # skips it as well
+        for slug, saved in earlier.items():
+            if isinstance(saved, dict) and saved.get('done'): state[slug] = saved
+        restore_series(job, ao3)
+    ao3.records_for = lambda ids: records_by_id(fileops, ids)
+
+    def on_page(slug: str, key: str, page, ids: list[str], done: bool = False) -> None:
+        listing = state.setdefault(slug, {'done': False, 'listings': {}})['listings'] \
+            .setdefault(key, {})
+        listing['ids'] = list(ids)
+        listing['done'] = done
+        if page is not None: listing['page'] = page
+        job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()))
+
+    def on_done(slug: str, works: list[str]) -> None:
+        state[slug] = {'done': True, 'works': list(works)}
+        job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()))
+
+    ao3.on_collection_page = on_page
+    ao3.on_collection_done = on_done
 
 
 def download_collection_works(job: Job, fileops: FileOps, ao3: Ao3, report) -> None:
@@ -2497,7 +2559,8 @@ def download_collection_works(job: Job, fileops: FileOps, ao3: Ao3, report) -> N
     if ao3.collection_works is None: return
     print(strings.AO3_INFO_COLLECTION_WORKS_TOTAL.format(len(ao3.collection_works)))
     records = ao3.collection_works
-    if job.options.get('series'):
+    # a run resumed at its download step walked its series in the earlier attempt
+    if job.options.get('series') and getattr(ao3, 'scoped', False) is not True:
         records = merge_by_work(records, index_marked_series(job, ao3, report))
     download_planned(job, fileops, ao3, records, list(ao3.filetypes), report)
 

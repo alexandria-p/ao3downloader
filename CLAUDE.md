@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1407 python passed; 577 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1422 python passed; 579 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1035,8 +1035,23 @@ The rules, and why:
 - Unrevealed works go through `note_unrevealed`, shared with `get_metadata`: indexed, held
   back from download, listed as skipped.
 
+**Collection runs can be resumed** (`RESUME_ACTIONS`; `RESUMING.md` has the detail).
+`watch_collections` checkpoints `collections.<name>` after every page of each listing
+(`Ao3.on_collection_page`: page, ids so far, done) and when a collection is saved
+(`on_collection_done`: done, every work number). A resumed run hands `Ao3.collections_before`
+the earlier state: `finished_before` skips a done collection and `keep_indexed` takes its works
+from the index (`records_for`); an unfinished listing restarts **on** its saved page, not after
+it, because a removal pulls the next page's first work onto it. A works listing that comes up
+short of the profile's count is re-read from page 1 to the page before (`walk_pages(stop=)`),
+because it may be ordered by date updated and an updated work jumps to the front - that order
+was **not** verified against the live site, and this keeps the resume safe either way. A
+listing that raised is recorded in `unfinished_collections`, so the collection is saved but not
+marked done. `prepare_resume` takes `url` from the record (a resume request carries none), and
+`resume_problem` refuses a `collection` record without one. A run resumed after its download
+step started goes straight to the saved `scope` (`crawl_collections`), with no series walk.
+
 The run record keeps its `url` (a collection or a fic), and History's **Run again** - offered
-on the collection runs only, since they cannot be resumed - hands the whole record to the
+on the collection runs, beside Resume - hands the whole record to the
 dialog as `repeatOf`, which `fillFrom` reads **after `init`'s first await**, like the other
 inputs. A record from before `url` was saved opens with the link box empty and says so.
 

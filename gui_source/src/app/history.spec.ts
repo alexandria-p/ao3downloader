@@ -564,5 +564,21 @@ describe('History', () => {
     expect(runAgainButton()).toBeUndefined();
   });
 
+  it('offers Resume on an unfinished collection run as well as Run again', async () => {
+    await show([aRun({ action: 'collection', status: 'interrupted', progress: {},
+                       url: 'https://archiveofourown.org/collections/x' })]);
+
+    const buttons = Array.from(element.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(buttons).toContain('Resume [EXPERIMENTAL]');
+    expect(buttons).toContain('Run again');
+  });
+
+  it('says a collection run with no saved link cannot be resumed', async () => {
+    await show([aRun({ action: 'collection', status: 'stopped', progress: {} })]);
+
+    expect(element.querySelector<HTMLButtonElement>('.run-resume button')!.disabled).toBe(true);
+    expect(element.textContent).toContain('before collection runs saved their link');
+  });
+
   // endregion
 });

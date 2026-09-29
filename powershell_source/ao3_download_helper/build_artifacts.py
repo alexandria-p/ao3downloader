@@ -551,9 +551,10 @@ for file types, and reads every collection's works again even when its count is 
 Leave it off for a collection of your own bookmarks, whose works are already indexed; it is
 recommended for a collection you think holds works or bookmarks outside your own.
 
-History shows the link a collection run used and offers **Run again**, which opens the
-window filled in with that run's choices. Running one again skips what is already
-downloaded and current, so it is the retry.
+History shows the link a collection run used. An unfinished one offers **Resume**: it saves
+its place after every page of each collection, so resuming skips the collections already
+finished and carries on from the page it reached. **Run again** opens the window filled in
+with that run's choices.
 
 Clicking a collection opens what was recorded about it, along with the works in it, in the
 same listing the Bookmarks tab uses. Works it holds that are not in your index are still
@@ -920,8 +921,8 @@ when it reported anything, **Download issues**.
   restarted while it was going. Its log and issues go up to its last save, at most about two
   minutes before it was cut off.
 
-Anything unfinished can be carried on: a full scan, quick scan or custom run offers
-**Resume**, a collection run offers **Run again**, and anything else you start again - it
+Anything unfinished can be carried on: a full scan, quick scan, custom run or collection run
+offers **Resume**, and anything else you start again - it
 skips what is already downloaded and current.
 
 ## A caveat about deploying this to a server
