@@ -44,8 +44,9 @@ README = """ao3downloader
 
 Starting it
 -----------
-Double-click ao3downloader.exe. A window opens and your browser opens the app at
-http://localhost:4200. Leave the window open while you use the app; close it to stop.
+Double-click ao3downloader.exe. A window opens and your browser opens the app. If it
+does not, open any web browser to http://localhost:4200 - the window says so too. Leave the
+window open while you use the app; close it to stop. Everything the app does is shown in it.
 
 The first time, Windows may say "Windows protected your PC", because the app is not signed.
 Click "More info", then "Run anyway".

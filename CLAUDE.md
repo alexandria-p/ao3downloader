@@ -80,7 +80,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1521 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1525 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -244,6 +244,9 @@ What not to break:
   registered with the Dropbox app, and the two hosts are different origins.
 - **A folder in a zip, not `--onefile`**: a one-file exe unpacks to a temp folder on every
   start, which is slow and is what antivirus most often flags.
+- **The window says where to go**: `open any web browser to http://localhost:4200`
+  (`OPEN_THIS`), once the helper answers - and when a second start finds one already running -
+  as well as opening the default browser, for when that does not happen or is closed.
 - **Nothing fails silently.** A double-clicked console app that exits closes before anyone
   reads why, so every failure goes through `desktop.stop`, which holds the window open. A
   second start while one is running opens the page and stops there - it never starts a
@@ -257,7 +260,10 @@ What not to break:
   `deploy_config.py local-settings` (`write_local_settings`) sets every key from the same
   GitHub variables the hosted copy uses, except the three hosting keys, which are pinned by
   `LOCAL_APP`: `HelperUrl=http://127.0.0.1:4400`, `RequirePasscode=false` (a local helper has
-  no passcode to check, and would refuse to start asking for one), `PageOrigin` empty.
+  no passcode to check, and would refuse to start asking for one), `PageOrigin` empty - and
+  `EnableConsoleLogging=true`, because the window is the only place anyone sees what the app
+  is doing. `LOCAL_APP` is **the** place the app deviates from the deployment; add a key there
+  rather than a second variable when it should always differ.
   `refuse_hosted_addresses` then fails the build if the text names the hosted helper's host
   or the page's origin anywhere - through any key, not only those three. Nothing is added:
   the same keys and comments as the template, `SavePassword` left out. `package_windows.py

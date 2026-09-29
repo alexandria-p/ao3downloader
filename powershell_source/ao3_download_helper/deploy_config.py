@@ -28,7 +28,7 @@ or whether it wants a passcode.
 `local-settings` writes the settings.ini the **Windows app** ships (`package_windows.py`): the
 same template and the same variables, so it paces and names things exactly as the hosted
 helper does - but the three hosting keys are pinned to a helper on the computer the app is
-started on (`LOCAL_APP`), whatever the variables say. It never holds the hosted helper's
+started on, and console logging is always on (`LOCAL_APP`), whatever the variables say. It never holds the hosted helper's
 address or the page's origin: the file is checked for both before it is written
 (`refuse_hosted_addresses`), and the build fails rather than ship one.
 
@@ -78,9 +78,14 @@ LEFT_OUT = NEVER_WRITTEN
 # refuses to start without a passcode, so asking for one is the only default that can work
 HOSTED_DEFAULTS = {REQUIRE_PASSCODE: 'true'}
 
-# the Windows app runs its own helper on the computer it is started on: these are what that
-# helper and its page need, and nothing about the hosted copy may reach it
-LOCAL_APP = {HELPER_URL: 'http://127.0.0.1:4400', REQUIRE_PASSCODE: 'false', PAGE_ORIGIN: ''}
+CONSOLE_LOGGING = 'EnableConsoleLogging'
+
+# where the Windows app differs from the deployment, whatever the variables say. it runs its
+# own helper on the computer it is started on: the three hosting keys are what that helper
+# and its page need, and nothing about the hosted copy may reach it. and its window is the
+# only place anyone sees what it is doing, so every request and run line is always shown there
+LOCAL_APP = {HELPER_URL: 'http://127.0.0.1:4400', REQUIRE_PASSCODE: 'false', PAGE_ORIGIN: '',
+             CONSOLE_LOGGING: 'true'}
 
 KEY_LINE = re.compile(r'^([A-Za-z][A-Za-z0-9]*)\s*=(.*)$', re.MULTILINE)
 

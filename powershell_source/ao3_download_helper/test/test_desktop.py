@@ -105,7 +105,9 @@ def test_the_app_already_running_is_said_rather_than_starting_a_second_helper(tm
     assert held.called
     # a second helper on the same port is the stale-helper trap CLAUDE.md describes
     assert not serve.called and not page.called
-    assert 'running already' in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert 'running already' in out
+    assert 'open any web browser to http://localhost:4200' in out
 
 
 def test_a_helper_that_will_not_start_holds_the_window_open(tmp_path, monkeypatch):
@@ -133,5 +135,28 @@ def test_starting_normally_runs_the_helper_on_its_usual_port(tmp_path, monkeypat
     assert not held.called
     serve.assert_called_once_with(port=server.DEFAULT_PORT)
     assert page.called
+
+# endregion
+
+
+# region what the window says once it is running
+
+def test_the_window_says_where_to_point_a_browser_once_the_helper_answers(monkeypatch, capsys):
+    monkeypatch.setenv(desktop.ENV_NO_BROWSER, '1')
+    with patch.object(server, 'already_listening', return_value=True), \
+         patch.object(desktop.webbrowser, 'open') as opened:
+        desktop.open_browser_when_ready(server.DEFAULT_PORT)
+
+    assert 'open any web browser to http://localhost:4200' in capsys.readouterr().out
+    assert not opened.called
+
+
+def test_the_browser_is_opened_there_too(monkeypatch):
+    monkeypatch.delenv(desktop.ENV_NO_BROWSER, raising=False)
+    with patch.object(server, 'already_listening', return_value=True), \
+         patch.object(desktop.webbrowser, 'open') as opened:
+        desktop.open_browser_when_ready(server.DEFAULT_PORT)
+
+    opened.assert_called_once_with('http://localhost:4200/')
 
 # endregion

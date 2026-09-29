@@ -261,6 +261,21 @@ def test_a_hosted_address_carried_into_another_setting_fails_the_build():
         deploy_config.write_local_settings(smuggled, text)
 
 
+def test_the_windows_app_always_shows_what_it_is_doing_in_its_window():
+    # its window is the only place anyone sees the requests and a run's lines - on whatever
+    # the hosted copy is set to
+    for given in ('false', 'true', ''):
+        written = deploy_config.write_local_settings({**RENDER, 'ENABLE_CONSOLE_LOGGING': given},
+                                                     template())
+        assert 'EnableConsoleLogging=true\n' in written
+
+
+def test_the_hosted_copy_still_takes_console_logging_from_its_variable():
+    written = deploy_config.write_settings({**HOSTED, 'ENABLE_CONSOLE_LOGGING': 'false'}, template())
+
+    assert 'EnableConsoleLogging=false\n' in written
+
+
 def test_the_windows_app_leaves_out_the_password_setting_as_every_page_build_does():
     written = deploy_config.write_local_settings({}, template())
 

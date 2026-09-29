@@ -165,8 +165,8 @@ A new key needs the page rebuilt too, which the same run does.
 The same run also builds the **Windows app** and publishes it on the `windows-app` release
 (the `windows` job, which calls **build windows app**). It runs alongside the hosted deploy
 and has nothing to do with it - the app runs its own helper on the computer it is started on.
-Its settings.ini is written from the same variables, except `HELPER_URL`, `REQUIRE_PASSCODE`
-and `PAGE_ORIGIN`, which it ignores: it always points at its own helper, and the build fails
+Its settings.ini is written from the same variables, except `HELPER_URL`, `REQUIRE_PASSCODE`,
+`PAGE_ORIGIN` and `ENABLE_CONSOLE_LOGGING` (always on in the app's window), which it ignores: it always points at its own helper, and the build fails
 rather than ship a file naming your hosted one.
 
 ## Things to know

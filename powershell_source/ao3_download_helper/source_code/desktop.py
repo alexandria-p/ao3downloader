@@ -28,6 +28,9 @@ PAGE_PORT = 4200
 # what the browser is sent to. localhost, not 127.0.0.1: it is the address the Dropbox app
 # has registered, and the two are different origins to a browser
 PAGE_URL = f'http://localhost:{PAGE_PORT}/'
+# what the window tells people to open, for when the browser does not open by itself - or
+# they closed it, or want a different one
+OPEN_THIS = f'open any web browser to http://localhost:{PAGE_PORT}'
 
 CONFIG_FOLDER = 'config'
 LOG_FOLDER = 'logs'
@@ -88,9 +91,10 @@ def open_browser_when_ready(port: int) -> None:
     deadline = time.monotonic() + HELPER_WAIT_SECONDS
     while time.monotonic() < deadline and not server.already_listening(server.HOST, port):
         time.sleep(0.25)
-    if os.environ.get(ENV_NO_BROWSER): return
-    print(f'opening {PAGE_URL} in your browser')
-    webbrowser.open(PAGE_URL)
+    print()
+    print(OPEN_THIS)
+    print()
+    if not os.environ.get(ENV_NO_BROWSER): webbrowser.open(PAGE_URL)
 
 
 def stop(message: str) -> int:
@@ -123,7 +127,7 @@ def main() -> int:
         # almost always the app already running, in another window. opening the page is
         # what the person wanted, so do that rather than only complaining
         print('ao3downloader seems to be running already, in another window.')
-        print(f'opening {PAGE_URL} - close this window when you are done with it.')
+        print(OPEN_THIS)
         if not os.environ.get(ENV_NO_BROWSER): webbrowser.open(PAGE_URL)
         return stop('if the page does not work, close every ao3downloader window and start it again.')
 
@@ -132,7 +136,6 @@ def main() -> int:
     except OSError as e:
         return stop(f'could not serve the page on {PAGE_URL}: {e}')
     threading.Thread(target=page.serve_forever, daemon=True).start()
-    print(f'page: {PAGE_URL}')
 
     threading.Thread(target=open_browser_when_ready, args=(port,), daemon=True).start()
     try:
