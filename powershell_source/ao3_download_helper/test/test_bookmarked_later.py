@@ -272,6 +272,50 @@ def test_noting_it_again_changes_nothing(bookmarked):
         assert f.read() == first
 
 
+def records(root: str) -> dict[str, dict]:
+    folder = os.path.join(root, 'runs')
+    found = {}
+    for name in os.listdir(folder):
+        with open(os.path.join(folder, name), encoding='utf-8') as f:
+            record = json.load(f)
+        found[record['id']] = record
+    return found
+
+
+def log_of_a_new_run(root: str, action: str) -> list[str]:
+    """The lines a run printed - read back from its history file, found as the one record
+    that was not there before it (two runs can start within the same second)."""
+
+    before = set(records(root))
+    run(root, action)
+    [record] = [r for i, r in records(root).items() if i not in before]
+    return record['log']
+
+
+def test_the_cleanup_says_it_is_linking_and_how_many_works_it_linked(bookmarked):
+    saved_collection(bookmarked, [NEWEST, NEXT])
+    log = log_of_a_new_run(bookmarked, server.ACTION_BOOKMARKS)
+
+    assert strings.AO3_INFO_COLLECTIONS_LINKING in log
+    assert '2 works have been linked to your collections' in log
+
+
+def test_one_linked_work_is_said_in_the_singular(bookmarked):
+    saved_collection(bookmarked, [NEWEST])
+    log = log_of_a_new_run(bookmarked, server.ACTION_BOOKMARKS)
+
+    assert '1 work has been linked to your collections' in log
+
+
+def test_nothing_to_link_says_nothing_about_linking(bookmarked):
+    saved_collection(bookmarked, [NEWEST])
+    run(bookmarked, server.ACTION_BOOKMARKS)
+    log = log_of_a_new_run(bookmarked, server.ACTION_BOOKMARKS)
+
+    assert not any('linked to your collections' in x or x == strings.AO3_INFO_COLLECTIONS_LINKING
+                   for x in log)
+
+
 def test_a_run_with_nothing_to_note_or_remove_skips_its_cleanup():
     job = server.Job(server.ACTION_BOOKMARKS, ['JSON'], 'Someone')
     job.steps = MagicMock()

@@ -160,7 +160,9 @@ AO3_INFO_COLLECTION_WORKS = 'collection {}: indexed {} works not already found t
 AO3_INFO_COLLECTION_WORKS_TOTAL = '{} works found across the collections'
 AO3_INFO_DUPLICATE_ENTRIES = ('{} has {} index files - left from an older version, which gave a retitled work a '
                               'second one. writing to the most recently indexed: {}')
-AO3_INFO_COLLECTIONS_LINKED = 'noted which of your collections hold {} indexed works (from_collections)'
+AO3_INFO_COLLECTIONS_LINKING = 'linking the works covered in this run to any collections you have indexed'
+AO3_INFO_COLLECTIONS_LINKED = '{} works have been linked to your collections'
+AO3_INFO_COLLECTIONS_LINKED_ONE = '1 work has been linked to your collections'
 AO3_INFO_COLLECTION_EXTERNALS = 'collection {}: indexed {} external works (hosted off ao3, so never downloaded)'
 # a collection's subcollections and parent, when the run follows them
 AO3_INFO_COLLECTION_FAMILY = 'collection {}: linked from {}, so reading it too'

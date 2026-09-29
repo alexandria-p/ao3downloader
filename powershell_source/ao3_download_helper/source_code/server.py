@@ -2504,6 +2504,8 @@ def write_collection_links(fileops: FileOps, links: list[tuple[str, list[str]]])
     """Add the collections to each entry. `from_collections` is identity, not a reading, so
     it goes straight onto the file - no new reading is added for it."""
 
+    if not links: return
+    print(strings.AO3_INFO_COLLECTIONS_LINKING)
     written = 0
     for path, names in links:
         try:
@@ -2516,7 +2518,9 @@ def write_collection_links(fileops: FileOps, links: list[tuple[str, list[str]]])
             raise
         except Exception:
             continue
-    if written: print(strings.AO3_INFO_COLLECTIONS_LINKED.format(written))
+    if written:
+        print(strings.AO3_INFO_COLLECTIONS_LINKED_ONE if written == 1
+              else strings.AO3_INFO_COLLECTIONS_LINKED.format(written))
 
 
 def report_not_removed(job: Job, report) -> None:
