@@ -612,7 +612,7 @@ AO3_INFO_RESUME_UPDATE_DONE = 'the earlier attempt already finished {} of these 
 RESUME_NOT_FOUND = 'That run is not in this library\'s history.'
 RESUME_WRONG_ACTION = 'Only full scans, quick scans, custom runs and collection runs can be resumed.'
 RESUME_NO_LINK = ('This run is from before collection runs saved their link, so it cannot be '
-                  'resumed - use Run again and paste the link in.')
+                  'resumed - start it again from its button, with the link.')
 RESUME_SLICE = ('A custom run over a slice of your bookmarks listing cannot be resumed: '
                 'bookmarks added or removed since move every page, so the same page numbers '
                 'no longer hold the same bookmarks.')

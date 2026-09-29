@@ -1653,29 +1653,6 @@ describe('DownloadDialog', () => {
     expect(said).toContain('downloaded or updated as necessary');
   });
 
-  it('opens filled in with an earlier run to run it again', async () => {
-    fixture = TestBed.createComponent(DownloadDialog);
-    fixture.componentRef.setInput('action', 'collection');
-    fixture.componentRef.setInput('repeatOf', {
-      ...scanOnRecord('earlier', '2026-09-01T12:00:00', 'collection'),
-      url: LINK,
-      filetypes: ['JSON', 'EPUB'],
-      options: { collectionWorks: true, series: true },
-    });
-    await fixture.whenStable();
-    element = fixture.nativeElement as HTMLElement;
-
-    expect(linkBox().value).toBe(LINK);
-    button('Continue')!.click();
-    await fixture.whenStable();
-    expect(checkbox('Index and download encountered works')?.checked).toBe(true);
-    expect(checkbox('encountered series')?.checked).toBe(true);
-
-    await advanceTo('running');
-    expect(jobs.started[0].url).toBe(LINK);
-    expect([...jobs.started[0].filetypes].sort()).toEqual(['EPUB', 'JSON']);
-  });
-
   it('sends the collections action', async () => {
     await open('collections');
     await advanceTo('running');

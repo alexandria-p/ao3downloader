@@ -61,21 +61,6 @@ export class History {
   readonly resume = output<string>();
   /** a background run to open the progress window onto */
   readonly viewProgress = output<ActiveRun>();
-  /** a run to start again with the same choices, in a window filled in with them */
-  readonly runAgain = output<RunHistory>();
-
-  /**
-   * Whether a run can be started again from here: the collection runs, which have no Resume
-   * - a repeat is cheap, and is the retry. Not while it is still going, nor while another run
-   * is, since the helper takes one at a time.
-   */
-  protected canRunAgain(run: RunHistory): boolean {
-    return (
-      (run.action === 'collections' || run.action === 'collection') &&
-      run.status !== 'running' &&
-      !this.activeRuns().length
-    );
-  }
 
   /**
    * The runs the helper is working on right now, pinned above the history.
@@ -227,7 +212,7 @@ export class History {
     if (!RESUMABLE.includes(run.action)) return null;
     if (run.status === 'success' || run.status === 'running') return null;
     if (run.action === 'collection' && !run.url) {
-      return 'This run is from before collection runs saved their link - use Run again and paste it in.';
+      return 'This run is from before collection runs saved their link - start it again from its button.';
     }
     const options = run.options ?? {};
     if (run.action === 'custom' && !options['dates'] &&

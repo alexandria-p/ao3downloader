@@ -553,8 +553,7 @@ recommended for a collection you think holds works or bookmarks outside your own
 
 History shows the link a collection run used. An unfinished one offers **Resume**: it saves
 its place after every page of each collection, so resuming skips the collections already
-finished and carries on from the page it reached. **Run again** opens the window filled in
-with that run's choices.
+finished and carries on from the page it reached.
 
 Clicking a collection opens what was recorded about it, along with the works in it, in the
 same listing the Bookmarks tab uses. Works it holds that are not in your index are still

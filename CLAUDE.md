@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1422 python passed; 579 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1422 python passed; 577 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1050,10 +1050,10 @@ marked done. `prepare_resume` takes `url` from the record (a resume request carr
 `resume_problem` refuses a `collection` record without one. A run resumed after its download
 step started goes straight to the saved `scope` (`crawl_collections`), with no series walk.
 
-The run record keeps its `url` (a collection or a fic), and History's **Run again** - offered
-on the collection runs, beside Resume - hands the whole record to the
-dialog as `repeatOf`, which `fillFrom` reads **after `init`'s first await**, like the other
-inputs. A record from before `url` was saved opens with the link box empty and says so.
+The run record keeps its `url` (a collection or a fic): History shows it, and a resumed
+collection-by-URL run is pointed at it. There is **no Run again** button on any run - one was
+built for the collection runs and removed at the user's request once they could be resumed;
+anything that cannot be resumed is started again from its own button.
 
 ### Stopping must unwind, not just stop waiting
 

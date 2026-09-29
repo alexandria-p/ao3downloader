@@ -235,7 +235,7 @@ With a date range, steps 2 and 3 read "…in that date range".
   6. Cleanup
   7. Report any failures
 - Resumable (**Resume**, [EXPERIMENTAL]): a checkpoint after every page of each collection's works and bookmarked-items listings, and when each collection is saved. A resumed run skips finished collections, carries each unfinished listing on from its last saved page (read again, in case works moved), and re-reads the earlier pages if a resumed works listing comes up short of the collection's count. A `collection` run from before the link was saved cannot be resumed. See `RESUMING.md`.
-- History also offers **Run again**, which opens the window filled in with the run's choices and, for `collection`, its link (saved as the run's `url`).
+- The run's link is saved as its `url`, shown in History, and reused when a `collection` run is resumed.
 
 ---
 

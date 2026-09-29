@@ -83,12 +83,6 @@ export class DownloadDialog implements OnDestroy {
   /** a run to open set to resume - from the history's Resume button */
   readonly resumeFrom = input('');
   /**
-   * An earlier run to start again with the same choices - from the history's Run again
-   * button. The window opens filled in rather than starting it: the choices are shown back,
-   * and the login is still asked for.
-   */
-  readonly repeatOf = input<RunHistory | null>(null);
-  /**
    * A run already going in the background, to open straight onto its progress - from the
    * history's View progress button. Everything so far is replayed, so the window reads as
    * it would have had it been open all along.
@@ -861,7 +855,6 @@ export class DownloadDialog implements OnDestroy {
     this.folder.set(this.library.store()?.label ?? '');
     // the defaults are a starting point, not a rule: only `forced` cannot be unticked
     this.selected.set([...(config.defaults ?? config.forced)]);
-    this.fillFrom(this.repeatOf());
     this.step.set(this.firstStep());
     if (this.resumeFrom() && this.action() === 'custom') {
       this.coverage.set('resume');
@@ -872,20 +865,6 @@ export class DownloadDialog implements OnDestroy {
     this.remember.set(remembered);
     // the saved username can come from the browser or from ao3downloader's own data.json
     this.username.set((remembered ? safeGet(USERNAME_KEY) : '') || config.username || '');
-  }
-
-  /** the choices of the run being started again, where they apply to this one */
-  private fillFrom(run: RunHistory | null): void {
-    if (!run || run.action !== this.action()) return;
-    const options = run.options ?? {};
-    if (this.needsLink() && run.url) this.collectionUrl.set(run.url);
-    this.collectionWorks.set(!!options['collectionWorks']);
-    this.series.set(!!options['series']);
-    // an older record, or a run indexing collections alone, says nothing worth keeping here
-    const kept = (run.filetypes ?? []).filter((x) => (this.config()?.filetypes ?? []).includes(x));
-    if (this.picksFiletypes() && kept.length) {
-      this.selected.set([...new Set([...(this.config()?.forced ?? []), ...kept])]);
-    }
   }
 
   ngOnDestroy(): void {

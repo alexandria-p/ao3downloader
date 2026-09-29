@@ -524,53 +524,35 @@ describe('History', () => {
 
   // endregion
 
-  // region running a collections run again
+  // region collection runs
 
-  function runAgainButton(): HTMLButtonElement | undefined {
-    return Array.from(element.querySelectorAll('button')).find(
-      (b) => b.textContent?.trim() === 'Run again',
-    );
-  }
+  it('shows the link a collection run was pointed at, and what it was asked to do', async () => {
+    await show([aRun({ action: 'collection', url: 'https://archiveofourown.org/collections/x',
+                       options: { collectionWorks: true } })]);
 
-  it('offers to run a collections run again, handing over the whole run', async () => {
-    const emitted: RunHistory[] = [];
-    const run = aRun({ action: 'collection', url: 'https://archiveofourown.org/collections/x',
-                       options: { collectionWorks: true } });
-    await show([run]);
-    fixture.componentInstance.runAgain.subscribe((r) => emitted.push(r));
-
-    runAgainButton()!.click();
-
-    expect(emitted).toEqual([run]);
-    // the link it was pointed at is shown on the entry
     expect(element.querySelector('.run-link')?.textContent).toContain('collections/x');
     expect(element.textContent).toContain('indexed and downloaded the works in them');
   });
 
-  it('says a collection run from before links were saved needs its link again', async () => {
-    await show([aRun({ action: 'collection' })]);
-
-    expect(runAgainButton()).toBeTruthy();
-    expect(element.textContent).toContain('paste it in again');
-  });
-
-  it('offers Run again on the collection runs alone, and not while one is going', async () => {
-    jobs.leaveRunning = true;
-    await show([aRun({ action: 'collections', status: 'running' }), aRun({ file: 'b', id: 'b' })]);
-    expect(runAgainButton()).toBeUndefined();
-
-    jobs.activeRuns.set([{ ...going, action: 'quick' }]);
-    await show([aRun({ action: 'collections' })]);
-    expect(runAgainButton()).toBeUndefined();
-  });
-
-  it('offers Resume on an unfinished collection run as well as Run again', async () => {
-    await show([aRun({ action: 'collection', status: 'interrupted', progress: {},
-                       url: 'https://archiveofourown.org/collections/x' })]);
+  it('offers no Run again on any run', async () => {
+    await show([aRun({ action: 'collections' }), aRun({ file: 'b', id: 'b', action: 'work' }),
+                aRun({ file: 'c', id: 'c', action: 'bookmarks', status: 'stopped' })]);
 
     const buttons = Array.from(element.querySelectorAll('button')).map((b) => b.textContent?.trim());
-    expect(buttons).toContain('Resume [EXPERIMENTAL]');
-    expect(buttons).toContain('Run again');
+    expect(buttons).not.toContain('Run again');
+  });
+
+  it('offers Resume on an unfinished collection run', async () => {
+    const emitted: string[] = [];
+    await show([aRun({ action: 'collection', status: 'interrupted', progress: {},
+                       url: 'https://archiveofourown.org/collections/x' })]);
+    fixture.componentInstance.resume.subscribe((id) => emitted.push(id));
+
+    const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
+    expect(button.textContent?.trim()).toBe('Resume [EXPERIMENTAL]');
+    expect(button.disabled).toBe(false);
+    button.click();
+    expect(emitted).toEqual(['abc']);
   });
 
   it('says a collection run with no saved link cannot be resumed', async () => {

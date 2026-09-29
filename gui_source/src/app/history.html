@@ -140,18 +140,6 @@
           </div>
         }
 
-        @if (canRunAgain(run)) {
-          <div class="run-resume">
-            <button type="button" class="button" (click)="runAgain.emit(run)"
-                    title="Open this run's window again, filled in with the choices it was started with">
-              Run again
-            </button>
-            @if (run.action === 'collection' && !run.url) {
-              <span class="hint">This run is from before the collection's link was saved, so
-                you will need to paste it in again.</span>
-            }
-          </div>
-        }
 
         @if (run.error) {
           <p class="run-error">{{ run.error }}</p>
