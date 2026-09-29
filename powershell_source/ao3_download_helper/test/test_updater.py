@@ -8,7 +8,9 @@ from a stand-in release. Everything up to handing over to that script is here.
 import hashlib
 import io
 import json
+import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -165,6 +167,31 @@ def test_the_new_version_is_unpacked_and_the_swap_handed_to_powershell(tmp_path)
     assert command[command.index('-File') + 1] == str(tmp_path / 'update' / 'apply-update.ps1')
     assert (tmp_path / 'update' / 'apply-update.ps1').read_text(encoding='utf-8-sig') == updates.SWAP_SCRIPT
     assert update.status()['update'] == {'state': 'restarting', 'version': '1.8.3'}
+
+
+def test_what_the_swap_script_prints_goes_to_a_file_beside_its_log(tmp_path):
+    _, launch, _ = installed(tmp_path, github())
+
+    assert launch.call_args.args[1] == tmp_path / 'update' / 'swap-output.txt'
+
+
+def test_the_swap_script_and_the_app_it_restarts_start_with_pyinstallers_variables_reset(monkeypatch):
+    # a frozen app passes its own _PYI_* variables down; the relaunched exe must not take them
+    monkeypatch.setenv('_PYI_APPLICATION_HOME_DIR', 'the old app')
+    environment = updates.launch_environment()
+
+    assert environment['PYINSTALLER_RESET_ENVIRONMENT'] == '1'
+    assert "$env:PYINSTALLER_RESET_ENVIRONMENT = '1'" in updates.SWAP_SCRIPT
+
+
+def test_a_detached_launch_writes_what_the_command_prints_to_the_file(tmp_path):
+    output = tmp_path / 'out.txt'
+    updates.launch_detached([sys.executable, '-c', 'print("started")'], output)
+
+    for _ in range(100):
+        if output.exists() and 'started' in output.read_text(): break
+        time.sleep(0.05)
+    assert 'started' in output.read_text()
 
 
 def test_the_users_own_folders_in_a_zip_are_never_unpacked(tmp_path):

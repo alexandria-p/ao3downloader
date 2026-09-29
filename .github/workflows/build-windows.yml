@@ -158,7 +158,7 @@ jobs:
           function Wait-ForHelper([int] $seconds) {
             foreach ($try in 1..$seconds) {
               Start-Sleep -Seconds 1
-              try { return Invoke-RestMethod 'http://127.0.0.1:4400/api/config' -Headers $origin } catch { }
+              try { return Invoke-RestMethod 'http://127.0.0.1:4400/api/config' -Headers $origin -TimeoutSec 2 } catch { }
             }
             throw "the helper did not answer within $seconds seconds"
           }
@@ -206,6 +206,20 @@ jobs:
             if ($after -match '(?m)^RetiredSetting=') { throw 'RetiredSetting is still set' }
             if (-not $after.Contains('# RetiredSetting=3')) { throw 'RetiredSetting was not kept, commented out' }
             Write-Host 'updated: new files in place, settings.ini kept and brought up to date'
+          }
+          catch {
+            # everything that says why, since nobody can look at the runner afterwards
+            Write-Host '--- what the app folder holds ---'
+            Get-ChildItem -Force $root | ForEach-Object { Write-Host $_.Name }
+            foreach ($evidence in @('update\update.log', 'update\swap-output.txt')) {
+              $path = Join-Path $root $evidence
+              if (Test-Path $path) { Write-Host "--- $evidence ---"; Get-Content -Raw $path | Write-Host }
+              else { Write-Host "--- no $evidence ---" }
+            }
+            Write-Host '--- processes ---'
+            Get-Process -Name 'ao3downloader', 'powershell' -ErrorAction SilentlyContinue |
+              Format-Table Id, ProcessName, StartTime -AutoSize | Out-String | Write-Host
+            throw
           }
           finally {
             Get-Process -Name 'ao3downloader' -ErrorAction SilentlyContinue | Stop-Process -Force

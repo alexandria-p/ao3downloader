@@ -89,7 +89,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1590 python passed; 614 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1593 python passed; 614 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -314,7 +314,11 @@ a version and a repository has an `Updater` (`desktop.make_updater`, set on
   fail; found running the script under pwsh on Linux). If any move still fails it **puts every
   old item back** before starting the app, so what starts is always a whole app. It always
   restarts it, with `AO3DOWNLOADER_NO_BROWSER` so no second tab opens, and writes
-  `update/update.log`, whose latest outcome the restarted app reads (`last_result`) and
+  `update/update.log` (and whatever the script itself printed, to `update/swap-output.txt` -
+  a script that will not even start never reaches its own log). The script and the app it
+  restarts run with `PYINSTALLER_RESET_ENVIRONMENT=1`: a frozen app hands its `_PYI_*`
+  variables down, and PyInstaller says to reset them when starting another frozen program.
+  The restarted app reads `update.log`'s latest outcome (`last_result`) and
   reports as `state: failed` so the page can say so. Windows PowerShell 5.1 is the target -
   no `&&`, `??` or ternaries.
 - **The page waits it out** (`UpdateCheck.updateNow`): after the 202 it polls `/api/config`;

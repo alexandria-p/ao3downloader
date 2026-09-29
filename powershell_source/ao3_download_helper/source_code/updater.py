@@ -52,6 +52,9 @@ GITHUB_API = 'https://api.github.com'
 ENV_UPDATE_SOURCE = 'AO3DOWNLOADER_UPDATE_SOURCE'
 SCRIPT_NAME = 'apply-update.ps1'
 LOG_NAME = 'update.log'
+# what the swap script itself printed, errors included
+OUTPUT_NAME = 'swap-output.txt'
+PYINSTALLER_RESET = 'PYINSTALLER_RESET_ENVIRONMENT'
 DOWNLOAD_NAME = 'download.zip'
 TIMEOUT_SECONDS = 60
 # the response to the page has to get out before the app closes
@@ -120,14 +123,33 @@ def unpack(archive: zipfile.ZipFile, destination: Path) -> None:
                 out.write(chunk)
 
 
-def launch_detached(command: list[str]) -> None:
-    """Start the swap script so it outlives this process, with no window of its own."""
+def launch_environment() -> dict:
+    """What the swap script, and the app it starts again, run with.
+
+    A frozen app hands its children PyInstaller's own variables (`_PYI_*`), and PyInstaller
+    says to reset them when starting another frozen program - the relaunched exe would
+    otherwise take them as its own. The script sets the flag again before it starts the app."""
+
+    environment = dict(os.environ)
+    environment[PYINSTALLER_RESET] = '1'
+    return environment
+
+
+def launch_detached(command: list[str], output: Path | None = None) -> None:
+    """Start the swap script so it outlives this process, with no window of its own.
+
+    What it prints goes to `output`: a script that will not even start - refused by policy,
+    or failing to parse - never reaches its own log, and would otherwise leave no trace."""
 
     flags = 0
     if sys.platform == 'win32':
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen(command, creationflags=flags, close_fds=True,
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    sink = open(output, 'ab') if output else subprocess.DEVNULL
+    try:
+        subprocess.Popen(command, creationflags=flags, close_fds=True, env=launch_environment(),
+                         stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT)
+    finally:
+        if output: sink.close()
 
 
 class Updater:
@@ -135,7 +157,7 @@ class Updater:
 
     def __init__(self, app_dir: str, version: str, repository: str,
                  get: Callable = requests.get,
-                 launch: Callable[[list[str]], None] = launch_detached,
+                 launch: Callable[..., None] = launch_detached,
                  leave: Callable[[], None] = lambda: os._exit(0)):
         self.app_dir = Path(app_dir)
         self.version = version
@@ -260,7 +282,8 @@ class Updater:
             print(f'updating to {release.version}: the app will close and start again in a moment')
             self.launch(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass',
                          '-WindowStyle', 'Hidden', '-File', str(script),
-                         '-AppDir', str(self.app_dir), '-ProcessId', str(os.getpid())])
+                         '-AppDir', str(self.app_dir), '-ProcessId', str(os.getpid())],
+                        self.update_dir / OUTPUT_NAME)
             threading.Timer(EXIT_DELAY_SECONDS, self.leave).start()
         except Exception as e:
             message = str(e) if isinstance(e, UpdateError) else f'the update failed ({e})'
@@ -380,6 +403,7 @@ finally {
     # started again whether the swap worked or not - the new version, or the whole old one.
     # the page is still open in the browser and reloads itself, so no second tab
     $env:AO3DOWNLOADER_NO_BROWSER = '1'
+    $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
     Start-Process -FilePath (Join-Path $AppDir 'ao3downloader.exe') -WorkingDirectory $AppDir
     Say 'started the app again'
 }
