@@ -785,4 +785,32 @@ def test_a_series_whose_entry_lists_a_different_number_of_works_is_read(bookmark
     assert any('/series/' in url for url in asked)
 
 
+@pytest.mark.parametrize('works', [False, True])
+def test_a_bookmarked_series_that_grew_keeps_your_bookmark_and_gains_the_work(bookmarked, works):
+    with open(series_file(bookmarked), encoding='utf-8') as f:
+        before = json.load(f)
+    mine = indexing.flatten(before)
+
+    def grown(url: str) -> BeautifulSoup:
+        if '/series/' in url:
+            soup = BeautifulSoup(SERIES, 'html.parser')
+            soup.select_one('li.work.blurb').insert_before(
+                BeautifulSoup(WORK_BLURB.format(id='99999999'), 'html.parser'))
+            return soup
+        return with_a_series(url)
+    run_collection(bookmarked, works=works, pages=grown)
+
+    with open(series_file(bookmarked), encoding='utf-8') as f:
+        after = json.load(f)
+    now = indexing.flatten(after)
+    # everything your bookmark said is as it was - only the works moved on
+    for field in set(mine) - {strings.SERIES_WORKS_FIELD, indexing.FROM_COLLECTIONS,
+                              indexing.LAST_INDEXED, indexing.INDEXED_ON, indexing.INDEXES}:
+        assert now.get(field) == mine.get(field), field
+    assert now[strings.SERIES_WORKS_FIELD] == ['99999999', *mine[strings.SERIES_WORKS_FIELD]]
+    # one new reading, for the one real change - and the old ones are all still there
+    assert len(after['indexes']) == len(before['indexes']) + 1
+    assert after['indexes'][:-1] == before['indexes']
+
+
 # endregion
