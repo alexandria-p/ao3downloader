@@ -164,6 +164,7 @@ AO3_INFO_COLLECTIONS_LINKING = 'linking the works covered in this run to any col
 AO3_INFO_COLLECTIONS_LINKED = '{} works have been linked to your collections'
 AO3_INFO_COLLECTIONS_LINKED_ONE = '1 work has been linked to your collections'
 AO3_INFO_COLLECTION_SERIES = 'collection {}: reading the works in the {} series bookmarked in it'
+AO3_INFO_COLLECTION_SERIES_UNCHANGED = 'series {}: its entry already lists all {} works, so it is not read again'
 AO3_INFO_COLLECTION_EXTERNALS = 'collection {}: indexed {} external works (hosted off ao3, so never downloaded)'
 # a collection's subcollections and parent, when the run follows them
 AO3_INFO_COLLECTION_FAMILY = 'collection {}: linked from {}, so reading it too'

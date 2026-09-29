@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1492 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1496 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1051,9 +1051,17 @@ The rules, and why:
   bookmark, so an existing entry keeps your bookmark fields and a new one is
   `bookmarked: false`. With the works option it is `index_series`, which also indexes the
   works (`from_series`, not bookmarked) for download; without it, `read_series` writes the
-  entry and indexes nothing. **Each series is read on every run, even when the collection's
-  count is unchanged**: a series grows on its own. Once per run (`series_read` /
-  `series_ids_found`); one that will not read keeps its entry as it was. `collection_links`
+  entry and indexes nothing. **It shares the file a scan of your bookmarks writes** (both
+  find it by number), so a series you bookmarked that a collection also holds is one entry.
+  **An entry you bookmarked keeps its reading** - `series_document` only brings its works up
+  to date. The page has no tags and its own date format, so writing it over your bookmark's
+  reading blanked your tags and added a reading the next scan undid (a test holds this); and
+  nothing the page leaves blank overwrites what an entry has (`blank`). **A series is not
+  read again when its entry already lists as many works as the collection's blurb for it
+  says** (`series_unchanged`, `series_counts` off `dd.works`) - and, with the works option,
+  all of them are indexed - so a series your scan already read costs nothing. Otherwise it
+  is read, even when the collection's own count is unchanged: a series grows on its own.
+  Once per run (`series_read` / `series_ids_found`); one that will not read keeps its entry. `collection_links`
   links the series entry (`covered_series`) and, through `works_of_series`, every indexed
   work that entry lists.
 

@@ -828,8 +828,10 @@ exactly like an index file:
   its bookmarked works
 - `series_ids` are the series bookmarked among its bookmarked items. The works in each are
   in the series' own entry in `indexing/series/`, which every collection run writes from the
-  series' page, since a series can grow without the collection's count changing. A series
-  you have not bookmarked is recorded as not bookmarked. With *Index and download
+  series' page, since a series can grow without the collection's count changing - unless
+  the entry already lists as many works as the collection says it holds. It is the same
+  entry a scan of your bookmarks writes. A series you have not bookmarked is recorded as not
+  bookmarked; one you have keeps your bookmark. With *Index and download
   encountered works* its works are indexed and downloaded too
 
 ### Re-indexing a collection you already have

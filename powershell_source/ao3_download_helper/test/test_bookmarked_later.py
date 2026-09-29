@@ -723,4 +723,66 @@ def test_a_series_that_will_not_read_keeps_the_works_its_entry_had(tmp_path):
     assert collection_file(root)['series_ids'] == [SERIES_ID]
     assert series_entry(root)[strings.SERIES_WORKS_FIELD] == SERIES_WORKS
 
+def series_file(root: str) -> str:
+    folder = os.path.join(root, strings.INDEXING_FOLDER_NAME, strings.SERIES_INDEX_FOLDER_NAME)
+    [name] = [n for n in os.listdir(folder) if n.startswith(SERIES_ID + ' ')]
+    return os.path.join(folder, name)
+
+
+def test_a_series_you_bookmarked_is_not_rewritten_from_its_page(bookmarked):
+    # the page has no tags and dates things its own way: written over your bookmark's
+    # reading, it blanked your tags and the next scan put them back, a reading each time
+    with open(series_file(bookmarked), encoding='utf-8') as f:
+        before = json.load(f)
+
+    run_collection(bookmarked, works=False, pages=with_a_series)
+    run(bookmarked, server.ACTION_BOOKMARKS)
+
+    with open(series_file(bookmarked), encoding='utf-8') as f:
+        after = json.load(f)
+    assert len(after['indexes']) == len(before['indexes'])
+    assert indexing.flatten(after)['tags'] == indexing.flatten(before)['tags']
+    assert indexing.flatten(after)[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def test_a_series_page_leaves_what_it_cannot_say_as_the_entry_had_it(tmp_path):
+    root = str(tmp_path / 'library')
+    run_collection(root, works=False, pages=with_a_series)
+    path = series_file(root)
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    data['indexes'][-1]['tags'] = {'additional': ['kept']}
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+
+    run_collection(root, works=False, pages=with_a_series)
+
+    assert series_entry(root)['tags']['additional'] == ['kept']
+
+
+def test_a_series_whose_entry_lists_as_many_works_as_its_blurb_says_is_not_read_again(bookmarked):
+    # the collection's blurb for the series says it holds 2 works; your scan already wrote
+    # an entry listing 2
+    path = series_file(bookmarked)
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    data['indexes'][-1][strings.SERIES_WORKS_FIELD] = [NEWEST, NEXT]
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+
+    asked = run_collection(bookmarked, works=False, pages=with_a_series)
+
+    assert not any('/series/' in url for url in asked)
+    assert series_entry(bookmarked)[strings.SERIES_WORKS_FIELD] == [NEWEST, NEXT]
+    # its works still learn the collection, from the entry
+    assert entry(bookmarked, NEXT)[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def test_a_series_whose_entry_lists_a_different_number_of_works_is_read(bookmarked):
+    # the scan wrote the 5 works on the series' page; the blurb says 2
+    asked = run_collection(bookmarked, works=False, pages=with_a_series)
+
+    assert any('/series/' in url for url in asked)
+
+
 # endregion

@@ -36,6 +36,15 @@ def bookmark_state(soup) -> dict:
     return {} if state is None else {strings.BOOKMARKED_FIELD: state}
 
 
+def blank(value) -> bool:
+    """Whether a value says nothing - empty, or a structure holding only empty values, as
+    the tags a series page cannot give."""
+
+    if isinstance(value, dict): return all(blank(v) for v in value.values())
+    if isinstance(value, (list, tuple)): return len(value) == 0
+    return value is None or value == ''
+
+
 class Ao3:
     def __init__(
             self, 
@@ -142,6 +151,9 @@ class Ao3:
         # without indexing them - a series is read once however many collections hold it
         self.last_series: list[str] = []
         self.series_ids_found: dict[str, list[str]] = {}
+        # how many works each series' blurb in a collection's items says it holds - when its
+        # entry already lists that many, it is not read again
+        self.series_counts: dict[str, int] = {}
         self.follow_subcollections = False
         self.follow_parents = False
         self.collections_seen: set[str] = set()
@@ -766,6 +778,8 @@ class Ao3:
                 kind, work = parse_soup.get_blurb_kind(blurb)
                 if kind == parse_soup.BLURB_SERIES:
                     if work and work not in series_ids: series_ids.append(work)
+                    count = parse_text.get_count(parse_soup.get_text_or_empty(blurb, 'dd.works'))
+                    if work and count: self.series_counts[work] = count
                     continue
                 if kind == parse_soup.BLURB_EXTERNAL:
                     if work and work not in external_ids: external_ids.append(work)
@@ -1277,6 +1291,7 @@ class Ao3:
             self.check_cancelled()
             works = self.series_read.get(series_id)
             if works is None: works = self.series_ids_found.get(series_id)
+            if works is None: works = self.series_unchanged(series_id)
             if works is None and self.collection_works is not None:
                 for document in self.index_series({'id': series_id, 'title': '', 'bookmark': None}):
                     if document.get('id'): self.indexed_this_run[str(document['id'])] = document
@@ -1289,6 +1304,24 @@ class Ao3:
             self.keep_indexed([w for w in works if w not in self.indexed_this_run])
             found[series_id] = list(works)
         return found
+
+
+    def series_unchanged(self, series_id: str) -> list[str] | None:
+        """The works a series' entry already lists, when the collection's blurb for it says it
+        holds exactly that many - so a series a scan of your bookmarks (or an earlier run) has
+        read is not read again. None when it has to be read: no entry, no count, a count that
+        differs, or - when the run indexes the works - any of them not yet in the index."""
+
+        count = self.series_counts.get(series_id)
+        if not count: return None
+        listed = [str(x) for x in self.series_existing(series_id).get(strings.SERIES_WORKS_FIELD) or []]
+        if len(listed) != count: return None
+        if self.collection_works is not None:
+            indexed = {str(r.get('id')) for r in (self.records_for(listed) if self.records_for else [])}
+            if not set(listed) <= indexed: return None
+        print(strings.AO3_INFO_COLLECTION_SERIES_UNCHANGED.format(series_id, count))
+        self.series_ids_found[series_id] = listed
+        return listed
 
 
     def read_series(self, series_id: str) -> list[str] | None:
@@ -1605,6 +1638,13 @@ class Ao3:
         A series marked only because a work of yours is in it is recorded as **not
         bookmarked** - unless its entry says you bookmarked it, which a run that did not
         reach that bookmark cannot contradict.
+
+        **An entry you bookmarked keeps its reading as it is**, and only its works are brought
+        up to date. The page describes a series differently from a bookmark blurb - no tags,
+        its own date format - so writing the page over your bookmark's reading would blank
+        your tags and add a reading that the next scan of your bookmarks undoes again. That
+        scan is what brings a bookmarked series' own details up to date. And nothing the page
+        leaves blank overwrites what the entry has.
         """
 
         if bookmark:
@@ -1614,7 +1654,9 @@ class Ao3:
             document = {key: value for key, value in existing.items()
                         if key not in (indexing.INDEXES, indexing.LAST_INDEXED,
                                        indexing.INDEXED_ON)}
-            document.update({k: v for k, v in (header or {}).items() if v not in (None, '', [])})
+            if existing.get(strings.BOOKMARKED_FIELD) is not True:
+                document.update({k: v for k, v in (header or {}).items()
+                                 if v not in (None, '', []) and (not blank(v) or k not in document)})
             document.setdefault('id', series_id)
             document.setdefault('link', f'{strings.AO3_BASE_URL}/series/{series_id}')
             document.setdefault(strings.BOOKMARKED_FIELD, False)
