@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1477 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1479 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1053,7 +1053,10 @@ What it looks at is **every work the run covered** (`covered_works`): `ao3.reind
 everything the run's progress names - scope, every walk's works, the series walk's works,
 `nonBookmarksDone`, `updateDone` - from both `job.progress()` and `job.earlier_progress()`.
 That is what makes a **resumed** run link the works its earlier attempt indexed and it took
-from the index without reading again. External works come from `ao3.externals_saved`. A
+from the index without reading again. External works come from `covered_externals`:
+`ao3.externals_saved` (this attempt's alone) plus the `externalsSaved` every walk and
+collection checkpoint writes into progress (`externals_so_far`, which adds to what the
+progress already holds, so a chain of resumes keeps the first attempt's). A
 collection run also looks at every work and external work its collections list
 (`job.collections_read`, from `note_collections_read`, which includes collections a resume
 skipped as finished) - so with *Index and download encountered works* off, an indexed

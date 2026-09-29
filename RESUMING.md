@@ -88,12 +88,12 @@ A `progress` section in the history file, written straight away each time:
 | --- | --- |
 | a step starts | which step (`step`, `stepLabel`) |
 | a quick scan settles its floor | the floor it measures back to (`floor`) |
-| a listing page is written | per walk (`walks.all`, `walks.bookmarked`, `walks.updated`): the page number, the **last bookmark on that page** (its bookmark id, and the date it was bookmarked), the works found so far, and whether the walk finished; plus the series marked so far (`seriesMarked`) |
+| a listing page is written | per walk (`walks.all`, `walks.bookmarked`, `walks.updated`): the page number, the **last bookmark on that page** (its bookmark id, and the date it was bookmarked), the works found so far, and whether the walk finished; plus the series marked so far (`seriesMarked`) and every external work the run has saved an entry for (`externalsSaved`) |
 | a series is walked | the series walked so far (`seriesDone`) and the works they indexed (`seriesWorks`) |
 | a non-bookmark is re-read | the ones done so far (`nonBookmarksDone`) |
 | the file check starts | the **scope**: every work this run covers (`scope`) |
 | a custom run over a date range finishes a fic | the fics done so far (`updateDone`) |
-| a page of a collection's works or bookmarked items is read | per collection and listing (`collections.<name>.listings.work_ids` / `bookmark_ids`): the page number, every work number found so far, and whether the listing finished; plus `seriesMarked` |
+| a page of a collection's works or bookmarked items is read | per collection and listing (`collections.<name>.listings.work_ids` / `bookmark_ids`): the page number, every work number found so far, and whether the listing finished; plus `seriesMarked` and `externalsSaved` |
 | a collection is saved | that collection is `done`, with every work number it holds (`collections.<name>.works`) and, when the run follows subcollections or parents, the related collections it links to (`family`) |
 
 A resumed run starts its own history file with a copy of this, and carries on adding to it, so

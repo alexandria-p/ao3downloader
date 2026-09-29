@@ -32,7 +32,8 @@ NEWEST = '66326125'
 NEXT = '18623245'
 
 
-def run(root: str, action: str, options: dict | None = None) -> list[str]:
+def run(root: str, action: str, options: dict | None = None,
+        listing: str | None = None) -> list[str]:
     asked = []
     repo = MagicMock()
     repo.__enter__ = MagicMock(return_value=repo)
@@ -40,7 +41,7 @@ def run(root: str, action: str, options: dict | None = None) -> list[str]:
 
     def soup(url):
         asked.append(url)
-        return BeautifulSoup(SERIES if '/series/' in url else BOOKMARKS, 'html.parser')
+        return BeautifulSoup(SERIES if '/series/' in url else listing or BOOKMARKS, 'html.parser')
     repo.get_soup.side_effect = soup
     repo.download_file.side_effect = lambda url, filetype: b'<html>work</html>'
     job = server.Job(action, ['JSON'], 'Someone', server.resolve_options(options or {}))
@@ -347,12 +348,12 @@ def test_a_work_retitled_since_it_was_indexed_keeps_its_one_entry_and_your_bookm
 
 # region every workflow notes collections in its cleanup, resumed or not
 
-def earlier_attempt(root: str, action: str) -> str:
+def earlier_attempt(root: str, action: str, listing: str | None = None) -> str:
     """Run `action`, then make its history file read as an attempt that was interrupted
     after its listing walk finished - so a resume takes that walk's works from the index
     rather than reading them again. Returns the run's id."""
 
-    run(root, action)
+    run(root, action, listing=listing)
     folder = os.path.join(root, 'runs')
     name = sorted(os.listdir(folder))[-1]
     with open(os.path.join(folder, name), encoding='utf-8') as f:
@@ -374,6 +375,44 @@ def test_a_resumed_scan_notes_collections_on_what_the_earlier_attempt_indexed(tm
 
     assert not any('/bookmarks' in url for url in asked)
     assert entry(root, NEWEST)[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def test_a_resumed_scan_notes_collections_on_external_works_the_earlier_attempt_saved(tmp_path):
+    # external work 1 is among your bookmarks; the earlier attempt saved its entry, and the
+    # resume reads nothing - so only the earlier attempt's progress can say it was covered
+    with open(os.path.join(FIXTURES, 'externalWork.html'), encoding='utf-8') as f:
+        listing = f.read()
+    root = str(tmp_path / 'library')
+    earlier = earlier_attempt(root, server.ACTION_BOOKMARKS, listing)
+    os.makedirs(os.path.join(root, strings.COLLECTIONS_FOLDER_NAME), exist_ok=True)
+    with open(os.path.join(root, strings.COLLECTIONS_FOLDER_NAME, 'alpha.json'), 'w',
+              encoding='utf-8') as f:
+        json.dump({'name': 'alpha', 'indexes': [{'indexed_on': 'x', 'work_ids': [],
+                                                 'bookmark_ids': [], 'external_ids': ['1']}]}, f)
+
+    asked = run(root, server.ACTION_CUSTOM, {'resume': earlier}, listing)
+
+    assert not any('/bookmarks' in url for url in asked)
+    folder = os.path.join(root, strings.INDEXING_FOLDER_NAME, strings.EXTERNAL_INDEX_FOLDER_NAME)
+    [name] = [n for n in os.listdir(folder) if n.startswith('1 ')]
+    with open(os.path.join(folder, name), encoding='utf-8') as f:
+        assert indexing.flatten(json.load(f))[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def test_a_resume_of_a_resume_still_carries_the_first_attempts_external_works(tmp_path):
+    with open(os.path.join(FIXTURES, 'externalWork.html'), encoding='utf-8') as f:
+        listing = f.read()
+    root = str(tmp_path / 'library')
+    first = earlier_attempt(root, server.ACTION_BOOKMARKS, listing)
+    run(root, server.ACTION_CUSTOM, {'resume': first}, listing)
+
+    folder = os.path.join(root, 'runs')
+    records = []
+    for name in os.listdir(folder):
+        with open(os.path.join(folder, name), encoding='utf-8') as f:
+            records.append(json.load(f))
+    second = next(r for r in records if r['id'] != first)
+    assert second['progress']['externalsSaved'] == ['1']
 
 
 def test_the_single_fic_run_notes_the_collections_holding_its_fic(bookmarked):

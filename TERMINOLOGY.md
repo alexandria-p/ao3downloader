@@ -336,7 +336,7 @@ Used by: every workflow.
 - Removes the older copies you chose to remove at the older-copies question.
 - Keeps any file this run has since downloaded over, and anything if the run was stopped.
 - Notes which collections hold each work, adding them to its `from_collections`. **The only place that field is set.** Every workflow but the debug ones (the combined run, new bookmarks only, update incomplete):
-  - every work the run covered - what it indexed, and everything its saved progress names (so a resumed run covers what its earlier attempt indexed) - and every external work it saved, against every collection saved in the library;
+  - every work the run covered - what it indexed, and everything its saved progress names (so a resumed run covers what its earlier attempt indexed) - and every external work it saved, in this attempt or an earlier one it resumes, against every collection saved in the library;
   - a collection run also: every work and external work the collections it read list that is already in the index - whether or not *Index and download encountered works* was ticked.
   Only entries already in the index, only when a collection is missing, and without adding a reading - no AO3 requests.
 - Skipped when there is nothing to remove or note, and when the run was stopped.

@@ -32,8 +32,6 @@ linked from that old list.
   until it is resumed, when the resume links what both attempts covered. One never resumed
   waits for the next run to cover those works.
 - A quick scan covers only what changed since its floor, so older works wait for a full scan.
-- An external work covered by a resumed attempt that the earlier attempt saved is not in
-  `externals_saved`, which is per attempt - it waits for a run that saves it again.
 
 **Entries are found by the number their file name starts with.** A file renamed by hand so
 it no longer starts with the work number is not found. Nothing in the app does that, but

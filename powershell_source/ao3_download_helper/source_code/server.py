@@ -1151,7 +1151,8 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
         if anchor: state['anchor'] = anchor
         state['works'].extend(x for x in works if x not in state['works'])
         walks[name] = state
-        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()))
+        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()),
+                       externalsSaved=externals_so_far(job, ao3))
 
     ao3.on_page = on_page
     try:
@@ -1162,7 +1163,8 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
     if ao3.walk_finished and not job.cancel.is_set():
         state['done'] = True
         walks[name] = state
-        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()))
+        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()),
+                       externalsSaved=externals_so_far(job, ao3))
     return merge_by_work(records_by_id(fileops, carried), records)
 
 
@@ -2397,11 +2399,32 @@ def covered_works(job: Job, ao3) -> set[str]:
     return found
 
 
-def covered_externals(ao3) -> set[str]:
-    """The external works this run saved an entry for, by ao3's number for them."""
+def externals_so_far(job: Job, ao3) -> list[str]:
+    """Every external work this run has saved an entry for, the attempts it resumes
+    included, for its progress.
 
+    `Ao3.externals_saved` is this attempt's alone, so the checkpoint adds it to what the
+    progress already says - a resumed run starts from a copy of its earlier attempt's, so a
+    chain of resumes keeps the first attempt's too. A walk says which works it read in its
+    own entry; external works are kept here instead, because nothing needs to know which
+    walk found one, only that the run saved it.
+    """
+
+    return sorted(covered_externals(job, ao3))
+
+
+def covered_externals(job: Job, ao3) -> set[str]:
+    """The external works this run saved an entry for, by ao3's number for them - in this
+    attempt, and in every earlier attempt it resumes, as their progress records them."""
+
+    found: set[str] = set()
     saved = getattr(ao3, 'externals_saved', None)
-    return {str(x) for x in saved} if isinstance(saved, set) else set()
+    if isinstance(saved, set): found |= {str(x) for x in saved}
+    for progress in (job.progress(), job.earlier_progress()):
+        if not isinstance(progress, dict): continue
+        for value in progress.get('externalsSaved') or []:
+            if isinstance(value, (str, int)) and str(value): found.add(str(value))
+    return found
 
 
 def collection_links(job: Job, fileops: FileOps, ao3) -> list[tuple[str, list[str]]]:
@@ -2440,7 +2463,7 @@ def collection_links(job: Job, fileops: FileOps, ao3) -> list[tuple[str, list[st
                 by_external.setdefault(str(external), set()).add(name)
 
         works = covered_works(job, ao3)
-        externals = covered_externals(ao3)
+        externals = covered_externals(job, ao3)
         if job.action in COLLECTION_ACTIONS:
             read = {x for x in job.collections_read if x in held}
             works |= {w for w, names in by_work.items() if names & read}
@@ -2701,12 +2724,14 @@ def watch_collections(job: Job, fileops: FileOps, ao3: Ao3) -> None:
         listing['done'] = done
         if externals: listing['externals'] = list(externals)
         if page is not None: listing['page'] = page
-        job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()))
+        job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()),
+                       externalsSaved=externals_so_far(job, ao3))
 
     def on_done(slug: str, works: list[str], family: list[str] | None = None) -> None:
         # the relatives it links to go with it, so a resume that skips it still follows them
         state[slug] = {'done': True, 'works': list(works), 'family': list(family or [])}
-        job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()))
+        job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()),
+                       externalsSaved=externals_so_far(job, ao3))
 
     ao3.on_collection_page = on_page
     ao3.on_collection_done = on_done
