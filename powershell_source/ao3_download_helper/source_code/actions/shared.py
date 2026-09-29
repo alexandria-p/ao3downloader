@@ -351,10 +351,10 @@ def indexed_work_ids(fileops: FileOps) -> set[str]:
         work = parse_text.get_work_number_from_filename(name)
         if work: found[work] = name
 
-    # a work in the index only because a series you bookmarked holds it is not one you
+    # a work in the index only because a series or a collection holds it is not one you
     # bookmarked. counting it here would stop the walk at it the day you bookmark it for
-    # itself, and it would never be marked as bookmarked. so the few works a bookmarked
-    # series lists are looked at properly - the rest still go by name alone
+    # itself, and it would never be marked as bookmarked. so the works a series or a
+    # collection lists are looked at properly - the rest still go by name alone
     in_series = set()
     series_folder = os.path.join(folder, strings.SERIES_INDEX_FOLDER_NAME)
     for name in fileops.list_files(series_folder):
@@ -367,7 +367,45 @@ def indexed_work_ids(fileops: FileOps) -> set[str]:
             os.path.join(strings.INDEXING_FOLDER_NAME, found[work])))
         if (record or {}).get(strings.BOOKMARKED_FIELD) is not True: del found[work]
 
-    return set(found)
+    # a collection can list thousands of works, so its are not read up front: they are only
+    # doubtful, and one is looked at when a walk actually reaches it (`KnownWorks.confirmed`)
+    in_collections = set()
+    collections_folder = os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)
+    for name in fileops.list_files(collections_folder):
+        if not name.lower().endswith('.json'): continue
+        collection = indexing.flatten(fileops.load_json(
+            os.path.join(strings.COLLECTIONS_FOLDER_NAME, name))) or {}
+        for key in ('work_ids', 'bookmark_ids'):
+            in_collections.update(str(x) for x in collection.get(key) or [])
+
+    def bookmarked(work: str) -> bool:
+        record = indexing.flatten(fileops.load_json(
+            os.path.join(strings.INDEXING_FOLDER_NAME, found[work])))
+        return (record or {}).get(strings.BOOKMARKED_FIELD) is True
+
+    return KnownWorks(found, in_collections & set(found), bookmarked)
+
+
+class KnownWorks(set):
+    """The work numbers a new-bookmarks walk stops at - with the ones a collection lists held
+    back as doubtful, since a work indexed because a collection holds it is not one you
+    bookmarked. A doubtful one counts only once its entry says you bookmarked it, and that is
+    read when the walk reaches it, not before."""
+
+    def __init__(self, works, doubtful: set[str], bookmarked) -> None:
+        super().__init__(works)
+        self.doubtful = doubtful
+        self.bookmarked = bookmarked
+
+    def confirmed(self, work: str) -> bool:
+        if work not in self.doubtful: return True
+        try:
+            return self.bookmarked(work)
+        except Exception:
+            # cannot tell: carry on past it rather than stop. the walk then stops at the next
+            # work it knows, usually a blurb or two on - where stopping early here could leave
+            # new bookmarks after it unread
+            return False
 
 
 def incomplete_works(records: list[dict]) -> list[dict]:

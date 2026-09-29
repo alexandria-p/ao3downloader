@@ -305,7 +305,11 @@ class Ao3:
                     # listing - but asking ao3 for the file would fail by definition
                     self.note_unrevealed(blurb, worknum)
 
-                    if known is not None and str(worknum) in known:
+                    # a work only a collection led the index to is checked here, when reached:
+                    # if you had not bookmarked it, it is new to your bookmarks, so the walk
+                    # reads it (marking it bookmarked) and carries on
+                    if known is not None and str(worknum) in known and \
+                            (not hasattr(known, 'confirmed') or known.confirmed(str(worknum))):
                         # the first fic we already hold. everything past it on this page,
                         # and every page after it, has been seen before
                         print(strings.AO3_INFO_REACHED_KNOWN)

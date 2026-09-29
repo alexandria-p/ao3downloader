@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1446 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1453 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1099,6 +1099,18 @@ sources, and the field is **absent**, never `False`, when neither has spoken:
   Bookmark` is `True`, `Bookmark` is `False`. Both wordings are in the logged-in fixtures.
   No link (logged out, an unexpected page) is `None`, and `ao3.bookmark_state` then writes
   nothing, so a page that could not see the button never unmarks a fic.
+
+**A work first indexed through a series or a collection is `false` until you bookmark it** -
+and then the next walk down your bookmarks writes `true` over it, since every such walk marks
+what it reads. The full scan and the quick scan need nothing for that. The new-bookmarks walk
+(combined run, 'new bookmarks only') does, because it stops at the first work already
+indexed: `shared.indexed_work_ids` holds back the works a series lists (read up front - series
+are small) and returns a `KnownWorks` whose collection-listed works are only `doubtful`,
+checked by `confirmed` when the walk reaches one (collections can list thousands, so they
+are not read up front). A doubtful work you have not bookmarked is not a stopping point: the
+walk reads it, marks it, and carries on. `test_bookmarked_later.py` holds all of this, and its
+new-bookmarks tests fail with the check taken out. A later series or collection walk never
+unmarks it: `save_series_work` and `as_not_yours` keep an existing entry's own fields.
 
 It is a snapshot field, not identity: unbookmarking a fic is a real change worth a history
 entry.

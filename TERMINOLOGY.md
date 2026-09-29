@@ -343,7 +343,7 @@ Used by: every workflow.
 - Everything it lists can be exported as one text file.
 
 ### Steps used only by other workflows
-- **Index bookmarks added since last time** - the debug "new bookmarks" and combined runs; walks until the first bookmark already indexed.
+- **Index bookmarks added since last time** - the debug "new bookmarks" and combined runs; walks until the first bookmark already indexed. A work in the index only because a series or collection holds it (`bookmarked: false`) is not a stopping point: the walk reads it, marks it bookmarked, and carries on. Every walk down your bookmarks - this one, a full scan, a quick scan - marks a work it reads as bookmarked, keeping what a series or collection run recorded about where it was found.
 - **Download newly added works** - the same two runs; downloads what that walk found.
 - **Read existing index for unfinished fics** - the update run; lists works the index says are unfinished.
 - **Re-index each fic, then download or update as necessary** - the update run and the combined run; re-reads each unfinished fic's page.
