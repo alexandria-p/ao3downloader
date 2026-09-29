@@ -1589,6 +1589,15 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('.dialog input[type="number"]')).toBeNull();
   });
 
+  it('says when the works are worth taking, under the choice', async () => {
+    await open('collection');
+    await advanceTo('options');
+
+    const info = element.querySelector('[data-collection-works-info]')?.textContent ?? '';
+    expect(info).toContain('only scanning a collection of your own');
+    expect(info).toContain('outside of your own bookmark collection');
+  });
+
   it('offers no way back past its first step', async () => {
     await open('collections');
 

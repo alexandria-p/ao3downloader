@@ -548,6 +548,8 @@ the pages the crawl reads anyway, then downloaded or updated as a scan would; a 
 have not bookmarked is indexed as not bookmarked, and somebody else's bookmark notes are
 never written in as yours. It then offers **Get all works from encountered series** and asks
 for file types, and reads every collection's works again even when its count is unchanged.
+Leave it off for a collection of your own bookmarks, whose works are already indexed; it is
+recommended for a collection you think holds works or bookmarks outside your own.
 
 History shows the link a collection run used and offers **Run again**, which opens the
 window filled in with that run's choices. Running one again skips what is already

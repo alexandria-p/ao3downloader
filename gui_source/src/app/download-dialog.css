@@ -753,6 +753,24 @@ fieldset.bare:disabled {
   margin-left: 24px;
 }
 
+/* advice on a choice - neither a warning nor an error, so it wears the calm blue */
+.info {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid #5a7f9a;
+  border-radius: 3px;
+  background: #22303a;
+  font-size: 0.86rem;
+}
+
+.info p {
+  margin: 0;
+}
+
+.info p + p {
+  margin-top: 6px;
+}
+
 .background-running {
   margin: 0 0 12px;
   padding: 9px 11px;
