@@ -68,9 +68,25 @@ jobs:
         working-directory: powershell_source/ao3_download_helper
         run: uv sync --frozen --group package
 
+      - name: write the app's settings.ini from the deployment variables
+        # the same variables the hosted copy is built from, so the app paces and names
+        # things as the hosted helper does - but pointed at the helper the exe starts itself.
+        # the hosted helper's address and the page's origin are never written; the build
+        # fails if either would be
+        working-directory: powershell_source/ao3_download_helper
+        env:
+          # variables only - secrets are never in `vars`, and none is used here
+          DEPLOY_VARIABLES: ${{ toJSON(vars) }}
+          OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          # checked for too, though nothing here would write it
+          export DEFAULT_PAGE_ORIGIN="https://${OWNER,,}.github.io"
+          uv run --no-sync python deploy_config.py local-settings --out windows-settings.ini
+
       - name: build the app
         working-directory: powershell_source/ao3_download_helper
-        run: uv run --no-sync python package_windows.py
+        run: uv run --no-sync python package_windows.py --settings windows-settings.ini
 
       - name: start the app from the zip, and check the page and the helper answer
         # what someone downloading it does: unzip, start the exe. no browser on a runner
@@ -98,6 +114,9 @@ jobs:
             if (-not $helper -or $helper.StatusCode -ne 200) { throw 'the helper never answered on 127.0.0.1:4400' }
             $settings = Join-Path $place 'ao3downloader\config\settings.ini'
             if (-not (Test-Path $settings)) { throw "no settings.ini beside the exe at $settings" }
+            # the page must be pointed at the exe's own helper, never the hosted one
+            $pageConfig = Invoke-RestMethod 'http://localhost:4200/app-config.json'
+            if ($pageConfig.helperUrl -ne 'http://127.0.0.1:4400') { throw "the page points at $($pageConfig.helperUrl)" }
             Write-Host 'the page and the helper both answered, and settings.ini is beside the exe'
           }
           finally {

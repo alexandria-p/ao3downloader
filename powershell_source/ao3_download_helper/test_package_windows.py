@@ -78,3 +78,25 @@ def test_the_zip_is_named_for_the_system_it_was_built_on(monkeypatch):
     assert package_windows.zip_name() == 'ao3downloader-linux.zip'
 
 # endregion
+
+
+# region the settings it ships
+
+def test_a_given_settings_ini_is_shipped_and_the_page_is_pointed_by_it(tmp_path, monkeypatch):
+    root = tmp_path / 'root'
+    python_home = root / build_artifacts.PYTHON_HOME
+    (python_home / 'source_code' / 'settings').mkdir(parents=True)
+    (python_home / 'source_code' / 'settings' / 'settings.ini').write_text(
+        '[settings]\nExtraWaitTime=15\nHelperUrl=http://127.0.0.1:4400\n', encoding='utf-8')
+    (root / 'build' / 'web').mkdir(parents=True)
+    (root / 'build' / 'web' / 'index.html').write_text('', encoding='utf-8')
+    given = tmp_path / 'windows-settings.ini'
+    given.write_text('[settings]\nExtraWaitTime=30\nHelperUrl=http://127.0.0.1:4400\n', encoding='utf-8')
+    staging = tmp_path / 'staging'
+
+    web = package_windows.stage_web(root, staging, skip_web=True, settings=given)
+
+    assert 'ExtraWaitTime=30' in (staging / 'config' / 'settings.ini').read_text(encoding='utf-8')
+    assert '"helperUrl": "http://127.0.0.1:4400"' in (web / 'app-config.json').read_text(encoding='utf-8')
+
+# endregion

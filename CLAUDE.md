@@ -80,7 +80,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1513 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1521 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -253,6 +253,17 @@ What not to break:
   unless the page and the helper both answer and `settings.ini` appeared beside the exe. Run
   on Linux, `package_windows.py` builds the same app for Linux - which is how it was tested
   here. PyInstaller is in the `package` dependency group, so nothing else installs it.
+- **Its settings.ini comes from the deployment's variables, pointed at its own helper.**
+  `deploy_config.py local-settings` (`write_local_settings`) sets every key from the same
+  GitHub variables the hosted copy uses, except the three hosting keys, which are pinned by
+  `LOCAL_APP`: `HelperUrl=http://127.0.0.1:4400`, `RequirePasscode=false` (a local helper has
+  no passcode to check, and would refuse to start asking for one), `PageOrigin` empty.
+  `refuse_hosted_addresses` then fails the build if the text names the hosted helper's host
+  or the page's origin anywhere - through any key, not only those three. Nothing is added:
+  the same keys and comments as the template, `SavePassword` left out. `package_windows.py
+  --settings` ships that file, and the page's `app-config.json` is read from it, so the two
+  agree; the workflow's smoke test checks the page points at `127.0.0.1:4400`. The template's
+  own example comment (`https://my-helper.onrender.com`) is generic and stays.
 - **`deploy-hosted.yml` calls it as a job of its own** (`workflow_call`), with no `needs`, so a
   Windows build that fails never holds up the helper or the page. It replaces the
   `windows-app` release each time, so the tag moves to the commit the zip was built from.

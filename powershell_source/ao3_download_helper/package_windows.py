@@ -14,7 +14,11 @@ PyInstaller builds for the system it runs on, so the Windows zip is built on Win
 app for that system, which is how it is tested.
 
     uv sync --group package
-    uv run --no-sync python package_windows.py [--skip-web]
+    uv run --no-sync python package_windows.py [--skip-web] [--settings windows-settings.ini]
+
+`--settings` is the settings.ini to ship - the workflow writes one from the deployment's
+variables with `deploy_config.py local-settings`, pointed at the app's own helper. Without it
+the app ships the template's.
 
 The zip lands in `dist/` at the repository root.
 """
@@ -66,8 +70,11 @@ another window: close every ao3downloader window and start it again.
 """
 
 
-def stage_web(root: Path, staging: Path, skip_web: bool) -> Path:
+def stage_web(root: Path, staging: Path, skip_web: bool, settings: Path | None = None) -> Path:
     """The prebuilt page, with the config that points it at the helper on this computer.
+
+    `settings` is the settings.ini to ship in place of the template's - it is also what the
+    page's own config is read from, so the two agree.
 
     `--skip-web` reuses the page already in `build/web` - from the PowerShell bundle - rather
     than compiling it again.
@@ -79,7 +86,11 @@ def stage_web(root: Path, staging: Path, skip_web: bool) -> Path:
     if not (source / 'index.html').is_file():
         raise SystemExit(f'no page at {source} - build it first, or leave out --skip-web')
     build_artifacts.copy_tree(source, web)
-    build_artifacts.write_config(staging / build_artifacts.CONFIG_FOLDER, root / PYTHON_HOME)
+    config = staging / build_artifacts.CONFIG_FOLDER
+    if settings:
+        config.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(settings, config / 'settings.ini')
+    build_artifacts.write_config(config, root / PYTHON_HOME)
     build_artifacts.write_page_config(staging)
     return web
 
@@ -142,14 +153,18 @@ def main() -> int:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--skip-web', action='store_true',
                         help='reuse the page already in build/web instead of compiling it')
+    parser.add_argument('--settings', type=Path,
+                        help='the settings.ini to ship, in place of the template')
     args = parser.parse_args()
+    if args.settings and not args.settings.is_file():
+        raise SystemExit(f'no settings.ini at {args.settings}')
 
     root = Path(__file__).resolve().parents[len(PYTHON_HOME.parts)]
     staging = root / STAGING
     if staging.exists(): shutil.rmtree(staging)
     staging.mkdir(parents=True)
 
-    web = stage_web(root, staging, args.skip_web)
+    web = stage_web(root, staging, args.skip_web, args.settings.resolve() if args.settings else None)
 
     # imported here, so the rest of this module - and its tests - need no PyInstaller
     import PyInstaller.__main__

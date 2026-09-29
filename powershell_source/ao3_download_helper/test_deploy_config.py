@@ -219,3 +219,74 @@ def test_the_command_line_fails_the_build_on_a_bad_setup(tmp_path, monkeypatch, 
     assert 'https' in capsys.readouterr().err
 
 # endregion
+
+
+# region the Windows app's settings.ini
+
+RENDER = {'HELPER_URL': 'https://my-ao3-helper.onrender.com', 'REQUIRE_PASSCODE': 'true',
+          'PAGE_ORIGIN': 'https://someone-else.github.io', 'EXTRA_WAIT_TIME': '30',
+          'FILE_NAME_LENGTH': '80'}
+
+
+def test_the_windows_app_takes_every_other_setting_from_the_variables():
+    written = deploy_config.write_local_settings(RENDER, template())
+
+    assert 'ExtraWaitTime=30\n' in written
+    assert 'FileNameLength=80\n' in written
+
+
+def test_the_windows_app_points_at_its_own_helper_whatever_the_variables_say():
+    written = deploy_config.write_local_settings(RENDER, template())
+
+    assert deploy_config.read_settings(written) == {
+        'HelperUrl': 'http://127.0.0.1:4400', 'RequirePasscode': False, 'PageOrigin': ''}
+
+
+def test_the_hosted_helper_and_page_are_named_nowhere_in_the_windows_apps_settings():
+    written = deploy_config.write_local_settings(RENDER, template(), 'https://alexandria-p.github.io')
+
+    assert 'my-ao3-helper.onrender.com' not in written
+    assert 'someone-else.github.io' not in written
+    assert 'alexandria-p.github.io' not in written
+
+
+def test_a_hosted_address_carried_into_another_setting_fails_the_build():
+    # a variable holding the hosted helper's address under some other name would put it in
+    # the file all the same - the check is on the text, not only on the three keys
+    smuggled = {**RENDER, 'EXTRA_WAIT_TIME': '30'}
+    text = template().replace('ExtraWaitTime=15', 'ExtraWaitTime=15\nNote=')
+    smuggled['NOTE'] = 'see https://my-ao3-helper.onrender.com'
+
+    with pytest.raises(DeployError, match='my-ao3-helper.onrender.com'):
+        deploy_config.write_local_settings(smuggled, text)
+
+
+def test_the_windows_app_leaves_out_the_password_setting_as_every_page_build_does():
+    written = deploy_config.write_local_settings({}, template())
+
+    assert 'SavePassword' not in written
+
+
+def test_the_windows_app_adds_nothing_the_template_does_not_have():
+    # only values change: the same keys and the same comments, in the same order
+    written = deploy_config.write_local_settings(RENDER, template())
+    keys = list(deploy_config.template_keys(written))
+    expected = [k for k in deploy_config.template_keys(template()) if k not in deploy_config.LEFT_OUT]
+
+    assert keys == expected
+    comments = [line for line in written.splitlines() if line.startswith('#')]
+    assert comments == [line for line in deploy_config.strip_setting(template(), 'SavePassword').splitlines()
+                        if line.startswith('#')]
+
+
+def test_the_command_line_writes_the_windows_apps_settings(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv('DEPLOY_VARIABLES', json.dumps(RENDER))
+    out = tmp_path / 'windows-settings.ini'
+
+    assert deploy_config.main(['local-settings', '--out', str(out)]) == 0
+
+    written = out.read_text(encoding='utf-8')
+    assert 'HelperUrl=http://127.0.0.1:4400\n' in written
+    assert 'my-ao3-helper.onrender.com' not in capsys.readouterr().out
+
+# endregion
