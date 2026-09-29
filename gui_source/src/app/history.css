@@ -36,6 +36,8 @@
 /* the outcome is the first thing worth seeing, so it colours the whole card's edge */
 .run-success { border-left-color: #7fb37f; }
 .run-stopped { border-left-color: #6b5330; }
+/* ended by the helper, not by anything going wrong - the colour of a stop */
+.run-abandoned { border-left-color: #6b5330; }
 .run-failed { border-left-color: #6b3a3a; }
 .run-running { border-left-color: #5a7f9a; }
 
@@ -172,4 +174,18 @@
 .reason-list .who {
   color: var(--text-dim);
   font-size: 0.82rem;
+}
+
+/* the run going now - pinned, and told apart from the record of runs gone */
+.run-active {
+  border-color: #5a7f9a;
+  background: #22303a;
+}
+
+.run-issues {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
 }

@@ -11,6 +11,7 @@ nobody without a passcode and takes the login only encrypted - see `access.py`.
 """
 
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -24,7 +25,9 @@ import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from source_code import access, exceptions, indexing, parse_soup, parse_text, progress, runs, strings
+import requests
+
+from source_code import access, dropbox_library, exceptions, settings_file, indexing, parse_soup, parse_text, progress, runs, strings
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -38,6 +41,13 @@ DEFAULT_PORT = 4400
 # Render and most other hosts use
 ENV_HOST = 'AO3DOWNLOADER_HOST'
 ENV_PORT = 'PORT'
+# the helper's own public address, which Render sets. see `keep_awake`
+ENV_EXTERNAL_URL = 'RENDER_EXTERNAL_URL'
+# a free Render service is stopped after about 15 minutes without a request from outside
+KEEP_AWAKE_SECONDS = 10 * 60
+# how often the helper looks at its background runs - for one paused too long, and for
+# whether it is time to keep itself awake
+WATCH_SECONDS = 30
 
 # a full walk of the whole bookmarks listing. thorough and slow.
 ACTION_BOOKMARKS = 'bookmarks'
@@ -110,12 +120,24 @@ DUPLICATES_CHOICES = (DUPLICATES_NEWEST, DUPLICATES_LEAVE)
 # every choice any question may be answered with. the run reads only the answer to the
 # question it actually asked, so one list is enough to keep nonsense out at the door
 ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES
+# which choices belong to which question - a background run is answered up front, by name
+CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
+               DUPLICATES_QUESTION: DUPLICATES_CHOICES}
+
+# a background run keeps every event for a page that reattaches, but not every line it
+# printed: hours of 'new download:' would be megabytes replayed to a page that shows the
+# last few hundred. the older lines are dropped from what is replayed, never from the run
+BACKGROUND_KEPT_MESSAGES = 1000
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
            ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_CUSTOM, ACTION_QUICK)
 
 # actions that need a link from the caller rather than working it out from the username
 ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK)
+
+# the two collection runs. On their own they write only the collections' files; asked to
+# (`collectionWorks`) they index every work they meet as well, and download those
+COLLECTION_ACTIONS = (ACTION_COLLECTIONS, ACTION_COLLECTION)
 
 # The runs whose overwrite choice is the caller's to make. Refetching a copy nothing says is
 # out of date is the answer to a damaged file, and it costs a request per format per work -
@@ -131,8 +153,10 @@ OVERWRITE_ACTIONS = (ACTION_BOOKMARKS, ACTION_CUSTOM)
 NON_BOOKMARK_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
 
 # The runs that can be picked up where an earlier attempt left off - see RESUMING.md. The
-# three scans; the rest are short enough that starting again is the resume.
-RESUME_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
+# three scans and the two collection runs; the rest are short enough that starting again is
+# the resume.
+RESUME_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM,
+                  ACTION_COLLECTIONS, ACTION_COLLECTION)
 
 # How many pages a resumed walk looks through for the last bookmark the earlier attempt
 # saved, before giving up and starting that walk from the first page.
@@ -199,6 +223,12 @@ def resolve_options(requested) -> dict:
         'start': start,
         'pages': pages,
         'series': bool(given.get('series')),
+        # a collections run also indexing, and downloading, every work in the collections
+        'collectionWorks': bool(given.get('collectionWorks')),
+        # a collections run also reading each collection's subcollections, and its parent -
+        # any number of steps away, each collection at most once
+        'subcollections': bool(given.get('subcollections')),
+        'parentCollections': bool(given.get('parentCollections')),
         'images': bool(given.get('images')),
         'workdates': bool(given.get('workdates')),
         # fetch every requested format again, however current the copy on disk looks. the
@@ -268,6 +298,9 @@ def read_settings(fileops: FileOps) -> dict:
         'debugLogging': fileops.get_ini_value_boolean(strings.INI_DEBUG_LOGGING, False),
         'debugTools': fileops.get_ini_value_boolean(strings.INI_DEBUG_TOOLS, False),
         'consoleLogging': fileops.get_ini_value_boolean(strings.INI_CONSOLE_LOGGING, False),
+        # how long a paused background run is kept before it is abandoned - the page warns
+        # with this number before a background run is paused
+        'pausedRunTimeoutMinutes': paused_run_timeout(),
     }
 
 
@@ -290,8 +323,28 @@ class Job:
     """One download run, executing on its own thread and publishing progress events."""
 
     def __init__(self, action: str, filetypes: list[str], username: str,
-                 options: dict | None = None, url: str = '') -> None:
+                 options: dict | None = None, url: str = '', background: bool = False,
+                 library=None, answers: dict | None = None) -> None:
         self.id = uuid.uuid4().hex
+        # a run the page is not there for - see `dropbox_library`. it reaches the library
+        # itself (`library`), and every question it could ask was answered before it started
+        self.background = background
+        self.library = library
+        # the collections a collection run read - its cleanup notes them on the works they hold
+        self.collections_read: list[str] = []
+        self.started = runs.now()
+        # when the user paused it, by the helper's own clock, or None while it is not paused.
+        # a background run paused longer than `PausedRunTimeoutMinutes` is abandoned
+        self.held_since: float | None = None
+        self.held_at = ''
+        # set when the helper ends it for that reason, rather than the user stopping it
+        self.abandoned = False
+        # when it ended, by the helper's clock - a finished run is forgotten after a while
+        self.finished_at: float | None = None
+        # the helper the page was talking to when it started this, as the page names it - so
+        # a page talking to a different helper does not mistake this run for an interrupted
+        # one of its own. see `Jobs.settleInterrupted`
+        self.helper = ''
         # requests to the page about the library that have not been answered yet, by id, and
         # the bytes waiting for the page to collect for each write. see `storage_call`
         self.storage_pending: dict[str, dict] = {}
@@ -334,14 +387,38 @@ class Job:
         # the run this one picks up from - see `prepare_resume` - and the answers it gave to
         # the questions it asked, by question name, which are used rather than asked again
         self.resume: dict | None = None
-        self.prior_answers: dict[str, dict] = {}
+        # a background run's up-front answers are the same thing, given before it started
+        self.prior_answers: dict[str, dict] = dict(answers or {})
         # the moment the login succeeded, or the first attempt's when resuming
         self.baseline = ''
 
     def emit(self, event: dict) -> None:
         with self.lock:
             self.history.append(event)
-        self.events.put(event)
+            if self.background and event.get('type') == progress.MESSAGE:
+                self.trim_history()
+            # a background run with no page attached keeps its events in `history` alone: a
+            # queue nobody reads would hold every one of them for hours. a page that attaches
+            # replays `history` first, and only then starts reading the queue
+            if self.listeners or not self.background: self.events.put(event)
+
+    def trim_history(self) -> None:
+        """Drop the oldest printed lines from a background run's replay, keeping the rest.
+
+        Called with the lock held. Trimmed in a batch rather than per line, so a long run
+        does not rebuild the list on every line it prints.
+        """
+
+        messages = sum(1 for e in self.history if e.get('type') == progress.MESSAGE)
+        excess = messages - BACKGROUND_KEPT_MESSAGES
+        if excess < BACKGROUND_KEPT_MESSAGES // 10: return
+        kept = []
+        for event in self.history:
+            if excess and event.get('type') == progress.MESSAGE:
+                excess -= 1
+                continue
+            kept.append(event)
+        self.history = kept
 
     def ask(self, question: dict, default: dict) -> dict:
         """Put a question to the ui and wait for the answer.
@@ -355,9 +432,16 @@ class Job:
 
         prior = self.prior_answers.get(str(question.get('name') or ''))
         if prior is not None:
-            # a resumed run does not ask again what the attempt before it was already told
-            print(strings.AO3_INFO_RESUME_ANSWER.format(prior.get('choice')))
+            # a resumed run does not ask again what the attempt before it was already told,
+            # and a background run was told before it started
+            print((strings.AO3_INFO_BACKGROUND_ANSWER if self.background
+                   else strings.AO3_INFO_RESUME_ANSWER).format(prior.get('choice')))
             return dict(prior)
+        if self.background:
+            # nobody is there to answer, so waiting would stall the run for half an hour and
+            # then take the default anyway. the default is always the one that changes nothing
+            print(strings.AO3_INFO_BACKGROUND_DEFAULT.format(default.get('choice')))
+            return dict(default)
 
         self.answer = {}
         self.answered.clear()
@@ -473,6 +557,7 @@ class Job:
 
 
     def finish(self) -> None:
+        self.finished_at = time.monotonic()
         self.done.set()
         self.events.put(None)
 
@@ -500,6 +585,9 @@ class Steps:
 
     def _set(self, step: str, status: str) -> None:
         progress.report(self.report, progress.STEP, id=step, status=status)
+
+    def label_of(self, step: str) -> str:
+        return dict(self.plan).get(step, step)
 
     def start(self, step: str) -> None:
         self.current = step
@@ -575,10 +663,21 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
     metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
     plan: list[tuple[str, str]] = [('login', strings.STEP_LOGIN)]
 
-    if job.action == ACTION_COLLECTIONS:
-        plan.append(('collections', strings.STEP_INDEX_COLLECTIONS))
-    elif job.action == ACTION_COLLECTION:
-        plan.append(('collection', strings.STEP_INDEX_COLLECTION))
+    if job.action in COLLECTION_ACTIONS:
+        works = bool(job.options.get('collectionWorks'))
+        if job.action == ACTION_COLLECTIONS:
+            plan.append(('collections', strings.STEP_INDEX_COLLECTIONS_WORKS if works
+                         else strings.STEP_INDEX_COLLECTIONS))
+        else:
+            plan.append(('collection', strings.STEP_INDEX_COLLECTION_WORKS if works
+                         else strings.STEP_INDEX_COLLECTION))
+        # the works met on the way are downloaded the way any scan downloads what it indexed.
+        # nothing marks a series here unless the run was asked to follow them
+        if works and job.options.get('series'):
+            plan.append(('series', strings.STEP_SERIES))
+        if works and downloads:
+            plan.append(('check', strings.STEP_CHECK_FILES))
+            plan.append(('download', strings.STEP_DOWNLOAD))
     elif job.action == ACTION_WORK:
         plan.append(('index', strings.STEP_INDEX_ONE))
         plan.append(('series', strings.STEP_SERIES))
@@ -713,15 +812,22 @@ def run_job(job: Job, password: str) -> None:
     echo = console_logging()
     tag = f'[run {job.id[:8]}]'
 
+    # what a run says before its history file exists - the setup, the 'logging in' - kept to
+    # start that file's log with, so the log is the whole account the run window showed
+    before_record: list[str] = []
+
     def said(line: str) -> None:
         job.emit({'type': progress.MESSAGE, 'text': line})
         if echo: to_console(f'{tag} {line}')
+        if job.record: job.record.line(line)
+        else: before_record.append(line)
 
     stream = LineStream(said)
 
     try:
-        # the library is the page's: every file goes through it
-        fileops = FileOps(storage=PageStorage(job))
+        # the library is the page's: every file goes through it - or, for a background run,
+        # through the helper's own line to Dropbox, answering exactly as the page would
+        fileops = FileOps(storage=PageStorage(job.library or job))
         fileops.initialize()
         # before anything is announced: a resumed run takes the earlier run's workflow, file
         # types and options, so the checklist and the history file describe that run
@@ -752,7 +858,12 @@ def run_job(job: Job, password: str) -> None:
                 job.record = runs.RunRecord(fileops, job.id, job.action,
                                             action_name(job.action), job.filetypes,
                                             job.options,
-                                            settings=settings_for_record(fileops))
+                                            settings=settings_for_record(fileops),
+                                            background=job.background,
+                                            printed=before_record, helper=job.helper,
+                                            url=job.url)
+                # the issues and fic lists go into every save, not only the last one
+                job.record.source = lambda: job.ao3
                 repo.login(job.username, password)
                 print(strings.AO3_INFO_LOGGED_IN)
                 begin_record(job, fileops)
@@ -764,9 +875,16 @@ def run_job(job: Job, password: str) -> None:
                 # the reporting has happened. marked here rather than inside that function
                 # so the step is ticked once per run and not once per place it is called.
                 job.steps.done('report')
-        close_record(job, runs.STATUS_STOPPED if job.cancel.is_set()
-                     else runs.STATUS_SUCCESS)
-        job.emit({'type': progress.FINISHED, 'cancelled': job.cancel.is_set()})
+        close_record(job, runs.STATUS_ABANDONED if job.abandoned
+                     else runs.STATUS_STOPPED if job.cancel.is_set() else runs.STATUS_SUCCESS)
+        job.emit({'type': progress.FINISHED, 'cancelled': job.cancel.is_set(),
+                  'abandoned': job.abandoned})
+    except exceptions.CancelledException:
+        # a stop the runner did not catch - taken at a pause gate outside its loops, say, or
+        # during the login - is still a stop, not a failure. everything written stays
+        # written either way, and a run abandoned while paused must say it was abandoned
+        close_record(job, runs.STATUS_ABANDONED if job.abandoned else runs.STATUS_STOPPED)
+        job.emit({'type': progress.FINISHED, 'cancelled': True, 'abandoned': job.abandoned})
     except Exception as e:
         # the step that was running is the one that failed; the ones after it never started
         job.steps.fail_current()
@@ -787,6 +905,10 @@ def run_job(job: Job, password: str) -> None:
         job.emit({'type': progress.FAILED, 'error': str(e), 'sessionExpired': expired,
                   'detail': traceback.format_exc()})
     finally:
+        # the Dropbox sign-in a background run was handed goes with the run - the page
+        # promised it would. the job stays listed a while for a page reattaching, and must
+        # not keep the token for that long
+        job.library = None
         job.finish()
 
 
@@ -804,6 +926,8 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
 
     job.action = earlier['action']
     job.filetypes = list(earlier.get('filetypes') or [])
+    # the collection it was pointed at; a resume request carries no link of its own
+    job.url = earlier.get('url') or job.url
     job.options = {**resolve_options(earlier.get('options')), 'resume': earlier['id']}
     job.resume = {
         'id': earlier['id'],
@@ -812,10 +936,13 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
         'baseline': earlier.get('baseline') or '',
         'progress': json.loads(json.dumps(earlier.get('progress') or {})),
     }
-    job.prior_answers = {str(c['question']): {k: v for k, v in c.items()
-                                               if k in ('choice', 'date')}
-                         for c in earlier.get('choices') or []
-                         if isinstance(c, dict) and c.get('question') and c.get('choice')}
+    # what the earlier attempt was actually told wins; a background run's up-front answers
+    # stand in for any question it never reached
+    job.prior_answers = {**job.prior_answers,
+                         **{str(c['question']): {k: v for k, v in c.items()
+                                                 if k in ('choice', 'date')}
+                            for c in earlier.get('choices') or []
+                            if isinstance(c, dict) and c.get('question') and c.get('choice')}}
     print(strings.AO3_INFO_RESUMING.format(
         earlier.get('actionName') or earlier['action'],
         str(earlier.get('started') or '')[:16].replace('T', ' '),
@@ -842,6 +969,45 @@ def begin_record(job: Job, fileops: FileOps) -> None:
         job.record.logged_in(job.baseline)
 
 
+def background_answers(raw) -> dict[str, dict]:
+    """A background run's answers to the questions it may meet, checked before it starts.
+
+    Nobody will be there to answer, so they are given up front, by question name - the same
+    shape a resumed run carries over (`prior_answers`). A question left out gets the answer
+    that changes nothing when it comes up. Anything that could not be acted on is refused
+    here, while there is still someone to tell.
+    """
+
+    if raw is None: return {}
+    if not isinstance(raw, dict): raise ValueError('the answers have to be given by question')
+    answers = {}
+    for name, answer in raw.items():
+        if name not in CHOICES_FOR:
+            raise ValueError(f"there is no question called '{name}'")
+        choice = (answer or {}).get('choice') if isinstance(answer, dict) else None
+        if choice not in CHOICES_FOR[name]:
+            raise ValueError(f"'{choice}' is not an answer to '{name}' - it is one of "
+                             f"{', '.join(CHOICES_FOR[name])}")
+        date = parse_text.get_date_stamp(answer.get('date') or '')
+        if choice == UNDATED_STAMP and not date:
+            raise ValueError('dating the undated files needs the date to give them')
+        answers[name] = {'choice': choice, 'date': date}
+    return answers
+
+
+def active_jobs() -> list[dict]:
+    """The runs going right now, as the page's warning and the history's pinned panel need
+    them: enough to name one and say what state it is in, never anything it was given."""
+
+    with Handler.jobs_lock:
+        going = [job for job in Handler.jobs.values() if not job.done.is_set()]
+    return [{'id': job.id, 'action': job.action, 'actionName': action_name(job.action),
+             'background': job.background, 'started': job.started,
+             'paused': job.held.is_set(), 'abandonsAt': abandons_at(job),
+             'step': job.steps.label_of(job.steps.current) if job.steps.current else ''}
+            for job in sorted(going, key=lambda x: x.started)]
+
+
 def active_job_ids(exclude: str = '') -> set[str]:
     """The runs this helper is working on right now."""
 
@@ -859,6 +1025,8 @@ def resume_problem(record: dict | None, active: set[str]) -> str:
     if record.get('action') == ACTION_CUSTOM and not options.get('dates') and \
             (int(options.get('pages') or 0) or int(options.get('start') or 1) > 1):
         return strings.RESUME_SLICE
+    if record.get('action') == ACTION_COLLECTION and not record.get('url'):
+        return strings.RESUME_NO_LINK
     if record.get('status') == runs.STATUS_SUCCESS: return strings.RESUME_FINISHED
     if record.get('status') == runs.STATUS_RUNNING and record.get('id') in active:
         return strings.RESUME_STILL_RUNNING
@@ -878,8 +1046,9 @@ def resumable_among(records: list[dict], active: set[str]) -> list[dict]:
         problem = resume_problem(record, active)
         warnings = []
         if record.get('resumedBy'): warnings.append(strings.RESUME_ALREADY_RESUMED)
-        # a later scan that finished has most likely covered what this one had left
-        if any(isinstance(x, dict) and x.get('status') == runs.STATUS_SUCCESS
+        # a later scan that finished has most likely covered what this one had left - a
+        # scan says nothing about a collection, so a collection run is never warned of one
+        if record.get('action') not in COLLECTION_ACTIONS and any(isinstance(x, dict) and x.get('status') == runs.STATUS_SUCCESS
                and covered_the_whole_listing(x) for x in records[:index]):
             warnings.append(strings.RESUME_NEWER_SCAN)
         found.append({**record, 'resumable': not problem, 'reason': problem,
@@ -982,7 +1151,8 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
         if anchor: state['anchor'] = anchor
         state['works'].extend(x for x in works if x not in state['works'])
         walks[name] = state
-        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()))
+        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()),
+                       externalsSaved=externals_so_far(job, ao3))
 
     ao3.on_page = on_page
     try:
@@ -993,7 +1163,8 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
     if ao3.walk_finished and not job.cancel.is_set():
         state['done'] = True
         walks[name] = state
-        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()))
+        job.checkpoint(walks=walks, seriesMarked=list(ao3.series_marked.values()),
+                       externalsSaved=externals_so_far(job, ao3))
     return merge_by_work(records_by_id(fileops, carried), records)
 
 
@@ -2146,28 +2317,36 @@ def settle_duplicates(job: Job, records: list[dict], existing: dict,
 
 
 def cleanup(job: Job, fileops: FileOps, ao3) -> None:
-    """Remove the older copies marked for removal - the step before the report.
+    """Remove the older copies marked for removal, and note on indexed works which of your
+    collections hold them - the step before the report.
 
-    Skipped when nothing was marked, and when the run was stopped: a stop keeps everything
-    as it is, and the report says what was left. A marked file this run has since downloaded
-    over - the same name - is kept, since it is no longer the older copy. Each file's outcome
-    goes into the history as it happens.
+    Skipped when there is nothing to do, and when the run was stopped: a stop keeps
+    everything as it is, and the report says what was left. A marked file this run has since
+    downloaded over - the same name - is kept, since it is no longer the older copy. Each
+    file's outcome goes into the history as it happens.
     """
 
     pending = [x for x in job.removals if x.get('status') == 'pending']
-    if not pending:
+    if job.cancel.is_set():
+        if pending:
+            print(strings.AO3_INFO_CLEANUP_STOPPED.format(len(pending)))
+            for item in pending:
+                item['status'] = 'kept'
+                item['error'] = strings.CLEANUP_STOPPED
+            if job.record: job.record.removals(job.removals)
         job.steps.skip('cleanup')
         return
-    if job.cancel.is_set():
-        print(strings.AO3_INFO_CLEANUP_STOPPED.format(len(pending)))
-        for item in pending:
-            item['status'] = 'kept'
-            item['error'] = strings.CLEANUP_STOPPED
-        if job.record: job.record.removals(job.removals)
+
+    links = collection_links(job, fileops, ao3)
+    if not pending and not links:
         job.steps.skip('cleanup')
         return
 
     job.steps.start('cleanup')
+    if links: write_collection_links(fileops, links)
+    if not pending:
+        job.steps.done('cleanup')
+        return
     print(strings.AO3_INFO_CLEANUP.format(len(pending)))
     written = list(getattr(ao3, 'written', None) or [])
     for item in pending:
@@ -2184,6 +2363,207 @@ def cleanup(job: Job, fileops: FileOps, ao3) -> None:
             print(strings.AO3_INFO_CLEANUP_FAILED.format(item['file'], strings.CLEANUP_NOT_DELETED))
         if job.record: job.record.removals(job.removals)
     job.steps.done('cleanup')
+
+
+# the runs whose cleanup notes which collections hold the works they covered: every
+# workflow but the debug ones (the combined run, new bookmarks only, update incomplete)
+LINKING_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM, ACTION_WORK,
+                   ACTION_COLLECTIONS, ACTION_COLLECTION)
+
+
+def covered_works(job: Job, ao3) -> set[str]:
+    """Every work this run covered - not only what it indexed this attempt.
+
+    What it indexed (`reindexed`), and everything its progress names: its scope, every
+    walk's works, the works its series walk found, the non-bookmarks and date-window fics it
+    got through. A resumed run starts its progress with a copy of the earlier attempt's, and
+    the earlier attempt's own is read too, so a work that attempt indexed - which this one
+    takes from the index rather than reading again - is still covered.
+    """
+
+    found: set[str] = set()
+
+    def take(values) -> None:
+        for value in values or []:
+            if isinstance(value, (str, int)) and str(value): found.add(str(value))
+
+    reindexed = getattr(ao3, 'reindexed', None)
+    if isinstance(reindexed, set): take(reindexed)
+    for saved in (job.progress(), job.earlier_progress()):
+        if not isinstance(saved, dict): continue
+        take(saved.get('scope'))
+        for walk in (saved.get('walks') or {}).values():
+            if isinstance(walk, dict): take(walk.get('works'))
+        for key in ('seriesWorks', 'nonBookmarksDone', 'updateDone'):
+            take(saved.get(key))
+    return found
+
+
+def externals_so_far(job: Job, ao3) -> list[str]:
+    """Every external work this run has saved an entry for, the attempts it resumes
+    included, for its progress.
+
+    `Ao3.externals_saved` is this attempt's alone, so the checkpoint adds it to what the
+    progress already says - a resumed run starts from a copy of its earlier attempt's, so a
+    chain of resumes keeps the first attempt's too. A walk says which works it read in its
+    own entry; external works are kept here instead, because nothing needs to know which
+    walk found one, only that the run saved it.
+    """
+
+    return sorted(covered_externals(job, ao3))
+
+
+def covered_externals(job: Job, ao3) -> set[str]:
+    """The external works this run saved an entry for, by ao3's number for them - in this
+    attempt, and in every earlier attempt it resumes, as their progress records them."""
+
+    found: set[str] = set()
+    saved = getattr(ao3, 'externals_saved', None)
+    if isinstance(saved, set): found |= {str(x) for x in saved}
+    for progress in (job.progress(), job.earlier_progress()):
+        if not isinstance(progress, dict): continue
+        for value in progress.get('externalsSaved') or []:
+            if isinstance(value, (str, int)) and str(value): found.add(str(value))
+    return found
+
+
+def collection_links(job: Job, fileops: FileOps, ao3) -> list[tuple[str, list[str]]]:
+    """The index entries that are missing a collection that holds them, and the whole list
+    each should have - `(path, from_collections)`.
+
+    **This is the one place `from_collections` is set**, for every workflow but the debug
+    ones. Each looks at every work it covered (`covered_works`) and every external work it
+    saved, against every collection saved in the library - so a work bookmarked after its
+    collection was indexed learns it too. A collection run also looks at every work and
+    external work the collections it read list - so with *Index and download encountered
+    works* off, a work you had already indexed still learns it is in the collection.
+
+    Only entries already in the index are touched, and only when a collection is missing
+    from them. Nothing here reaches ao3, and anything that goes wrong is left undone rather
+    than failing a run over a note about where a work was found.
+    """
+
+    try:
+        if job.action not in LINKING_ACTIONS: return []
+        held: dict[str, dict] = {}
+        folder = os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)
+        for name in fileops.list_files(folder):
+            if not str(name).lower().endswith('.json'): continue
+            collection = indexing.flatten(fileops.load_json(
+                os.path.join(strings.COLLECTIONS_FOLDER_NAME, name))) or {}
+            if collection.get('name'): held[str(collection['name'])] = collection
+        if not held: return []
+
+        by_work: dict[str, set[str]] = {}
+        by_external: dict[str, set[str]] = {}
+        by_series: dict[str, set[str]] = {}
+        for name, collection in held.items():
+            for work in [*(collection.get('work_ids') or []), *(collection.get('bookmark_ids') or [])]:
+                by_work.setdefault(str(work), set()).add(name)
+            for external in collection.get('external_ids') or []:
+                by_external.setdefault(str(external), set()).add(name)
+            for series in collection.get('series_ids') or []:
+                by_series.setdefault(str(series), set()).add(name)
+        # a series a collection holds holds its works for it too - which works, the series'
+        # own entry says
+        series_folder = os.path.join(strings.INDEXING_FOLDER_NAME, strings.SERIES_INDEX_FOLDER_NAME)
+        for series, works_in_it in works_of_series(fileops, series_folder, set(by_series)).items():
+            for work in works_in_it:
+                by_work.setdefault(work, set()).update(by_series[series])
+
+        works = covered_works(job, ao3)
+        externals = covered_externals(job, ao3)
+        series = covered_series(job, ao3)
+        if job.action in COLLECTION_ACTIONS:
+            read = {x for x in job.collections_read if x in held}
+            works |= {w for w, names in by_work.items() if names & read}
+            externals |= {e for e, names in by_external.items() if names & read}
+            series |= {x for x, names in by_series.items() if names & read}
+
+        return [*entries_missing(fileops, strings.INDEXING_FOLDER_NAME, works, by_work),
+                *entries_missing(fileops, os.path.join(strings.INDEXING_FOLDER_NAME,
+                                                       strings.EXTERNAL_INDEX_FOLDER_NAME),
+                                 externals, by_external),
+                *entries_missing(fileops, series_folder, series, by_series)]
+    except exceptions.CancelledException:
+        raise
+    except Exception:
+        return []
+
+
+def covered_series(job: Job, ao3) -> set[str]:
+    """The series this run read or marked - in this attempt, and in every earlier attempt it
+    resumes, as their progress records them - by series number."""
+
+    found: set[str] = set()
+    for attribute in ('series_read', 'series_ids_found', 'series_marked'):
+        value = getattr(ao3, attribute, None)
+        if isinstance(value, dict): found |= {str(x) for x in value}
+    for progress in (job.progress(), job.earlier_progress()):
+        if not isinstance(progress, dict): continue
+        for value in progress.get('seriesDone') or []:
+            if isinstance(value, (str, int)) and str(value): found.add(str(value))
+        for marked in progress.get('seriesMarked') or []:
+            if isinstance(marked, dict) and marked.get('id'): found.add(str(marked['id']))
+    return found
+
+
+def works_of_series(fileops: FileOps, subfolder: str, wanted: set[str]) -> dict[str, list[str]]:
+    """The works each wanted series' entry lists, by series - read only for those series."""
+
+    found: dict[str, list[str]] = {}
+    if not wanted: return found
+    for name in fileops.list_files(os.path.join(fileops.downloadfolder, subfolder)):
+        if not str(name).lower().endswith('.json'): continue
+        number = parse_text.get_work_number_from_filename(name)
+        if number not in wanted: continue
+        entry = indexing.flatten(fileops.load_json(os.path.join(subfolder, name))) or {}
+        found[number] = [str(x) for x in entry.get(strings.SERIES_WORKS_FIELD) or []]
+    return found
+
+
+def entries_missing(fileops: FileOps, subfolder: str, ids: set[str],
+                    holders: dict[str, set[str]]) -> list[tuple[str, list[str]]]:
+    """The entries in `subfolder`, among `ids`, that lack a collection `holders` says holds
+    them - found by the number their file name starts with, read only when they might."""
+
+    wanted = {x for x in ids if x in holders}
+    if not wanted: return []
+    found = []
+    for name in fileops.list_files(os.path.join(fileops.downloadfolder, subfolder)):
+        if not str(name).lower().endswith('.json'): continue
+        work = parse_text.get_work_number_from_filename(name)
+        if work not in wanted: continue
+        path = os.path.join(subfolder, name)
+        data = fileops.load_json(path)
+        if not isinstance(data, dict): continue
+        have = {str(x) for x in data.get(indexing.FROM_COLLECTIONS) or []}
+        if holders[work] - have:
+            found.append((path, sorted(have | holders[work])))
+    return found
+
+
+def write_collection_links(fileops: FileOps, links: list[tuple[str, list[str]]]) -> None:
+    """Add the collections to each entry. `from_collections` is identity, not a reading, so
+    it goes straight onto the file - no new reading is added for it."""
+
+    if not links: return
+    print(strings.AO3_INFO_COLLECTIONS_LINKING)
+    written = 0
+    for path, names in links:
+        try:
+            data = fileops.load_json(path)
+            if not isinstance(data, dict): continue
+            data[indexing.FROM_COLLECTIONS] = names
+            fileops.save_json(path, data)
+            written += 1
+        except exceptions.CancelledException:
+            raise
+        except Exception:
+            continue
+    if written:
+        print(strings.AO3_INFO_COLLECTIONS_LINKED_ONE if written == 1
+              else strings.AO3_INFO_COLLECTIONS_LINKED.format(written))
 
 
 def report_not_removed(job: Job, report) -> None:
@@ -2274,21 +2654,21 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
     progress.report(report, progress.PHASE, name=progress.COLLECTIONS)
     print(strings.AO3_INFO_COLLECTIONS)
 
-    ao3 = Ao3(repo, fileops, [], pages, False, False,
-              progress=report, cancelled=job.cancel.is_set)
-    # the run record reads its fic lists off this when the run ends
-    job.ao3 = ao3
-    job.steps.start('collections')
-    records = ao3.get_collections(link)
-    job.steps.done('collections')
+    ao3 = collections_ao3(job, fileops, repo, report, pages)
+    records = crawl_collections(job, fileops, ao3, 'collections',
+                                lambda: ao3.get_collections(link))
+    note_collections_read(job, records)
 
-    if records:
+    if records is None:
+        pass # resumed at its download step: every collection was read by the earlier attempt
+    elif records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
             len(records), fileops.describe(
                 os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME))))
     else:
         print(strings.AO3_INFO_COLLECTIONS_NONE)
 
+    download_collection_works(job, fileops, ao3, report)
     # a collection crawl can leave gaps too, and used not to say so at all
     finish_run(job, fileops, ao3, report)
 
@@ -2302,20 +2682,124 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
 
     progress.report(report, progress.PHASE, name=progress.COLLECTIONS)
 
-    ao3 = Ao3(repo, fileops, [], None, False, False,
-              progress=report, cancelled=job.cancel.is_set)
-    # the run record reads its fic lists off this when the run ends
-    job.ao3 = ao3
-    job.steps.start('collection')
-    records = ao3.get_collection(job.url)
-    job.steps.done('collection')
+    ao3 = collections_ao3(job, fileops, repo, report, None)
+    records = crawl_collections(job, fileops, ao3, 'collection',
+                                lambda: ao3.get_collection(job.url))
+    note_collections_read(job, records)
 
     if records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
             len(records), fileops.describe(
                 os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME))))
 
+    download_collection_works(job, fileops, ao3, report)
     finish_run(job, fileops, ao3, report)
+
+
+def collections_ao3(job: Job, fileops: FileOps, repo: Repository, report,
+                    pages: int | None) -> Ao3:
+    """The Ao3 a collections run crawls with - told to index the works it meets, when the
+    run was asked to, and to follow their series when that was asked too."""
+
+    works = bool(job.options.get('collectionWorks'))
+    downloadtypes = ([x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+                     if works else [])
+    ao3 = Ao3(repo, fileops, downloadtypes, pages, works and job.options['series'], False,
+              progress=report, cancelled=job.cancel.is_set)
+    if works: ao3.collection_works = []
+    ao3.follow_subcollections = bool(job.options.get('subcollections'))
+    ao3.follow_parents = bool(job.options.get('parentCollections'))
+    # the run record reads its fic lists off this when the run ends
+    job.ao3 = ao3
+    watch_collections(job, fileops, ao3)
+    return ao3
+
+
+def note_collections_read(job: Job, records: list[dict] | None) -> None:
+    """Which collections this run covered, for its cleanup to note on the works they hold.
+    A run resumed at its download step read none itself: the earlier attempt's count."""
+
+    if records is None:
+        job.collections_read = list((job.earlier_progress().get('collections') or {}).keys())
+    else:
+        job.collections_read = [str(r['name']) for r in records if r.get('name')]
+
+
+def crawl_collections(job: Job, fileops: FileOps, ao3: Ao3, step: str, crawl) -> list[dict] | None:
+    """Read the collections - or, for a run resumed after the earlier attempt reached its
+    download step, nothing at all: that attempt saved the works it was downloading (`scope`),
+    so the run goes straight back to them. None in that case."""
+
+    scoped = resumed_scope(job, fileops)
+    if scoped is not None:
+        mark_earlier(job, step, 'series')
+        ao3.collection_works = list(scoped)
+        ao3.scoped = True
+        return None
+    job.steps.start(step)
+    records = crawl()
+    job.steps.done(step)
+    return records
+
+
+def watch_collections(job: Job, fileops: FileOps, ao3: Ao3) -> None:
+    """Save a collection run's progress as it goes, and give a resumed one what the earlier
+    attempt saved.
+
+    Checkpointed after **every page** of each collection's works and bookmarked-items
+    listings - the page and the work numbers found so far - and when a collection is saved,
+    with every work number it holds. A resumed run skips the collections finished before and
+    carries each unfinished listing on from its last saved page (`Ao3.collect_work_ids`).
+    """
+
+    state = job.progress().setdefault('collections', {})
+    if job.resume:
+        earlier = job.earlier_progress().get('collections') or {}
+        ao3.collections_before = json.loads(json.dumps(earlier))
+        # what was finished stays finished in this attempt's record too, so a second resume
+        # skips it as well
+        for slug, saved in earlier.items():
+            if isinstance(saved, dict) and saved.get('done'): state[slug] = saved
+        restore_series(job, ao3)
+    ao3.records_for = lambda ids: records_by_id(fileops, ids)
+
+    def on_page(slug: str, key: str, page, ids: list[str], done: bool = False,
+                externals: list[str] | None = None, series: list[str] | None = None) -> None:
+        listing = state.setdefault(slug, {'done': False, 'listings': {}})['listings'] \
+            .setdefault(key, {})
+        listing['ids'] = list(ids)
+        listing['done'] = done
+        if externals: listing['externals'] = list(externals)
+        if series: listing['series'] = list(series)
+        if page is not None: listing['page'] = page
+        job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()),
+                       externalsSaved=externals_so_far(job, ao3))
+
+    def on_done(slug: str, works: list[str], family: list[str] | None = None) -> None:
+        # the relatives it links to go with it, so a resume that skips it still follows them
+        state[slug] = {'done': True, 'works': list(works), 'family': list(family or [])}
+        job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()),
+                       externalsSaved=externals_so_far(job, ao3))
+
+    ao3.on_collection_page = on_page
+    ao3.on_collection_done = on_done
+
+
+def download_collection_works(job: Job, fileops: FileOps, ao3: Ao3, report) -> None:
+    """The works a collections run indexed on its way through, downloaded as a scan would.
+
+    Everything after the crawl is borrowed: their series are walked as any run walks the
+    series it marked, and the download step is the one every scan ends with - so a copy on
+    disk that is current is skipped, and one ao3 has moved past is replaced.
+    """
+
+    if ao3.collection_works is None: return
+    print(strings.AO3_INFO_COLLECTION_WORKS_TOTAL.format(len(ao3.collection_works)))
+    records = ao3.collection_works
+    # a run resumed at its download step walked its series in the earlier attempt
+    if job.options.get('series') and getattr(ao3, 'scoped', False) is not True:
+        records = merge_by_work(records, index_marked_series(job, ao3, report))
+    download_planned(job, fileops, ao3, records, list(ao3.filetypes), report)
 
 
 def run_update(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -2866,7 +3350,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/jobs':
             # which runs are really going, so the page can tell an interrupted run's record -
             # still saying 'running' - from one that is
-            self.send_json(200, {'active': sorted(active_job_ids())})
+            self.send_json(200, {'active': sorted(active_job_ids()), 'jobs': active_jobs()})
             return
 
         if self.path.startswith('/api/jobs/') and self.path.endswith('/events'):
@@ -2952,7 +3436,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            username, password = access.login_from(body)
+            username, password, dropbox = access.credentials_from(body)
         except access.AccessError as e:
             self.send_json(400, {'error': str(e)})
             return
@@ -2973,11 +3457,22 @@ class Handler(BaseHTTPRequestHandler):
         # a chosen floor is the quick scan's alone, and has to name a run that can be one -
         # refused here rather than discovered on the thread, so a bad pick is a straight answer
         if action != ACTION_QUICK: options['floorRun'] = ''
+        # indexing the works a collection holds is the collection runs' alone. without it they
+        # write nothing but the collections' files, so no series is followed either
+        if action not in COLLECTION_ACTIONS:
+            options['collectionWorks'] = False
+            options['subcollections'] = False
+            options['parentCollections'] = False
+        elif not options['collectionWorks']: options['series'] = False
         # a chosen floor is checked by the run, once it can read the history through the page:
         # one that turns out not to qualify falls back to the usual rules and says so
         # a custom run told to skip indexing writes no json, because json is the index
         indexing_run = options['reindex'] or action != ACTION_CUSTOM
         filetypes = resolve_filetypes(body.get('filetypes'), force=indexing_run)
+        # a collections run that is not indexing their works downloads nothing, so its record
+        # must not say it saved html
+        if action in COLLECTION_ACTIONS and not options['collectionWorks']:
+            filetypes = list(FORCED_FILETYPES)
         # re-reading a non-bookmark writes its entry, which a run told not to index has ruled out
         if not indexing_run: options['nonBookmarks'] = False
 
@@ -2996,9 +3491,34 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(400, {'error': strings.ERROR_NOT_A_COLLECTION})
                 return
 
-        job = Job(action, filetypes, username, options, url)
+        background = body.get('background') is True
+        library, answers = None, {}
+        if background:
+            # the page is not going to be there, so the library has to be reachable without
+            # it - which only a library in Dropbox is
+            if not dropbox:
+                self.send_json(400, {'error': strings.ERROR_BACKGROUND_NEEDS_DROPBOX})
+                return
+            try:
+                answers = background_answers(body.get('answers'))
+            except ValueError as e:
+                self.send_json(400, {'error': str(e)})
+                return
+            library = dropbox_library.DropboxChannel(dropbox['refreshToken'], dropbox['appKey'])
+
+        job = Job(action, filetypes, username, options, url, background=background,
+                  library=library, answers=answers)
+        # only a label, written into the history file: which helper the page started it on
+        job.helper = str(body.get('helper') or '')[:300]
+        # one run at a time, checked and taken under the same lock so two starts arriving
+        # together cannot both get in. two runs writing one library would each plan from a
+        # folder the other is changing
         with Handler.jobs_lock:
-            Handler.jobs[job.id] = job
+            busy = next((j for j in Handler.jobs.values() if not j.done.is_set()), None)
+            if busy is None: Handler.jobs[job.id] = job
+        if busy is not None:
+            self.send_json(409, {'error': strings.ERROR_RUN_IN_PROGRESS, 'activeJob': busy.id})
+            return
 
         thread = threading.Thread(target=run_job, args=(job, password), daemon=True)
         thread.start()
@@ -3051,9 +3571,15 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if hold:
+            # a second press does not restart the clock on a pause already going
+            if not job.held.is_set():
+                job.held_since = time.monotonic()
+                job.held_at = runs.now()
             job.held.set()
         else:
             job.held.clear()
+            job.held_since = None
+            job.held_at = ''
         self.send_json(202, {'paused': hold})
 
     def answer_job(self, job_id: str) -> None:
@@ -3127,10 +3653,16 @@ class Handler(BaseHTTPRequestHandler):
         self.cors()
         self.end_headers()
 
-        # anything that happened before this connection opened
+        # anything that happened before this connection opened. taken, and the listener
+        # counted, in one go: a background run only queues events while someone is listening,
+        # so one emitted between the two would otherwise reach neither
         with job.lock:
             backlog = list(job.history)
-        job.page_connected(True)
+            job.listeners += 1
+            job.last_listener = time.monotonic()
+        # by identity: the queue holds the same dicts as the history, and comparing each one
+        # by value against hours of backlog would be slow
+        replayed = {id(event) for event in backlog}
         try:
             for event in backlog:
                 self.write_event(event)
@@ -3139,6 +3671,9 @@ class Handler(BaseHTTPRequestHandler):
             # does each request once, by id
             for event in job.unanswered():
                 self.write_event(event)
+            # a page attaching to a run that has already ended has everything it will get -
+            # the end was consumed by whoever was listening then, so nothing is coming
+            if job.done.is_set(): return
             while True:
                 try:
                     event = job.events.get(timeout=STREAM_HEARTBEAT_SECONDS)
@@ -3148,12 +3683,16 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                     continue
                 if event is None: break
-                if event in backlog: continue
+                if id(event) in replayed: continue
                 self.write_event(event)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass # the page navigated away
         finally:
             job.page_connected(False)
+            # the stream is over, so the connection is too. the `keep-alive` header above
+            # tells BaseHTTPRequestHandler to hold it open for another request, and a page
+            # reading to the end of the stream would then wait for ever
+            self.close_connection = True
 
     def write_event(self, event: dict) -> None:
         self.wfile.write(f'data: {json.dumps(event)}\n\n'.encode('utf-8'))
@@ -3181,6 +3720,121 @@ def already_listening(host: str, port: int, timeout: float = 0.5) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.settimeout(timeout)
         return probe.connect_ex((host, port)) == 0
+
+
+def background_running() -> bool:
+    """Whether a background run is going and working - one paused is not.
+
+    A paused run is waiting for someone, not doing anything, so it is not worth keeping a
+    host awake for: if nobody comes back it is abandoned anyway (`abandon_overdue`). Nor is
+    one told to stop: it is only unwinding, and a stop has to leave the host free to sleep
+    whether the unwinding is quick or not.
+    """
+
+    with Handler.jobs_lock:
+        return any(job.background and not job.done.is_set() and not job.held.is_set()
+                   and not job.cancel.is_set() for job in Handler.jobs.values())
+
+
+def paused_run_timeout() -> int:
+    """Minutes a background run may sit paused before it is abandoned; 0 for never."""
+
+    try:
+        minutes = FileOps().get_ini_value_integer(strings.INI_PAUSED_RUN_TIMEOUT,
+                                                  strings.INI_DEFAULT_PAUSED_RUN_TIMEOUT)
+    except Exception:
+        return strings.INI_DEFAULT_PAUSED_RUN_TIMEOUT
+    return max(0, minutes)
+
+
+def abandon_overdue(now: float | None = None, minutes: int | None = None) -> list[str]:
+    """End every background run left paused longer than the timeout, and say which.
+
+    Abandoning is a stop the helper takes on the user's behalf, so it goes the way a stop
+    goes: `cancel` is set, the run unwinds at the pause gate it is waiting at - nothing is
+    part-written there - and everything saved is kept. `abandoned` is what makes its record
+    say so, rather than claim the user stopped it. A run that is not in the background is
+    never abandoned: it needs its page, and ends when the page goes anyway.
+    """
+
+    minutes = paused_run_timeout() if minutes is None else minutes
+    if not minutes: return []
+    now = time.monotonic() if now is None else now
+    ended = []
+    with Handler.jobs_lock:
+        jobs = list(Handler.jobs.values())
+    for job in jobs:
+        if not job.background or job.done.is_set() or job.cancel.is_set(): continue
+        if not job.held.is_set() or job.held_since is None: continue
+        if now - job.held_since < minutes * 60: continue
+        job.abandoned = True
+        said = strings.AO3_INFO_ABANDONED.format(minutes)
+        job.emit({'type': progress.MESSAGE, 'text': said})
+        if job.record: job.record.line(said)
+        job.cancel.set()
+        ended.append(job.id)
+    return ended
+
+
+# how long a finished run stays listed - long enough for a page to reattach and be shown how
+# it ended, not so long that a helper up for weeks holds every run it ever did
+FORGET_FINISHED_SECONDS = 60 * 60
+
+
+def forget_finished(now: float | None = None) -> list[str]:
+    """Drop runs that ended more than an hour ago. Their history files say how they went."""
+
+    now = time.monotonic() if now is None else now
+    with Handler.jobs_lock:
+        old = [job_id for job_id, job in Handler.jobs.items()
+               if job.done.is_set() and job.finished_at is not None
+               and now - job.finished_at >= FORGET_FINISHED_SECONDS]
+        for job_id in old: del Handler.jobs[job_id]
+    return old
+
+
+def abandons_at(job: Job) -> str:
+    """When a paused background run will be abandoned, as an iso time, or '' for never."""
+
+    minutes = paused_run_timeout()
+    if not job.background or not job.held.is_set() or not job.held_at or not minutes: return ''
+    try:
+        paused = datetime.datetime.fromisoformat(job.held_at)
+    except ValueError:
+        return ''
+    return (paused + datetime.timedelta(minutes=minutes)).isoformat(timespec='seconds')
+
+
+def keep_awake_once(url: str, get=None) -> bool:
+    """Knock on the helper's own front door, if a background run needs it kept awake.
+
+    A free Render service is stopped after about 15 minutes with no request from outside -
+    and a background run is exactly one with nobody's page talking to it. A request to its
+    own public address goes out and back in through Render, which counts. Only while a
+    background run is going: the rest of the time the service is left to sleep as usual.
+    The answer does not matter (it is a 404 without the passcode); arriving is the point.
+    """
+
+    if not url or not background_running(): return False
+    try:
+        (get or requests.get)(url.rstrip('/') + '/api/awake', timeout=30)
+    except Exception:
+        pass # a knock that did not land costs nothing; the next one may
+    return True
+
+
+def watch_background(stop: threading.Event, url: str) -> None:
+    """Look after background runs while nobody's page is: abandon one paused too long, and
+    keep a host that sleeps awake for one that is working."""
+
+    since_knock = 0.0
+    while not stop.wait(WATCH_SECONDS):
+        abandon_overdue()
+        forget_finished()
+        since_knock += WATCH_SECONDS
+        if since_knock >= KEEP_AWAKE_SECONDS:
+            since_knock = 0.0
+            keep_awake_once(url)
 
 
 def is_loopback(host: str) -> bool:
@@ -3215,9 +3869,34 @@ def startup_problem(host: str, fileops: FileOps) -> str:
     return ''
 
 
+def bring_settings_up_to_date(path: str) -> None:
+    """Write settings.ini if it is missing, or add any setting it lacks, and say which.
+
+    Only ever adds - the user's own values are left as they are. A settings.ini that cannot
+    be written (read-only, say) is reported and left: the helper still runs on the defaults,
+    which is what it would have done anyway.
+    """
+
+    try:
+        created, added = settings_file.ensure_settings_file(path)
+    except OSError as e:
+        print(f'settings.ini: could not bring {os.path.abspath(path)} up to date ({e}); '
+              'using the defaults for anything missing')
+        return
+    if created:
+        print(f'settings.ini: created {os.path.abspath(path)}')
+    elif added:
+        print(f'settings.ini: added {", ".join(added)} to {os.path.abspath(path)}, with their '
+              'defaults - edit them there to change them')
+
+
 def serve(port: int | None = None, host: str | None = None) -> None:
     host = host or os.environ.get(ENV_HOST) or HOST
     port = port or int(os.environ.get(ENV_PORT) or DEFAULT_PORT)
+
+    # before anything reads it: a settings.ini that is missing is written, and one written
+    # before a setting existed gets that setting added, with its explanation and default
+    bring_settings_up_to_date(FileOps().inifile)
 
     problem = startup_problem(host, FileOps())
     if problem:
@@ -3235,6 +3914,10 @@ def serve(port: int | None = None, host: str | None = None) -> None:
         print('then start this again. carrying on would leave the page talking to the old')
         print('helper, which has its own settings and may be running older code.')
         raise SystemExit(1)
+
+    threading.Thread(target=watch_background,
+                     args=(threading.Event(), os.environ.get(ENV_EXTERNAL_URL, '')),
+                     daemon=True).start()
 
     httpd = ThreadingHTTPServer((host, port), Handler)
     print(f'ao3downloader local api listening on http://{host}:{port}')

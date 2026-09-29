@@ -116,7 +116,7 @@
       Works <span class="count">{{ collection.work_ids.length | number }}</span>
     </button>
     <button type="button" [class.current]="tab() === 'bookmarks'" (click)="tab.set('bookmarks')">
-      Bookmarked items <span class="count">{{ collection.bookmark_ids.length | number }}</span>
+      Bookmarked items <span class="count">{{ bookmarkedCount(collection) | number }}</span>
     </button>
   </nav>
 
@@ -172,7 +172,7 @@
           <dt>Works:</dt>
           <dd>{{ collection.work_ids.length | number }}</dd>
           <dt>Bookmarked items:</dt>
-          <dd>{{ collection.bookmark_ids.length | number }}</dd>
+          <dd>{{ bookmarkedCount(collection) | number }}</dd>
           @if (collection.subcollections.length) {
             <dt>Subcollections:</dt>
             <dd>{{ collection.subcollections.length | number }}</dd>

@@ -33,7 +33,9 @@ const PASSCODE_KEY = 'ao3.helperPasscode';
 export type PasscodeResult = 'accepted' | 'refused' | 'unreachable';
 
 /** the start request's login, as the helper is sent it */
-export type Login = { username: string; password: string } | { credentials: string };
+export type Login =
+  | ({ username: string; password: string } & Record<string, unknown>)
+  | { credentials: string };
 
 /**
  * Every request the page makes to its helper goes through here.
@@ -143,9 +145,13 @@ export class HelperConnection {
    * SHA-256, together with the time and a random nonce so the helper can refuse one sent
    * twice. Without one they go as they always have, to a helper on this computer.
    */
-  async sealLogin(username: string, password: string): Promise<Login> {
+  async sealLogin(
+    username: string,
+    password: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<Login> {
     const pem = this.settings().publicKey;
-    if (!pem) return { username, password };
+    if (!pem) return { username, password, ...extra };
     // the browser only offers encryption to a page on https or on this computer
     if (!globalThis.crypto?.subtle) {
       throw new Error(
@@ -160,7 +166,15 @@ export class HelperConnection {
       false,
       ['encrypt'],
     );
-    const login = JSON.stringify({ username, password, sent: Date.now(), nonce: crypto.randomUUID() });
+    // anything else worth as much as the login - a background run's Dropbox sign-in - is
+    // sealed inside the same blob rather than sent beside it in the clear
+    const login = JSON.stringify({
+      username,
+      password,
+      ...extra,
+      sent: Date.now(),
+      nonce: crypto.randomUUID(),
+    });
     let sealed: ArrayBuffer;
     try {
       sealed = await crypto.subtle.encrypt(

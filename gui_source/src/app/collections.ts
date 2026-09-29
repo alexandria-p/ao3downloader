@@ -43,6 +43,11 @@ export interface Collection {
   /** the work numbers in the collection, which is all that is recorded of them */
   work_ids: string[];
   bookmark_ids: string[];
+  /**
+   * The external works among its bookmarked items - works hosted off ao3 - by ao3's own
+   * number for them. A separate numbering from works: external work 1 is not work 1.
+   */
+  external_ids: string[];
   /** present when the crawl could not read part of the collection */
   error?: string;
 }
@@ -87,6 +92,7 @@ export function flattenCollection(parsed: unknown): Collection | null {
     subcollections: asArray(record['subcollections']),
     work_ids: asArray(record['work_ids']),
     bookmark_ids: asArray(record['bookmark_ids']),
+    external_ids: asArray(record['external_ids']),
   } as unknown as Collection;
 }
 

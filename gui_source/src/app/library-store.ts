@@ -120,9 +120,14 @@ export async function readRunHistory(store: LibraryStore): Promise<RunHistory[]>
     try {
       const record = JSON.parse((await store.read(path)) ?? '') as RunHistory & { log?: string[] };
       if (!record || typeof record !== 'object') continue;
-      // the console log is not shown here, and can run to thousands of lines
-      const { log: _log, ...rest } = record;
-      found.push({ ...rest, file: path.split('/').pop() ?? path });
+      // the console log is not shown here, and can run to thousands of lines - only how many,
+      // so the history can offer it to download. it is read again, on its own, if asked for
+      const { log, ...rest } = record;
+      found.push({
+        ...rest,
+        logLines: Array.isArray(log) ? log.length : 0,
+        file: path.split('/').pop() ?? path,
+      });
     } catch {
       continue;
     }

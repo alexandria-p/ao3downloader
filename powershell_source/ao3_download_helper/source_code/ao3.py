@@ -36,6 +36,15 @@ def bookmark_state(soup) -> dict:
     return {} if state is None else {strings.BOOKMARKED_FIELD: state}
 
 
+def blank(value) -> bool:
+    """Whether a value says nothing - empty, or a structure holding only empty values, as
+    the tags a series page cannot give."""
+
+    if isinstance(value, dict): return all(blank(v) for v in value.values())
+    if isinstance(value, (list, tuple)): return len(value) == 0
+    return value is None or value == ''
+
+
 class Ao3:
     def __init__(
             self, 
@@ -110,6 +119,51 @@ class Ao3:
         # because the work is in a collection that has not been revealed. they index fine;
         # it is only the download that is impossible, so they are held back from it.
         self.unrevealed: set[str] = set()
+        # told after each page of a collection's listings, and after each collection is saved,
+        # so a collection run can be resumed from there - see server.collections_ao3
+        self.on_collection_page = None
+        self.on_collection_done = None
+        # what an earlier attempt of a resumed collection run saved, by collection
+        self.collections_before: dict[str, dict] = {}
+        # reads works back out of the index by number - a resumed run downloads what the
+        # earlier attempt indexed without reading it from ao3 again
+        self.records_for = None
+        # set when a resumed collection run went straight back to its download step
+        self.scoped = False
+        # each index folder's entries by the number their file name starts with - see
+        # `entry_path`. listed when first asked for, once per run
+        self.entries_by_id: dict[str, dict[str, str]] = {}
+        # numbers found with more than one index file, and the one written to
+        self.duplicate_entries: list[dict] = []
+        # external works this run saved an entry for - its cleanup notes their collections
+        self.externals_saved: set[str] = set()
+        # collections saved with a listing that failed partway, which are not finished
+        self.unfinished_collections: set[str] = set()
+        # whether a collection run follows each collection's subcollections, its parent, or
+        # both - any number of steps away - and what it has read and has still to read
+        # external works indexed off collections' bookmarked items this run, by ao3's number
+        # for them - each written once, however many collections hold it
+        self.externals_indexed: dict[str, dict] = {}
+        self.last_externals: list[str] = []
+        self.collection_externals = 0
+        # series bookmarked among a collection's items, read back off `last_series` as external
+        # works are; and the work numbers of each series this run has read for a collection
+        # without indexing them - a series is read once however many collections hold it
+        self.last_series: list[str] = []
+        self.series_ids_found: dict[str, list[str]] = {}
+        # how many works each series' blurb in a collection's items says it holds - when its
+        # entry already lists that many, it is not read again
+        self.series_counts: dict[str, int] = {}
+        self.follow_subcollections = False
+        self.follow_parents = False
+        self.collections_seen: set[str] = set()
+        self.family_queue: list[tuple[str, str]] = []
+        # the works of every collection this run crawls, indexed as they are met - or None
+        # when the run was not asked to, and a collection records only their work numbers
+        self.collection_works: list[dict] | None = None
+        # each work a collection crawl indexed, by id, so one met again in a second
+        # collection is downloaded from what was read rather than read twice
+        self.indexed_this_run: dict[str, dict] = {}
         self.series = series
         self.images = images
         self.mark = mark
@@ -271,17 +325,15 @@ class Ao3:
                         # bookmark was passed over or to go and look at it
                         self.skipped_works.append(parse_soup.get_blurb_skip_reason(blurb))
                         continue
-                    if parse_soup.is_unrevealed_blurb(blurb):
-                        # it still gets indexed below - it has a number and a place in the
-                        # listing - but asking ao3 for the file would fail by definition
-                        self.unrevealed.add(str(worknum))
-                        self.skipped_works.append(
-                            {'id': str(worknum),
-                             'link': parse_soup.get_full_work_url('/works/' + str(worknum)) or '',
-                             'title': parse_soup.get_text_or_empty(blurb, 'h4.heading'),
-                             'error': strings.SKIPPED_UNREVEALED})
+                    # it still gets indexed below - it has a number and a place in the
+                    # listing - but asking ao3 for the file would fail by definition
+                    self.note_unrevealed(blurb, worknum)
 
-                    if known is not None and str(worknum) in known:
+                    # a work only a collection led the index to is checked here, when reached:
+                    # if you had not bookmarked it, it is new to your bookmarks, so the walk
+                    # reads it (marking it bookmarked) and carries on
+                    if known is not None and str(worknum) in known and \
+                            (not hasattr(known, 'confirmed') or known.confirmed(str(worknum))):
                         # the first fic we already hold. everything past it on this page,
                         # and every page after it, has been seen before
                         print(strings.AO3_INFO_REACHED_KNOWN)
@@ -665,8 +717,9 @@ class Ao3:
         return done, max(1, last - self.start + 1)
 
 
-    def walk_pages(self, link: str):
-        """Yield each page of a paginated ao3 listing, following 'next' until it runs out."""
+    def walk_pages(self, link: str, stop: int | None = None):
+        """Yield each page of a paginated ao3 listing, following 'next' until it runs out -
+        or until page `stop`, when given. It starts on whatever page `link` names."""
 
         total_pages = None
         while True:
@@ -677,23 +730,236 @@ class Ao3:
                 total_pages = parse_soup.get_total_pages(soup)
             pagenum = parse_text.get_page_number(link)
             if not total_pages or pagenum >= total_pages: break
+            if stop and pagenum >= stop: break
             link = parse_text.get_next_page(link)
             if self.pages and parse_text.get_page_number(link) == self.pages + 1: break
 
 
-    def collect_work_ids(self, link: str) -> list[str]:
+    def collect_work_ids(self, link: str, collection: str = '', key: str = '',
+                         earlier: dict | None = None, stop: int | None = None) -> list[str]:
         """Every work id on a listing, which is all a collection needs to record.
 
         The works themselves are described by the index in downloads/indexing, so there
         is nothing to gain from repeating their metadata here.
+
+        When the run was asked to index the works too (`collection_works`), each one is
+        indexed off the same page - the blurb carries everything a bookmarks listing would -
+        so it costs nothing on top of the crawl. A page is written once it has been read in
+        full, as a bookmarks listing is.
+
+        `on_collection_page` is told after every page - which one, and every work number found
+        so far - so a run can be resumed from there. `earlier` is that saved state from the
+        attempt being resumed: the walk starts again **on the last page it saved**, not the
+        one after. Works removed from the collection since pull later ones up a place, and
+        reading that page again catches a work that moved onto it; works added since push
+        others down, which only means one is seen twice, and is kept once.
         """
 
-        found: list[str] = []
-        for soup in self.walk_pages(link):
+        found: list[str] = [str(x) for x in (earlier or {}).get('ids') or []]
+        # the external works among the items, by ao3's number for them - a bookmarked-items
+        # listing can hold them, and they have no work number to go in `found`. read back by
+        # the caller off `last_externals`
+        external_ids: list[str] = [str(x) for x in (earlier or {}).get('externals') or []]
+        self.last_externals = external_ids
+        # the series among the items, by ao3's number for them - read by the caller off
+        # `last_series`, which reads each one's works once the listing is done
+        series_ids: list[str] = [str(x) for x in (earlier or {}).get('series') or []]
+        self.last_series = series_ids
+        start = int((earlier or {}).get('page') or 1)
+        if found:
+            # read before this attempt: indexed then, so downloaded with the rest now
+            self.keep_indexed(found)
+        page = start
+        for soup in self.walk_pages(parse_text.set_page_number(link, start) if start > 1
+                                    else link, stop):
+            readings: list[dict] = []
+            externals: list[dict] = []
             for blurb in parse_soup.get_blurbs(soup):
-                work = parse_soup.get_blurb_work_number(blurb)
-                if work and work not in found: found.append(work)
+                kind, work = parse_soup.get_blurb_kind(blurb)
+                if kind == parse_soup.BLURB_SERIES:
+                    if work and work not in series_ids: series_ids.append(work)
+                    count = parse_text.get_count(parse_soup.get_text_or_empty(blurb, 'dd.works'))
+                    if work and count: self.series_counts[work] = count
+                    continue
+                if kind == parse_soup.BLURB_EXTERNAL:
+                    if work and work not in external_ids: external_ids.append(work)
+                    if self.collection_works is None or not work: continue
+                    # read already this run, off another collection: not read twice. which
+                    # collections hold it is noted by the run's cleanup, from the files
+                    if work in self.externals_indexed: continue
+                    externals.append(parse_soup.get_external_bookmark_metadata(blurb, work))
+                    continue
+                if kind != parse_soup.BLURB_WORK or not work or work in found: continue
+                found.append(work)
+                if self.collection_works is None: continue
+                self.note_unrevealed(blurb, work)
+                if work in self.indexed_this_run:
+                    # read already this run, off another collection: not read twice, only
+                    # downloaded with the rest. which collections hold it is noted by the
+                    # run's cleanup step, from the collections' own files
+                    self.keep_collection_work(self.indexed_this_run[work])
+                    continue
+                readings.append(parse_soup.get_blurb_metadata(blurb))
+            for document in readings:
+                self.keep_collection_work(self.save_collection_work(document, collection, link))
+            for document in externals:
+                self.save_collection_external(document, collection, link)
+            if self.on_collection_page and key:
+                self.on_collection_page(collection, key, page, list(found),
+                                        externals=list(external_ids), series=list(series_ids))
+            page += 1
         return found
+
+
+    def keep_indexed(self, ids: list[str]) -> None:
+        """Add works an earlier attempt indexed to the ones this run downloads, from the index."""
+
+        if self.collection_works is None or not self.records_for: return
+        for record in self.records_for(ids):
+            if record.get('id'): self.indexed_this_run.setdefault(str(record['id']), record)
+            self.keep_collection_work(record)
+
+
+    def keep_collection_work(self, document: dict) -> None:
+        """Add a work to the ones this run will download, once."""
+
+        if self.collection_works is None: return
+        work = str(document.get('id') or '')
+        if work and all(str(x.get('id') or '') != work for x in self.collection_works):
+            self.collection_works.append(document)
+
+
+    def save_collection_external(self, document: dict, collection: str, listing: str) -> None:
+        """Index an external work - one hosted somewhere other than ao3 - that a collection's
+        bookmarked items include, in the same folder your own bookmarked external works go.
+
+        The rules of `save_collection_work`: it is somebody else's bookmark, so their notes and
+        tags are not written in as yours, an entry that exists keeps its own, and a new one is
+        not bookmarked. Never downloaded - there is nothing on ao3 to download. Which
+        collections hold it is noted by the run's cleanup step, as for every entry.
+        """
+
+        path = self.as_not_yours(document, strings.EXTERNAL_INDEX_FOLDER_NAME)
+        document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_EXTERNAL
+        document['source'] = document.get('source') or listing
+        self.save_entry(document, strings.EXTERNAL_INDEX_FOLDER_NAME, path)
+        if document.get('id'): self.externals_indexed[str(document['id'])] = document
+        self.collection_externals += 1
+
+
+    def list_entries(self, folder: str) -> dict[str, str]:
+        """Every entry in an index folder by the number its file name starts with.
+
+        A library written by an older version can hold **two files for one work** - it used
+        to write by the name a work would be given from its current title, so a retitled work
+        got a second file. Where a number has more than one, the one written most recently
+        (`last_indexed`) is the entry, the same one every time, and the run says which
+        numbers it found doubled rather than quietly choosing. Nothing is deleted.
+        """
+
+        names: dict[str, list[str]] = {}
+        try:
+            for name in self.fileops.list_files(os.path.join(self.fileops.downloadfolder, folder)):
+                if not str(name).lower().endswith('.json'): continue
+                number = parse_text.get_work_number_from_filename(str(name))
+                if number: names.setdefault(number, []).append(str(name))
+        except Exception:
+            return {}
+
+        chosen: dict[str, str] = {}
+        for number, found in names.items():
+            if len(found) == 1:
+                chosen[number] = found[0]
+                continue
+
+            def written(name: str) -> str:
+                try:
+                    data = self.fileops.load_json(os.path.join(folder, name))
+                    return str((data or {}).get(indexing.LAST_INDEXED) or '')
+                except Exception:
+                    return ''
+            chosen[number] = max(sorted(found), key=written)
+            self.duplicate_entries.append({'id': number, 'files': sorted(found),
+                                           'kept': chosen[number]})
+            print(strings.AO3_INFO_DUPLICATE_ENTRIES.format(number, len(found), chosen[number]))
+        return chosen
+
+
+    def as_not_yours(self, document: dict, subfolder: str = '') -> str:
+        """Make a reading of somebody else's bookmark safe to write as an entry of yours.
+
+        Their notes, tags and the rest of `BOOKMARK_OWN_FIELDS` are blanked - to the empty
+        shape a series work has, rather than removed - then an entry that already exists gets
+        its own back, and its source. A new entry is recorded as not bookmarked. Returns the
+        path the entry is at, or is to go - write it there.
+        """
+
+        for field in strings.BOOKMARK_OWN_FIELDS:
+            if field in document:
+                value = document[field]
+                document[field] = [] if isinstance(value, list) else \
+                    False if isinstance(value, bool) else ''
+        document.pop(strings.BOOKMARKED_FIELD, None)
+        path = self.entry_path(document, subfolder)
+        existing = indexing.flatten(self.fileops.load_json(path)) or {}
+        for field in strings.BOOKMARK_OWN_FIELDS:
+            if field in existing: document[field] = existing[field]
+        document.setdefault(strings.BOOKMARKED_FIELD, False)
+        if existing.get('source'): document['source'] = existing['source']
+        return path
+
+
+    def entry_path(self, document: dict, subfolder: str = '') -> str:
+        """Where an entry already lives, found by the number its file name starts with - or
+        where a new one would go.
+
+        Not by the name it would be given now: that is built from the title and author,
+        which change - a retitled work, a renamed author - and a lookup by the new name misses
+        the entry that is there, writes a second file for the same work, and records it as
+        not bookmarked. `series_path` finds series the same way for the same reason. The
+        folder is listed once per run and remembered.
+        """
+
+        folder = os.path.join(strings.INDEXING_FOLDER_NAME, subfolder) if subfolder \
+            else strings.INDEXING_FOLDER_NAME
+        known = self.entries_by_id.get(folder)
+        if known is None:
+            known = self.list_entries(folder)
+            self.entries_by_id[folder] = known
+        number = str(document.get('id') or '')
+        if number and number in known: return os.path.join(folder, known[number])
+        # not remembered here: a lookup can be made with little more than a number (a
+        # series' `series_existing`), and the name built from that is not one to reuse. a
+        # name is remembered once a file has been written under it - `remember_entry`
+        return self.metadata_path(document, subfolder)
+
+
+    def remember_entry(self, path: str) -> None:
+        """Note a file just written, so the rest of the run finds it by its number."""
+
+        folder, name = os.path.split(path)
+        number = parse_text.get_work_number_from_filename(name)
+        known = self.entries_by_id.get(folder)
+        if number and known is not None: known.setdefault(number, name)
+
+
+    def save_collection_work(self, document: dict, collection: str, listing: str) -> dict:
+        """Index one work read off a collection's listing.
+
+        The same rules as a work read off a series page (`save_series_work`): a collection
+        knows the work but nothing about your own bookmark of it. A listing of the
+        collection's *bookmarks* carries somebody else's bookmark - their notes, their tags -
+        so those fields are dropped rather than written in as yours. An entry that already
+        exists keeps its own; a new one is recorded as **not bookmarked**.
+        """
+
+        path = self.as_not_yours(document)
+        document['source'] = document.get('source') or listing
+        document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_WORK
+        self.save_metadata(document, path)
+        if document.get('id'): self.indexed_this_run[str(document['id'])] = document
+        self.mark_series_of(document)
+        return document
 
 
     def collect_collection_links(self, link: str) -> list[str]:
@@ -728,13 +994,8 @@ class Ao3:
                 for blurb in parse_soup.get_collection_blurbs(soup):
                     slug = parse_soup.get_collection_slug(blurb)
                     if not slug: continue
-                    document = self.read_collection(slug, source, blurb)
-                    records.append(document)
-                    self.save_collection(document)
-                    progress.report(self.progress, progress.WORK,
-                                    title=document.get('title') or slug,
-                                    phase=progress.COLLECTIONS, done=len(records))
-                    print(strings.AO3_INFO_COLLECTION_SAVED.format(slug))
+                    self.take_collection(slug, source, records, blurb)
+            self.walk_family(records)
         except exceptions.CancelledException:
             print(strings.INFO_CANCELLED)
         except Exception as e:
@@ -765,13 +1026,8 @@ class Ao3:
 
         try:
             print(strings.AO3_INFO_COLLECTION_ONE.format(slug))
-            document = self.read_collection(slug, link)
-            records.append(document)
-            self.save_collection(document)
-            progress.report(self.progress, progress.WORK,
-                            title=document.get('title') or slug,
-                            phase=progress.COLLECTIONS, done=1, total=1)
-            print(strings.AO3_INFO_COLLECTION_SAVED.format(slug))
+            self.take_collection(slug, link, records)
+            self.walk_family(records)
         except exceptions.CancelledException:
             print(strings.INFO_CANCELLED)
         except Exception as e:
@@ -781,6 +1037,104 @@ class Ao3:
             print(strings.INFO_LINKS_LIST_CANCELED)
 
         return records
+
+
+    def take_collection(self, slug: str, source: str, records: list[dict], blurb=None) -> None:
+        """Read one collection and save it - or, when the attempt being resumed finished it,
+        take what that attempt saved. Either way its family is queued, when the run follows it.
+
+        Every collection this run takes is remembered (`collections_seen`), which is what
+        stops a family whose members point at each other from being walked round for ever:
+        a collection is read at most once per run, however many others link to it.
+        """
+
+        self.collections_seen.add(slug)
+        if self.finished_before(slug):
+            records.append({'name': slug})
+            return
+        document = self.read_collection(slug, source, blurb)
+        records.append(document)
+        self.save_collection(document)
+        self.collection_saved(slug, document)
+        progress.report(self.progress, progress.WORK, title=document.get('title') or slug,
+                        phase=progress.COLLECTIONS, done=len(records))
+        print(strings.AO3_INFO_COLLECTION_SAVED.format(slug))
+        self.queue_family(self.family_of(document), slug)
+
+
+    def family_of(self, document: dict) -> list[str]:
+        """The collections a collection links to that this run was asked to follow: its
+        subcollections, its parent, or both - by short name."""
+
+        found: list[str] = []
+        if self.follow_subcollections:
+            for url in document.get('subcollections') or []:
+                slug = parse_text.get_collection_name(str(url or ''))
+                if slug and slug not in found: found.append(slug)
+        if self.follow_parents:
+            slug = parse_text.get_collection_name(str(document.get('parent_collection') or ''))
+            if slug and slug not in found: found.append(slug)
+        return found
+
+
+    def queue_family(self, slugs: list[str], via: str) -> None:
+        """Queue relatives to be read once the collections asked for are done - each once,
+        whether it has already been read, is waiting, or is linked from somewhere else too."""
+
+        for slug in slugs:
+            if slug in self.collections_seen or any(s == slug for s, _ in self.family_queue):
+                continue
+            self.family_queue.append((slug, via))
+
+
+    def walk_family(self, records: list[dict]) -> None:
+        """Read every queued relative, queueing theirs in turn, until there are none left.
+
+        Ends because each collection is read at most once (`take_collection` remembers it,
+        `queue_family` never queues one twice) and ao3 has only so many - and, should a
+        family ever turn out enormous, `COLLECTION_FAMILY_LIMIT` stops it outright and says
+        so, rather than letting one run wander the whole archive.
+        """
+
+        taken = 0
+        while self.family_queue:
+            self.check_cancelled()
+            if taken >= strings.COLLECTION_FAMILY_LIMIT:
+                print(strings.AO3_INFO_COLLECTION_FAMILY_LIMIT.format(
+                    strings.COLLECTION_FAMILY_LIMIT, len(self.family_queue)))
+                self.family_queue.clear()
+                return
+            slug, via = self.family_queue.pop(0)
+            if slug in self.collections_seen: continue
+            taken += 1
+            print(strings.AO3_INFO_COLLECTION_FAMILY.format(slug, via))
+            self.take_collection(slug, f'{strings.AO3_BASE_URL}/collections/{via}', records)
+
+
+    def finished_before(self, slug: str) -> bool:
+        """Whether the attempt being resumed finished this collection - in which case it is
+        not read again, the works it found are downloaded from the index, and the relatives
+        it saved are followed as though it had just been read."""
+
+        before = self.collections_before.get(slug) or {}
+        if not before.get('done'): return False
+        print(strings.AO3_INFO_RESUME_COLLECTION_DONE.format(slug))
+        self.keep_indexed([str(x) for x in before.get('works') or []])
+        self.queue_family([str(x) for x in before.get('family') or []], slug)
+        return True
+
+
+    def collection_saved(self, slug: str, document: dict) -> None:
+        """Tell the run a collection is finished - unless one of its listings failed partway,
+        which a resumed run has to read again rather than skip."""
+
+        if self.on_collection_done and slug not in self.unfinished_collections:
+            series_works = [w for series_id in document.get('series_ids') or []
+                            for w in self.series_read.get(str(series_id))
+                            or self.series_ids_found.get(str(series_id)) or []]
+            self.on_collection_done(slug, [str(x) for x in (document.get('work_ids') or []) +
+                                           (document.get('bookmark_ids') or []) + series_works],
+                                    self.family_of(document))
 
 
     def read_collection(self, slug: str, source: str, blurb=None) -> dict:
@@ -812,21 +1166,84 @@ class Ao3:
         # what we already know about this collection, to avoid re-walking what has not moved
         previous = self.previous_collection(slug)
 
+        indexing_works = self.collection_works is not None
+        before = len(self.collection_works or [])
+        externals_before = self.collection_externals
         for key, count_key, label, url in (
                 ('work_ids', 'work_count', 'works', f'{base}/works'),
                 ('bookmark_ids', 'bookmark_count', 'bookmarked items', f'{base}/bookmarks')):
-            kept = self.unchanged_items(previous, document, key, count_key)
+            # an unchanged count says the work numbers are the same, not that the works are:
+            # indexing them means reading the listing, so a run asked to never skips it
+            kept = None if indexing_works else self.unchanged_items(
+                previous, document, key, count_key)
             if kept is not None:
                 document[key] = kept
+                if key == 'bookmark_ids':
+                    document['external_ids'] = [str(x) for x in previous.get('external_ids') or []]
+                    document['series_ids'] = [str(x) for x in previous.get('series_ids') or []]
                 print(strings.AO3_INFO_COLLECTION_UNCHANGED.format(slug, len(kept), label))
                 continue
+            earlier = ((self.collections_before.get(slug) or {}).get('listings') or {}).get(key)
             try:
-                document[key] = self.collect_work_ids(url)
+                if earlier and earlier.get('done'):
+                    document[key] = [str(x) for x in earlier.get('ids') or []]
+                    externals = [str(x) for x in earlier.get('externals') or []]
+                    series = [str(x) for x in earlier.get('series') or []]
+                    if key == 'bookmark_ids':
+                        document['external_ids'] = externals
+                        document['series_ids'] = series
+                    self.keep_indexed(document[key])
+                    if self.on_collection_page:
+                        self.on_collection_page(slug, key, None, document[key], done=True,
+                                                externals=externals, series=series)
+                    continue
+                if earlier and int(earlier.get('page') or 1) > 1:
+                    print(strings.AO3_INFO_RESUME_COLLECTION_PAGE.format(
+                        slug, label, earlier['page']))
+                ids = self.collect_work_ids(url, slug, key, earlier)
+                externals = list(self.last_externals)
+                series = list(self.last_series)
+                resumed_from = int((earlier or {}).get('page') or 1)
+                count = document.get(count_key)
+                if key == 'work_ids' and resumed_from > 1 and isinstance(count, int) \
+                        and len(ids) < count:
+                    # fewer than the collection says it holds: works that moved to the front
+                    # since the earlier attempt - updated ones, if the listing is ordered by
+                    # date updated - sit on pages it had already read, so read those again
+                    print(strings.AO3_INFO_RESUME_COLLECTION_SHORT.format(
+                        slug, len(ids), count, resumed_from - 1))
+                    ids = self.collect_work_ids(url, slug, key, {'ids': ids, 'page': 1},
+                                                stop=resumed_from - 1)
+                document[key] = ids
+                if key == 'bookmark_ids':
+                    document['external_ids'] = externals
+                    document['series_ids'] = series
+                if self.on_collection_page:
+                    self.on_collection_page(slug, key, None, ids, done=True, externals=externals,
+                                            series=series)
             except exceptions.CancelledException:
                 raise
             except Exception as e:
                 document[key] = []
+                if key == 'bookmark_ids':
+                    document['external_ids'] = []
+                    # a failed listing keeps the series it had, so their works are not
+                    # dropped from the file for want of a page
+                    document['series_ids'] = [str(x) for x in previous.get('series_ids') or []]
+                # saved with what it has, as ever - but not finished, so a resumed run reads it
+                self.unfinished_collections.add(slug)
                 self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': url}, e)
+
+        # the works in each series are recorded in the series' own entry, not here - a
+        # collection names the series, as it names works, and the index describes them
+        series_works = self.collection_series(slug, document.get('series_ids') or [])
+
+        if indexing_works:
+            print(strings.AO3_INFO_COLLECTION_WORKS.format(
+                slug, len(self.collection_works or []) - before))
+            if self.collection_externals > externals_before:
+                print(strings.AO3_INFO_COLLECTION_EXTERNALS.format(
+                    slug, self.collection_externals - externals_before))
 
         # only worth asking for when the sidebar says there are some
         document['subcollections'] = []
@@ -847,6 +1264,98 @@ class Ao3:
                     self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': base}, e)
 
         return document
+
+
+    def collection_series(self, slug: str, series_ids: list[str]) -> dict[str, list[str]]:
+        """Read every series bookmarked among a collection's items, and write its entry in
+        `indexing/series/` with the works in it - the collection itself records only the
+        series' number, as it does a work's.
+
+        The entry follows the rules for any series not bookmarked by you: one that exists
+        keeps what it says about your own bookmark of it; a new one is **not bookmarked**.
+        Somebody else's bookmark of it - the collection's blurb, with their notes and tags - is
+        never what the entry is written from; the series' own page is.
+
+        When the run indexes the collection's works, the series' works are indexed too
+        (`index_series`, the series walk's own: a new entry is not bookmarked) and downloaded
+        with the rest; otherwise only the series' entry is written. A request per 20 works,
+        once per run however many collections hold the series; one that will not read keeps
+        the works its entry had. Returns the works of each series read.
+        """
+
+        found: dict[str, list[str]] = {}
+        if series_ids:
+            print(strings.AO3_INFO_COLLECTION_SERIES.format(slug, len(series_ids)))
+        for series_id in series_ids:
+            series_id = str(series_id)
+            self.check_cancelled()
+            works = self.series_read.get(series_id)
+            if works is None: works = self.series_ids_found.get(series_id)
+            if works is None: works = self.series_unchanged(series_id)
+            if works is None and self.collection_works is not None:
+                for document in self.index_series({'id': series_id, 'title': '', 'bookmark': None}):
+                    if document.get('id'): self.indexed_this_run[str(document['id'])] = document
+                    self.keep_collection_work(document)
+                works = self.series_read.get(series_id)
+            elif works is None:
+                works = self.read_series(series_id)
+            if works is None: continue
+            # works indexed before this run, off a listing, are downloaded with the rest
+            self.keep_indexed([w for w in works if w not in self.indexed_this_run])
+            found[series_id] = list(works)
+        return found
+
+
+    def series_unchanged(self, series_id: str) -> list[str] | None:
+        """The works a series' entry already lists, when the collection's blurb for it says it
+        holds exactly that many - so a series a scan of your bookmarks (or an earlier run) has
+        read is not read again. None when it has to be read: no entry, no count, a count that
+        differs, or - when the run indexes the works - any of them not yet in the index."""
+
+        count = self.series_counts.get(series_id)
+        if not count: return None
+        listed = [str(x) for x in self.series_existing(series_id).get(strings.SERIES_WORKS_FIELD) or []]
+        if len(listed) != count: return None
+        if self.collection_works is not None:
+            indexed = {str(r.get('id')) for r in (self.records_for(listed) if self.records_for else [])}
+            if not set(listed) <= indexed: return None
+        print(strings.AO3_INFO_COLLECTION_SERIES_UNCHANGED.format(series_id, count))
+        self.series_ids_found[series_id] = listed
+        return listed
+
+
+    def read_series(self, series_id: str) -> list[str] | None:
+        """Read a series' pages for the works in it, without indexing any of them, and write
+        the series' entry - or leave the entry as it was, and answer None, when it will not
+        read."""
+
+        link = f'{strings.AO3_BASE_URL}/series/{series_id}'
+        print(strings.AO3_INFO_SERIES_READING.format(series_id))
+        found: list[str] = []
+        header: dict | None = None
+        page = link
+        try:
+            total = None
+            while True:
+                self.check_cancelled()
+                soup = self.repo.get_soup(page)
+                if header is None: header = parse_soup.get_series_page_metadata(soup, series_id)
+                if total is None: total = parse_soup.get_total_pages(soup)
+                for blurb in parse_soup.get_blurbs(soup):
+                    kind, work = parse_soup.get_blurb_kind(blurb)
+                    if kind == parse_soup.BLURB_WORK and work and work not in found:
+                        found.append(work)
+                if not total or parse_text.get_page_number(page) >= total: break
+                page = parse_text.get_next_page(page)
+        except exceptions.CancelledException:
+            raise
+        except Exception as e:
+            print(strings.ERROR_SERIES)
+            self.log_error({'message': strings.ERROR_SERIES, 'link': link}, e)
+            return None
+        self.series_ids_found[series_id] = found
+        self.save_series_entry(self.series_document(series_id, None, header, found))
+        return found
 
 
     def previous_collection(self, name: str) -> dict:
@@ -941,29 +1450,55 @@ class Ao3:
             filename + parse_text.get_file_type(strings.AO3_DOWNLOAD_TYPE_METADATA))
 
 
-    def save_metadata(self, document: dict) -> None:
-        """Write one work to its own json file, in the indexing subfolder."""
+    def note_unrevealed(self, blurb, worknum) -> None:
+        """Hold back a work in a collection that has not been revealed yet, and say why.
+
+        It indexes fine - it has a number and a place in the listing - but ao3 will not serve
+        its file until the collection is revealed, so asking would fail by definition.
+        """
+
+        if not parse_soup.is_unrevealed_blurb(blurb) or str(worknum) in self.unrevealed: return
+        self.unrevealed.add(str(worknum))
+        self.skipped_works.append(
+            {'id': str(worknum),
+             'link': parse_soup.get_full_work_url('/works/' + str(worknum)) or '',
+             'title': parse_soup.get_text_or_empty(blurb, 'h4.heading'),
+             'error': strings.SKIPPED_UNREVEALED})
+
+
+    def save_metadata(self, document: dict, path: str | None = None) -> None:
+        """Write one work to its own json file, in the indexing subfolder.
+
+        Into the file its entry already has, found by the work number its name starts with
+        (`entry_path`) - never by the name it would be given from today's title and author,
+        which a retitled work or a renamed author would not match, leaving a second file for
+        the same work beside the first.
+        """
 
         try:
-            path = self.metadata_path(document)
+            path = path or self.entry_path(document)
             # keep whatever readings the file already holds, and add this one only if it
             # says something new
             merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
             self.fileops.save_json(path, merged)
+            self.remember_entry(path)
             if document.get('id'): self.reindexed.add(str(document['id']))
         except Exception as e:
             # one unwritable file shouldn't end the run
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
 
 
-    def save_entry(self, document: dict, subfolder: str) -> None:
+    def save_entry(self, document: dict, subfolder: str, path: str | None = None) -> None:
         """Write a bookmark that is not a work - a series, an external work - to its folder
         inside indexing/, keeping its history the way a work's file does."""
 
         try:
-            path = self.metadata_path(document, subfolder)
+            path = path or self.entry_path(document, subfolder)
             merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
             self.fileops.save_json(path, merged)
+            self.remember_entry(path)
+            if subfolder == strings.EXTERNAL_INDEX_FOLDER_NAME and document.get('id'):
+                self.externals_saved.add(str(document['id']))
         except Exception as e:
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
 
@@ -1103,6 +1638,13 @@ class Ao3:
         A series marked only because a work of yours is in it is recorded as **not
         bookmarked** - unless its entry says you bookmarked it, which a run that did not
         reach that bookmark cannot contradict.
+
+        **An entry you bookmarked keeps its reading as it is**, and only its works are brought
+        up to date. The page describes a series differently from a bookmark blurb - no tags,
+        its own date format - so writing the page over your bookmark's reading would blank
+        your tags and add a reading that the next scan of your bookmarks undoes again. That
+        scan is what brings a bookmarked series' own details up to date. And nothing the page
+        leaves blank overwrites what the entry has.
         """
 
         if bookmark:
@@ -1112,7 +1654,9 @@ class Ao3:
             document = {key: value for key, value in existing.items()
                         if key not in (indexing.INDEXES, indexing.LAST_INDEXED,
                                        indexing.INDEXED_ON)}
-            document.update({k: v for k, v in (header or {}).items() if v not in (None, '', [])})
+            if existing.get(strings.BOOKMARKED_FIELD) is not True:
+                document.update({k: v for k, v in (header or {}).items()
+                                 if v not in (None, '', []) and (not blank(v) or k not in document)})
             document.setdefault('id', series_id)
             document.setdefault('link', f'{strings.AO3_BASE_URL}/series/{series_id}')
             document.setdefault(strings.BOOKMARKED_FIELD, False)
@@ -1125,17 +1669,7 @@ class Ao3:
         """Where a series' entry lives - found by its id when it is already there, so a
         series renamed on ao3 keeps its one file rather than starting a second."""
 
-        folder = os.path.join(self.fileops.downloadfolder, strings.INDEXING_FOLDER_NAME,
-                              strings.SERIES_INDEX_FOLDER_NAME)
-        series_id = str(document.get('id') or '')
-        try:
-            for name in self.fileops.list_files(folder):
-                if parse_text.get_work_number_from_filename(name) == series_id:
-                    return os.path.join(strings.INDEXING_FOLDER_NAME,
-                                        strings.SERIES_INDEX_FOLDER_NAME, name)
-        except Exception:
-            pass
-        return self.metadata_path(document, strings.SERIES_INDEX_FOLDER_NAME)
+        return self.entry_path(document, strings.SERIES_INDEX_FOLDER_NAME)
 
 
     def series_existing(self, series_id: str) -> dict:
@@ -1154,6 +1688,7 @@ class Ao3:
                 document = {**document, strings.SERIES_WORKS_FIELD: current[strings.SERIES_WORKS_FIELD]}
             merged = indexing.merge(existing, document, self.indexed_on)
             self.fileops.save_json(path, merged)
+            self.remember_entry(path)
         except Exception as e:
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
 
@@ -1168,14 +1703,15 @@ class Ao3:
         meets it in your bookmarks listing, that reading says bookmarked, as any does.
         """
 
-        existing = indexing.flatten(self.fileops.load_json(self.metadata_path(document))) or {}
+        path = self.entry_path(document)
+        existing = indexing.flatten(self.fileops.load_json(path)) or {}
         for field in strings.BOOKMARK_OWN_FIELDS:
             if field in existing: document[field] = existing[field]
         document.setdefault(strings.BOOKMARKED_FIELD, False)
         document['source'] = existing.get('source') or series_link
         document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_WORK
         document[indexing.FROM_SERIES] = [series_id]
-        self.save_metadata(document)
+        self.save_metadata(document, path)
         return document
 
     # endregion

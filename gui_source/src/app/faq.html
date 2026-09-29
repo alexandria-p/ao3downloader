@@ -33,6 +33,93 @@
     your username is kept, in your browser, and only if you tick the box.
   </p>
 
+  <h3>Leaving a run to finish on its own</h3>
+
+  <p>
+    Tick <strong>Run as background task</strong> on a run's login step and it carries on
+    after you close the page - start it, go away, and come back hours later. It is only
+    offered when your library is in <strong>Dropbox</strong> and you are signed in: a folder
+    on this computer can only be reached while this page is open, so a run there needs the
+    page for as long as it lasts.
+  </p>
+
+  <p>
+    Nobody will be there to answer if the run stops to ask something, so it asks first - what
+    to do about files with no date, about older copies of a work, and on a quick scan, how far
+    back to go. An answer is only used if the question actually comes up.
+  </p>
+
+  <p class="hint">
+    Only one run can go at a time. While one is going the page says so at the top, and
+    <strong>Go to this run</strong> takes you to it in the History tab, where
+    <strong>View progress</strong> opens it again - pause it, stop it, or press
+    <strong>Continue in background</strong> to leave it be. A background run left paused
+    for 10 minutes is <strong>abandoned</strong> - it ends, keeping what it saved, and can be
+    resumed from History. Restarting the helper ends a background run; what it saved stays saved, and starting it again carries on from what is
+    still missing.
+  </p>
+
+  <h3>What the History tab says about a run</h3>
+
+  <p>
+    Every run is written down in History the moment it starts, and kept up to date as it
+    goes. Whatever it says, what a run already saved stays saved, and
+    <strong>Download log</strong> (everything the run said in its window) and
+    <strong>Download issues</strong> (anything it could not get, when there is something)
+    are offered on its entry.
+  </p>
+
+  <dl class="statuses">
+    <dt>In progress - running</dt>
+    <dd>
+      The helper is working on it now. It is pinned at the top of History, and nothing else
+      can start until it ends. Its own entry below says <strong>Running</strong>. If the entry
+      says <strong>Running - not confirmed by the helper</strong>, the helper has not answered
+      yet (a hosted one may still be waking up); <strong>Running on another helper</strong>
+      means it was started from a different copy of the app on the same library.
+    </dd>
+    <dt>In progress - paused</dt>
+    <dd>
+      You pressed Pause. The run waits before its next request, never halfway through saving
+      a file, and carries on when you press Resume. A background run left paused for 10
+      minutes is abandoned; any other run stays paused until you resume or stop it.
+    </dd>
+    <dt>Finished</dt>
+    <dd>
+      The run reached its end. Individual works can still have failed along the way - they
+      are in <strong>Download issues</strong>, and a later run tries them again.
+    </dd>
+    <dt>Stopped</dt>
+    <dd>
+      You pressed Stop. It ended at the next safe point, keeping everything it had saved.
+    </dd>
+    <dt>Abandoned</dt>
+    <dd>
+      A background run that was left paused for too long, so the helper ended it rather than
+      keep waiting. It ends just as a stopped run does.
+    </dd>
+    <dt>Failed</dt>
+    <dd>
+      Something ended the run early - AO3 refused the login, the login lapsed partway, or the
+      library could not be reached. The reason is on its entry.
+    </dd>
+    <dt>Interrupted</dt>
+    <dd>
+      The run never got to say how it ended: the helper stopped, crashed or restarted (a
+      deploy of a hosted copy does this) while it was going. The page marks it once the helper
+      answers without it. Its log and issues go up to its last save - at most about two
+      minutes before it was cut off, and usually much less.
+    </dd>
+  </dl>
+
+  <p class="hint">
+    Anything that did not finish can be carried on. A full scan, quick scan, custom run or
+    collection run offers <strong>Resume</strong>, which picks up where it got to - a
+    collection run from the page of the collection it had reached; anything else, start the
+    same run again. Every run skips
+    what is already downloaded and current, so going again only costs what is still missing.
+  </p>
+
   <h3>What does not survive a download</h3>
 
   <dl>
@@ -137,11 +224,12 @@
       <li><span class="mock-link">12345678</span> <span class="reason">a series, not a single work</span></li>
       <li><span class="mock-link">Some Fic</span> <span class="reason">the work has been deleted</span></li>
     </ul>
-    <span class="mock-button">Export all issues</span>
   </div>
 
   <p class="hint">
-    <strong>Export all issues</strong> saves one plain text file covering everything the run
+    Every run's entry in the <strong>History</strong> tab has a
+    <strong>Download issues</strong> button, for as long as the run is recorded there - not
+    only at the end of the run. It saves one plain text file covering everything the run
     reported, under a heading for each kind - one row per entry, with the work or series
     number where there is one, the link where there is one, and the reason. A deleted work has neither a number nor a link, so its row carries whatever the
     listing still called it.

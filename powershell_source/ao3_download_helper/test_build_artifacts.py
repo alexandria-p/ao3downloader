@@ -279,6 +279,34 @@ def test_build_removes_a_data_json_left_by_an_earlier_build(fake_root):
     assert not (config_dir(fake_root) / 'data.json').exists()
 
 
+def test_a_rebuild_adds_the_settings_an_older_settings_ini_lacks(fake_root):
+    # the user's own values stay; what was added since the file was written is appended,
+    # explained, at its default
+    build_artifacts.build(fake_root, skip_web=True)
+    settings = config_dir(fake_root) / 'settings.ini'
+    settings.write_text('[settings]\nExtraWaitTime=42\n', encoding='utf-8')
+
+    result = build_artifacts.build(fake_root, skip_web=True)
+
+    text = settings.read_text(encoding='utf-8')
+    assert 'ExtraWaitTime=42' in text
+    assert '# where downloads are saved\nDownloadFolder=downloads' in text
+    assert build_artifacts.SAVE_PASSWORD_KEY not in text
+    assert result['settings_added'] == ['DownloadFolder']
+    assert result['config_created'] == []
+
+
+def test_a_rebuild_leaves_a_complete_settings_ini_alone(fake_root):
+    build_artifacts.build(fake_root, skip_web=True)
+    settings = config_dir(fake_root) / 'settings.ini'
+    before = settings.read_text(encoding='utf-8')
+
+    result = build_artifacts.build(fake_root, skip_web=True)
+
+    assert settings.read_text(encoding='utf-8') == before
+    assert result['settings_added'] == []
+
+
 def test_build_does_not_overwrite_config_that_is_already_there(fake_root):
     # a rebuild must not throw away the download folder
     build_artifacts.build(fake_root, skip_web=True)

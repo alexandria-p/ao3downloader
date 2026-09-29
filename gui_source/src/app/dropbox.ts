@@ -201,6 +201,12 @@ export class DropboxBrowser {
   }
 }
 
+/** a Dropbox sign-in as a background run is handed it */
+export interface DropboxHandover {
+  refreshToken: string;
+  appKey: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class DropboxSession {
   private readonly browser = inject(DropboxBrowser);
@@ -237,6 +243,19 @@ export class DropboxSession {
     this.refreshToken = session.refreshToken;
     this.account.set(session.account);
     this.status.set('signed-in');
+  }
+
+  /**
+   * What a background run needs to reach the library without this page: the refresh token
+   * and the app key, or null when not signed in.
+   *
+   * The only time the session leaves the page. It goes to the helper, sealed with the login
+   * when there is a key, and the helper holds it in memory for the one run - see
+   * `dropbox_library.py`. The app is scoped to its own folder, so that is all it reaches.
+   */
+  handover(): DropboxHandover | null {
+    if (this.status() !== 'signed-in' || !this.refreshToken || !this.appKey) return null;
+    return { refreshToken: this.refreshToken, appKey: this.appKey };
   }
 
   /** Leave for dropbox.com to sign in. The page comes back to `restore`. */

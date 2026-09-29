@@ -180,6 +180,15 @@ export function flattenRecord(parsed: unknown): Bookmark | null {
  * works you have never bookmarked. Rather than dropping those, they are shown with the one
  * thing that is known about them - the number - and a link to the work on ao3.
  */
+export function placeholderExternal(id: string): Bookmark {
+  return {
+    ...placeholderWork(id),
+    link: `${AO3_BASE_URL}/external_works/${id}`,
+    title: `External work ${id}`,
+    bookmark_type: 'external work',
+  };
+}
+
 export function placeholderWork(id: string): Bookmark {
   return {
     placeholder: true,

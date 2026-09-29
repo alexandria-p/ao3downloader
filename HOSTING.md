@@ -71,6 +71,7 @@ In the repo: **Settings → Secrets and variables → Actions**.
 | `ENABLE_DEBUG_LOGGING` | `EnableDebugLogging` | `false` | more detail in the helper's log |
 | `ENABLE_DEBUG_TOOLS` | `EnableDebugTools` | `false` | the debug panel and the single-pass runs in the page |
 | `ENABLE_CONSOLE_LOGGING` | `EnableConsoleLogging` | `false` | print every request and every line a run says to Render's **Logs** tab |
+| `PAUSED_RUN_TIMEOUT_MINUTES` | `PausedRunTimeoutMinutes` | `10` | minutes a paused background run is kept before it is abandoned; `0` never |
 
 Numbers have to be whole numbers and switches `true` or `false`; anything else fails the
 deploy, naming the variable. `SavePassword` is the one key left out: the page never stores
@@ -162,6 +163,19 @@ that saved the old passcode is asked for the new one the next time it talks to t
 A new key needs the page rebuilt too, which the same run does.
 
 ## Things to know
+
+- **Background runs keep the helper awake - unless paused.** A free Render service is
+  stopped after about 15 minutes without a request from outside, and a run with the page
+  closed has nothing talking to it. So while a background run is going, the helper requests
+  its own address (`RENDER_EXTERNAL_URL`, which Render sets) every 10 minutes. A **paused**
+  run does not: it is waiting for you, and after `PAUSED_RUN_TIMEOUT_MINUTES` (10 by default)
+  the helper abandons it - it ends keeping everything it saved, and can be resumed from
+  History. Keep that timeout under Render's 15 minutes, or Render may end the run first (it
+  then shows as interrupted, still resumable).
+- **Deploying ends a background run.** The helper holds runs in memory, so a new version
+  starting means the old run is gone. Wait for a background run to finish before running
+  **deploy hosted app**; if you don't, it shows in History as interrupted, and starting it
+  again carries on from what is still missing.
 
 - **A free Render service sleeps** after about 15 minutes without requests, and takes up to a
   minute to wake. If the passcode window says it couldn't reach the helper, wait and try

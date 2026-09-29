@@ -12,13 +12,15 @@ the same thing in conversation.
 - **Series** - an AO3 series: an ordered set of works.
 - **Series bookmark** [bookmarked series] - a bookmark of a whole series rather than one of its works.
 - **External work** - a bookmark of a work hosted somewhere other than AO3; indexed, never downloaded.
-- **Collection** - an AO3 collection; indexed as a list of the works it holds.
+- **Collection** - an AO3 collection; indexed as a list of the works it holds, and optionally the works themselves.
 
 ## Index properties
 
 - **Bookmark type** [type] - what an index entry is: `individual work`, `series bookmark` or `external work`.
 - **Bookmarked** [is_bookmark] - whether you bookmarked a work or series yourself (`true`/`false`, or absent when unknown).
-- **Non-bookmark** - an individual work in the index with `bookmarked: false`: there because a run was led to it some other way, usually through another work's series.
+- **Non-bookmark** - an individual work in the index with `bookmarked: false`: there because a run was led to it some other way, usually through another work's series or a collection.
+- **From series** [from_series] - the series a work was found through; added to, never replaced.
+- **From collections** [from_collections] - the collections that hold a work or external work, by short name; set by the cleanup step of every workflow but the debug ones, from the collection files in the library; added to, never replaced.
 
 ## Reading AO3
 
@@ -29,8 +31,16 @@ the same thing in conversation.
 - **Scan** - can be used either to describe a scan workflow (full or quick), or to describe reading the library's existing files (the check step).
 - **Cleanup** - the step that removes older copies you chose to remove.
 - **Report** - the end-of-run lists of what failed, was skipped, or needs checking.
-- **Interrupted** - a run that never wrote its ending (the page closed, the helper stopped). The page marks its history file `interrupted` once the helper confirms it is not working on it.
-- **Resume** [pick up where it left off, re-attempt] - carry on a stopped, failed or interrupted scan as that same workflow, with its settings. See `RESUMING.md`. [EXPERIMENTAL]
+- **Run status** [outcome] - what a run's History entry says about how it went. Every status keeps what the run saved, and offers **Download log** and (when there are any) **Download issues**:
+  - **In progress - running** - the helper is working on it now; pinned at the top of History. Its own entry says *Running*, or *Running - not confirmed by the helper* (the helper has not answered yet), or *Running on another helper* (started from another copy of the app on the same library). Record status `running`.
+  - **In progress - paused** - the user pressed Pause; it waits before its next request, never mid-save. Not a record status: the record still says `running`. A background run left paused becomes *Abandoned*; any other stays paused until resumed or stopped.
+  - **Finished** [successful] - reached its end. Individual works may still have failed; they are in its issues. Record status `success`.
+  - **Stopped** - the user pressed Stop; it ended at the next safe point. Record status `stopped`.
+  - **Abandoned** - see below. Record status `abandoned`.
+  - **Failed** - an error ended it early (login refused, login lapsed, library unreachable); the reason is on the entry. Record status `failed`.
+  - **Interrupted** - see below. Record status `interrupted`.
+- **Interrupted** - a run that never wrote its ending (the page closed, the helper stopped, crashed or restarted - a deploy included). The page marks its history file `interrupted` once the helper confirms it is not working on it. Its log and issues go up to its last save, at most about two minutes behind.
+- **Resume** [pick up where it left off, re-attempt] - carry on a stopped, failed, abandoned or interrupted scan or collection run as that same workflow, with its settings. See `RESUMING.md`. [EXPERIMENTAL]
 - **Baseline** - the moment a run's AO3 login succeeded; a resumed run keeps its first attempt's. What a quick scan measures back to.
 - **Progress** [checkpoint] - what a run saves in its history file as it goes, so it can be resumed: its step, each walk's page and last bookmark, series walked, and its scope.
 - **Scope** - every work a run covers, saved as its file check starts; a run resumed after that point works from it without indexing.
@@ -85,6 +95,16 @@ the same thing in conversation.
 - **Setting** [config] - the properties in the config/settings.ini file which are used by the Page and Helper (for example, it specifies the length of cooldown in seconds between each request to AO3)
 - **Hosting settings** - `HelperUrl` (where the page finds the helper), `RequirePasscode` and `PageOrigin` (the page allowed to call a hosted helper). For a hosted copy the deploy workflow writes every setting from a GitHub variable named after it in upper snake case (`HELPER_URL`, `EXTRA_WAIT_TIME`, ...).
 - **Console logging** [EnableConsoleLogging, ENABLE_CONSOLE_LOGGING] - a setting that makes the helper print every request (method, path, answer) and every line a run says, tagged `[run xxxxxxxx]`, to its own console - the PowerShell window, or Render's Logs tab. Never the passcode or the login. Off by default. Not the same as debug logging, which writes more to the helper's log file.
+- **Background run** [background task, backgrounded run] - a run the helper carries on with after the page is closed, reaching the Dropbox library itself. Chosen with *Run as background task*; recorded as `background` in its run history.
+- **Up-front answers** [pre-answered questions] - a background run's answers to the questions it could stop to ask (undated files, older copies, how far back a quick scan goes), given before it starts because nobody will be there to answer. A question it was not given an answer for gets the one that changes nothing.
+- **Run in progress** [active run] - a run the helper is working on right now. Only one at a time: while there is one, a banner says so at the top of the page, the run buttons are held, and a second start is refused.
+- **Pinned run** [in-progress panel] - the run in progress, shown at the top of the History tab. *View progress* opens its progress window again for a background run.
+- **Abandoned** [abandoned run] - a background run the helper ended because it was left paused longer than `PausedRunTimeoutMinutes` (10 by default). It ends the way a stopped run does - everything saved is kept - and can be resumed. The page asks before a background run is paused, and says when a paused one will be abandoned. Ordinary runs are never abandoned.
+- **Paused-run timeout** [PausedRunTimeoutMinutes, PAUSED_RUN_TIMEOUT_MINUTES] - the setting for how many minutes a paused background run is kept; 0 is never.
+- **Continue in background** - the button that closes a background run's progress window and leaves the run going.
+- **Download log** - the button on a run's History entry that saves everything the run said in its window, line by line, as a text file. Kept in the run's history file as it goes, so a run that was stopped, abandoned or interrupted has one too. An interrupted run's stops at its last save.
+- **Run log save interval** - how often a running run saves its history file while it prints: when a line arrives at least 120 seconds after the last save (fixed, not a setting). Checkpoints and the run ending save at once. Every save carries the issues and fic lists as well as the log.
+- **Download issues** - the button on a run's History entry that saves everything it reported (failures, copies to check, bookmarks that are not works) as one text file. Was *Export all issues* at the end of a run.
 - **Deployment variable** [GitHub variable, repository variable] - a GitHub Actions variable the deploy workflow turns into a `settings.ini` key: `EXTRA_WAIT_TIME` becomes `ExtraWaitTime`. Every key has one except `SavePassword`.
 
 ---
@@ -97,6 +117,10 @@ the same thing in conversation.
 * Options (run configuration)
 
 - **Workflow** [action, button] - describes the logic executed by a run. Each workflow type is a different collection of steps that will be executed by a run using that workflow: full scan, quick scan, custom run, and so on.
+
+**Every workflow** also offers, on its login step:
+
+- *Run as background task* - only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), and *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range. A workflow that downloads nothing (a collection run not taking its works, or JSON only) asks none. Its steps are the workflow's own, unchanged.
 
 ## Quick scan
 
@@ -188,6 +212,31 @@ With a date range, steps 2 and 3 read "…in that date range".
   7. Download or update each fic as necessary
   8. Cleanup
   9. Report any failures
+
+## Index my collections / Index collection by URL
+
+- **Programmatic names:** `collections` (your own, from `/users/<you>/collections`) and `collection` (any one, from a link)
+- **Options:**
+  - A collection link (`collection` only)
+  - *Index and download encountered works* [collection works, `collectionWorks`] - index every work in the collections' works and bookmarked-items listings as they are crawled, then download them. Off: only the collections' files are written.
+  - *Get all works from encountered series* - only offered with the option above
+  - *Include subcollections* [`subcollections`] and *Include parent collections* [`parentCollections`] - also read each collection's subcollections, or its parent, and theirs in turn however far removed. Each related collection is indexed like the ones asked for, and its works too when *Index and download encountered works* is ticked. With both, siblings are reached through their parent. Each collection is read at most once per run, so a family whose members link to each other cannot loop; a run follows at most 200 relatives (`COLLECTION_FAMILY_LIMIT`) and says so if it stops there.
+  - File types - only asked with the option above; without it the run is JSON only
+- **Steps (collections only):**
+  1. Log in to AO3
+  2. Index your collections / Index this collection
+  3. Cleanup
+  4. Report any failures
+- **Steps (with their works):**
+  1. Log in to AO3
+  2. Index your collections and the works in them / Index this collection and the works in it
+  3. Index works in series marked for walkthrough (only when chosen)
+  4. Read your existing downloaded files (only when downloading)
+  5. Download or update works as necessary (only when downloading)
+  6. Cleanup
+  7. Report any failures
+- Resumable (**Resume**, [EXPERIMENTAL]): a checkpoint after every page of each collection's works and bookmarked-items listings, and when each collection is saved. A resumed run skips finished collections, carries each unfinished listing on from its last saved page (read again, in case works moved), and re-reads the earlier pages if a resumed works listing comes up short of the collection's count. A `collection` run from before the link was saved cannot be resumed. See `RESUMING.md`.
+- The run's link is saved as its `url`, shown in History, and reused when a `collection` run is resumed.
 
 ---
 
@@ -286,7 +335,11 @@ Used by: custom run, when chosen.
 Used by: every workflow.
 - Removes the older copies you chose to remove at the older-copies question.
 - Keeps any file this run has since downloaded over, and anything if the run was stopped.
-- Skipped when nothing was marked.
+- Notes which collections hold each work, adding them to its `from_collections`. **The only place that field is set.** Every workflow but the debug ones (the combined run, new bookmarks only, update incomplete):
+  - every work the run covered - what it indexed, and everything its saved progress names (so a resumed run covers what its earlier attempt indexed) - and every external work it saved, in this attempt or an earlier one it resumes, against every collection saved in the library;
+  - a collection run also: every work and external work the collections it read list that is already in the index - whether or not *Index and download encountered works* was ticked.
+  Only entries already in the index, only when a collection is missing, and without adding a reading - no AO3 requests.
+- Skipped when there is nothing to remove or note, and when the run was stopped.
 
 ### Report any failures
 Used by: every workflow.
@@ -294,9 +347,11 @@ Used by: every workflow.
 - Everything it lists can be exported as one text file.
 
 ### Steps used only by other workflows
-- **Index bookmarks added since last time** - the debug "new bookmarks" and combined runs; walks until the first bookmark already indexed.
+- **Index bookmarks added since last time** - the debug "new bookmarks" and combined runs; walks until the first bookmark already indexed. A work in the index only because a series or collection holds it (`bookmarked: false`) is not a stopping point: the walk reads it, marks it bookmarked, and carries on. Every walk down your bookmarks - this one, a full scan, a quick scan - marks a work it reads as bookmarked, keeping what a series or collection run recorded about where it was found.
 - **Download newly added works** - the same two runs; downloads what that walk found.
 - **Read existing index for unfinished fics** - the update run; lists works the index says are unfinished.
 - **Re-index each fic, then download or update as necessary** - the update run and the combined run; re-reads each unfinished fic's page.
 - **Fetch any format still missing** - the combined run; fills formats missing from works the other passes left alone.
-- **Index your collections** / **Index this collection** - the two collection runs.
+- **Index your collections** / **Index this collection** - the two collection runs. Reads each collection's profile, then its works and bookmarked-items listings (one request per 20), skipping a listing whose count has not changed. A series bookmarked among its items is recorded by number as `series_ids`; each such series' page is read (one request per 20 works, once per run however many collections hold it) and its entry in `indexing/series/` written with the works in it (`work_ids`) - on every run, since a series grows without the collection's count changing. The entry is the same file a scan of your bookmarks writes for a series you bookmarked. It is written from the series' own page, never from somebody else's bookmark of it: a new one is not bookmarked, and one you bookmarked keeps your bookmark's reading, only its works brought up to date. A series whose entry already lists as many works as the collection's blurb says it holds is not read again. With *Index and download encountered works* the series' works are indexed (as a series walk indexes them) and downloaded with the rest. The cleanup step notes the collection on the series' entry, and on every indexed work its entry lists.
+- Either step, with *Include subcollections* or *Include parent collections*, then reads each related collection once the ones asked for are done - one at a time, queueing theirs in turn, never the same collection twice.
+- **Index your collections and the works in them** / **Index this collection and the works in it** - the same, with *Index and download encountered works*. Never skips a listing on its count, because it indexes every work blurb on it: an existing entry keeps its own bookmark fields; a new one gets `bookmarked: false`; somebody else's bookmark notes and tags from a bookmarked-items listing are blanked, never written in as yours. Each work is read once however many collections hold it (the cleanup step notes the collection in `from_collections`), and has its series marked when that option is on. Works in an unrevealed collection are indexed and held back from download. External works among a collection's bookmarked items are indexed too, into `indexing/external/` with your own, by the same rules (bookmark fields not yours, new ones not bookmarked); never downloaded. Every collection run records them in the collection's file as `external_ids` (AO3's numbers for them, a separate numbering from works), and the collection view lists them after the bookmarked works. The works go on to the ordinary series, check and download steps.

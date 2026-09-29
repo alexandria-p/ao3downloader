@@ -2,16 +2,42 @@
 
 import glob
 import os
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from bs4 import BeautifulSoup
 
+from source_code import server, strings
 from source_code.fileio import FileOps
 from source_code.repo import Repository
 
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), 'fixtures')
+
+
+@pytest.fixture(autouse=True)
+def config_somewhere_else(tmp_path_factory, monkeypatch):
+    """settings.ini is read from, and now written to, a folder of each test's own.
+
+    The helper writes a missing settings.ini when it starts, so a test that starts it would
+    otherwise leave one wherever the tests were run from. A test that wants a particular
+    settings.ini sets this itself, which wins.
+    """
+
+    monkeypatch.setenv(strings.ENV_CONFIG_FOLDER, str(tmp_path_factory.mktemp('config')))
+
+
+@pytest.fixture(autouse=True)
+def no_runs_left_over():
+    """Every test starts with a helper that is running nothing.
+
+    The helper allows one run at a time, and its list of runs is shared by the whole class -
+    a test that starts one with its thread stubbed out would otherwise leave a run 'in
+    progress' for ever, and every test after it would be refused.
+    """
+
+    with patch.dict(server.Handler.jobs, clear=True):
+        yield
 EBOOK_DIR = os.path.join(FIXTURES_DIR, 'ebook')
 
 

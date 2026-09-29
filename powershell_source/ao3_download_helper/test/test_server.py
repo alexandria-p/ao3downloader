@@ -92,6 +92,7 @@ def test_resolve_options_defaults_match_the_console_defaults():
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
         'reindex': True, 'dates': False, 'dateFrom': '', 'dateTo': '',
         'overwrite': False, 'floorRun': '', 'nonBookmarks': False, 'resume': '',
+        'collectionWorks': False, 'subcollections': False, 'parentCollections': False,
     }
 
 
@@ -99,13 +100,15 @@ def test_resolve_options_reads_what_was_asked_for():
     result = server.resolve_options(
         {'start': '5', 'pages': '8', 'series': True, 'images': True, 'workdates': True,
          'reindex': False, 'dates': True, 'dateFrom': '2026-01-01',
-         'dateTo': '2026-06-30', 'overwrite': True, 'nonBookmarks': True})
+         'dateTo': '2026-06-30', 'overwrite': True, 'nonBookmarks': True,
+         'collectionWorks': True, 'subcollections': True, 'parentCollections': True})
 
     assert result == {'start': 5, 'pages': 8, 'series': True, 'images': True,
                       'workdates': True, 'reindex': False, 'dates': True,
                       'dateFrom': '2026-01-01', 'dateTo': '2026-06-30',
                       'overwrite': True, 'floorRun': '', 'nonBookmarks': True,
-                      'resume': ''}
+                      'resume': '', 'collectionWorks': True, 'subcollections': True,
+                      'parentCollections': True}
 
 
 def test_a_date_that_cannot_be_read_is_no_date_at_all():
@@ -1020,7 +1023,9 @@ def started_options(action, asked, url=''):
         'filetypes': ['JSON', 'HTML'], 'options': asked, 'url': url}
     handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
 
-    with patch.object(server.threading, 'Thread'):
+    # each start on a helper running nothing: the thread is stubbed, so the run it registers
+    # never ends, and the next start in the same test would be refused as a second run
+    with patch.object(server.threading, 'Thread'), patch.dict(server.Handler.jobs, clear=True):
         server.Handler.do_POST(handler)
 
     assert sent['status'] == 202, sent
@@ -2388,6 +2393,22 @@ def test_a_run_records_the_settings_it_worked_from(fake_environment, tmp_path):
 
     saved = json.loads(list((tmp_path / 'runs').iterdir())[0].read_text(encoding='utf-8'))
     assert saved['settings'] == ini
+
+
+def test_a_run_record_reads_its_issues_off_the_runs_downloader_at_every_save(fake_environment,
+                                                                           tmp_path):
+    # so a run killed partway keeps the failures it had met, not an empty list
+    fake_environment['fileops'].runsfolder = str(tmp_path / 'runs')
+    job = server.Job(server.ACTION_SYNC, ['JSON'], 'Someone')
+    ao3 = MagicMock()
+
+    def runner(job, *_):
+        job.ao3 = ao3
+
+    with patch.object(server, 'Repository'), patch.object(server, 'run_sync', runner):
+        server.run_job(job, 'a-password')
+
+    assert job.record.source() is ao3
 
 
 def test_settings_that_cannot_be_read_do_not_take_the_run_down(fake_environment):

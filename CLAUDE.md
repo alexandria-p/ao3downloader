@@ -45,6 +45,18 @@ build/                            generated; config/settings.ini is NOT overwrit
 `build/` is generated but `build/config/settings.ini` and `build/downloads/` are
 deliberately preserved across rebuilds - never delete them to "clean up".
 
+**A settings.ini is only ever added to, never rewritten.** `settings_file.ensure_settings_file`
+writes a missing one from the template, or appends to an existing one every setting it lacks -
+comment block and default included - leaving the user's values, comments and order exactly as
+they were. The helper runs it on every start (`server.bring_settings_up_to_date`, before
+anything reads the file), and the bundler on `build/config/settings.ini`, printing what it
+added. So a setting added to the template reaches every existing install the next time it
+starts, and is visible and editable there rather than a hidden default. `settings_file.LEFT_OUT`
+(`SavePassword`) is kept out of every file written for the web page - the bundler and
+`deploy_config.py` use the same list. `conftest.py` points `AO3DOWNLOADER_CONFIG_FOLDER` at a
+temporary folder for every test, or a test that starts the helper would leave a settings.ini
+wherever the tests were run from.
+
 ## Running things
 
 ```bash
@@ -65,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1294 python passed; 510 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1498 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -209,6 +221,83 @@ The request log (`logs/log.jsonl`) is **written and never read** - the one reade
 which nothing calls - so a hosted helper losing it on every restart costs nothing.
 `ignorelist.txt` is the one helper-side file that does change a run, and a hosted helper
 has none.
+
+### A run can carry on in the background
+
+*Run as background task* (on every workflow's login step) starts a run the helper finishes
+with the page closed. The rules that matter:
+
+- **Only for a library in Dropbox.** A run reaches the library through the page
+  (`PageStorage` asking the page), and a folder on this computer is open in that tab alone.
+  For a background run the page hands over its Dropbox sign-in (`DropboxSession.handover`:
+  refresh token and app key, nothing else) and `dropbox_library.DropboxChannel` answers the
+  storage requests the page would have, **in the page's exact shapes** (`answerStorage`). So
+  `PageStorage` sits in front of it unchanged - its caches, and every rule about what may be
+  written or deleted, are the same code for both. The sign-in travels inside the sealed login
+  (`access.credentials_from`) and lives in the job's memory for the one run; it is never
+  written, logged or put in the history. `do_POST` refuses a background run without one, and
+  an ordinary run never gets one even if sent it. The page sends **no** background fields at
+  all on an ordinary run - a spec holds that.
+- **Questions are answered before it starts.** Nobody will be there, so the login step lists
+  the questions the workflow could ask (`backgroundQuestions`, mirroring when the helper asks:
+  undated and duplicates when it downloads, not undated when it overwrites, quick-floor on a
+  quick scan with nothing chosen to measure to) and sends them as `answers`.
+  `background_answers` checks them against `CHOICES_FOR` before the run exists. They become
+  `Job.prior_answers` - the mechanism a resumed run already used - and a resume merges the
+  earlier run's real answers over them. **A background run never waits on a question**:
+  `Job.ask` with no answer takes the default at once (always the one that changes nothing)
+  rather than stalling half an hour.
+- **One run at a time, for every run.** `do_POST` checks and registers under one lock and
+  answers 409 (`RunInProgressError` on the page) while any run is going. The page reads
+  `GET /api/jobs`'s `jobs` into `Jobs.activeRuns`, which drives the banner at the top, holds
+  the run buttons, and pins the run at the top of History. The app polls it every 30s **only
+  while a run is going**, so a hosted helper is otherwise left to sleep. `conftest.py` empties
+  `Handler.jobs` around every test for this reason: a test that starts a run with its thread
+  stubbed leaves it going for ever.
+- **Coming back replays everything.** `stream_events` takes the backlog and counts the
+  listener under one lock (a background job queues events only while someone listens, or an
+  unread queue would hold hours of them), dedupes the queue against the backlog **by
+  identity**, and ends at once for a run already over. It sets `close_connection` when the
+  stream ends: its `Connection: keep-alive` header otherwise tells `BaseHTTPRequestHandler`
+  to hold the socket open, and a page reading to the end waited for ever - found in testing.
+  Printed lines are capped in a background job's replay (`BACKGROUND_KEPT_MESSAGES`); nothing
+  else is dropped, because the checklist is rebuilt from it. The dialog attaches with
+  `attachTo` (**read after `init`'s first await** - inputs are not set in the constructor,
+  which is also why `resumeFrom` is read late), shows the file types the run announced in its
+  `started` event rather than its own, and offers **Continue in background**, which closes the
+  window without stopping anything. No unload guard for a background run.
+- **A free Render service sleeps after ~15 minutes with no request from outside**, which is
+  exactly a background run's situation. While one is going **and not paused**,
+  `watch_background` requests the helper's own `RENDER_EXTERNAL_URL` every 10 minutes (it
+  answers 404 without the passcode; arriving is the point). Nothing else keeps it awake.
+- **A background run left paused is abandoned** after `PausedRunTimeoutMinutes` (default 10,
+  0 for never; `PAUSED_RUN_TIMEOUT_MINUTES` on a hosted copy). A paused run is waiting for
+  someone, so it is not worth keeping a host awake or holding the helper for. `hold_job`
+  starts the clock (`held_since`, and `held_at` for the page) and a second press does not
+  restart it; `abandon_overdue`, run by `watch_background` every `WATCH_SECONDS`, sets
+  `abandoned` and then `cancel`, so the run unwinds at the pause gate exactly as a stop does -
+  nothing is part-written there - and its record says `abandoned` (`runs.STATUS_ABANDONED`)
+  rather than `stopped`. It is resumable like any unfinished run. Only background runs: an
+  ordinary run needs its page and ends when the page goes anyway. The page asks before pausing
+  a background run, says when a paused one will be abandoned (`abandonsAt` from
+  `GET /api/jobs`), and names an abandoned run as such. **`run_job` treats a
+  `CancelledException` that escapes the runner as a stop**, not a failure - a stop taken at a
+  pause gate outside a runner's own loops (during the login, say) used to be recorded as
+  failed, which an abandonment made easy to hit.
+- **A stopped background run lets the host sleep at once.** `background_running` ignores a
+  run whose `cancel` is set - it is only unwinding - as well as a paused one. Every run drops
+  its Dropbox sign-in when it ends (`job.library = None` in `run_job`'s `finally`), and
+  `forget_finished` drops runs that ended over an hour ago from `Handler.jobs`.
+- **A helper that dies mid-run leaves the record saying `running`**, with its last saved
+  progress. `Jobs.settleInterrupted` marks such a record `interrupted` once the helper answers
+  `GET /api/jobs` without that run's **id** - and only then: a helper that does not answer
+  may be waking up with the run going on it, so nothing is marked on a guess. It also skips
+  a record started on a different helper: `run_job` writes the page's `helperUrl` into the
+  record (`helper`, sent in the start request), so the local helper cannot end a run the
+  hosted one is doing in the same Dropbox library. History says "Running - not confirmed by
+  the helper" or "Running on another helper" meanwhile, never plain "Running". **Restarting the helper - a deploy
+  included - ends a background run**; the page warns before one starts, and the history then
+  shows it interrupted and resumable like any other.
 
 ### Indexing runs before downloading
 
@@ -525,18 +614,27 @@ the whole point of writing it up front. Everything in `runs.py`
 swallows its own errors: a run that downloaded a library must not be reported as failed
 because a note about it could not be saved.
 
-**`RunRecord.line` can keep the console output too (`log`), but nothing currently calls
-it.** The machinery is built and tested - lines are batched because `save` rewrites the
-whole file and a run prints a line per fic per format, so `LOG_FLUSH_EVERY` lines go out at
-a time; `LOG_MAX_LINES` caps it and drops the **start** when reached, because whatever went
-wrong is at the end, with `logTrimmed` counting what went. `read_runs` leaves `log` out of
-the listing by default and reports `logLines` instead, since a hundred records of thousands
-of lines each would be tens of megabytes for a page that does not show them.
+**Every run keeps the account its window showed (`log`), and History offers it as a
+file.** `run_job`'s `said` hands each printed line to `RunRecord.line` as well as to the page;
+lines printed before the record exists (the setup, 'logging in') are held and passed in as
+`printed`, so the log is the whole account. A message the helper emits without printing - the
+abandonment notice - is added by hand. `save` rewrites the whole file, so a line saves the
+record only once `LOG_FLUSH_SECONDS` (120, deliberately not a setting) have passed since the
+last save. **Time alone decides** - it was
+also 25 lines, which left a slow step (an index walk held up by the rate limit prints a few
+lines an hour) waiting for a batch that never came. It matters for Dropbox, where every save
+is an upload of a file that grows to hundreds of KB. The trigger is a line arriving, not a
+timer, so a run killed outright loses what it printed in its last stretch that long; a
+checkpoint, an answered question, and a stop, failure or finish save at once anyway.
 
-The wiring in `server.run_job` that fed it was reverted at the user's request, so no run
-writes a log today. Either finish it - the missing piece is passing printed lines to
-`record.line`, plus somewhere to hold the ones printed before the record exists - or delete
-the machinery; do not leave it half-connected and assume it works.
+**Every save carries the issues and fic lists too**, not only the last: `run_job` sets
+`record.source` to the job's `Ao3`, and `save` runs `collect` on it first (swallowing any
+error). An interrupted run therefore keeps its failures, skipped bookmarks, copies to check
+and fic lists as of its last save, rather than the empty lists it had when only
+`close_record` collected them. `LOG_MAX_LINES` caps it and drops the **start**, because whatever went wrong is at
+the end, with `logTrimmed` counting what went. The page's `readRunHistory` drops `log` from the
+listing and keeps `logLines`, and History's **Download log** reads the one file again when
+asked - a hundred records of thousands of lines would be a lot to read to draw a list.
 
 **settings.ini goes in beside the run's own choices** (`settings`). `filetypes` and
 `options` are what the user picked in the dialog; this is what the run inherited - pacing,
@@ -910,6 +1008,129 @@ on a normal crawl would show up as a spurious change in the version history.
 Flags are matched exactly, never as substrings: ao3 writes both `Moderated` and
 `Unmoderated`, and a substring test reads the second as the first.
 
+### A collection run can take the works in it too
+
+`collectionWorks` (*Index and download encountered works*) is the two collection runs' alone -
+`do_POST` clamps it off for everything else, and clamps `series` off and the file types to
+json for a collection run without it, so the record never claims html or series walks it did
+not do. With it on, `Ao3.collection_works` is a list rather than `None`, and
+`collect_work_ids` indexes each work blurb off the page it was reading anyway
+(`save_collection_work`) - free, like any listing. What follows is borrowed, not rebuilt:
+`index_marked_series` when `series` is on, then `download_planned`, the scans' own download
+step. Don't give it a download path of its own.
+
+The rules, and why:
+
+- **An unchanged count does not skip the listing** while indexing works. `unchanged_items`
+  says the work numbers are the same, not that the works are - and indexing them *is*
+  reading the listing.
+- **Someone else's bookmark is never written in as yours.** A collection's `/bookmarks`
+  listing is other people's bookmarks, and `get_blurb_metadata` reads the bookmarker's notes
+  and tags off each one. `save_collection_work` blanks `BOOKMARK_OWN_FIELDS` (to the empty
+  shape a series work has), then restores the existing entry's own - the same rule as
+  `save_series_work`. A new entry is `bookmarked: false`.
+- **A work is read once per run** (`indexed_this_run`), however many collections hold it.
+  The crawl does **not** write `from_collections` - see below.
+- Unrevealed works go through `note_unrevealed`, shared with `get_metadata`: indexed, held
+  back from download, listed as skipped.
+- **External works** among a collection's bookmarked items are indexed by
+  `save_collection_external` into `indexing/external/`, under the same rules through the
+  shared `as_not_yours`; `externals_indexed` reads each once per run; never downloaded. Every collection run records them in
+  the collection's file as `external_ids` - read off the page anyway, kept through an
+  unchanged count and through a resume (`listings.bookmark_ids.externals`), reported by
+  `collect_work_ids` on `last_externals`. **They are numbered apart from works**: the page
+  looks them up in `Library.externalsById`, never `worksById`, or external work 1 would show
+  as work 1. Missing ones render as `placeholderExternal`, linking `/external_works/<n>`
+  (the address real ao3 markup uses). Blurbs are told apart by `get_blurb_kind`.
+- **A series bookmarked among a collection's items** is recorded **by number only**, as
+  `series_ids` (checkpointed as `listings.bookmark_ids.series`, read back off `last_series`) -
+  its works live in the series' own entry in `indexing/series/` (`work_ids`), the one place
+  they are recorded, as a work's details live in its entry and not in the collection.
+  `collection_series` reads each series and writes that entry **from the series' page, never
+  from the collection's blurb** (somebody else's bookmark): `series_document` with no
+  bookmark, so an existing entry keeps your bookmark fields and a new one is
+  `bookmarked: false`. With the works option it is `index_series`, which also indexes the
+  works (`from_series`, not bookmarked) for download; without it, `read_series` writes the
+  entry and indexes nothing. **It shares the file a scan of your bookmarks writes** (both
+  find it by number), so a series you bookmarked that a collection also holds is one entry.
+  **An entry you bookmarked keeps its reading** - `series_document` only brings its works up
+  to date. The page has no tags and its own date format, so writing it over your bookmark's
+  reading blanked your tags and added a reading the next scan undid (a test holds this); and
+  nothing the page leaves blank overwrites what an entry has (`blank`). **A series is not
+  read again when its entry already lists as many works as the collection's blurb for it
+  says** (`series_unchanged`, `series_counts` off `dd.works`) - and, with the works option,
+  all of them are indexed - so a series your scan already read costs nothing. Otherwise it
+  is read, even when the collection's own count is unchanged: a series grows on its own.
+  Once per run (`series_read` / `series_ids_found`); one that will not read keeps its entry. `collection_links`
+  links the series entry (`covered_series`) and, through `works_of_series`, every indexed
+  work that entry lists.
+
+**`from_collections` is set in one place: the cleanup step**, for every workflow but the
+debug ones (`LINKING_ACTIONS`: full, quick and custom scans, the single fic, both collection
+runs). No crawl or walk writes it - don't add a second writer; `TECH_DEBT.md` says why it was
+brittle when there were four. `collection_links` reads every saved collection file and
+returns `(path, list)` for each index entry missing a collection that holds it;
+`write_collection_links` sets the identity field straight onto the file (no new reading).
+What it looks at is **every work the run covered** (`covered_works`): `ao3.reindexed` plus
+everything the run's progress names - scope, every walk's works, the series walk's works,
+`nonBookmarksDone`, `updateDone` - from both `job.progress()` and `job.earlier_progress()`.
+That is what makes a **resumed** run link the works its earlier attempt indexed and it took
+from the index without reading again. External works come from `covered_externals`:
+`ao3.externals_saved` (this attempt's alone) plus the `externalsSaved` every walk and
+collection checkpoint writes into progress (`externals_so_far`, which adds to what the
+progress already holds, so a chain of resumes keeps the first attempt's). A
+collection run also looks at every work and external work its collections list
+(`job.collections_read`, from `note_collections_read`, which includes collections a resume
+skipped as finished) - so with *Index and download encountered works* off, an indexed
+bookmark still learns it is in the collection. Entries are found by number and read only
+when they might need it; it never creates an entry, never reaches ao3, skips when stopped,
+and swallows its own errors.
+
+**Every index write finds its entry by the number its file name starts with**, never by the
+name it would be given now (`Ao3.entry_path`: `save_metadata` and `save_entry` default to
+it, `series_path` goes through it, `save_series_work` and `as_not_yours` read the existing
+entry through it). The name is built from title and author, which change - writing by the new
+name left a second file for the same work, and for a series- or collection-found work
+recorded it not bookmarked; a test caught that. Each index folder is listed once per run
+(`list_entries`); **a name is remembered only once a file is written under it**
+(`remember_entry`) - a lookup made with only a number, as `series_existing` does, would
+otherwise name the new file `<id>  -.json`, which the comparison against `main` caught. Where
+an older version left **two files for one number**, the most recently indexed is the entry,
+chosen the same way every time, and the run prints which (`AO3_INFO_DUPLICATE_ENTRIES`);
+nothing is merged or deleted.
+
+**A collection's family can be followed** (`subcollections`, `parentCollections` - clamped to
+the collection runs in `do_POST`). Every collection goes through `Ao3.take_collection`, which
+adds it to `collections_seen` **before** reading it and then queues its relatives
+(`family_of`: subcollection links and/or `parent_collection`) with `queue_family`, which never
+queues a name already seen or already waiting. `walk_family` drains the queue after the
+collections asked for. That is what makes loops impossible: a family whose members point at
+each other, or a collection that is its own parent, is read once each and the queue empties.
+`COLLECTION_FAMILY_LIMIT` (200) is a backstop against a family so large it would take one run
+across much of ao3, not the loop guard. The checkpoint for a finished collection keeps its
+`family`, and `finished_before` queues it, so a resume that skips a collection still follows
+what it links to.
+
+**Collection runs can be resumed** (`RESUME_ACTIONS`; `RESUMING.md` has the detail).
+`watch_collections` checkpoints `collections.<name>` after every page of each listing
+(`Ao3.on_collection_page`: page, ids so far, done) and when a collection is saved
+(`on_collection_done`: done, every work number). A resumed run hands `Ao3.collections_before`
+the earlier state: `finished_before` skips a done collection and `keep_indexed` takes its works
+from the index (`records_for`); an unfinished listing restarts **on** its saved page, not after
+it, because a removal pulls the next page's first work onto it. A works listing that comes up
+short of the profile's count is re-read from page 1 to the page before (`walk_pages(stop=)`),
+because it may be ordered by date updated and an updated work jumps to the front - that order
+was **not** verified against the live site, and this keeps the resume safe either way. A
+listing that raised is recorded in `unfinished_collections`, so the collection is saved but not
+marked done. `prepare_resume` takes `url` from the record (a resume request carries none), and
+`resume_problem` refuses a `collection` record without one. A run resumed after its download
+step started goes straight to the saved `scope` (`crawl_collections`), with no series walk.
+
+The run record keeps its `url` (a collection or a fic): History shows it, and a resumed
+collection-by-URL run is pointed at it. There is **no Run again** button on any run - one was
+built for the collection runs and removed at the user's request once they could be resumed;
+anything that cannot be resumed is started again from its own button.
+
 ### Stopping must unwind, not just stop waiting
 
 `Repository.wait` **raises `CancelledException`** rather than returning quietly. This was a
@@ -932,6 +1153,18 @@ sources, and the field is **absent**, never `False`, when neither has spoken:
   Bookmark` is `True`, `Bookmark` is `False`. Both wordings are in the logged-in fixtures.
   No link (logged out, an unexpected page) is `None`, and `ao3.bookmark_state` then writes
   nothing, so a page that could not see the button never unmarks a fic.
+
+**A work first indexed through a series or a collection is `false` until you bookmark it** -
+and then the next walk down your bookmarks writes `true` over it, since every such walk marks
+what it reads. The full scan and the quick scan need nothing for that. The new-bookmarks walk
+(combined run, 'new bookmarks only') does, because it stops at the first work already
+indexed: `shared.indexed_work_ids` holds back the works a series lists (read up front - series
+are small) and returns a `KnownWorks` whose collection-listed works are only `doubtful`,
+checked by `confirmed` when the walk reaches one (collections can list thousands, so they
+are not read up front). A doubtful work you have not bookmarked is not a stopping point: the
+walk reads it, marks it, and carries on. `test_bookmarked_later.py` holds all of this, and its
+new-bookmarks tests fail with the check taken out. A later series or collection walk never
+unmarks it: `save_series_work` and `as_not_yours` keep an existing entry's own fields.
 
 It is a snapshot field, not identity: unbookmarking a fic is a real change worth a history
 entry.
@@ -1111,10 +1344,13 @@ download) - reported as a `keptCopies` event, stored by `RunRecord.collect`, lis
 History as "needs checking by hand", amber rather than red. `replace_superseded` still
 checks `saved_intact` as a second line of defence and answers `UNCONFIRMED` if it fails.
 
-**The end-of-run export is one file.** `issuesReport()` writes a `## heading` per kind
-(failures, kept copies, bookmarks that are not works) with tab-separated rows under each, and
-leaves out a kind with nothing in it; one `Export all issues` button replaces the per-list
-buttons. The step that does the reporting is `STEP_REPORT` = `Report any failures`, and it is
+**The issues export is one file, and it lives in the History tab.** `issues.ts` builds it:
+`issuesReport()` writes a `## heading` per kind (failures, kept copies, older copies not
+removed, bookmarks that are not works) with tab-separated rows under each, leaving out a kind
+with nothing in it, and `issuesOf(run)` reads those lists back out of a run's history file.
+So **Download issues** is on every History entry with anything to report, for as long as the
+run is recorded - a background run finishes with nobody looking, so the end-of-run window can
+no longer be where the file is offered. That window lists the issues and points at History. The step that does the reporting is `STEP_REPORT` = `Report any failures`, and it is
 the last step of **every** plan - there is a test over `ACTIONS` asserting it.
 
 ### A run can stop and ask a question
@@ -1340,6 +1576,9 @@ Three rules worth keeping:
   matching rule, and the collections format are documented in both by requirement.
 - Verify claims before reporting them. Several conclusions in this project's history were
   wrong until checked against real fixtures or a live run.
+- **`TECH_DEBT.md` (project root) lists the known weak spots** - `from_collections` among
+  them, and index writes that find an entry by the name it would have now. Read it before
+  working near either, and add to it when you leave something fragile behind.
 - **Keep `TERMINOLOGY.md` (project root) up to date with every change to the codebase.** It
   lists the project's terms (with the synonyms used in chat), each workflow's programmatic
   name, options and steps, and how every step works. Whenever a change adds, renames or

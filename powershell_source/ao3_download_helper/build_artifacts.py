@@ -22,6 +22,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from source_code.settings_file import ensure_settings_file, strip_setting  # noqa: F401
+
 # where the launcher dot-sources its shared functions in the working copy. a shipped copy
 # has no powershell_source beside it, so the functions are pasted in at this point instead.
 DOT_SOURCE = """$envScript = Join-Path $PSScriptRoot 'powershell_source\\ao3_download_helper\\ao3-env.ps1'
@@ -240,33 +242,18 @@ def strip_readme_field(content: str) -> str:
     return ''.join(kept)
 
 
-def strip_setting(content: str, key: str) -> str:
-    """Remove one ini setting along with the comment block that documents it."""
-
-    kept: list[str] = []
-    for line in content.splitlines(keepends=True):
-        if line.strip().lower().startswith(key.lower() + '='):
-            # take the explanation with it, and the blank line that separated the pair
-            # from whatever came before
-            while kept and kept[-1].lstrip().startswith('#'):
-                kept.pop()
-            while kept and not kept[-1].strip():
-                kept.pop()
-            continue
-        kept.append(line)
-    return ''.join(kept)
-
-
 def write_pyproject(python_home: Path, helper_dir: Path) -> None:
     content = (python_home / 'pyproject.toml').read_text(encoding='utf-8')
     (helper_dir / 'pyproject.toml').write_text(strip_readme_field(content), encoding='utf-8')
 
 
-def write_config(config_dir: Path, python_home: Path) -> list[str]:
-    """Seed settings.ini, leaving one that is already there alone.
+def write_config(config_dir: Path, python_home: Path) -> tuple[list[str], list[str]]:
+    """Seed settings.ini, or bring one already there up to date. Returns the files created
+    and the settings added to an existing settings.ini.
 
-    A rebuild must not throw away the download folder, so it is only ever created when
-    missing. data.json is deliberately not seeded: the web ui remembers the username in
+    An existing one is never overwritten - it holds the user's own choices - but any setting
+    added to the template since it was written is appended to it, with its explanation and
+    default (`settings_file.complete_settings`). data.json is deliberately not seeded: the web ui remembers the username in
     the browser and never stores a password, and the application creates the file itself
     on first run if it needs one.
     """
@@ -275,19 +262,20 @@ def write_config(config_dir: Path, python_home: Path) -> list[str]:
     created = []
 
     settings = config_dir / 'settings.ini'
-    if not settings.exists():
-        template = (python_home / PACKAGE_NAME / 'settings' / 'settings.ini').read_text(
-            encoding='utf-8')
-        # the web ui logs in each time and never stores a password, so offering the
-        # setting that would only invites confusion
-        settings.write_text(strip_setting(template, SAVE_PASSWORD_KEY), encoding='utf-8')
-        created.append(settings.name)
+    template = (python_home / PACKAGE_NAME / 'settings' / 'settings.ini').read_text(
+        encoding='utf-8')
+    # a new one from the template; an existing one kept exactly as it is, with any setting
+    # added since it was written appended, explanation and default included - the helper
+    # does the same each time it starts, so this only makes the build say so up front.
+    # the web ui never stores a password, so that setting is left out either way
+    was_new, added = ensure_settings_file(str(settings), template)
+    if was_new: created.append(settings.name)
 
     # an earlier build seeded this; it is the application's to create, not the build's
     stale_data = config_dir / 'data.json'
     if stale_data.is_file(): stale_data.unlink()
 
-    return created
+    return created, added
 
 
 def write_page_config(build_dir: Path) -> Path | None:
@@ -355,11 +343,12 @@ def build(root: Path, skip_web: bool = False) -> dict:
     stale_readme = helper_dir / 'README.md'
     if stale_readme.is_file(): stale_readme.unlink()
 
-    created = write_config(build_dir / CONFIG_FOLDER, python_home)
+    created, settings_added = write_config(build_dir / CONFIG_FOLDER, python_home)
     write_page_config(build_dir)
     write_readme(build_dir)
 
     return {'build_dir': build_dir, 'launcher': launcher, 'config_created': created,
+            'settings_added': settings_added,
             'left_behind': left_behind}
 
 
@@ -378,7 +367,7 @@ overwrites the rest.
 | `Start-Application.ps1` | Starts the helper and serves the site. Self-contained. |
 | `web/` | The compiled web app - plain static files. |
 | `ao3_download_helper/` | The python behind the download buttons. |
-| `config/settings.ini` | Your settings, including where fics are saved. |
+| `config/settings.ini` | Your settings. Kept across rebuilds; a setting added in a newer version is appended to it, with its explanation and default. |
 
 `ao3_download_helper/` holds **only what the web ui can actually invoke**. The console
 menu, its actions, and the ebook parsing that only those use are left out of the bundle:
@@ -547,12 +536,35 @@ reaching for one part when you wanted the whole is the easy mistake to make.
 ### Collections
 
 **Index my collections** reads `/users/<you>/collections` and writes a json file describing
-each collection you own - its metadata, and the work numbers it holds. No works are
-downloaded.
+each collection you own - its metadata, and the work numbers it holds.
 
 **Index collection by URL** does the same for any one collection on ao3, yours or not. Paste
 a link to it; any page of the collection will do. The file it writes sits alongside your own
 and has the same shape.
+
+Both ask first whether to **Index and download encountered works**. Left off, nothing is
+downloaded. Ticked, every work in the collection's works and bookmarked items is indexed off
+the pages the crawl reads anyway, then downloaded or updated as a scan would; a work you
+have not bookmarked is indexed as not bookmarked, and somebody else's bookmark notes are
+never written in as yours. External works among its bookmarked items are indexed as well,
+beside your own, and never downloaded. It then offers **Get all works from encountered series** and asks
+for file types, and reads every collection's works again even when its count is unchanged.
+Leave it off for a collection of your own bookmarks, whose works are already indexed; it is
+recommended for a collection you think holds works or bookmarks outside your own.
+
+**Include subcollections** and **Include parent collections** read each collection's
+subcollections or parent as well, and theirs in turn, however far removed - indexed like the
+rest, with their works when those are asked for. Each collection is read at most once per
+run, so collections that link back to each other cannot loop, and a run follows at most 200.
+
+Every run but the debug ones ends by noting, on each indexed work, which of your saved
+collections hold it (`from_collections`): a collection run on every work its collections
+hold that is already indexed, a scan or single fic on every work it covered - a resumed run
+included. None of this costs an ao3 request.
+
+History shows the link a collection run used. An unfinished one offers **Resume**: it saves
+its place after every page of each collection, so resuming skips the collections already
+finished and carries on from the page it reached.
 
 Clicking a collection opens what was recorded about it, along with the works in it, in the
 same listing the Bookmarks tab uses. Works it holds that are not in your index are still
@@ -765,8 +777,11 @@ page of it will do. Both write one json file per collection into
 `<downloads>/collections/`, named after the collection's ao3 name - the part of the url
 after `/collections/` - cut to the same `FileNameLength` limit.
 
-No works are downloaded by either. A collection file records what the collection
-*contains*, by work id, which is what lets it pair up with fics you already have. Works it
+Neither downloads works unless asked to **index and download encountered works** - then
+each work gets its own index entry too, and the run's cleanup names the collection in
+its `from_collections`. A
+collection file records what the collection *contains*, by work id, which is what lets it
+pair up with fics you already have. Works it
 lists that are not in your index are still shown on the collections page, by work number
 with a link to ao3, since the number is all that is known about them. It is versioned
 exactly like an index file:
@@ -794,7 +809,9 @@ exactly like an index file:
       "parent_collection": "https://archiveofourown.org/collections/yuletide",
       "subcollections": ["https://archiveofourown.org/collections/..."],
       "work_ids": ["34816549", "..."],
-      "bookmark_ids": ["..."]
+      "bookmark_ids": ["..."],
+      "external_ids": ["..."],
+      "series_ids": ["..."]
     }
   ]
 }
@@ -806,6 +823,16 @@ exactly like an index file:
   subcollection you own gets a file of its own
 - `work_ids` and `bookmark_ids` are the work numbers in the collection's works and
   bookmarked items, which is what your downloaded file names start with
+- `external_ids` are the external works (hosted off ao3) among its bookmarked items, by ao3's
+  own number for each - numbered apart from works. Opening the collection lists them after
+  its bookmarked works
+- `series_ids` are the series bookmarked among its bookmarked items. The works in each are
+  in the series' own entry in `indexing/series/`, which every collection run writes from the
+  series' page, since a series can grow without the collection's count changing - unless
+  the entry already lists as many works as the collection says it holds. It is the same
+  entry a scan of your bookmarks writes. A series you have not bookmarked is recorded as not
+  bookmarked; one you have keeps your bookmark. With *Index and download
+  encountered works* its works are indexed and downloaded too
 
 ### Re-indexing a collection you already have
 
@@ -875,6 +902,52 @@ One caveat: an ao3 login does not last forever. A run left paused a long time ma
 session gone when you resume, which shows up as works failing to download. Stop it and start
 a new run if that happens.
 
+## Leaving a run to finish on its own
+
+Every run offers **Run as background task** on its login step, when the library is in
+Dropbox and signed in. The helper then carries on with the page closed, reaching Dropbox
+itself: start a run, close the page, come back hours later. It is not offered for a folder on
+this computer, which the helper can only reach through the open page.
+
+Anything the run might stop to ask is asked before it starts. Only one run goes at a time;
+while one is going the page says so at the top, and the History tab has it pinned, with
+**View progress** to open it again. A background run left paused for
+`PausedRunTimeoutMinutes` (10 by default) is abandoned: it ends keeping what it saved, and
+can be resumed from History. Closing this window's helper ends a background run -
+what it saved stays saved, and starting it again carries on from what is still missing.
+
+Every run in the History tab has **Download issues** when it reported anything: one text file
+of what failed, what to check by hand, and the bookmarks that are not works. **Download log**
+saves the whole account the run gave in its window. Both are saved as the run goes - at every
+checkpoint, and when it prints a line at least two minutes after the last save - so a run cut off by a crash keeps everything up to about its last two minutes.
+
+## What the History tab says about a run
+
+Whatever a run's entry says, what it saved stays saved, and it offers **Download log** and,
+when it reported anything, **Download issues**.
+
+- **In progress - running** - the helper is working on it now; pinned at the top, and nothing
+  else can start until it ends. Its own entry says **Running**, or **Running - not confirmed
+  by the helper** while the helper has not answered, or **Running on another helper** when
+  another copy of the app started it on the same library.
+- **In progress - paused** - you pressed Pause. It waits before its next request, never
+  halfway through saving a file, and carries on when you press Resume. A background run left
+  paused for 10 minutes is abandoned; any other run stays paused until resumed or stopped.
+- **Finished** - it reached its end. Individual works can still have failed; they are in
+  **Download issues**, and a later run tries them again.
+- **Stopped** - you pressed Stop. It ended at the next safe point, keeping what it saved.
+- **Abandoned** - a background run left paused too long, which the helper ended rather than
+  keep waiting. It ends just as a stopped run does.
+- **Failed** - something ended it early: AO3 refused the login, the login lapsed partway, or
+  the library could not be reached. The reason is on its entry.
+- **Interrupted** - it never got to say how it ended: the helper stopped, crashed or
+  restarted while it was going. Its log and issues go up to its last save, at most about two
+  minutes before it was cut off.
+
+Anything unfinished can be carried on: a full scan, quick scan, custom run or collection run
+offers **Resume**, and anything else you start again - it
+skips what is already downloaded and current.
+
 ## A caveat about deploying this to a server
 
 The web app is static and will serve from anywhere. The download buttons will not, as built
@@ -907,6 +980,9 @@ def main() -> int:
     print(f'\nbundle written to {result["build_dir"]}')
     if result['config_created']:
         print(f'created: {", ".join(result["config_created"])}')
+    if result['settings_added']:
+        # the user's own values are untouched; these were missing, so they get the defaults
+        print(f'settings.ini: added {", ".join(result["settings_added"])} with their defaults')
     if result['left_behind']:
         # said out loud so a module dropping out of the bundle is noticed at build time
         print(f'left behind ({len(result["left_behind"])} modules the helper never imports):')

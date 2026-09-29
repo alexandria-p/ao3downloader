@@ -4,6 +4,7 @@ import { DownloadDialog } from './download-dialog';
 import { Library } from './library';
 import { LibraryStore, StorageRequest } from './library-store';
 import {
+  ActiveRun,
   AnswerChoice,
   JobAction,
   JobEvent,
@@ -57,6 +58,10 @@ class FakeJobs extends Jobs {
 
   override async loadFloorRuns(): Promise<RunHistory[] | null> {
     return this.floorRunsOnRecord;
+  }
+
+  override async refreshActiveRuns(): Promise<ActiveRun[] | null> {
+    return this.activeRuns();
   }
 
   /** the unfinished runs the helper would offer for resuming */
@@ -641,6 +646,10 @@ describe('DownloadDialog', () => {
       floorRun: '',
       // only a custom run picking up an earlier run sends one
       resume: '',
+      // the collection runs' alone
+      collectionWorks: false,
+      subcollections: false,
+      parentCollections: false,
     });
   });
 
@@ -835,15 +844,6 @@ describe('DownloadDialog', () => {
 
   // region syncing collections
 
-  async function startCollections() {
-    const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
-    password.value = 'a-password';
-    password.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-    button('Start download')?.click();
-    await fixture.whenStable();
-  }
-
   // endregion
 
   // region acknowledging what an update pass cannot see
@@ -997,10 +997,12 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('.failures')?.textContent).toContain('7 more');
   });
 
-  it('offers one export for every issue', async () => {
+  it('points at the History tab for the issues file rather than offering it here', async () => {
+    // the file is on every run's history entry, where it stays available
     await finishWithFailures();
 
-    expect(button('Export all issues')).toBeTruthy();
+    expect(button('Export all issues')).toBeUndefined();
+    expect(element.querySelector('.export-issues')?.textContent).toContain('History');
   });
 
   it('exports the work numbers, links and reasons', async () => {
@@ -1425,7 +1427,7 @@ describe('DownloadDialog', () => {
     await typeLink(LINK);
     button('Continue')!.click();
     await fixture.whenStable();
-    await startCollections();
+    await advanceTo('running');
 
     expect(jobs.started[0].action).toBe('collection');
     expect(jobs.started[0].url).toBe(LINK);
@@ -1579,25 +1581,107 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('.dialog h2')?.textContent?.trim()).toBe('Index my collections');
   });
 
-  it('goes straight to the login, since there is nothing to choose', async () => {
-    // collections write metadata only: no file types, no download options
+  it('opens on its one question - whether to take the works in them too', async () => {
     await open('collections');
 
-    expect(element.querySelector('input[name="password"]')).toBeTruthy();
-    expect(element.querySelector('.dialog fieldset')).toBeNull();
+    expect(currentStep()).toBe('options');
+    expect(checkbox('Index and download encountered works')?.checked).toBe(false);
+    // series only mean anything once there are works to follow them from
+    expect(checkbox('encountered series')).toBeUndefined();
     expect(element.querySelector('.dialog input[type="number"]')).toBeNull();
   });
 
-  it('offers no way back past the login', async () => {
+  it('says when the works are worth taking, under the choice', async () => {
+    await open('collection');
+    await advanceTo('options');
+
+    const info = element.querySelector('[data-collection-works-info]')?.textContent ?? '';
+    expect(info).toContain('only scanning a collection of your own');
+    expect(info).toContain('outside of your own bookmark collection');
+  });
+
+  it('offers no way back past its first step', async () => {
     await open('collections');
 
     expect(button('Back')).toBeUndefined();
     expect(button('Cancel')).toBeTruthy();
   });
 
+  it('goes straight from its question to the login when only indexing the collections', async () => {
+    // collections on their own write metadata only: there are no file types to pick
+    await open('collections');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('credentials');
+  });
+
+  it('indexes the collections alone unless asked for their works', async () => {
+    await open('collections');
+    await advanceTo('running');
+
+    expect(jobs.started[0].filetypes).toEqual(['JSON']);
+    expect(jobs.started[0].options.collectionWorks).toBe(false);
+    expect(jobs.started[0].options.series).toBe(false);
+  });
+
+  it('asks for file types and offers series once asked for the works', async () => {
+    await open('collection');
+    await advanceTo('options');
+    checkbox('Index and download encountered works')!.click();
+    await fixture.whenStable();
+
+    expect(element.textContent).toContain('the collection');
+    checkbox('encountered series')!.click();
+    await fixture.whenStable();
+    button('Continue')!.click();
+    await fixture.whenStable();
+    expect(currentStep()).toBe('filetypes');
+
+    await advanceTo('running');
+    expect(jobs.started[0].filetypes).toEqual(['JSON', 'HTML']);
+    expect(jobs.started[0].options.collectionWorks).toBe(true);
+    expect(jobs.started[0].options.series).toBe(true);
+  });
+
+  it('offers to follow a collection\'s subcollections and parent, and sends the choice', async () => {
+    await open('collection');
+    await advanceTo('options');
+    checkbox('Include subcollections')!.click();
+    await fixture.whenStable();
+
+    expect(checkbox('Include parent collections')?.checked).toBe(false);
+    expect(element.textContent).toContain('read at most once');
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.subcollections).toBe(true);
+    expect(jobs.started[0].options.parentCollections).toBe(false);
+    const said = element.querySelector('.settings')?.textContent ?? '';
+    expect(said).toContain('subcollections too, however far removed');
+  });
+
+  it('never offers the relatives of a collection on any other run', async () => {
+    await open('bookmarks');
+    await advanceTo('options');
+
+    expect(checkbox('Include subcollections')).toBeUndefined();
+    expect(checkbox('Include parent collections')).toBeUndefined();
+  });
+
+  it('says back that it is taking the works too', async () => {
+    await open('collections');
+    checkbox('Index and download encountered works')!.click();
+    await fixture.whenStable();
+    await advanceTo('running');
+
+    const said = element.querySelector('.settings')?.textContent ?? '';
+    expect(said).toContain('Works in the collections');
+    expect(said).toContain('downloaded or updated as necessary');
+  });
+
   it('sends the collections action', async () => {
     await open('collections');
-    await startCollections();
+    await advanceTo('running');
 
     expect(jobs.started).toHaveLength(1);
     expect(jobs.started[0].action).toBe('collections');
@@ -1605,7 +1689,7 @@ describe('DownloadDialog', () => {
 
   it('still shows progress and a stop button while it runs', async () => {
     await open('collections');
-    await startCollections();
+    await advanceTo('running');
 
     jobs.push!({ type: 'phase', name: 'collections' });
     jobs.push!({ type: 'work', title: 'Best of DCMK', phase: 'collections', done: 1 });
@@ -2428,10 +2512,8 @@ describe('DownloadDialog', () => {
       { id: null, link: '', title: 'Gone', error: 'the work has been deleted' },
     ]);
 
-    const exportButtons = Array.from(element.querySelectorAll('button')).filter(
-      (b) => b.textContent?.trim() === 'Export all issues',
-    );
-    expect(exportButtons).toHaveLength(1);
+    // saved from the History tab now; this window says so
+    expect(element.querySelector('.export-issues')?.textContent).toContain('History');
 
     const report = (fixture.componentInstance as unknown as {
       issuesReport(): string;
@@ -2461,10 +2543,8 @@ describe('DownloadDialog', () => {
     expect(kept).toContain('checking by hand');
     expect(kept).toContain('3 New 2026-09-14.html');
 
-    const exportButtons = Array.from(element.querySelectorAll('button')).filter(
-      (b) => b.textContent?.trim() === 'Export all issues',
-    );
-    expect(exportButtons).toHaveLength(1);
+    // saved from the History tab now; this window says so
+    expect(element.querySelector('.export-issues')?.textContent).toContain('History');
 
     const report = (fixture.componentInstance as unknown as {
       issuesReport(): string;

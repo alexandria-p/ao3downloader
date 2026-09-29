@@ -47,6 +47,9 @@ INI_DEBUG_LOGGING = 'EnableDebugLogging'
 INI_DEBUG_TOOLS = 'EnableDebugTools'
 # prints every request and every line a run says to the helper's own console
 INI_CONSOLE_LOGGING = 'EnableConsoleLogging'
+# how long a background run may sit paused before the helper abandons it
+INI_PAUSED_RUN_TIMEOUT = 'PausedRunTimeoutMinutes'
+INI_DEFAULT_PAUSED_RUN_TIMEOUT = 10
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
 # a hosted helper: every request needs the passcode, whose value is an environment variable
@@ -152,6 +155,24 @@ AO3_INFO_COLLECTIONS = 'syncing collections'
 AO3_INFO_COLLECTION_SAVED = 'saved collection {}'
 AO3_INFO_COLLECTION_UNCHANGED = 'collection {} still has {} {}, so the saved ones are kept'
 AO3_INFO_COLLECTIONS_DONE = 'saved {} collections to {}'
+# said per collection when the run indexes the works it holds as well
+AO3_INFO_COLLECTION_WORKS = 'collection {}: indexed {} works not already found this run'
+AO3_INFO_COLLECTION_WORKS_TOTAL = '{} works found across the collections'
+AO3_INFO_DUPLICATE_ENTRIES = ('{} has {} index files - left from an older version, which gave a retitled work a '
+                              'second one. writing to the most recently indexed: {}')
+AO3_INFO_COLLECTIONS_LINKING = 'linking the works covered in this run to any collections you have indexed'
+AO3_INFO_COLLECTIONS_LINKED = '{} works have been linked to your collections'
+AO3_INFO_COLLECTIONS_LINKED_ONE = '1 work has been linked to your collections'
+AO3_INFO_COLLECTION_SERIES = 'collection {}: reading the works in the {} series bookmarked in it'
+AO3_INFO_COLLECTION_SERIES_UNCHANGED = 'series {}: its entry already lists all {} works, so it is not read again'
+AO3_INFO_COLLECTION_EXTERNALS = 'collection {}: indexed {} external works (hosted off ao3, so never downloaded)'
+# a collection's subcollections and parent, when the run follows them
+AO3_INFO_COLLECTION_FAMILY = 'collection {}: linked from {}, so reading it too'
+AO3_INFO_COLLECTION_FAMILY_LIMIT = ('read {} related collections, the most one run will follow - '
+                                    'leaving the {} still queued')
+# the most related collections one run reads. each is read at most once anyway, so this only
+# matters for a family so large that following it would take one run across much of ao3
+COLLECTION_FAMILY_LIMIT = 200
 AO3_INFO_COLLECTIONS_NONE = 'no collections found for that user'
 AO3_INFO_COLLECTION_ONE = 'indexing the collection {}'
 
@@ -321,6 +342,9 @@ STEP_INDEX_UPDATED_WINDOW = 'Index works AO3 updated in that date range'
 STEP_INDEX_ONE = 'Index this fic'
 STEP_INDEX_COLLECTIONS = 'Index your collections'
 STEP_INDEX_COLLECTION = 'Index this collection'
+# the same crawl, told to index each work it meets as well - see Ao3.collect_work_ids
+STEP_INDEX_COLLECTIONS_WORKS = 'Index your collections and the works in them'
+STEP_INDEX_COLLECTION_WORKS = 'Index this collection and the works in it'
 STEP_USE_INDEX = 'Read the index already saved'
 STEP_CHECK_FILES = 'Read your existing downloaded files'
 # a scan indexes first, so by the time this runs it knows which copies ao3 has moved
@@ -552,6 +576,8 @@ ERROR_SESSION_EXPIRED = (
     'AO3 has stopped recognising your login, so the rest of this run would fail. '
     'Everything downloaded so far has been kept - log in again and start the same run, '
     'and it will carry on from what is still missing.')
+ERROR_RUN_IN_PROGRESS = 'A run is already in progress. Wait until it is complete to start a new one - the History tab shows it.'
+ERROR_BACKGROUND_NEEDS_DROPBOX = 'A background run needs a library in Dropbox, and this request came without a Dropbox sign-in. Sign in to Dropbox and try again.'
 ERROR_NOT_A_WORK_LINK = 'That is not an ao3 work. Paste a link like https://archiveofourown.org/works/34816549, or just the work number.'
 ERROR_COLLECTION_PROFILE = 'Problem reading a collection profile page'
 ERROR_COLLECTION_ITEMS = 'Problem reading the items in a collection'
@@ -574,9 +600,17 @@ FAILED_LOGIN_NO_TOKEN_VALUE = 'authenticity token field was empty'
 AO3_INFO_RESUMING = 'resuming the {} that started {} - it stopped at: {}'
 AO3_INFO_RESUME_NO_STEP = 'before its first step'
 AO3_INFO_RESUME_ANSWER = 'using the answer the earlier attempt was given: {}'
+AO3_INFO_ABANDONED = 'this background run was left paused for {} minutes, so the helper has abandoned it. everything it saved is kept - resume it from the History tab, or start the same run again and it carries on from what is still missing.'
+AO3_INFO_BACKGROUND_ANSWER = 'using the answer given before this background run started: {}'
+AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it does what changes nothing: {}'
 AO3_INFO_RESUME_SCOPE = ('the earlier attempt had finished indexing - checking and downloading '
                          'its {} works')
 AO3_INFO_RESUME_WALK_DONE = 'the earlier attempt finished this walk - taking its works from the index'
+# a collection run picking up where it left off
+AO3_INFO_RESUME_COLLECTION_DONE = 'collection {}: finished by the earlier attempt - taking its works from the index'
+AO3_INFO_RESUME_COLLECTION_PAGE = 'collection {}: carrying on through its {} from page {}, where the earlier attempt got to'
+AO3_INFO_RESUME_COLLECTION_SHORT = ('collection {}: found {} works of the {} it holds - some have moved to '
+                                    'the front since, so reading pages 1 to {} again')
 AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: it is sorted by '
                               'date updated, so nothing in it stays in place between attempts')
 AO3_INFO_RESUME_LOOKING = 'looking for where the earlier attempt stopped: page {}'
@@ -591,7 +625,9 @@ AO3_INFO_RESUME_CEILING = ('keeping works ao3 updated up to {}, when the first a
 AO3_INFO_RESUME_UPDATE_DONE = 'the earlier attempt already finished {} of these fics'
 
 RESUME_NOT_FOUND = 'That run is not in this library\'s history.'
-RESUME_WRONG_ACTION = 'Only full scans, quick scans and custom runs can be resumed.'
+RESUME_WRONG_ACTION = 'Only full scans, quick scans, custom runs and collection runs can be resumed.'
+RESUME_NO_LINK = ('This run is from before collection runs saved their link, so it cannot be '
+                  'resumed - start it again from its button, with the link.')
 RESUME_SLICE = ('A custom run over a slice of your bookmarks listing cannot be resumed: '
                 'bookmarks added or removed since move every page, so the same page numbers '
                 'no longer hold the same bookmarks.')

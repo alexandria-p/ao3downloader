@@ -15,7 +15,8 @@
 >
   <header>
     <h2>{{ title() }}</h2>
-    @if (step() !== 'running') {
+    <!-- a background run can be left to carry on, so its window can be closed while it runs -->
+    @if (step() !== 'running' || runningInBackground()) {
       <button type="button" class="icon" (click)="close()" aria-label="Close">&times;</button>
     }
   </header>
@@ -413,14 +414,80 @@
           </p>
         }
 
+        @if (picksCollectionWorks()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="collectionWorks"
+              [checked]="collectionWorks()"
+              (change)="collectionWorks.set($any($event.target).checked)"
+            />
+            <span>Index and download encountered works</span>
+          </label>
+          <div class="info" data-collection-works-info>
+            <p>
+              You can run without this if you are only scanning a collection of your own
+              bookmarks - those works are already in your index.
+            </p>
+            <p>
+              <strong>Recommended</strong> if you are scanning a collection that you think has
+              works or bookmarks outside of your own bookmark collection.
+            </p>
+          </div>
+          <p class="hint">
+            Every work in {{ action() === 'collection' ? 'the collection' : 'your collections' }}
+            - its works and its bookmarked items - is indexed as it is read, then downloaded, or
+            updated where AO3 has a newer version than your copy. A work you have not bookmarked
+            is indexed as not bookmarked.
+          </p>
+          <p class="hint">
+            Indexing them is free: it is read off the same pages the collection is. But with this
+            on, every collection's works are read again even when its count has not changed, and
+            each download is a request per format.
+          </p>
+        }
+
+        @if (picksCollectionWorks()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="subcollections"
+              [checked]="subcollections()"
+              (change)="subcollections.set($any($event.target).checked)"
+            />
+            <span>Include subcollections</span>
+          </label>
+          <label class="check">
+            <input
+              type="checkbox"
+              name="parentCollections"
+              [checked]="parentCollections()"
+              (change)="parentCollections.set($any($event.target).checked)"
+            />
+            <span>Include parent collections</span>
+          </label>
+          <p class="hint">
+            Each related collection is indexed like the ones asked for - and, with
+            <strong>Index and download encountered works</strong> ticked, so are its works.
+            Its own subcollections or parent are followed in turn, however far removed. Each
+            collection is read at most once, so a family whose collections link back to each
+            other cannot keep the run going round; a run stops following after 200.
+          </p>
+        }
+
         @if (picksSeries()) {
           <label class="check">
             <input type="checkbox" [checked]="series()" (change)="series.set($any($event.target).checked)" />
             <span>Get all works from encountered series</span>
           </label>
           <p class="hint">
-            If a bookmarked work belongs to a series, download the rest of the series too - even
-            if its other works are not bookmarked.
+            @if (picksCollectionWorks()) {
+              If a work in the collection belongs to a series, download the rest of the series
+              too - even if its other works are not in the collection.
+            } @else {
+              If a bookmarked work belongs to a series, download the rest of the series too - even
+              if its other works are not bookmarked.
+            }
           </p>
         }
 
@@ -802,26 +869,182 @@
           in and is never stored here - let your browser's password manager keep it if you want
           it filled in next time.
         </p>
+
+        <div class="background-choice" [class.blocked]="backgroundBlocked()">
+          <label class="check">
+            <input
+              type="checkbox"
+              name="background"
+              [checked]="background()"
+              [disabled]="!!backgroundBlocked()"
+              (change)="setBackground($any($event.target).checked)"
+            />
+            <span>Run as background task</span>
+          </label>
+          @if (backgroundBlocked()) {
+            <p class="hint">{{ backgroundBlocked() }}</p>
+          } @else {
+            <p class="hint">
+              The run carries on in the helper after you close this page - start it, go away,
+              and come back hours later to see how it went, from the <strong>History</strong>
+              tab.
+            </p>
+          }
+
+          @if (background()) {
+            <div class="warning background-warning">
+              <p><strong>Before you start a background run:</strong></p>
+              <ul>
+                <li>
+                  <strong>No other run can start until it has finished.</strong> The page will
+                  say so at the top while it is going.
+                </li>
+                <li>
+                  The helper holds your AO3 login and your Dropbox access for as long as the
+                  run lasts, in memory only, and lets go of both when it ends.
+                </li>
+                <li>
+                  <strong>Restarting the helper ends the run</strong> - closing its window, or
+                  on a hosted helper, deploying a new version. What it had already saved stays
+                  saved; start it again and it carries on from what is still missing.
+                </li>
+                <li>
+                  Nobody will be there to answer if it stops to ask something, so answer below
+                  now. It only uses an answer if the question actually comes up.
+                </li>
+              </ul>
+            </div>
+
+            @if (backgroundQuestions().length) {
+              <fieldset class="background-answers">
+                <legend>If this run needs to ask...</legend>
+
+                @if (backgroundQuestions().includes('quick-floor')) {
+                  <div class="answer" data-question="quick-floor">
+                    <p>
+                      <strong>No earlier scan to measure back to, but files already indexed</strong>
+                      - how far back should it read?
+                    </p>
+                    <label class="check">
+                      <input type="radio" name="bg-quick" [checked]="quickFloorAnswer() === 'full'"
+                             (change)="quickFloorAnswer.set('full')" />
+                      <span>Read the whole listing (safest - nothing can be missed)</span>
+                    </label>
+                    <label class="check">
+                      <input type="radio" name="bg-quick" [checked]="quickFloorAnswer() === 'since'"
+                             (change)="quickFloorAnswer.set('since')" />
+                      <span>Only back to when the index was last written</span>
+                    </label>
+                  </div>
+                }
+
+                @if (backgroundQuestions().includes('undated')) {
+                  <div class="answer" data-question="undated">
+                    <p>
+                      <strong>Downloaded files with no date in their name</strong> - their
+                      version cannot be told from the name. What should happen to them?
+                    </p>
+                    <label class="check">
+                      <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'skip'"
+                             (change)="undatedAnswer.set('skip')" />
+                      <span>Leave them as they are (changes nothing)</span>
+                    </label>
+                    <label class="check">
+                      <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'stamp'"
+                             (change)="undatedAnswer.set('stamp')" />
+                      <span>Give them a date, without downloading anything</span>
+                    </label>
+                    @if (undatedAnswer() === 'stamp') {
+                      <label class="field indented">
+                        <span>The date to give them - the version you believe they hold</span>
+                        <input type="date" name="bg-undated-date" [value]="undatedDate()"
+                               (input)="undatedDate.set($any($event.target).value)" />
+                      </label>
+                    }
+                    <label class="check">
+                      <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'refresh'"
+                             (change)="undatedAnswer.set('refresh')" />
+                      <span>Download them all again (a request per work per format)</span>
+                    </label>
+                  </div>
+                }
+
+                @if (backgroundQuestions().includes('duplicates')) {
+                  <div class="answer" data-question="duplicates">
+                    <p>
+                      <strong>Older copies of a work beside its newest one</strong> - what
+                      should happen to them?
+                    </p>
+                    <label class="check">
+                      <input type="radio" name="bg-duplicates" [checked]="duplicatesAnswer() === 'leave'"
+                             (change)="duplicatesAnswer.set('leave')" />
+                      <span>Leave every copy where it is (changes nothing)</span>
+                    </label>
+                    <label class="check">
+                      <input type="radio" name="bg-duplicates" [checked]="duplicatesAnswer() === 'newest'"
+                             (change)="duplicatesAnswer.set('newest')" />
+                      <span>Keep the newest and remove the older ones (they go to the Dropbox trash)</span>
+                    </label>
+                  </div>
+                }
+              </fieldset>
+            }
+          }
+        </div>
       </form>
       <footer>
         <!-- indexing your own collections has no earlier step, so this reads Cancel there -->
         <button type="button" class="button subtle" (click)="backFrom('credentials')">
           {{ hasStepBefore('credentials') ? 'Back' : 'Cancel' }}
         </button>
-        <button type="button" class="button primary" (click)="submit($event)">Start download</button>
+        <button type="button" class="button primary" [disabled]="!backgroundAnswersReady()"
+                (click)="submit($event)">
+          {{ background() ? 'Start in the background' : 'Start download' }}
+        </button>
       </footer>
     }
 
     <!-- step 3: working -->
     @if (step() === 'running') {
       <section class="body">
-        <p class="warning">
-          <strong>Leave this tab open.</strong> Refreshing, closing or navigating away will
-          interrupt the download.
-          <strong>This may take a long time</strong> - AO3 will ask the run to slow down along
-          the way, and it waits those breaks out rather than giving up. Leave this window open
-          and running until it finishes.
-        </p>
+        @if (runningInBackground()) {
+          <p class="notice background-running">
+            <strong>This run is going in the background.</strong> It does not need this page:
+            press <strong>Continue in background</strong> to close this window and carry on
+            browsing, or close the tab altogether. It stays in the <strong>History</strong>
+            tab while it runs, where <strong>View progress</strong> brings this back.
+          </p>
+        } @else {
+          <p class="warning">
+            <strong>Leave this tab open.</strong> Refreshing, closing or navigating away will
+            interrupt the download.
+            <strong>This may take a long time</strong> - AO3 will ask the run to slow down along
+            the way, and it waits those breaks out rather than giving up. Leave this window open
+            and running until it finishes.
+          </p>
+        }
+
+        <!-- first thing in the window, since it answers the Pause button just pressed -->
+        @if (confirmingPause()) {
+          <div class="warning confirm-pause" role="alertdialog" aria-label="Pause this background run?">
+            <p>
+              <strong>Pause this background run?</strong> A background run left paused for
+              {{ pauseTimeout() }} {{ pauseTimeout() === 1 ? 'minute' : 'minutes' }} is
+              <strong>abandoned</strong>: the helper ends it, keeping everything it has saved.
+              It can be resumed from the History tab afterwards, or started again to carry on
+              from what is still missing.
+            </p>
+            <div class="confirm-actions">
+              <button type="button" class="button" (click)="confirmingPause.set(false)">
+                Keep running
+              </button>
+              <button type="button" class="button primary" (click)="togglePause()">
+                Pause anyway
+              </button>
+            </div>
+          </div>
+        }
+
 
         @if (phase() === 'authenticating' && loginVerified() === null) {
           <p class="checking">
@@ -1139,6 +1362,9 @@
             <strong>Paused.</strong> Whatever was being fetched when you pressed pause was
             allowed to finish, so nothing is half-written, and nothing new will be started
             until you press Resume. You can still stop the run from here.
+            @if (runningInBackground() && abandonsAt()) {
+              <strong>If it is not resumed by {{ abandonsAt() }}, the helper abandons it.</strong>
+            }
           </p>
         }
 
@@ -1195,13 +1421,27 @@
         <button type="button" class="button danger" [disabled]="cancelling()" (click)="requestStop()">
           {{ cancelling() ? 'Stopping...' : 'Stop' }}
         </button>
+        @if (runningInBackground()) {
+          <button type="button" class="button primary continue-background"
+                  (click)="continueInBackground()">
+            Continue in background
+          </button>
+        }
       </footer>
     }
 
     <!-- step 4: outcome -->
     @if (step() === 'done') {
       <section class="body">
-        @if (wasCancelled()) {
+        @if (abandoned()) {
+          <p class="warning">
+            <strong>Abandoned.</strong> This background run was left paused for
+            {{ pauseTimeout() }} {{ pauseTimeout() === 1 ? 'minute' : 'minutes' }}, so the
+            helper ended it. Everything it saved was kept, in <code>{{ folder() }}</code>.
+            Resume it from the History tab, or start the same run again - it carries on from
+            what is still missing.
+          </p>
+        } @else if (wasCancelled()) {
           <p class="warning">
             Stopped. Everything downloaded before you stopped was kept, in
             <code>{{ folder() }}</code>.
@@ -1277,7 +1517,7 @@
               <strong>{{ notRemoved().length | number }}</strong>
               older {{ notRemoved().length === 1 ? 'copy was' : 'copies were' }} marked for
               removal but {{ notRemoved().length === 1 ? 'is' : 'are' }} still there. The newest
-              copy of each is untouched. Run again to be asked about them again, or delete them
+              copy of each is untouched. Start another run to be asked about them again, or delete them
               yourself.
             </p>
             <ul class="failed-list">
@@ -1329,16 +1569,10 @@
         }
 
         @if (issueCount()) {
-          <div class="export-issues">
-            <button type="button" class="button" (click)="exportIssues()">
-              Export all issues
-            </button>
-            <p class="hint">
-              Saves one text file with every issue above, under a heading for each kind - the
-              work numbers, links and reasons, one per line, so you can feed them back in or
-              look them up.
-            </p>
-          </div>
+          <p class="hint export-issues">
+            Every issue above can be saved as one text file at any time from this run's entry
+            in the <strong>History</strong> tab - <strong>Download issues</strong>.
+          </p>
         }
 
         @if (stampedCount()) {

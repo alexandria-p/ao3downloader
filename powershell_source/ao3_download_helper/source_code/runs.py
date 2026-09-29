@@ -11,6 +11,7 @@ mid-flight cannot write its own epitaph, so the absence of an ending is the evid
 
 import datetime
 import json
+import time
 import os
 
 from source_code import strings
@@ -22,17 +23,25 @@ STATUS_RUNNING = 'running'
 STATUS_SUCCESS = 'success'
 STATUS_FAILED = 'failed'
 STATUS_STOPPED = 'stopped'
+# a background run the helper ended because it was left paused too long. ended the same way a
+# stop ends one - everything saved is kept - and, like a stopped run, it can be resumed
+STATUS_ABANDONED = 'abandoned'
 # a run that never wrote its ending - the page left, or the helper stopped - once the page
 # has checked the helper is not still working on it. the helper never writes this itself
 STATUS_INTERRUPTED = 'interrupted'
 
-# How much of the console output one record keeps, and how often it reaches disk.
+# How often a line of console output takes the record to disk.
 #
-# The whole file is rewritten on every save, so saving per line would mean thousands of
-# writes of a growing file over a long run. Batching keeps that to one write per batch,
-# while still leaving an interrupted run's output nearly complete - which is exactly the
-# run whose output is worth having.
-LOG_FLUSH_EVERY = 25
+# The whole file is rewritten on every save, and for a library in Dropbox that is an upload of
+# a file that grows to hundreds of kilobytes - so a line saves the record only once this long
+# has passed since the last save. Time alone decides, not a count of lines: a slow step (an
+# index walk held up by ao3's rate limit prints a few lines an hour) must still reach disk, and
+# a fast one must not upload the file every few seconds. Checkpoints, answered questions and
+# the run ending save at once whatever this says.
+#
+# The trigger is a line arriving: nothing saves on a timer, so a run killed outright loses the
+# lines of its last stretch this long, however quiet it was afterwards.
+LOG_FLUSH_SECONDS = 120
 
 # A run over a large library prints a line per fic per format, so this is a ceiling rather
 # than an expectation; most runs never approach it. The **last** lines are kept when it is
@@ -57,10 +66,16 @@ class RunRecord:
     def __init__(self, fileops, job_id: str, action: str, action_name: str,
                  filetypes: list[str], options: dict,
                  printed: list[str] | None = None,
-                 settings: dict | None = None) -> None:
+                 settings: dict | None = None, background: bool = False,
+                 helper: str = '', url: str = '') -> None:
         self.fileops = fileops
-        # lines counted since the last write, not since the run began
+        # where the run keeps its issues and fic lists as it goes - the downloader, handed
+        # over once the run has one (`run_job`). read on every save, so an interrupted run's
+        # record is as current as its log rather than empty until an ending it never reaches
+        self.source = None
+        # lines counted since the last write, not since the run began, and when that was
         self.unsaved = 0
+        self.last_saved = float('-inf')
         self.path = os.path.join(
             fileops.runsfolder, f'{now().replace(":", "")}-{job_id[:8]}.json')
         self.data: dict = {
@@ -72,6 +87,16 @@ class RunRecord:
             'status': STATUS_RUNNING,
             'filetypes': list(filetypes),
             'options': dict(options or {}),
+            # the link the run was pointed at - a collection, or a fic - so History can start
+            # the same run again without it being typed in. empty for the runs that work
+            # their link out from the username
+            'url': url or '',
+            # a run the helper carried on with after the page closed, reaching Dropbox itself
+            'background': bool(background),
+            # the helper the page started it on, as the page names it (its address). a page
+            # talking to another helper - the one on this computer, say, while the hosted one
+            # runs this - must not take this run for an interrupted one of its own
+            'helper': helper,
             # what settings.ini said at the time. it decides pacing, file naming and
             # retries, so a run cannot be explained afterwards without it - and which
             # settings.ini was in force depends on where the helper was started from,
@@ -131,10 +156,15 @@ class RunRecord:
 
     def save(self) -> None:
         try:
+            if self.source is not None: self.collect(self.source())
+        except Exception:
+            pass
+        try:
             # through the library's own storage, so a run writing to Dropbox keeps its
             # history there too, beside the works it describes
             self.fileops.write_text(self.path, json.dumps(self.data, indent=2))
             self.unsaved = 0
+            self.last_saved = time.monotonic()
         except Exception:
             # a note about the run is not worth taking the run down for
             pass
@@ -143,9 +173,10 @@ class RunRecord:
         """Keep one line of console output, writing to disk in batches.
 
         Not saved per line on purpose: `save` rewrites the whole file, so a run printing a
-        line per fic per format would rewrite a growing file thousands of times. A batch
-        loses at most the last few lines of a run that is killed outright, and everything
-        else - a stop, a failure, a finish - goes through `save` anyway.
+        line per fic per format would rewrite a growing file thousands of times. A line
+        saves the record once `LOG_FLUSH_SECONDS` have passed since the last save; a run killed
+        outright loses what it said since then, and everything else - a stop, a failure, a
+        finish - goes through `save` anyway.
         """
 
         try:
@@ -157,7 +188,8 @@ class RunRecord:
                 del log[:dropped]
                 self.data['logTrimmed'] += dropped
             self.unsaved += 1
-            if self.unsaved >= LOG_FLUSH_EVERY: self.save()
+            if time.monotonic() - self.last_saved >= LOG_FLUSH_SECONDS:
+                self.save()
         except Exception:
             pass
 

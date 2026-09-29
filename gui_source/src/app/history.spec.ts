@@ -1,7 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { History } from './history';
-import { Jobs, RunHistory } from './jobs';
+import { ActiveRun, Jobs, RunHistory } from './jobs';
+import { Library } from './library';
 
 function aRun(over: Partial<RunHistory> = {}): RunHistory {
   return {
@@ -34,8 +35,16 @@ class FakeJobs extends Jobs {
     return this.runs;
   }
 
+  override async refreshActiveRuns(): Promise<ActiveRun[] | null> {
+    return this.activeRuns();
+  }
+
+  /** set to stand for a helper that does not answer, which settles nothing */
+  leaveRunning = false;
+
   override async settleInterrupted(): Promise<number> {
     this.settles++;
+    if (this.leaveRunning) return 0;
     const running = (this.runs ?? []).filter((run) => run.status === 'running');
     for (const run of running) run.status = 'interrupted';
     return running.length;
@@ -49,8 +58,13 @@ let element: HTMLElement;
 async function show(runs: RunHistory[] | null) {
   jobs.runs = runs;
   fixture = TestBed.createComponent(History);
-  await fixture.whenStable();
   element = fixture.nativeElement as HTMLElement;
+  // the history is read in a few awaited steps; wait for all of them, not just the first
+  for (let tries = 0; tries < 10; tries++) {
+    await fixture.whenStable();
+    if (!element.textContent?.includes('Reading past runs')) break;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 describe('History', () => {
@@ -320,4 +334,233 @@ describe('History', () => {
 
     expect(element.querySelectorAll('.run').length).toBe(2);
   });
+
+  // region the run going now
+
+  const going: ActiveRun = {
+    id: 'job-7', action: 'quick', actionName: 'Quick Scan', background: true,
+    started: '2026-09-28T10:00:00', paused: false, step: 'Index bookmarks added since your last run',
+  };
+
+  it('pins the run going now above the history, saying where it has got to', async () => {
+    jobs.activeRuns.set([going]);
+    await show([aRun()]);
+
+    const pinned = element.querySelector('[data-active-run]')!;
+    expect(element.querySelector('.run')).toBe(pinned);
+    expect(pinned.textContent).toContain('Quick Scan');
+    expect(pinned.textContent).toContain('In progress - running');
+    expect(pinned.textContent).toContain('in the background');
+    expect(pinned.textContent).toContain('Index bookmarks added since your last run');
+  });
+
+  it('says a paused run is paused', async () => {
+    jobs.activeRuns.set([{ ...going, paused: true }]);
+    await show([]);
+
+    expect(element.querySelector('[data-active-run]')?.textContent).toContain('In progress - paused');
+  });
+
+  it('offers to view a background run\'s progress', async () => {
+    jobs.activeRuns.set([going]);
+    await show([]);
+    const viewed = vi.fn();
+    fixture.componentInstance.viewProgress.subscribe(viewed);
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'View progress')!.click();
+
+    expect(viewed).toHaveBeenCalledWith(going);
+  });
+
+  it('does not offer to view a run that is not in the background', async () => {
+    // it needs the page that started it, which is where its progress is
+    jobs.activeRuns.set([{ ...going, background: false }]);
+    await show([]);
+
+    const pinned = element.querySelector('[data-active-run]')!;
+    expect(pinned.textContent).not.toContain('View progress');
+    expect(pinned.textContent).toContain('only in the window that started it');
+  });
+
+  it('pins nothing when no run is going', async () => {
+    await show([aRun()]);
+    expect(element.querySelector('[data-active-run]')).toBeNull();
+  });
+
+  it('marks a run from the history as having been in the background', async () => {
+    await show([aRun({ background: true })]);
+    expect(element.querySelector('.run-status')?.textContent).toContain('background');
+  });
+
+  // endregion
+
+  // region the issues file, for any run
+
+  it('offers every run with issues its issues as a file, saying how many', async () => {
+    await show([
+      aRun({ failures: [{ id: '1', link: 'l', error: 'gone' }],
+             skipped: [{ id: '2', link: 'm', error: 'a series' }] }),
+      aRun({ file: 'b.json', id: 'b' }),
+    ]);
+
+    const buttons = Array.from(element.querySelectorAll('button')).filter(
+      (b) => b.textContent?.includes('Download issues'),
+    );
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toContain('(2)');
+  });
+
+  it('saves the same report the run window used to, headed with the run', async () => {
+    // caught where the browser would be handed the file
+    let saved: Blob | null = null;
+    let name = '';
+    const created = vi.fn((blob: Blob) => {
+      saved = blob;
+      return 'blob:report';
+    });
+    Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      name = this.download;
+    });
+    await show([aRun({ id: 'abcdef123', failures: [{ id: '1', link: 'l', error: 'gone' }] })]);
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Download issues'))!.click();
+
+    const text = await saved!.text();
+    expect(text).toContain('# Issues from Download new bookmarks and update incomplete fics');
+    expect(text).toContain('## 1 work that could not be downloaded');
+    expect(text).toContain('1\tl\tgone');
+    expect(name).toBe('run-issues-2026-09-13-abcdef12.txt');
+    click.mockRestore();
+  });
+
+  // endregion
+
+  // region abandoned runs
+
+  it('calls a run the helper ended for being left paused abandoned, and offers to resume it', async () => {
+    await show([aRun({ action: 'quick', actionName: 'Quick Scan', status: 'abandoned',
+                       progress: { step: 'index', stepLabel: 'Index bookmarks' } })]);
+
+    expect(element.querySelector('.run-status')?.textContent).toContain('Abandoned');
+    expect(element.textContent).toContain('left paused, so the helper ended it');
+    expect(Array.from(element.querySelectorAll('button')).some(
+      (b) => b.textContent?.includes('Resume'))).toBe(true);
+  });
+
+  it('says to start again a run that cannot be resumed', async () => {
+    await show([aRun({ action: 'sync', status: 'abandoned' })]);
+    expect(element.textContent).toContain('Start the same run again');
+  });
+
+  it('says when a paused run in progress will be abandoned', async () => {
+    jobs.activeRuns.set([{ ...going, paused: true, abandonsAt: '2026-09-28T13:10:00' }]);
+    await show([]);
+
+    const expected = new Date('2026-09-28T13:10:00')
+      .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    expect(element.querySelector('[data-active-run]')?.textContent).toContain(
+      `Abandoned at ${expected} unless resumed`);
+  });
+
+  // endregion
+
+  // region the log, and runs the helper has not confirmed
+
+  it('offers the log of any run that kept one', async () => {
+    await show([aRun({ logLines: 12 }), aRun({ file: 'b.json', id: 'b', logLines: 0 })]);
+
+    const buttons = Array.from(element.querySelectorAll('button')).filter(
+      (b) => b.textContent?.includes('Download log'),
+    );
+    expect(buttons).toHaveLength(1);
+  });
+
+  it('saves the log read back out of the run\'s own file, saying what was dropped', async () => {
+    let saved: Blob | null = null;
+    let name = '';
+    Object.assign(URL, { createObjectURL: vi.fn((blob: Blob) => ((saved = blob), 'blob:x')),
+                         revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      name = this.download;
+    });
+    const read = vi.fn(async () => JSON.stringify({
+      log: ['logging in as Someone', 'new download: 1 A.html'], logTrimmed: 3,
+    }));
+    TestBed.inject(Library).store.set({ read } as never);
+    await show([aRun({ id: 'abcdef123', file: 'r.json', logLines: 2 })]);
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Download log'))!.click();
+    await fixture.whenStable();
+
+    expect(read).toHaveBeenCalledWith('runs/r.json');
+    const text = await saved!.text();
+    expect(text).toContain('# Download new bookmarks and update incomplete fics, started');
+    expect(text).toContain('the first 3 lines were dropped');
+    expect(text.trim().split('\n').slice(-2)).toEqual(['logging in as Someone', 'new download: 1 A.html']);
+    expect(name).toBe('run-log-2026-09-13-abcdef12.txt');
+    click.mockRestore();
+  });
+
+  it('does not call a run running when the helper has not said it is', async () => {
+    jobs.leaveRunning = true;
+    await show([aRun({ status: 'running', finished: null })]);
+    // settleInterrupted is stubbed to leave it, as when the helper does not answer
+    expect(element.querySelector('.run-status')?.textContent).toContain('not confirmed');
+  });
+
+  it('names a run going on another helper as such', async () => {
+    jobs.leaveRunning = true;
+    await show([aRun({ status: 'running', finished: null, helper: 'https://elsewhere.example' })]);
+    expect(element.querySelector('.run-status')?.textContent).toContain('Running on another helper');
+  });
+
+  // endregion
+
+  // region collection runs
+
+  it('shows the link a collection run was pointed at, and what it was asked to do', async () => {
+    await show([aRun({ action: 'collection', url: 'https://archiveofourown.org/collections/x',
+                       options: { collectionWorks: true } })]);
+
+    expect(element.querySelector('.run-link')?.textContent).toContain('collections/x');
+    expect(element.textContent).toContain('indexed and downloaded the works in them');
+  });
+
+  it('offers no Run again on any run', async () => {
+    await show([aRun({ action: 'collections' }), aRun({ file: 'b', id: 'b', action: 'work' }),
+                aRun({ file: 'c', id: 'c', action: 'bookmarks', status: 'stopped' })]);
+
+    const buttons = Array.from(element.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(buttons).not.toContain('Run again');
+  });
+
+  it('offers Resume on an unfinished collection run', async () => {
+    const emitted: string[] = [];
+    await show([aRun({ action: 'collection', status: 'interrupted', progress: {},
+                       url: 'https://archiveofourown.org/collections/x' })]);
+    fixture.componentInstance.resume.subscribe((id) => emitted.push(id));
+
+    const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
+    expect(button.textContent?.trim()).toBe('Resume [EXPERIMENTAL]');
+    expect(button.disabled).toBe(false);
+    button.click();
+    expect(emitted).toEqual(['abc']);
+  });
+
+  it('says a collection run with no saved link cannot be resumed', async () => {
+    await show([aRun({ action: 'collection', status: 'stopped', progress: {} })]);
+
+    expect(element.querySelector<HTMLButtonElement>('.run-resume button')!.disabled).toBe(true);
+    expect(element.textContent).toContain('before collection runs saved their link');
+  });
+
+  // endregion
 });

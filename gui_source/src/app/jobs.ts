@@ -1,6 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import { LibraryStore, StorageRequest, answerStorage, readRunHistory } from './library-store';
 import { HelperConnection } from './helper-connection';
+import { DropboxHandover } from './dropbox';
 
 /**
  * Talks to the local helper (ao3downloader.server) that actually performs downloads.
@@ -48,6 +49,8 @@ export interface ServerSettings {
    * so this stays off unless somebody has deliberately asked for it.
    */
   debugTools?: boolean;
+  /** minutes a paused background run is kept before the helper abandons it; 0 is never */
+  pausedRunTimeoutMinutes?: number;
 }
 
 export interface ServerConfig {
@@ -82,6 +85,17 @@ export interface JobOptions {
    * range or a floor. The three scans only, and only while they index.
    */
   nonBookmarks?: boolean;
+  /**
+   * A collections run: index every work in the collections as it crawls them, and download
+   * those as a scan would. The two collection runs only.
+   */
+  collectionWorks?: boolean;
+  /**
+   * A collections run: read each collection's subcollections, or its parent, as well - and
+   * theirs in turn, however far removed, each collection at most once.
+   */
+  subcollections?: boolean;
+  parentCollections?: boolean;
   /**
    * Whether to read AO3's listing at all, or work from what the index already holds.
    *
@@ -165,7 +179,17 @@ export interface RunStep {
  * that into `interrupted` once the helper confirms it is not working on it - see
  * `Jobs.settleInterrupted`.
  */
-export type RunStatus = 'running' | 'success' | 'failed' | 'stopped' | 'interrupted';
+/**
+ * How a run ended. `abandoned` is a background run the helper ended because it was left
+ * paused past `PausedRunTimeoutMinutes` - ended the way a stop ends one, and resumable.
+ */
+export type RunStatus =
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'stopped'
+  | 'interrupted'
+  | 'abandoned';
 
 /** something a run stopped to ask, what was answered, and what came of it */
 export interface RunChoice {
@@ -194,6 +218,8 @@ export interface RunHistory {
   status: RunStatus;
   filetypes: string[];
   options: Record<string, unknown>;
+  /** the link the run was pointed at - a collection, or a fic - absent on older runs */
+  url?: string;
   reindexed: string[];
   downloaded: string[];
   updated: string[];
@@ -215,6 +241,13 @@ export interface RunHistory {
   resumesFirst?: string | null;
   /** the run that later picked this one up */
   resumedBy?: string;
+  /** carried on in the helper after the page closed - absent on older runs */
+  background?: boolean;
+  /** the helper it was started on, as the page named it - absent on older runs */
+  helper?: string;
+  /** how many lines of the run window's account its history file holds, and how many it dropped */
+  logLines?: number;
+  logTrimmed?: number;
   /** how far the run got, as it saved it - see RESUMING.md */
   progress?: { step?: string; stepLabel?: string } & Record<string, unknown>;
 }
@@ -343,6 +376,8 @@ export interface JobEvent {
   filetypes?: string[];
   options?: JobOptions;
   cancelled?: boolean;
+  /** on `finished`: a background run the helper ended because it was left paused too long */
+  abandoned?: boolean;
 }
 
 export interface StartRequest {
@@ -353,6 +388,47 @@ export interface StartRequest {
   password: string;
   /** the collection to index, for the one action that works from a link */
   url?: string;
+  /**
+   * Carry on in the helper with the page closed - see `dropbox_library.py`. Needs `dropbox`,
+   * since a folder on this computer can only be reached through the page.
+   */
+  background?: boolean;
+  /** a background run's answers to the questions it may meet, by question name */
+  answers?: BackgroundAnswers;
+  /** a background run's way into the library; sealed with the login when there is a key */
+  dropbox?: DropboxHandover | null;
+}
+
+/** the questions a run can stop to ask, by the name the helper gives them */
+export type QuestionName = 'undated' | 'quick-floor' | 'duplicates';
+
+/** answers given before a background run starts, since nobody will be there to give them */
+export type BackgroundAnswers = Partial<Record<QuestionName, { choice: AnswerChoice; date?: string }>>;
+
+/** a run the helper is working on right now */
+export interface ActiveRun {
+  id: string;
+  action: JobAction;
+  actionName: string;
+  /** carried on in the helper, with or without a page - one the page can attach to */
+  background: boolean;
+  started: string;
+  /** paused by the user */
+  paused: boolean;
+  /** when a paused background run will be abandoned unless resumed, or '' for never */
+  abandonsAt?: string;
+  /** the step it is on, as the checklist words it */
+  step: string;
+}
+
+/** the helper's answer when a run is already in progress */
+export class RunInProgressError extends Error {
+  constructor(
+    message: string,
+    readonly activeJob: string,
+  ) {
+    super(message);
+  }
 }
 
 @Injectable({ providedIn: 'root' })
@@ -366,6 +442,12 @@ export class Jobs {
   /** null until checked; false means the helper is not running */
   readonly available = signal<boolean | null>(null);
   readonly config = signal<ServerConfig | null>(null);
+  /**
+   * The runs the helper is working on, as last asked. Shared, because the banner, the
+   * history's pinned panel and the run buttons all go by it - and a page that has just
+   * started or finished a run has to change all three at once.
+   */
+  readonly activeRuns = signal<ActiveRun[]>([]);
 
   async loadConfig(): Promise<ServerConfig | null> {
     try {
@@ -414,6 +496,22 @@ export class Jobs {
   /**
    * The runs the helper is working on right now, or null when it cannot be asked.
    */
+  /**
+   * Ask the helper which runs it is working on, and keep the answer in `activeRuns`.
+   * Returns null, leaving the last answer, when it cannot be asked.
+   */
+  async refreshActiveRuns(): Promise<ActiveRun[] | null> {
+    try {
+      const response = await this.helper.call(`/api/jobs`);
+      if (!response.ok) throw new Error(String(response.status));
+      const runs = ((await response.json()) as { jobs?: ActiveRun[] }).jobs ?? [];
+      this.activeRuns.set(runs);
+      return runs;
+    } catch {
+      return null;
+    }
+  }
+
   async activeJobs(): Promise<string[] | null> {
     try {
       const response = await this.helper.call(`/api/jobs`);
@@ -428,18 +526,35 @@ export class Jobs {
    * Mark the runs that were interrupted as such, and return how many there were.
    *
    * A run's record says `running` until the run writes its ending, and one that never got
-   * the chance - the page was closed, the helper stopped - says it for ever. Any that the
-   * helper is not working on right now were interrupted. With the helper not running at
-   * all, nothing can be, so every one of them was. Whatever cannot be read or rewritten is
-   * left as it is: this is a correction, never worth failing over.
+   * the chance - the page was closed, the helper stopped or was shut down - says it for ever.
+   * Any the helper is not working on right now were interrupted, matched **by the run's own
+   * id**, so no other run anybody started can stand in for it.
+   *
+   * Two things are left alone rather than guessed at:
+   *
+   * - **a helper that does not answer.** A hosted helper waking up, or a dropped connection,
+   *   looks exactly like one that is gone - and a background run may be going on it perfectly
+   *   well. Marking it interrupted would offer it for resuming while it runs. The next time
+   *   the helper answers, anything really interrupted is settled then.
+   * - **a run started on a different helper** (its record's `helper`). The one on this
+   *   computer knows nothing of a run the hosted one is doing in the same Dropbox library,
+   *   and must not end it on paper. Records from before this was written say nothing, and
+   *   are taken as this helper's.
+   *
+   * Whatever cannot be read or rewritten is left as it is: this is a correction, never worth
+   * failing over.
    */
   async settleInterrupted(store: LibraryStore | null): Promise<number> {
     if (!store) return 0;
     let settled = 0;
     try {
-      const running = (await readRunHistory(store)).filter((run) => run.status === 'running');
+      const running = (await readRunHistory(store)).filter(
+        (run) => run.status === 'running' && this.isThisHelpers(run),
+      );
       if (!running.length) return 0;
-      const active = new Set((await this.activeJobs()) ?? []);
+      const answered = await this.activeJobs();
+      if (answered === null) return 0;
+      const active = new Set(answered);
       for (const run of running) {
         if (active.has(run.id)) continue;
         const path = `runs/${run.file}`;
@@ -457,6 +572,11 @@ export class Jobs {
       return settled;
     }
     return settled;
+  }
+
+  /** whether a run was started on the helper this page talks to, as far as its record says */
+  isThisHelpers(run: RunHistory): boolean {
+    return !run.helper || sameHelper(run.helper, this.helper.settings().helperUrl);
   }
 
   /**
@@ -528,15 +648,24 @@ export class Jobs {
   }
 
   async start(request: StartRequest): Promise<string> {
-    // the login goes sealed when this page was built with the helper's public key
-    const { username, password, ...rest } = request;
-    const login = await this.helper.sealLogin(username, password);
+    // the login goes sealed when this page was built with the helper's public key, and a
+    // background run's Dropbox sign-in inside it - it is worth as much
+    const { username, password, dropbox, ...rest } = request;
+    const login = await this.helper.sealLogin(username, password, dropbox ? { dropbox } : {});
     const response = await this.helper.call(`/api/jobs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...rest, ...login }),
+      // which helper this is, as this page names it - written into the history file, so a
+      // page talking to another helper can tell the run is not one of its own
+      body: JSON.stringify({ ...rest, ...login, helper: this.helper.settings().helperUrl }),
     });
     const answer = await response.json();
+    if (response.status === 409) {
+      throw new RunInProgressError(
+        answer?.error ?? 'A run is already in progress.',
+        answer?.activeJob ?? '',
+      );
+    }
     if (!response.ok) throw new Error(answer?.error ?? `request failed (${response.status})`);
     return answer.jobId as string;
   }
@@ -616,4 +745,10 @@ export class Jobs {
       onError,
     );
   }
+}
+
+/** two helper addresses naming the same helper - case and a trailing slash aside */
+export function sameHelper(a: string, b: string): boolean {
+  const clean = (url: string) => url.trim().replace(/\/+$/, '').toLowerCase();
+  return clean(a) === clean(b);
 }

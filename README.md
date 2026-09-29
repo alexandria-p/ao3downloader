@@ -78,9 +78,68 @@ Three settings in `settings.ini` are specific to it:
   the page ask for it. The passcode itself is never in this file.
 - `PageOrigin` - the address of the page allowed to use a hosted helper.
 
+A local `settings.ini` - in the working copy, or `build/config/settings.ini` in a bundle - is
+created with every setting the first time, and **kept** from then on: when a newer version adds
+a setting, the build and the helper's next start append it to your file, with its explanation
+and default, and leave your own values alone.
+
 For a hosted copy the deploy workflow writes **every** setting in `settings.ini` from a GitHub
 variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TIME`,
 `HelperUrl` from `HELPER_URL`), so you never edit it by hand. HOSTING.md lists them all.
+
+## Running in the background
+
+Every run offers **Run as background task** on its login step, when your library is in
+Dropbox and you are signed in. The helper then carries on with the page closed: start a run,
+go away, and come back hours later. It is greyed out for a folder on this computer, because
+the helper can only reach that folder through the open page.
+
+- Anything the run might stop to ask - what to do about files with no date, about older
+  copies, and on a quick scan how far back to go - is asked before it starts. An answer is
+  only used if the question comes up.
+- Only one run at a time. While one is going, a banner at the top of the page says so, the
+  run buttons wait, and **Go to this run** opens the History tab with it pinned at the top.
+  **View progress** there shows the usual progress window, where you can pause or stop it,
+  and **Continue in background** closes the window again and leaves it going.
+- Pausing a background run asks first: one left paused for 10 minutes
+  (`PausedRunTimeoutMinutes`) is **abandoned** - the helper ends it, keeping everything it
+  saved, and it can be resumed from History.
+- Restarting the helper - closing its window, or deploying a new version of a hosted one -
+  ends a background run. What it saved stays saved, and starting it again carries on from
+  what is still missing.
+- Every run in the History tab has a **Download issues** button when it reported anything:
+  one text file of the works that failed, the copies to check by hand and the bookmarks that
+  are not works - and a **Download log** button, the whole account the run gave in its
+  window.
+- A run saves its History entry - log, issues and the fics it touched - as it goes: at every
+  checkpoint, and whenever it prints a line at least two minutes after the last save. So a run cut off outright - the helper crashing, or a deploy - keeps
+  everything up to about its last two minutes. A run that is stopped, abandoned or fails
+  saves everything on the way out.
+- If the helper is shut down mid-run, the run's History entry says **Running - not
+  confirmed by the helper** until the helper is back, then **Interrupted**, with Resume
+  offered. Nothing is marked interrupted while the helper cannot be asked, since a hosted
+  one may just be waking up with the run still going.
+
+## What the History tab says about a run
+
+Every run is written down in History the moment it starts and kept up to date as it goes.
+Whatever it says, what the run saved stays saved, and its entry offers **Download log** and,
+when it reported anything, **Download issues**.
+
+| Status | What it means |
+| --- | --- |
+| **In progress - running** | The helper is working on it now. Pinned at the top of History; nothing else can start until it ends. Its own entry says **Running**, or **Running - not confirmed by the helper** while the helper has not answered (a hosted one may be waking up), or **Running on another helper** when another copy of the app started it on the same library. |
+| **In progress - paused** | You pressed Pause. It waits before its next request - never halfway through saving a file - and carries on when you press Resume. A background run left paused for 10 minutes is abandoned; any other run stays paused until you resume or stop it. |
+| **Finished** | It reached its end. Individual works can still have failed; they are in **Download issues**, and a later run tries them again. |
+| **Stopped** | You pressed Stop. It ended at the next safe point, keeping everything it saved. |
+| **Abandoned** | A background run left paused too long, which the helper ended rather than keep waiting. It ends just as a stopped run does. |
+| **Failed** | Something ended it early - AO3 refused the login, the login lapsed partway, or the library could not be reached. The reason is on its entry. |
+| **Interrupted** | It never got to say how it ended: the helper stopped, crashed or restarted (a deploy does this) while it was going. Marked once the helper answers without it. Its log and issues go up to its last save - at most about two minutes before it was cut off. |
+
+Anything that did not finish can be carried on: a full scan, quick scan, custom run or
+collection run offers **Resume**, which picks up where it got to (a collection run from the
+page of the collection it had reached), and anything else you start again. Every
+run skips what is already downloaded and current, so going again only costs what is missing.
 
 # Original Readme
 
@@ -196,12 +255,20 @@ easy mistake to make.
 
 The **Collections** tab lists your indexed collections and has:
 
-- **Index my collections** - reads `https://archiveofourown.org/users/<your username>/collections` and saves a json file describing each collection. No works are downloaded; see [collection files](#collection-files) below.
+- **Index my collections** - reads `https://archiveofourown.org/users/<your username>/collections` and saves a json file describing each collection; see [collection files](#collection-files) below.
 - **Index collection by URL** - the same thing for any one collection on ao3, whether or not it is yours. Paste a link to it; any page of the collection will do, so a link copied straight out of the address bar works. The file it writes sits alongside your own collections and has exactly the same shape.
+
+Both ask one question first: **Index and download encountered works**. Left off, the run only records the work numbers each collection holds, and downloads nothing. Ticked, every work in the collection's works and bookmarked items is indexed as it is read - off the same pages, so indexing them costs nothing extra - and then downloaded, or updated where AO3 has a newer version than your copy, exactly as a scan downloads what it indexed. A work you have not bookmarked is indexed as not bookmarked (`"bookmarked": false`), and somebody else's bookmark notes on a bookmarked item are never written in as yours. External works (hosted off AO3) among its bookmarked items are indexed as well, into `indexing/external/` beside your own - never downloaded, since there is nothing on AO3 to fetch. With it ticked the run also offers **Get all works from encountered series** and asks which file types you want. It reads every collection's works again even when the count has not changed, since that is how their works are indexed. You can leave it off if you are only scanning a collection of your own bookmarks, since those works are already in your index; it is recommended for a collection you think has works or bookmarks outside your own bookmarks.
+
+Both also offer **Include subcollections** and **Include parent collections**. With either ticked, the run reads each collection's subcollections (or its parent) as well, then theirs in turn, however far removed - each indexed like the collections you asked for, and its works too when **Index and download encountered works** is ticked. With both, a collection's siblings are reached through its parent. Each collection is read at most once per run, so a family whose collections link back to each other cannot keep a run going round, and a run follows at most 200 related collections, saying so if it stops there.
+
+Every run but the debug ones ends by noting, on each indexed work, which of your saved collections hold it (`from_collections`), in its cleanup step. A collection run notes its collections on every work they hold that is already in your index - so a bookmark you had indexed learns which of your collections hold it even with **Index and download encountered works** left off. A full, quick or custom scan or a single fic checks every work it covered against the collections already saved, so a work you bookmark after indexing a collection that holds it is noted too - and a resumed run covers what its earlier attempt indexed. None of this makes an AO3 request.
+
+History shows the link a collection run was pointed at. An unfinished collection run offers **Resume** [EXPERIMENTAL]: it saves its place after every page of each collection, so a resumed run skips the collections already finished and carries on from the page it reached (see `RESUMING.md`).
 
 Clicking a collection opens what was recorded about it - maintainers, tags, challenge type, counts, the collection it belongs to and any subcollections - along with the works in it, in the same listing the Bookmarks tab uses. A collection records only the *work numbers* it holds, so a work that is in your bookmarks index is shown in full. A collection can also hold works you have never bookmarked: those are still listed, in the collection's own order, but by work number alone with a link to the work on AO3 - because the number really is all that is known about them. A line above the table says how many of them there are. A parent or subcollection that has been indexed too opens in the page; one that has not links out to AO3.
 
-The two bookmark buttons ask which file types you want. JSON is always produced and cannot be unticked - it is the index this page reads, and it costs nothing extra, being read off the listing pages that have to be fetched anyway. Everything else is optional: HTML starts ticked because most people want it, but **unticking it leaves a metadata-only run**, which is far lighter on ao3's rate limit. Indexing reads one page per 20 works; every other file type costs one request per work, so a full download of 700 bookmarks is roughly 735 requests where indexing alone is about 35. It then asks whatever the run you picked can actually act on, and nothing else - a checkbox that would do nothing is not offered at all. **Custom run** is the only one that asks which pages to cover, or which date range to cover instead; a full scan covers all of them by definition. **(Full scan) Reindex & Update All** is the only one that offers series links and embedded images, for the reason below. Runs with nothing to choose say so and go on to the login. **Index my collections** goes straight there; **Index collection by URL** and **Download/update a specific fic** ask for their link first.
+The two bookmark buttons ask which file types you want. JSON is always produced and cannot be unticked - it is the index this page reads, and it costs nothing extra, being read off the listing pages that have to be fetched anyway. Everything else is optional: HTML starts ticked because most people want it, but **unticking it leaves a metadata-only run**, which is far lighter on ao3's rate limit. Indexing reads one page per 20 works; every other file type costs one request per work, so a full download of 700 bookmarks is roughly 735 requests where indexing alone is about 35. It then asks whatever the run you picked can actually act on, and nothing else - a checkbox that would do nothing is not offered at all. **Custom run** is the only one that asks which pages to cover, or which date range to cover instead; a full scan covers all of them by definition. **(Full scan) Reindex & Update All** is the only one that offers series links and embedded images, for the reason below. Runs with nothing to choose say so and go on to the login. The collection runs ask only whether to take the works in them too, and ask for file types only if so; **Index collection by URL** and **Download/update a specific fic** ask for their link first.
 
 Every run asks its options first and its file types second, and **a run with nothing to choose skips the options step entirely** rather than showing a page that says so.
 
@@ -414,7 +481,7 @@ Each json file keeps a history rather than being overwritten, so you can see how
 
 ### <span id="collection-files"></span>Collection files
 
-Both collection buttons write one json file per collection into `<!--CHECK-->collections<!--COLLECTIONS_FOLDER_NAME-->/`, named after the collection's ao3 name (the part of the url after `/collections/`) and cut to the same '<!--CHECK-->FileNameLength<!--INI_NAME_LENGTH-->' limit as everything else. Nothing is downloaded: a collection file records what the collection *contains*, by work id, so it pairs up with the fics you already have.
+Both collection buttons write one json file per collection into `<!--CHECK-->collections<!--COLLECTIONS_FOLDER_NAME-->/`, named after the collection's ao3 name (the part of the url after `/collections/`) and cut to the same '<!--CHECK-->FileNameLength<!--INI_NAME_LENGTH-->' limit as everything else. A collection file records what the collection *contains*, by work id, so it pairs up with the fics you already have. Nothing is downloaded unless the run was asked to **index and download encountered works**; then each work also gets its own index entry, and the run's cleanup step lists the collection in its `from_collections`.
 
 Each file is versioned the same way an index file is - `last_indexed`, plus an `indexes` list that only grows when something actually changed:
 
@@ -447,7 +514,9 @@ Each file is versioned the same way an index file is - `last_indexed`, plus an `
       "subcollection_count": 12,
       "subcollections": ["https://archiveofourown.org/collections/..."],
       "work_ids": ["34816549", "..."],
-      "bookmark_ids": ["..."]
+      "bookmark_ids": ["..."],
+      "external_ids": ["..."],
+      "series_ids": ["..."]
     }
   ]
 }
@@ -457,12 +526,14 @@ Each file is versioned the same way an index file is - `last_indexed`, plus an `
 - `multifandom` is simply whether the profile page's sidebar counts more than one fandom
 - `parent_collection` and `subcollections` are links, not nested copies - a subcollection you own gets its own file
 - `work_ids` and `bookmark_ids` are the work numbers in the collection's works and bookmarked items, which is exactly what the file names in your downloads folder start with
+- `external_ids` are the external works (hosted off AO3) among its bookmarked items, by AO3's own number for each - a separate numbering from works, so external work `1` is not work `1`. Opening a collection lists them after its bookmarked works, from your index when they are in it (a collection run that indexes its works puts them there) and otherwise by number, linking to AO3's page for them
+- `series_ids` are the series bookmarked among its bookmarked items, by series number. The works in each are recorded in the series' own entry in `indexing/series/` (its `work_ids`), not here: every collection run reads each series' page (one request per twenty works) and writes that entry, since a series can gain works without the collection's own count changing - unless its entry already lists as many works as the collection says the series holds, when it is not read again. It is the same entry a scan of your bookmarks writes, so a series you bookmarked that is also in a collection has one file. A series you have not bookmarked yourself is recorded as not bookmarked; one you have keeps your bookmark. A collection run with *Index and download encountered works* indexes and downloads the series' works too, by the same rule
 
 #### Re-indexing a collection you already have
 
 Walking a collection's works is the most expensive thing this program does: one request per twenty works, so a collection the size of Yuletide runs to hundreds of requests on its own.
 
-It is also usually unnecessary. The collection's profile page - which has to be fetched anyway - says how many works and bookmarked items it holds. When that total is the same as the one in the file from last time, the saved ids are kept and the listing is not walked at all. An unchanged collection therefore costs **two requests instead of hundreds**, and the console says so:
+It is also usually unnecessary - unless the run is indexing the works in it, which always walks the listings. The collection's profile page - which has to be fetched anyway - says how many works and bookmarked items it holds. When that total is the same as the one in the file from last time, the saved ids are kept and the listing is not walked at all. An unchanged collection therefore costs **two requests instead of hundreds**, and the console says so:
 
 ```
 collection yuletide2024 still has 4021 works, so the saved ones are kept
