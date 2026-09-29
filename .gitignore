@@ -27,3 +27,6 @@ cov.xml
 
 # written by deploy_config.py in the hosted deployment, just before the image is built
 /powershell_source/ao3_download_helper/hosted-settings.ini
+
+# the Windows app, built by package_windows.py
+/dist/

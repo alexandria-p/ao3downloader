@@ -476,6 +476,19 @@ def test_the_build_says_what_it_left_behind(fake_root):
     assert 'source_code.server' not in result['left_behind']
 
 
+def test_the_windows_apps_entry_point_is_shipped_with_what_it_imports(fake_root):
+    # desktop.py starts the helper for the Windows app; nothing the helper imports reaches it,
+    # so it is followed as an entry point of its own rather than reported as left behind
+    package = fake_root / build_artifacts.PYTHON_HOME / build_artifacts.PACKAGE_NAME
+    write_module(package, 'desktop.py', ['from source_code import server, parse_text'])
+
+    result = build_artifacts.build(fake_root, skip_web=True)
+
+    assert 'source_code.desktop' not in result['left_behind']
+    shipped = fake_root / 'build' / build_artifacts.HELPER_FOLDER / build_artifacts.PACKAGE_NAME
+    assert (shipped / 'desktop.py').is_file()
+
+
 def test_a_module_the_helper_starts_importing_is_shipped_without_being_listed(fake_root):
     # the whole reason this follows imports rather than keeping a list
     package = fake_root / build_artifacts.PYTHON_HOME / build_artifacts.PACKAGE_NAME

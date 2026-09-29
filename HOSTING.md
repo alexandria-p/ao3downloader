@@ -162,6 +162,10 @@ To **change the passcode or the key**, update the secret and run the workflow. E
 that saved the old passcode is asked for the new one the next time it talks to the helper.
 A new key needs the page rebuilt too, which the same run does.
 
+The same run also builds the **Windows app** and publishes it on the `windows-app` release
+(the `windows` job, which calls **build windows app**). It runs alongside the hosted deploy
+and has nothing to do with it - the app runs its own helper on the computer it is started on.
+
 ## Things to know
 
 - **Background runs keep the helper awake - unless paused.** A free Render service is

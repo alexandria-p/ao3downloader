@@ -36,12 +36,35 @@ powershell.exe -ExecutionPolicy Bypass -File .\Start-Application.ps1
 This starts the local download helper on port 4400 and the web UI on port 4200
 Leave the window open and go to http://localhost:4200.
 
+### The Windows app - no PowerShell, nothing to install
+
+`ao3downloader-windows.zip` holds `ao3downloader.exe` with Python and every dependency packed beside it. Unzip it anywhere, double-click `ao3downloader.exe`, and it does what `Start-Application.ps1` does: starts the helper on port 4400, serves the web UI on http://localhost:4200, and opens your browser there. Leave its window open while you use the app; close it to stop.
+
+- **Where to get it:** the **build windows app** workflow builds it on a Windows runner and publishes it on the `windows-app` release - `https://github.com/<owner>/<repo>/releases/download/windows-app/ao3downloader-windows.zip`. **deploy hosted app** runs that workflow too, alongside the hosted deploy. You can run **build windows app** on its own from the Actions tab; every run also keeps the zip on the run for 30 days.
+- **Settings and logs** go beside the exe, in `config\settings.ini` and `logs\`. Your fics go wherever you open a library in the app, as always.
+- **Windows will warn that the app is not signed** the first time: choose **More info**, then **Run anyway**.
+- **Updating:** unzip the new one over the old folder. `settings.ini` is only ever added to, never replaced.
+- A folder in a zip rather than one self-contained exe on purpose: a one-file exe unpacks itself into a temporary folder on every start, which is slow and is what antivirus programs most often object to.
+- It always serves the page on exactly `localhost:4200`, because that is the address the Dropbox app has registered. If a copy is already running, a second start says so and opens the page instead of starting another helper.
+
+To build it yourself (on Windows, since PyInstaller builds for the system it runs on):
+
+```
+cd powershell_source/ao3_download_helper
+uv sync --group package
+uv run --no-sync python package_windows.py
+```
+
+The zip lands in `dist/` at the repository root.
+
 ## Deploy
 
 Open Github repo,
 Actions -> deploy hosted app (under All workflows) -> click Run Workflow event trigger
 
 It writes settings.ini and page config, build the helper as a dockerfile and pushes it to github container registry (Github Profile -> Packages). Then deploys to 'render' as a web service.
+
+Alongside that it builds the Windows app and publishes it on the `windows-app` release (see **The Windows app** above). That job does not hold up the hosted deploy, and a Windows build that fails does not stop it.
 
 
 ## Run development files:

@@ -35,9 +35,12 @@ powershell_source/
     test_build_artifacts.py       its tests (next to it, not in test/)
     deploy_config.py              writes the hosted settings.ini and app-config.json
     test_deploy_config.py         its tests
+    package_windows.py            builds the Windows app (PyInstaller) into dist/*.zip
+    test_package_windows.py       its tests
     Dockerfile, .dockerignore     the hosted helper's image
     pyproject.toml, uv.lock, .venv/
-.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy
+.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls build-windows
+.github/workflows/build-windows.yml   builds, tries and publishes the Windows app
 HOSTING.md                        how to set the hosted copy up
 build/                            generated; config/settings.ini is NOT overwritten
 ```
@@ -77,7 +80,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1498 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1513 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -221,6 +224,40 @@ The request log (`logs/log.jsonl`) is **written and never read** - the one reade
 which nothing calls - so a hosted helper losing it on every restart costs nothing.
 `ignorelist.txt` is the one helper-side file that does change a run, and a hosted helper
 has none.
+
+### The Windows app is the bundle with Python packed in
+
+`ao3downloader.exe` replaces `Start-Application.ps1` for people who should not need
+PowerShell or uv. `source_code/desktop.py` is its entry point - it does what the launcher
+does: settings and logs beside the exe (`config/`, `logs/`, through the same
+`AO3DOWNLOADER_CONFIG_FOLDER` / `_LOG_FOLDER` a build uses), the prebuilt page served from the
+exe's own files, the helper started in the foreground (`server.serve`, so everything the
+helper says and does is unchanged), the browser opened once the helper answers.
+`package_windows.py` stages the page and settings through `build_artifacts`' own functions,
+runs PyInstaller, and zips the folder. The bundler follows imports from `desktop` as well as
+`server` (`APP_ENTRY`), so it is shipped in `build/` too rather than reported left behind.
+
+What not to break:
+
+- **The page is served on exactly `localhost:4200`**, and the browser sent to `localhost`, not
+  `127.0.0.1`: the Dropbox sign-in returns to the page's own address, which has to be
+  registered with the Dropbox app, and the two hosts are different origins.
+- **A folder in a zip, not `--onefile`**: a one-file exe unpacks to a temp folder on every
+  start, which is slow and is what antivirus most often flags.
+- **Nothing fails silently.** A double-clicked console app that exits closes before anyone
+  reads why, so every failure goes through `desktop.stop`, which holds the window open. A
+  second start while one is running opens the page and stops there - it never starts a
+  second helper (see **Only one helper may run at a time**).
+- **PyInstaller builds for the system it runs on.** `build-windows.yml` builds on
+  `windows-latest`, unzips the result, starts the exe (`AO3DOWNLOADER_NO_BROWSER`), and fails
+  unless the page and the helper both answer and `settings.ini` appeared beside the exe. Run
+  on Linux, `package_windows.py` builds the same app for Linux - which is how it was tested
+  here. PyInstaller is in the `package` dependency group, so nothing else installs it.
+- **`deploy-hosted.yml` calls it as a job of its own** (`workflow_call`), with no `needs`, so a
+  Windows build that fails never holds up the helper or the page. It replaces the
+  `windows-app` release each time, so the tag moves to the commit the zip was built from.
+  The app is not signed; Windows warns on first start, and the README in the zip says what to
+  click.
 
 ### A run can carry on in the background
 

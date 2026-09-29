@@ -209,3 +209,14 @@ jobs:
       - name: deploy
         id: deploy
         uses: actions/deploy-pages@v4
+
+  windows:
+    name: build the windows app and publish it
+    # nothing here depends on the hosted copy, so it runs alongside it, and a windows build
+    # that fails does not hold up the helper or the page. the app runs its own helper on the
+    # computer it is started on - it never talks to the hosted one
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      release_tag: windows-app
+    permissions:
+      contents: write
