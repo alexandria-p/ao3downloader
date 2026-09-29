@@ -516,8 +516,7 @@ Each file is versioned the same way an index file is - `last_indexed`, plus an `
       "work_ids": ["34816549", "..."],
       "bookmark_ids": ["..."],
       "external_ids": ["..."],
-      "series_ids": ["..."],
-      "series_work_ids": {"15213": ["33671446", "..."]}
+      "series_ids": ["..."]
     }
   ]
 }
@@ -528,7 +527,7 @@ Each file is versioned the same way an index file is - `last_indexed`, plus an `
 - `parent_collection` and `subcollections` are links, not nested copies - a subcollection you own gets its own file
 - `work_ids` and `bookmark_ids` are the work numbers in the collection's works and bookmarked items, which is exactly what the file names in your downloads folder start with
 - `external_ids` are the external works (hosted off AO3) among its bookmarked items, by AO3's own number for each - a separate numbering from works, so external work `1` is not work `1`. Opening a collection lists them after its bookmarked works, from your index when they are in it (a collection run that indexes its works puts them there) and otherwise by number, linking to AO3's page for them
-- `series_ids` are the series bookmarked among its bookmarked items, by series number, and `series_work_ids` the work numbers in each of those series - read off each series' own page (one request per twenty works) on every collection run, since a series can gain works without the collection's own count changing. A collection run with *Index and download encountered works* indexes and downloads those works too, as not bookmarked unless you have bookmarked them yourself
+- `series_ids` are the series bookmarked among its bookmarked items, by series number. The works in each are recorded in the series' own entry in `indexing/series/` (its `work_ids`), not here: every collection run reads each series' page (one request per twenty works) and writes that entry, since a series can gain works without the collection's own count changing. A series you have not bookmarked yourself is recorded as not bookmarked; one you have keeps your bookmark. A collection run with *Index and download encountered works* indexes and downloads the series' works too, by the same rule
 
 #### Re-indexing a collection you already have
 

@@ -1115,8 +1115,9 @@ class Ao3:
         which a resumed run has to read again rather than skip."""
 
         if self.on_collection_done and slug not in self.unfinished_collections:
-            series_works = [w for ids in (document.get('series_work_ids') or {}).values()
-                            for w in ids or []]
+            series_works = [w for series_id in document.get('series_ids') or []
+                            for w in self.series_read.get(str(series_id))
+                            or self.series_ids_found.get(str(series_id)) or []]
             self.on_collection_done(slug, [str(x) for x in (document.get('work_ids') or []) +
                                            (document.get('bookmark_ids') or []) + series_works],
                                     self.family_of(document))
@@ -1219,8 +1220,9 @@ class Ao3:
                 self.unfinished_collections.add(slug)
                 self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': url}, e)
 
-        document['series_work_ids'] = self.collection_series_works(
-            slug, document.get('series_ids') or [], previous)
+        # the works in each series are recorded in the series' own entry, not here - a
+        # collection names the series, as it names works, and the index describes them
+        series_works = self.collection_series(slug, document.get('series_ids') or [])
 
         if indexing_works:
             print(strings.AO3_INFO_COLLECTION_WORKS.format(
@@ -1250,56 +1252,61 @@ class Ao3:
         return document
 
 
-    def collection_series_works(self, slug: str, series_ids: list[str],
-                                previous: dict) -> dict[str, list[str]]:
-        """The works of every series bookmarked among a collection's items, by series.
+    def collection_series(self, slug: str, series_ids: list[str]) -> dict[str, list[str]]:
+        """Read every series bookmarked among a collection's items, and write its entry in
+        `indexing/series/` with the works in it - the collection itself records only the
+        series' number, as it does a work's.
 
-        A collection records a series bookmark by the series' number, but the works are what
-        the collection holds through it - so each series is read for them, a request per 20
-        works. When the run indexes the collection's works, the series' works are indexed too
-        (`index_series`, as a bookmarked series of your own is walked: a new entry is not
-        bookmarked) and downloaded with the rest; otherwise only their numbers are read.
+        The entry follows the rules for any series not bookmarked by you: one that exists
+        keeps what it says about your own bookmark of it; a new one is **not bookmarked**.
+        Somebody else's bookmark of it - the collection's blurb, with their notes and tags - is
+        never what the entry is written from; the series' own page is.
 
-        A series is read once per run, however many collections hold it. One that will not
-        read keeps the works the collection's file had for it.
+        When the run indexes the collection's works, the series' works are indexed too
+        (`index_series`, the series walk's own: a new entry is not bookmarked) and downloaded
+        with the rest; otherwise only the series' entry is written. A request per 20 works,
+        once per run however many collections hold the series; one that will not read keeps
+        the works its entry had. Returns the works of each series read.
         """
 
-        before = previous.get('series_work_ids') if isinstance(previous.get('series_work_ids'), dict) else {}
         found: dict[str, list[str]] = {}
         if series_ids:
             print(strings.AO3_INFO_COLLECTION_SERIES.format(slug, len(series_ids)))
         for series_id in series_ids:
             series_id = str(series_id)
             self.check_cancelled()
-            works = self.series_read.get(series_id) or self.series_ids_found.get(series_id)
+            works = self.series_read.get(series_id)
+            if works is None: works = self.series_ids_found.get(series_id)
             if works is None and self.collection_works is not None:
                 for document in self.index_series({'id': series_id, 'title': '', 'bookmark': None}):
                     if document.get('id'): self.indexed_this_run[str(document['id'])] = document
                     self.keep_collection_work(document)
                 works = self.series_read.get(series_id)
             elif works is None:
-                works = self.read_series_work_ids(series_id)
-            if works is None:
-                works = [str(x) for x in before.get(series_id) or []]
-            else:
-                # works indexed before this run, off a listing, are downloaded with the rest
-                self.keep_indexed([w for w in works if w not in self.indexed_this_run])
+                works = self.read_series(series_id)
+            if works is None: continue
+            # works indexed before this run, off a listing, are downloaded with the rest
+            self.keep_indexed([w for w in works if w not in self.indexed_this_run])
             found[series_id] = list(works)
         return found
 
 
-    def read_series_work_ids(self, series_id: str) -> list[str] | None:
-        """Every work number on a series' pages, without indexing any of them - or None when
-        the series will not read."""
+    def read_series(self, series_id: str) -> list[str] | None:
+        """Read a series' pages for the works in it, without indexing any of them, and write
+        the series' entry - or leave the entry as it was, and answer None, when it will not
+        read."""
 
         link = f'{strings.AO3_BASE_URL}/series/{series_id}'
+        print(strings.AO3_INFO_SERIES_READING.format(series_id))
         found: list[str] = []
+        header: dict | None = None
         page = link
         try:
             total = None
             while True:
                 self.check_cancelled()
                 soup = self.repo.get_soup(page)
+                if header is None: header = parse_soup.get_series_page_metadata(soup, series_id)
                 if total is None: total = parse_soup.get_total_pages(soup)
                 for blurb in parse_soup.get_blurbs(soup):
                     kind, work = parse_soup.get_blurb_kind(blurb)
@@ -1314,6 +1321,7 @@ class Ao3:
             self.log_error({'message': strings.ERROR_SERIES, 'link': link}, e)
             return None
         self.series_ids_found[series_id] = found
+        self.save_series_entry(self.series_document(series_id, None, header, found))
         return found
 
 

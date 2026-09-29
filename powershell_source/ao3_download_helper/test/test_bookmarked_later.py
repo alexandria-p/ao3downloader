@@ -411,11 +411,14 @@ def earlier_attempt(root: str, action: str, listing: str | None = None) -> str:
     after its listing walk finished - so a resume takes that walk's works from the index
     rather than reading them again. Returns the run's id."""
 
+    before = set(records(root)) if os.path.isdir(os.path.join(root, 'runs')) else set()
     run(root, action, listing=listing)
     folder = os.path.join(root, 'runs')
-    name = sorted(os.listdir(folder))[-1]
-    with open(os.path.join(folder, name), encoding='utf-8') as f:
-        data = json.load(f)
+    # the new record by the id inside it - two runs can start within the same second
+    for name in os.listdir(folder):
+        with open(os.path.join(folder, name), encoding='utf-8') as f:
+            data = json.load(f)
+        if data['id'] not in before: break
     data['status'] = 'interrupted'
     data['finished'] = None
     with open(os.path.join(folder, name), 'w', encoding='utf-8') as f:
@@ -571,12 +574,15 @@ def test_duplicates_an_older_version_left_are_written_to_the_newest_and_named(bo
 def test_a_resumed_collection_run_notes_its_collection_on_what_it_holds(bookmarked):
     # the earlier attempt finished the collection, so the resume reads nothing of it - its
     # cleanup still notes the collection on the works it holds
+    before = set(records(bookmarked))
     run_collection(bookmarked, works=False)
     forget_collections(bookmarked, NEWEST)
     folder = os.path.join(bookmarked, 'runs')
-    name = sorted(os.listdir(folder))[-1]
-    with open(os.path.join(folder, name), encoding='utf-8') as f:
-        data = json.load(f)
+    # the new record by id, not the last file name - two runs can start within the same second
+    for name in os.listdir(folder):
+        with open(os.path.join(folder, name), encoding='utf-8') as f:
+            data = json.load(f)
+        if data['id'] not in before: break
     assert data['action'] == server.ACTION_COLLECTION
     data['status'] = 'interrupted'
     with open(os.path.join(folder, name), 'w', encoding='utf-8') as f:
@@ -621,30 +627,56 @@ def collection_file(root: str) -> dict:
         return indexing.flatten(json.load(f))
 
 
+def series_entry(root: str) -> dict:
+    folder = os.path.join(root, strings.INDEXING_FOLDER_NAME, strings.SERIES_INDEX_FOLDER_NAME)
+    [name] = [n for n in os.listdir(folder) if n.startswith(SERIES_ID + ' ')]
+    with open(os.path.join(folder, name), encoding='utf-8') as f:
+        return indexing.flatten(json.load(f))
+
+
 def index_files(root: str) -> set[str]:
     folder = os.path.join(root, strings.INDEXING_FOLDER_NAME)
     if not os.path.isdir(folder): return set()
     return {n.split(' ')[0] for n in os.listdir(folder) if n.endswith('.json')}
 
 
-def test_a_collection_records_the_series_bookmarked_in_it_and_the_works_in_each(tmp_path):
+def test_a_collection_names_the_series_in_it_and_the_series_entry_lists_its_works(tmp_path):
     root = str(tmp_path / 'library')
     asked = run_collection(root, works=False, pages=with_a_series)
 
     saved = collection_file(root)
     assert saved['series_ids'] == [SERIES_ID]
-    assert saved['series_work_ids'] == {SERIES_ID: SERIES_WORKS}
-    # the series is read for its work numbers, once
+    # the collection names the series; the series' own entry says what is in it
+    assert 'series_work_ids' not in saved
+    found = series_entry(root)
+    assert found[strings.SERIES_WORKS_FIELD] == SERIES_WORKS
+    # somebody else's bookmark of it - it is in the index because of the collection
+    assert found[strings.BOOKMARKED_FIELD] is False
+    assert found[indexing.FROM_COLLECTIONS] == ['alpha']
     assert len([url for url in asked if '/series/' in url]) == 1
-    # without the works option nothing is indexed - only the numbers recorded
+    # without the works option the works themselves are not indexed
     assert not index_files(root) & set(SERIES_WORKS)
+
+
+def test_a_series_you_bookmarked_stays_yours(bookmarked):
+    # the full scan read your bookmark of the series, notes and all
+    before = series_entry(bookmarked)
+    assert before[strings.BOOKMARKED_FIELD] is True
+
+    run_collection(bookmarked, works=False, pages=with_a_series)
+
+    after = series_entry(bookmarked)
+    assert after[strings.BOOKMARKED_FIELD] is True
+    for field in strings.BOOKMARK_OWN_FIELDS:
+        assert after.get(field) == before.get(field)
+    assert after[indexing.FROM_COLLECTIONS] == ['alpha']
 
 
 def test_with_the_works_on_the_series_works_are_indexed_and_downloaded_too(tmp_path):
     root = str(tmp_path / 'library')
     asked = run_collection(root, works=True, pages=with_a_series)
 
-    assert collection_file(root)['series_work_ids'] == {SERIES_ID: SERIES_WORKS}
+    assert series_entry(root)[strings.SERIES_WORKS_FIELD] == SERIES_WORKS
     for work in SERIES_WORKS:
         found = entry(root, work)
         # there because of a series in a collection, not because you bookmarked it
@@ -676,25 +708,19 @@ def test_a_series_is_read_again_even_when_the_collections_count_has_not_changed(
     asked = run_collection(root, works=False, pages=grown)
 
     assert any('/series/' in url for url in asked)
-    assert collection_file(root)['series_work_ids'] == {SERIES_ID: ['99999999', *SERIES_WORKS]}
+    assert series_entry(root)[strings.SERIES_WORKS_FIELD] == ['99999999', *SERIES_WORKS]
 
 
-def test_a_series_that_will_not_read_keeps_the_works_the_file_had(tmp_path):
+def test_a_series_that_will_not_read_keeps_the_works_its_entry_had(tmp_path):
     root = str(tmp_path / 'library')
     run_collection(root, works=False, pages=with_a_series)
-    path = os.path.join(root, strings.COLLECTIONS_FOLDER_NAME, 'alpha.json')
-    with open(path, encoding='utf-8') as f:
-        data = json.load(f)
-    # a changed count makes the listing be read again, and so the series
-    data['indexes'][-1]['bookmark_count'] = 99
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f)
 
     def broken(url: str) -> BeautifulSoup:
         if '/series/' in url: raise RuntimeError('ao3 is down')
         return with_a_series(url)
     run_collection(root, works=False, pages=broken)
 
-    assert collection_file(root)['series_work_ids'] == {SERIES_ID: SERIES_WORKS}
+    assert collection_file(root)['series_ids'] == [SERIES_ID]
+    assert series_entry(root)[strings.SERIES_WORKS_FIELD] == SERIES_WORKS
 
 # endregion

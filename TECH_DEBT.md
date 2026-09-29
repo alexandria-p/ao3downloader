@@ -20,7 +20,8 @@ collections that list the work - removing as well as adding - which needs every 
 in the library to be current first, or it would remove names that are right.
 
 **It is only as right as the collection files.** The cleanup trusts `work_ids`,
-`bookmark_ids`, `external_ids` and `series_work_ids`. Those can be stale: a collection run without the works
+`bookmark_ids`, `external_ids` and `series_ids` - and, for a series, the `work_ids` its own
+entry lists. Those can be stale: a collection run without the works
 option skips re-reading a listing whose count has not changed (`unchanged_items`), so a
 collection that gained one work and lost another keeps its old list, and the entries are
 linked from that old list.

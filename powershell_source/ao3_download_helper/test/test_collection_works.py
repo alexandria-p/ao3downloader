@@ -1010,4 +1010,3 @@ def test_a_resumed_listing_the_earlier_attempt_finished_keeps_its_series():
     records = ao3.get_collection('https://archiveofourown.org/collections/alpha')
 
     assert records[0]['series_ids'] == ['15213']
-    assert records[0]['series_work_ids'] == {'15213': ['42']}

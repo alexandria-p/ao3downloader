@@ -2456,31 +2456,70 @@ def collection_links(job: Job, fileops: FileOps, ao3) -> list[tuple[str, list[st
 
         by_work: dict[str, set[str]] = {}
         by_external: dict[str, set[str]] = {}
+        by_series: dict[str, set[str]] = {}
         for name, collection in held.items():
-            series_works = collection.get('series_work_ids')
-            series_works = [w for ids in series_works.values() for w in ids or []] \
-                if isinstance(series_works, dict) else []
-            for work in [*(collection.get('work_ids') or []), *(collection.get('bookmark_ids') or []),
-                         *series_works]:
+            for work in [*(collection.get('work_ids') or []), *(collection.get('bookmark_ids') or [])]:
                 by_work.setdefault(str(work), set()).add(name)
             for external in collection.get('external_ids') or []:
                 by_external.setdefault(str(external), set()).add(name)
+            for series in collection.get('series_ids') or []:
+                by_series.setdefault(str(series), set()).add(name)
+        # a series a collection holds holds its works for it too - which works, the series'
+        # own entry says
+        series_folder = os.path.join(strings.INDEXING_FOLDER_NAME, strings.SERIES_INDEX_FOLDER_NAME)
+        for series, works_in_it in works_of_series(fileops, series_folder, set(by_series)).items():
+            for work in works_in_it:
+                by_work.setdefault(work, set()).update(by_series[series])
 
         works = covered_works(job, ao3)
         externals = covered_externals(job, ao3)
+        series = covered_series(job, ao3)
         if job.action in COLLECTION_ACTIONS:
             read = {x for x in job.collections_read if x in held}
             works |= {w for w, names in by_work.items() if names & read}
             externals |= {e for e, names in by_external.items() if names & read}
+            series |= {x for x, names in by_series.items() if names & read}
 
         return [*entries_missing(fileops, strings.INDEXING_FOLDER_NAME, works, by_work),
                 *entries_missing(fileops, os.path.join(strings.INDEXING_FOLDER_NAME,
                                                        strings.EXTERNAL_INDEX_FOLDER_NAME),
-                                 externals, by_external)]
+                                 externals, by_external),
+                *entries_missing(fileops, series_folder, series, by_series)]
     except exceptions.CancelledException:
         raise
     except Exception:
         return []
+
+
+def covered_series(job: Job, ao3) -> set[str]:
+    """The series this run read or marked - in this attempt, and in every earlier attempt it
+    resumes, as their progress records them - by series number."""
+
+    found: set[str] = set()
+    for attribute in ('series_read', 'series_ids_found', 'series_marked'):
+        value = getattr(ao3, attribute, None)
+        if isinstance(value, dict): found |= {str(x) for x in value}
+    for progress in (job.progress(), job.earlier_progress()):
+        if not isinstance(progress, dict): continue
+        for value in progress.get('seriesDone') or []:
+            if isinstance(value, (str, int)) and str(value): found.add(str(value))
+        for marked in progress.get('seriesMarked') or []:
+            if isinstance(marked, dict) and marked.get('id'): found.add(str(marked['id']))
+    return found
+
+
+def works_of_series(fileops: FileOps, subfolder: str, wanted: set[str]) -> dict[str, list[str]]:
+    """The works each wanted series' entry lists, by series - read only for those series."""
+
+    found: dict[str, list[str]] = {}
+    if not wanted: return found
+    for name in fileops.list_files(os.path.join(fileops.downloadfolder, subfolder)):
+        if not str(name).lower().endswith('.json'): continue
+        number = parse_text.get_work_number_from_filename(name)
+        if number not in wanted: continue
+        entry = indexing.flatten(fileops.load_json(os.path.join(subfolder, name))) or {}
+        found[number] = [str(x) for x in entry.get(strings.SERIES_WORKS_FIELD) or []]
+    return found
 
 
 def entries_missing(fileops: FileOps, subfolder: str, ids: set[str],
