@@ -199,6 +199,8 @@ export class History {
     if (options['pages']) said.push(`up to page ${options['pages']}`);
     if (Number(options['start'] ?? 1) > 1) said.push(`from page ${options['start']}`);
     if (options['collectionWorks']) said.push('indexed and downloaded the works in them');
+    if (options['subcollections']) said.push('with subcollections');
+    if (options['parentCollections']) said.push('with parent collections');
     if (options['series']) said.push('all works from encountered series');
     if (options['images']) said.push('save images separately');
     return said;

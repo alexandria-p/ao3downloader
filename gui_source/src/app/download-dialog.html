@@ -447,6 +447,34 @@
           </p>
         }
 
+        @if (picksCollectionWorks()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="subcollections"
+              [checked]="subcollections()"
+              (change)="subcollections.set($any($event.target).checked)"
+            />
+            <span>Include subcollections</span>
+          </label>
+          <label class="check">
+            <input
+              type="checkbox"
+              name="parentCollections"
+              [checked]="parentCollections()"
+              (change)="parentCollections.set($any($event.target).checked)"
+            />
+            <span>Include parent collections</span>
+          </label>
+          <p class="hint">
+            Each related collection is indexed like the ones asked for - and, with
+            <strong>Index and download encountered works</strong> ticked, so are its works.
+            Its own subcollections or parent are followed in turn, however far removed. Each
+            collection is read at most once, so a family whose collections link back to each
+            other cannot keep the run going round; a run stops following after 200.
+          </p>
+        }
+
         @if (picksSeries()) {
           <label class="check">
             <input type="checkbox" [checked]="series()" (change)="series.set($any($event.target).checked)" />

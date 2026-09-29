@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1422 python passed; 577 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1437 python passed; 579 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1034,6 +1034,18 @@ The rules, and why:
   `from_series`, `indexing.merge` only ever adds to (`ACCUMULATED_FIELDS`).
 - Unrevealed works go through `note_unrevealed`, shared with `get_metadata`: indexed, held
   back from download, listed as skipped.
+
+**A collection's family can be followed** (`subcollections`, `parentCollections` - clamped to
+the collection runs in `do_POST`). Every collection goes through `Ao3.take_collection`, which
+adds it to `collections_seen` **before** reading it and then queues its relatives
+(`family_of`: subcollection links and/or `parent_collection`) with `queue_family`, which never
+queues a name already seen or already waiting. `walk_family` drains the queue after the
+collections asked for. That is what makes loops impossible: a family whose members point at
+each other, or a collection that is its own parent, is read once each and the queue empties.
+`COLLECTION_FAMILY_LIMIT` (200) is a backstop against a family so large it would take one run
+across much of ao3, not the loop guard. The checkpoint for a finished collection keeps its
+`family`, and `finished_before` queues it, so a resume that skips a collection still follows
+what it links to.
 
 **Collection runs can be resumed** (`RESUME_ACTIONS`; `RESUMING.md` has the detail).
 `watch_collections` checkpoints `collections.<name>` after every page of each listing

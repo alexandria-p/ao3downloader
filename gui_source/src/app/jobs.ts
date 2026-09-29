@@ -91,6 +91,12 @@ export interface JobOptions {
    */
   collectionWorks?: boolean;
   /**
+   * A collections run: read each collection's subcollections, or its parent, as well - and
+   * theirs in turn, however far removed, each collection at most once.
+   */
+  subcollections?: boolean;
+  parentCollections?: boolean;
+  /**
    * Whether to read AO3's listing at all, or work from what the index already holds.
    *
    * Only a custom run offers this. It defaults to true everywhere else: a run that quietly

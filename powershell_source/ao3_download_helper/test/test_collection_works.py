@@ -434,7 +434,7 @@ def test_a_finished_collection_says_so_with_every_work_it_holds():
     ao3, repo, _, _ = make_ao3()
     repo.get_soup.side_effect = one_collection([['1', '2']], 2)
     finished = []
-    ao3.on_collection_done = lambda slug, works: finished.append((slug, works))
+    ao3.on_collection_done = lambda slug, works, family: finished.append((slug, works))
 
     ao3.get_collection(ALPHA)
 
@@ -449,7 +449,7 @@ def test_a_collection_whose_listing_failed_partway_is_not_counted_as_finished():
         return one_collection([['1', '2'], ['3']], 3)(url)
     repo.get_soup.side_effect = dispatch
     finished = []
-    ao3.on_collection_done = lambda slug, works: finished.append(slug)
+    ao3.on_collection_done = lambda slug, works, family: finished.append(slug)
 
     ao3.get_collection(ALPHA)
 
@@ -561,7 +561,7 @@ def test_a_collection_run_saves_where_it_got_to_after_every_page():
 
     saved = job.record.checkpoint.call_args.kwargs['collections']
     assert saved['alpha']['listings']['work_ids'] == {'ids': ['1', '2'], 'done': False, 'page': 3}
-    assert saved['beta'] == {'done': True, 'works': ['7']}
+    assert saved['beta'] == {'done': True, 'works': ['7'], 'family': []}
 
 
 def test_a_resumed_collection_run_starts_from_what_the_earlier_attempt_saved():
@@ -596,5 +596,183 @@ def test_a_run_resumed_at_its_download_step_goes_straight_back_to_it():
     ao3.get_collection.assert_not_called()
     series.assert_not_called()
     assert [x['id'] for x in download.call_args.args[3]] == ['1', '2']
+
+# endregion
+
+
+# region following a collection's family - its subcollections and its parent
+
+def family_profile(slug: str, parent: str | None, children: list[str]) -> BeautifulSoup:
+    parent_li = f'<li><a href="/collections/{parent}">Parent Collection</a></li>' if parent else ''
+    subs = (f'<li><a href="/collections/{slug}/collections">Subcollections ({len(children)})</a></li>'
+            if children else '')
+    return BeautifulSoup(f"""
+      <div id="main" class="collection_profile-show">
+        <h2 class="heading">Title of {slug}</h2>
+        <ul class="navigation actions"><li><a href="/collections/{slug}">Dashboard</a></li>{parent_li}</ul>
+        <ul class="navigation actions">{subs}
+          <li><a href="/collections/{slug}/works">Works (1)</a></li>
+          <li><a href="/collections/{slug}/bookmarks">Bookmarked Items (0)</a></li>
+        </ul>
+      </div>""", 'html.parser')
+
+
+def family(tree: dict[str, tuple[str | None, list[str]]], own: list[str] | None = None):
+    """Serve a family of collections: each name's (parent, children), and one work each,
+    numbered after the collection so it can be told where it came from."""
+
+    def dispatch(url: str) -> BeautifulSoup:
+        if '/users/' in url: return collections_listing(own or [])
+        slug = url.split('/collections/')[1].split('/')[0].split('?')[0]
+        parent, children = tree[slug]
+        if url.endswith('/profile'): return family_profile(slug, parent, children)
+        if url.endswith(f'/{slug}/collections'): return collections_listing(children)
+        if '/works' in url: return listing(WORK_BLURB, [str(abs(hash(slug)) % 100000)])
+        if '/bookmarks' in url: return listing(BOOKMARK_BLURB, [])
+        raise AssertionError(url)
+    return dispatch
+
+
+def profiles_read(repo) -> list[str]:
+    return [u.split('/collections/')[1].split('/')[0] for u in requested(repo)
+            if u.endswith('/profile')]
+
+
+def following(subcollections=False, parents=False):
+    ao3, repo, fileops, files = make_ao3()
+    ao3.collection_works = None
+    ao3.follow_subcollections = subcollections
+    ao3.follow_parents = parents
+    return ao3, repo, fileops, files
+
+
+def test_subcollections_are_read_too_when_asked_and_their_own_in_turn():
+    ao3, repo, _, _ = following(subcollections=True)
+    repo.get_soup.side_effect = family({'a': (None, ['b', 'c']), 'b': ('a', ['d']),
+                                        'c': ('a', []), 'd': ('b', [])})
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/a')
+
+    assert [r['name'] for r in records] == ['a', 'b', 'c', 'd']
+
+
+def test_a_parent_is_not_followed_unless_asked():
+    ao3, repo, _, _ = following(subcollections=True)
+    repo.get_soup.side_effect = family({'b': ('a', []), 'a': (None, ['b'])})
+
+    ao3.get_collection('https://archiveofourown.org/collections/b')
+
+    assert profiles_read(repo) == ['b']
+
+
+def test_parents_are_read_too_when_asked_all_the_way_up():
+    ao3, repo, _, _ = following(parents=True)
+    repo.get_soup.side_effect = family({'c': ('b', []), 'b': ('a', ['c', 'x']),
+                                        'a': (None, ['b']), 'x': ('b', [])})
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/c')
+
+    # parents only: the sibling x is a subcollection, which was not asked for
+    assert [r['name'] for r in records] == ['c', 'b', 'a']
+
+
+def test_a_family_that_links_round_in_a_circle_is_read_once_each_and_the_run_ends():
+    # every one of these points at the others, several steps round
+    ao3, repo, _, _ = following(subcollections=True, parents=True)
+    repo.get_soup.side_effect = family({'a': ('c', ['b']), 'b': ('a', ['c']),
+                                        'c': ('b', ['a', 'b'])})
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/a')
+
+    assert sorted(r['name'] for r in records) == ['a', 'b', 'c']
+    assert sorted(profiles_read(repo)) == ['a', 'b', 'c']
+
+
+def test_a_collection_that_is_its_own_parent_is_read_once():
+    ao3, repo, _, _ = following(subcollections=True, parents=True)
+    repo.get_soup.side_effect = family({'a': ('a', ['a'])})
+
+    ao3.get_collection('https://archiveofourown.org/collections/a')
+
+    assert profiles_read(repo) == ['a']
+
+
+def test_a_family_bigger_than_the_limit_stops_there_and_says_so(monkeypatch, capsys):
+    monkeypatch.setattr(strings, 'COLLECTION_FAMILY_LIMIT', 3)
+    ao3, repo, _, _ = following(subcollections=True)
+    chain = {f'c{n}': (None, [f'c{n + 1}']) for n in range(10)}
+    chain['c10'] = (None, [])
+    repo.get_soup.side_effect = family(chain)
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/c0')
+
+    # the one asked for, then three relatives
+    assert [r['name'] for r in records] == ['c0', 'c1', 'c2', 'c3']
+    assert 'the most one run will follow' in capsys.readouterr().out
+
+
+def test_your_own_collections_are_not_read_again_as_each_others_family():
+    ao3, repo, _, _ = following(subcollections=True, parents=True)
+    repo.get_soup.side_effect = family({'a': (None, ['b']), 'b': ('a', [])}, own=['a', 'b'])
+
+    ao3.get_collections(COLLECTIONS_URL)
+
+    assert sorted(profiles_read(repo)) == ['a', 'b']
+
+
+def test_the_works_of_the_family_are_indexed_with_the_rest():
+    ao3, repo, _, files = make_ao3()
+    ao3.follow_subcollections = True
+    repo.get_soup.side_effect = family({'a': (None, ['b']), 'b': ('a', [])})
+
+    ao3.get_collection('https://archiveofourown.org/collections/a')
+
+    assert len(ao3.collection_works) == 2
+    assert sorted(e[indexing.FROM_COLLECTIONS][0] for e in entries(files).values()) == ['a', 'b']
+
+
+def test_a_finished_collection_says_which_relatives_it_links_to():
+    ao3, repo, _, _ = following(subcollections=True)
+    repo.get_soup.side_effect = family({'a': (None, ['b']), 'b': ('a', [])})
+    finished = []
+    ao3.on_collection_done = lambda slug, works, family: finished.append((slug, family))
+
+    ao3.get_collection('https://archiveofourown.org/collections/a')
+
+    assert finished == [('a', ['b']), ('b', [])]
+
+
+def test_a_resume_still_follows_the_family_of_a_collection_it_skips():
+    ao3, repo, _, _ = following(subcollections=True)
+    ao3.records_for = lambda ids: []
+    ao3.collections_before = {'a': {'done': True, 'works': [], 'family': ['b']}}
+    repo.get_soup.side_effect = family({'a': (None, ['b']), 'b': ('a', [])})
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/a')
+
+    assert profiles_read(repo) == ['b']
+    assert [r['name'] for r in records] == ['a', 'b']
+
+
+@pytest.mark.parametrize('action', [server.ACTION_BOOKMARKS, server.ACTION_QUICK, server.ACTION_SYNC])
+def test_only_a_collection_run_can_follow_a_collections_family(action):
+    options, _ = started(action, {'subcollections': True, 'parentCollections': True})
+
+    assert options['subcollections'] is False
+    assert options['parentCollections'] is False
+
+
+@pytest.mark.parametrize('action', server.COLLECTION_ACTIONS)
+def test_a_collection_run_is_told_which_relatives_to_follow(action):
+    job = job_for(action, subcollections=True, parentCollections=False)
+    ao3 = MagicMock()
+    ao3.get_collections.return_value = []
+    ao3.get_collection.return_value = []
+
+    with patch.object(server, 'Ao3', return_value=ao3), patch.object(server, 'finish_run'):
+        getattr(server, 'run_' + action)(job, MagicMock(), MagicMock(), MagicMock())
+
+    assert ao3.follow_subcollections is True
+    assert ao3.follow_parents is False
 
 # endregion

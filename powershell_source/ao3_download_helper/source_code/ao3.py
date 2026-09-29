@@ -123,6 +123,12 @@ class Ao3:
         self.scoped = False
         # collections saved with a listing that failed partway, which are not finished
         self.unfinished_collections: set[str] = set()
+        # whether a collection run follows each collection's subcollections, its parent, or
+        # both - any number of steps away - and what it has read and has still to read
+        self.follow_subcollections = False
+        self.follow_parents = False
+        self.collections_seen: set[str] = set()
+        self.family_queue: list[tuple[str, str]] = []
         # the works of every collection this run crawls, indexed as they are met - or None
         # when the run was not asked to, and a collection records only their work numbers
         self.collection_works: list[dict] | None = None
@@ -827,17 +833,8 @@ class Ao3:
                 for blurb in parse_soup.get_collection_blurbs(soup):
                     slug = parse_soup.get_collection_slug(blurb)
                     if not slug: continue
-                    if self.finished_before(slug):
-                        records.append({'name': slug})
-                        continue
-                    document = self.read_collection(slug, source, blurb)
-                    records.append(document)
-                    self.save_collection(document)
-                    self.collection_saved(slug, document)
-                    progress.report(self.progress, progress.WORK,
-                                    title=document.get('title') or slug,
-                                    phase=progress.COLLECTIONS, done=len(records))
-                    print(strings.AO3_INFO_COLLECTION_SAVED.format(slug))
+                    self.take_collection(slug, source, records, blurb)
+            self.walk_family(records)
         except exceptions.CancelledException:
             print(strings.INFO_CANCELLED)
         except Exception as e:
@@ -868,15 +865,8 @@ class Ao3:
 
         try:
             print(strings.AO3_INFO_COLLECTION_ONE.format(slug))
-            if self.finished_before(slug): return [{'name': slug}]
-            document = self.read_collection(slug, link)
-            records.append(document)
-            self.save_collection(document)
-            self.collection_saved(slug, document)
-            progress.report(self.progress, progress.WORK,
-                            title=document.get('title') or slug,
-                            phase=progress.COLLECTIONS, done=1, total=1)
-            print(strings.AO3_INFO_COLLECTION_SAVED.format(slug))
+            self.take_collection(slug, link, records)
+            self.walk_family(records)
         except exceptions.CancelledException:
             print(strings.INFO_CANCELLED)
         except Exception as e:
@@ -888,14 +878,88 @@ class Ao3:
         return records
 
 
+    def take_collection(self, slug: str, source: str, records: list[dict], blurb=None) -> None:
+        """Read one collection and save it - or, when the attempt being resumed finished it,
+        take what that attempt saved. Either way its family is queued, when the run follows it.
+
+        Every collection this run takes is remembered (`collections_seen`), which is what
+        stops a family whose members point at each other from being walked round for ever:
+        a collection is read at most once per run, however many others link to it.
+        """
+
+        self.collections_seen.add(slug)
+        if self.finished_before(slug):
+            records.append({'name': slug})
+            return
+        document = self.read_collection(slug, source, blurb)
+        records.append(document)
+        self.save_collection(document)
+        self.collection_saved(slug, document)
+        progress.report(self.progress, progress.WORK, title=document.get('title') or slug,
+                        phase=progress.COLLECTIONS, done=len(records))
+        print(strings.AO3_INFO_COLLECTION_SAVED.format(slug))
+        self.queue_family(self.family_of(document), slug)
+
+
+    def family_of(self, document: dict) -> list[str]:
+        """The collections a collection links to that this run was asked to follow: its
+        subcollections, its parent, or both - by short name."""
+
+        found: list[str] = []
+        if self.follow_subcollections:
+            for url in document.get('subcollections') or []:
+                slug = parse_text.get_collection_name(str(url or ''))
+                if slug and slug not in found: found.append(slug)
+        if self.follow_parents:
+            slug = parse_text.get_collection_name(str(document.get('parent_collection') or ''))
+            if slug and slug not in found: found.append(slug)
+        return found
+
+
+    def queue_family(self, slugs: list[str], via: str) -> None:
+        """Queue relatives to be read once the collections asked for are done - each once,
+        whether it has already been read, is waiting, or is linked from somewhere else too."""
+
+        for slug in slugs:
+            if slug in self.collections_seen or any(s == slug for s, _ in self.family_queue):
+                continue
+            self.family_queue.append((slug, via))
+
+
+    def walk_family(self, records: list[dict]) -> None:
+        """Read every queued relative, queueing theirs in turn, until there are none left.
+
+        Ends because each collection is read at most once (`take_collection` remembers it,
+        `queue_family` never queues one twice) and ao3 has only so many - and, should a
+        family ever turn out enormous, `COLLECTION_FAMILY_LIMIT` stops it outright and says
+        so, rather than letting one run wander the whole archive.
+        """
+
+        taken = 0
+        while self.family_queue:
+            self.check_cancelled()
+            if taken >= strings.COLLECTION_FAMILY_LIMIT:
+                print(strings.AO3_INFO_COLLECTION_FAMILY_LIMIT.format(
+                    strings.COLLECTION_FAMILY_LIMIT, len(self.family_queue)))
+                self.family_queue.clear()
+                return
+            slug, via = self.family_queue.pop(0)
+            if slug in self.collections_seen: continue
+            taken += 1
+            print(strings.AO3_INFO_COLLECTION_FAMILY.format(slug, via))
+            self.take_collection(slug, f'{strings.AO3_BASE_URL}/collections/{via}', records)
+
+
     def finished_before(self, slug: str) -> bool:
         """Whether the attempt being resumed finished this collection - in which case it is
-        not read again, and the works it found are downloaded from the index."""
+        not read again, the works it found are downloaded from the index, and the relatives
+        it saved are followed as though it had just been read."""
 
         before = self.collections_before.get(slug) or {}
         if not before.get('done'): return False
         print(strings.AO3_INFO_RESUME_COLLECTION_DONE.format(slug))
         self.keep_indexed([str(x) for x in before.get('works') or []])
+        self.queue_family([str(x) for x in before.get('family') or []], slug)
         return True
 
 
@@ -905,7 +969,8 @@ class Ao3:
 
         if self.on_collection_done and slug not in self.unfinished_collections:
             self.on_collection_done(slug, [str(x) for x in (document.get('work_ids') or []) +
-                                           (document.get('bookmark_ids') or [])])
+                                           (document.get('bookmark_ids') or [])],
+                                    self.family_of(document))
 
 
     def read_collection(self, slug: str, source: str, blurb=None) -> dict:

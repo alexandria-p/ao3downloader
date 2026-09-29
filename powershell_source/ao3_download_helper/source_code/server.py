@@ -225,6 +225,10 @@ def resolve_options(requested) -> dict:
         'series': bool(given.get('series')),
         # a collections run also indexing, and downloading, every work in the collections
         'collectionWorks': bool(given.get('collectionWorks')),
+        # a collections run also reading each collection's subcollections, and its parent -
+        # any number of steps away, each collection at most once
+        'subcollections': bool(given.get('subcollections')),
+        'parentCollections': bool(given.get('parentCollections')),
         'images': bool(given.get('images')),
         'workdates': bool(given.get('workdates')),
         # fetch every requested format again, however current the copy on disk looks. the
@@ -2488,6 +2492,8 @@ def collections_ao3(job: Job, fileops: FileOps, repo: Repository, report,
     ao3 = Ao3(repo, fileops, downloadtypes, pages, works and job.options['series'], False,
               progress=report, cancelled=job.cancel.is_set)
     if works: ao3.collection_works = []
+    ao3.follow_subcollections = bool(job.options.get('subcollections'))
+    ao3.follow_parents = bool(job.options.get('parentCollections'))
     # the run record reads its fic lists off this when the run ends
     job.ao3 = ao3
     watch_collections(job, fileops, ao3)
@@ -2540,8 +2546,9 @@ def watch_collections(job: Job, fileops: FileOps, ao3: Ao3) -> None:
         if page is not None: listing['page'] = page
         job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()))
 
-    def on_done(slug: str, works: list[str]) -> None:
-        state[slug] = {'done': True, 'works': list(works)}
+    def on_done(slug: str, works: list[str], family: list[str] | None = None) -> None:
+        # the relatives it links to go with it, so a resume that skips it still follows them
+        state[slug] = {'done': True, 'works': list(works), 'family': list(family or [])}
         job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()))
 
     ao3.on_collection_page = on_page
@@ -3222,7 +3229,10 @@ class Handler(BaseHTTPRequestHandler):
         if action != ACTION_QUICK: options['floorRun'] = ''
         # indexing the works a collection holds is the collection runs' alone. without it they
         # write nothing but the collections' files, so no series is followed either
-        if action not in COLLECTION_ACTIONS: options['collectionWorks'] = False
+        if action not in COLLECTION_ACTIONS:
+            options['collectionWorks'] = False
+            options['subcollections'] = False
+            options['parentCollections'] = False
         elif not options['collectionWorks']: options['series'] = False
         # a chosen floor is checked by the run, once it can read the history through the page:
         # one that turns out not to qualify falls back to the usual rules and says so

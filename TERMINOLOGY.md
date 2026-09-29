@@ -220,6 +220,7 @@ With a date range, steps 2 and 3 read "…in that date range".
   - A collection link (`collection` only)
   - *Index and download encountered works* [collection works, `collectionWorks`] - index every work in the collections' works and bookmarked-items listings as they are crawled, then download them. Off: only the collections' files are written.
   - *Get all works from encountered series* - only offered with the option above
+  - *Include subcollections* [`subcollections`] and *Include parent collections* [`parentCollections`] - also read each collection's subcollections, or its parent, and theirs in turn however far removed. Each related collection is indexed like the ones asked for, and its works too when *Index and download encountered works* is ticked. With both, siblings are reached through their parent. Each collection is read at most once per run, so a family whose members link to each other cannot loop; a run follows at most 200 relatives (`COLLECTION_FAMILY_LIMIT`) and says so if it stops there.
   - File types - only asked with the option above; without it the run is JSON only
 - **Steps (collections only):**
   1. Log in to AO3
@@ -348,4 +349,5 @@ Used by: every workflow.
 - **Re-index each fic, then download or update as necessary** - the update run and the combined run; re-reads each unfinished fic's page.
 - **Fetch any format still missing** - the combined run; fills formats missing from works the other passes left alone.
 - **Index your collections** / **Index this collection** - the two collection runs. Reads each collection's profile, then its works and bookmarked-items listings (one request per 20), skipping a listing whose count has not changed.
+- Either step, with *Include subcollections* or *Include parent collections*, then reads each related collection once the ones asked for are done - one at a time, queueing theirs in turn, never the same collection twice.
 - **Index your collections and the works in them** / **Index this collection and the works in it** - the same, with *Index and download encountered works*. Never skips a listing on its count, because it indexes every work blurb on it: an existing entry keeps its own bookmark fields; a new one gets `bookmarked: false`; somebody else's bookmark notes and tags from a bookmarked-items listing are blanked, never written in as yours. Each work records the collection in `from_collections`, is read once however many collections hold it, and has its series marked when that option is on. Works in an unrevealed collection are indexed and held back from download. The works go on to the ordinary series, check and download steps.

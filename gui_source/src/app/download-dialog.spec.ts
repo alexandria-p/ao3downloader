@@ -648,6 +648,8 @@ describe('DownloadDialog', () => {
       resume: '',
       // the collection runs' alone
       collectionWorks: false,
+      subcollections: false,
+      parentCollections: false,
     });
   });
 
@@ -1640,6 +1642,30 @@ describe('DownloadDialog', () => {
     expect(jobs.started[0].filetypes).toEqual(['JSON', 'HTML']);
     expect(jobs.started[0].options.collectionWorks).toBe(true);
     expect(jobs.started[0].options.series).toBe(true);
+  });
+
+  it('offers to follow a collection\'s subcollections and parent, and sends the choice', async () => {
+    await open('collection');
+    await advanceTo('options');
+    checkbox('Include subcollections')!.click();
+    await fixture.whenStable();
+
+    expect(checkbox('Include parent collections')?.checked).toBe(false);
+    expect(element.textContent).toContain('read at most once');
+    await advanceTo('running');
+
+    expect(jobs.started[0].options.subcollections).toBe(true);
+    expect(jobs.started[0].options.parentCollections).toBe(false);
+    const said = element.querySelector('.settings')?.textContent ?? '';
+    expect(said).toContain('subcollections too, however far removed');
+  });
+
+  it('never offers the relatives of a collection on any other run', async () => {
+    await open('bookmarks');
+    await advanceTo('options');
+
+    expect(checkbox('Include subcollections')).toBeUndefined();
+    expect(checkbox('Include parent collections')).toBeUndefined();
   });
 
   it('says back that it is taking the works too', async () => {

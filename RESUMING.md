@@ -94,7 +94,7 @@ A `progress` section in the history file, written straight away each time:
 | the file check starts | the **scope**: every work this run covers (`scope`) |
 | a custom run over a date range finishes a fic | the fics done so far (`updateDone`) |
 | a page of a collection's works or bookmarked items is read | per collection and listing (`collections.<name>.listings.work_ids` / `bookmark_ids`): the page number, every work number found so far, and whether the listing finished; plus `seriesMarked` |
-| a collection is saved | that collection is `done`, with every work number it holds (`collections.<name>.works`) |
+| a collection is saved | that collection is `done`, with every work number it holds (`collections.<name>.works`) and, when the run follows subcollections or parents, the related collections it links to (`family`) |
 
 A resumed run starts its own history file with a copy of this, and carries on adding to it, so
 a resume that is itself interrupted can be resumed from wherever it got to.
@@ -192,6 +192,9 @@ bookmarked-items listings, and mark each collection finished once its file is wr
   when this was written; this makes the resume safe either way.)
 - Your own collections listing is always walked again from the start - one request per 20
   collections - so a collection added since is not missed.
+- Related collections (subcollections, parents) are followed on a resume too: a finished
+  collection's saved `family` is queued as though it had just been read, so a relative the
+  earlier attempt had not reached yet is read now, and one it had finished is skipped.
 - A collection whose listing **failed** partway (an error, not a stop) is saved with what it
   had, as always, but not counted as finished, so a resume reads it again.
 - Stopped once the download step had started: the collections are not read again at all, as

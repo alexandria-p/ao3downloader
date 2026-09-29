@@ -551,6 +551,11 @@ for file types, and reads every collection's works again even when its count is 
 Leave it off for a collection of your own bookmarks, whose works are already indexed; it is
 recommended for a collection you think holds works or bookmarks outside your own.
 
+**Include subcollections** and **Include parent collections** read each collection's
+subcollections or parent as well, and theirs in turn, however far removed - indexed like the
+rest, with their works when those are asked for. Each collection is read at most once per
+run, so collections that link back to each other cannot loop, and a run follows at most 200.
+
 History shows the link a collection run used. An unfinished one offers **Resume**: it saves
 its place after every page of each collection, so resuming skips the collections already
 finished and carries on from the page it reached.

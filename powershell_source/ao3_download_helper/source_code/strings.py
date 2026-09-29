@@ -158,6 +158,13 @@ AO3_INFO_COLLECTIONS_DONE = 'saved {} collections to {}'
 # said per collection when the run indexes the works it holds as well
 AO3_INFO_COLLECTION_WORKS = 'collection {}: indexed {} works not already found this run'
 AO3_INFO_COLLECTION_WORKS_TOTAL = '{} works found across the collections'
+# a collection's subcollections and parent, when the run follows them
+AO3_INFO_COLLECTION_FAMILY = 'collection {}: linked from {}, so reading it too'
+AO3_INFO_COLLECTION_FAMILY_LIMIT = ('read {} related collections, the most one run will follow - '
+                                    'leaving the {} still queued')
+# the most related collections one run reads. each is read at most once anyway, so this only
+# matters for a family so large that following it would take one run across much of ao3
+COLLECTION_FAMILY_LIMIT = 200
 AO3_INFO_COLLECTIONS_NONE = 'no collections found for that user'
 AO3_INFO_COLLECTION_ONE = 'indexing the collection {}'
 

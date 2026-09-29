@@ -112,6 +112,10 @@ export class DownloadDialog implements OnDestroy {
   protected readonly nonBookmarks = signal(false);
   /** a collections run: index and download every work in the collections as well */
   protected readonly collectionWorks = signal(false);
+  /** a collections run: read each collection's subcollections too, and theirs in turn */
+  protected readonly subcollections = signal(false);
+  /** a collections run: read each collection's parent too, and its parent in turn */
+  protected readonly parentCollections = signal(false);
 
   /** the collection to index, for the action that works from a link */
   protected readonly collectionUrl = signal('');
@@ -548,6 +552,8 @@ export class DownloadDialog implements OnDestroy {
     if (this.picksOverwrite() && this.overwrite()) chosen.push('overwrite existing files');
     if (this.picksNonBookmarks() && this.nonBookmarks()) chosen.push('check non-bookmarks');
     if (this.picksCollectionWorks() && this.collectionWorks()) chosen.push('the works in them');
+    if (this.picksCollectionWorks() && this.subcollections()) chosen.push('subcollections');
+    if (this.picksCollectionWorks() && this.parentCollections()) chosen.push('parent collections');
     return chosen;
   });
 
@@ -642,6 +648,15 @@ export class DownloadDialog implements OnDestroy {
         value: this.collectionWorks()
           ? 'indexed, and downloaded or updated as necessary'
           : 'only their work numbers recorded',
+      });
+      rows.push({
+        label: 'Related collections',
+        value: [
+          this.subcollections() ? 'subcollections' : '',
+          this.parentCollections() ? 'parent collections' : '',
+        ].filter(Boolean).join(' and ') + (this.subcollections() || this.parentCollections()
+          ? ' too, however far removed, each read once'
+          : 'not followed'),
       });
     }
     if (this.picksSeries()) {
@@ -1202,6 +1217,8 @@ export class DownloadDialog implements OnDestroy {
         // only sent by a run that offered it - a collections run offers it only with its works
         series: this.picksSeries() && this.series(),
         collectionWorks: this.picksCollectionWorks() && this.collectionWorks(),
+        subcollections: this.picksCollectionWorks() && this.subcollections(),
+        parentCollections: this.picksCollectionWorks() && this.parentCollections(),
         images: this.images(),
         workdates: this.workdates(),
         // only offered on the runs that can be pointed at a known set of works
