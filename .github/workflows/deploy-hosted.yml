@@ -11,13 +11,6 @@ name: deploy hosted app
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: >-
-          Version to release, e.g. 2.0.0 for a major upgrade. Leave empty to raise the last
-          number of the latest release (1.8.2 -> 1.8.3).
-        required: false
-        default: ''
 
 permissions:
   contents: read
@@ -30,7 +23,8 @@ jobs:
   version:
     name: decide this deployment's version and tag it
     # one version for everything this run builds - the page on github pages and the windows
-    # app - taken from the tags, so it goes up by one each deploy unless a version is given
+    # app. the VERSION file when it is higher than every release (a bigger step, like 2.0.0),
+    # and otherwise the latest release with its last number raised
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -49,13 +43,11 @@ jobs:
       - name: work out the version
         id: next
         working-directory: powershell_source/ao3_download_helper
-        env:
-          OVERRIDE: ${{ inputs.version }}
         run: |
           git fetch --tags --force --quiet
           uv sync --frozen
           version=$(uv run --no-sync python deploy_config.py next-version \
-            --tags "$(git tag -l 'v*')" --override "$OVERRIDE")
+            --tags "$(git tag -l 'v*')" --requested "$(cat "$GITHUB_WORKSPACE/VERSION")")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "this deployment is version $version"
 

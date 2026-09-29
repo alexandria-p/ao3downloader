@@ -141,3 +141,38 @@ logged in as whoever's ao3 account was typed in.
 
 So: run it locally, or on a machine only you use. It is a bundle you can copy
 and run anywhere, rather than a site to host publicly.
+
+
+================================================================================
+ VERSIONS
+================================================================================
+
+Every deployment ("deploy hosted app" in the Actions tab) is one version, and
+everything it builds carries it: the page on GitHub Pages and the Windows app.
+The page shows it in the footer on every tab.
+
+The VERSION file in the project root decides it, compared with the latest
+release on GitHub as the deployment starts:
+
+    VERSION says       latest release    this deployment is
+    2.0.0 (higher)     1.8.2             2.0.0  - the file's version
+    1.8.2 (the same)   1.8.2             1.8.3  - the latest, raised by one
+    1.0.0 (lower)      1.8.2             1.8.3  - the latest, raised by one
+    1.0.0              none yet          1.0.0
+
+ROUTINE DEPLOY: change nothing. VERSION is then the same as or lower than the
+latest release, so the version goes up by one on its own.
+
+A BIGGER STEP (a major or minor upgrade): edit VERSION to the new version -
+three numbers, like 2.0.0 - commit it, then deploy.
+
+The deployment never writes VERSION back; the release tags (v1.8.3 and so on)
+are the record of what went out. A VERSION that is not three numbers stops the
+deployment before anything is built.
+
+Each deployment tags the commit with its version, and publishes the Windows app
+as that version's GitHub release, marked latest. Every copy of the page checks
+for a newer release each time it opens and says so at the top, with a link to
+download it and a "Dismiss and do not ask me again" button that the browser
+remembers. A bundle built with generate_build_artifacts.ps1 has no version, and
+never checks.

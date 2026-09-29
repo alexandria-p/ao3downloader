@@ -52,6 +52,8 @@ export class App {
   /** a newer release than this page's own, once GitHub has said so */
   protected readonly newerRelease = this.updates.newer;
   protected readonly currentVersion = computed(() => this.helper.settings().version);
+  protected readonly repositoryName = computed(() => this.helper.settings().releasesRepo);
+  protected readonly repositoryUrl = computed(() => `https://github.com/${this.repositoryName()}`);
 
   protected readonly view = signal<View>('bookmarks');
   /**

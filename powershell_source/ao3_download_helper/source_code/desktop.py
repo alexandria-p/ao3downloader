@@ -118,7 +118,7 @@ def main() -> int:
 
     print('ao3downloader')
     print(f'settings and logs: {root}')
-    print('leave this window open while you use the app. close it to stop.')
+    print('leave this window open while you use the app.')
     print()
 
     if not os.path.isfile(os.path.join(web, 'index.html')):

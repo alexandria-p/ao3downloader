@@ -320,27 +320,39 @@ def test_each_deployment_raises_the_last_number_of_the_latest_release(tags, expe
     assert deploy_config.next_version(tags) == expected
 
 
-def test_a_version_can_be_given_for_a_bigger_step():
-    assert deploy_config.next_version(['v1.8.2'], '2.0.0') == '2.0.0'
-    assert deploy_config.next_version(['v1.8.2'], 'v1.9.0') == '1.9.0'
-    assert deploy_config.next_version([], '0.1.0') == '0.1.0'
+@pytest.mark.parametrize('tags, requested, expected', [
+    # higher than every release: the file's version, for a bigger step
+    (['v1.8.2'], '2.0.0', '2.0.0'),
+    (['v1.8.2'], '1.9.0', '1.9.0'),
+    (['v1.8.2'], 'v1.8.3', '1.8.3'),
+    # equal to or below the latest release - a file left alone: the latest, raised by one
+    (['v1.8.2'], '1.8.2', '1.8.3'),
+    (['v1.8.2'], '1.0.0', '1.8.3'),
+    (['v2.0.0', 'v2.0.1'], '2.0.0', '2.0.2'),
+    # nothing released yet: the file's version, or 1.0.0 with none
+    ([], '0.1.0', '0.1.0'),
+    ([], '', '1.0.0'),
+    # a VERSION file ending in a Windows line break
+    (['v1.8.2'], '2.0.0\r\n', '2.0.0'),
+])
+def test_the_version_file_is_used_when_higher_and_passed_when_not(tags, requested, expected):
+    assert deploy_config.next_version(tags, requested) == expected
 
 
-@pytest.mark.parametrize('override', ['1.8.2', '1.8.1', '0.9.0'])
-def test_a_given_version_already_released_or_older_fails_the_deploy(override):
-    # two builds sharing a version would tell people with the first that they are up to date
-    with pytest.raises(DeployError, match='not higher than 1.8.2'):
-        deploy_config.next_version(['v1.8.2'], override)
-
-
-@pytest.mark.parametrize('override', ['2', '2.0', 'two', '2.0.0-beta'])
-def test_a_given_version_that_is_not_three_numbers_fails_the_deploy(override):
+@pytest.mark.parametrize('requested', ['2', '2.0', 'two', '2.0.0-beta'])
+def test_a_version_file_that_is_not_three_numbers_fails_the_deploy(requested):
     with pytest.raises(DeployError, match='three numbers'):
-        deploy_config.next_version(['v1.8.2'], override)
+        deploy_config.next_version(['v1.8.2'], requested)
+
+
+def test_the_repositorys_version_file_is_a_version():
+    # the deploy reads it; a typo there would fail the deploy, so fail here first
+    text = (deploy_config.HERE.parents[1] / 'VERSION').read_text(encoding='utf-8')
+    assert deploy_config.version_parts(text.strip())
 
 
 def test_the_command_line_prints_the_version(capsys):
-    assert deploy_config.main(['next-version', '--tags', 'v1.8.2\nv1.8.1\n']) == 0
+    assert deploy_config.main(['next-version', '--tags', 'v1.8.2\nv1.8.1\n', '--requested', '1.0.0']) == 0
     assert capsys.readouterr().out.strip() == '1.8.3'
 
 

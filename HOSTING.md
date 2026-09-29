@@ -158,9 +158,10 @@ Redirect URIs**, e.g. `https://alexandria-p.github.io/ao3downloader/app/`.
 Run **deploy hosted app** again. The helper is always deployed before the page, so a new page
 never goes out ahead of the helper it expects.
 
-Each run is a new **version**: the last number goes up by one (`1.8.2` -> `1.8.3`), or give
-**Version** (e.g. `2.0.0`) in **Run workflow** for a bigger step - it has to be higher than
-every version already released. The commit is tagged with it, and the page on GitHub Pages
+Each run is a new **version**: the `VERSION` file in the repository root when it is higher
+than every release (raise it and commit it for a bigger step, like `2.0.0`), and otherwise
+the latest release with its last number raised (`1.8.2` -> `1.8.3`) - so a routine deploy
+needs nothing changed. The commit is tagged with it, and the page on GitHub Pages
 and the Windows app both carry it. README's **Versions** has the rest.
 
 To **change the passcode or the key**, update the secret and run the workflow. Each browser

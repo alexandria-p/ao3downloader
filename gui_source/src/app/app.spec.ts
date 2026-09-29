@@ -685,6 +685,27 @@ describe('App', () => {
     expect(first?.textContent).toContain('ao3downloader.exe');
   });
 
+  it('says its version and links the repository on every tab', async () => {
+    const { fixture, element } = await render(1);
+    TestBed.inject(HelperConnection).settings.update((c) => ({ ...c, version: '1.8.2' }));
+    for (const name of ['Bookmarks', 'Collections', 'History', 'FAQ']) {
+      tab(element, name)!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const footer = element.querySelector('.app-footer');
+      expect(footer?.textContent).toContain('version 1.8.2');
+      expect(footer?.querySelector('a')?.getAttribute('href')).toBe(
+        'https://github.com/alexandria-p/ao3downloader',
+      );
+    }
+  });
+
+  it('says a page built on this computer has no version', async () => {
+    const { element } = await render(1);
+
+    expect(element.querySelector('.app-footer')?.textContent).toContain('(built on this computer)');
+  });
+
   it('says when a newer version is out, and stops for good when told to', async () => {
     const { fixture, element } = await render(1);
     TestBed.inject(UpdateCheck).newer.set({ version: '1.8.3', url: 'https://github.com/x/y/releases/tag/v1.8.3' });

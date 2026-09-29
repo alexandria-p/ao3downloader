@@ -71,9 +71,21 @@ Alongside that it builds the Windows app and publishes it as a release (see **Th
 
 Every deployment is one version, and everything it builds - the page on GitHub Pages and the Windows app - carries it.
 
-- **It goes up by one on its own:** the latest `vX.Y.Z` tag with its last number raised, so `1.8.2` becomes `1.8.3`. The first deployment is `1.0.0`.
-- **For a bigger step, give it one:** in **Run workflow**, fill in **Version** (e.g. `2.0.0`). It has to be higher than every version already released, or the deployment stops - two builds with one version would tell people with the first that they are up to date.
+The `VERSION` file in the repository root decides it, compared with the latest release on GitHub (its `vX.Y.Z` tag) as the deployment starts:
+
+| `VERSION` says | Latest release | This deployment is |
+| --- | --- | --- |
+| `2.0.0` - higher | `1.8.2` | `2.0.0` - the file's version |
+| `1.8.2` - the same | `1.8.2` | `1.8.3` - the latest, raised by one |
+| `1.0.0` - lower | `1.8.2` | `1.8.3` - the latest, raised by one |
+| `1.0.0` | none yet | `1.0.0` |
+
+- **Routine deploys: leave `VERSION` alone.** Once it has been released it is the same as or lower than the latest, so every deployment goes up by one on its own (`1.8.2` -> `1.8.3`).
+- **A bigger step: raise `VERSION` and commit it** (`2.0.0`, or `1.9.0`), then deploy. Only a version higher than every release is used as it is, so two builds can never share a version.
+- The deployment never writes `VERSION` back - the release tags are the record of what went out. `VERSION` is a floor you raise when you want to.
+- `VERSION` has to be three numbers (`2.0.0`); anything else stops the deployment before it builds.
 - The commit is tagged `vX.Y.Z` as the deployment starts, and the Windows zip is published as that version's release, marked latest.
+- **Every page shows its version** in a footer pinned to the bottom of the window, on every tab, with a link to the repository on GitHub.
 - **Every copy of the page checks for a newer release** each time it opens, and says so at the top with a link to download it - with **Dismiss and do not ask me again**, which that browser remembers. A page built on your own computer with `generate_build_artifacts.ps1` has no version, and never checks.
 - The version lives in the build (the page's `app-config.json`), not in `settings.ini`: settings.ini is only ever added to, so a version kept there would still say the old one after an upgrade.
 

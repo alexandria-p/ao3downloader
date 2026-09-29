@@ -330,6 +330,12 @@
   <app-faq />
 }
 
+<!-- on every tab, and pinned to the bottom of the window while a long listing scrolls -->
+<footer class="app-footer">
+  <span>ao3downloader {{ currentVersion() ? 'version ' + currentVersion() : '(built on this computer)' }}</span>
+  <a [href]="repositoryUrl()" target="_blank" rel="noopener">{{ repositoryName() }} on GitHub</a>
+</footer>
+
 @if (passcodeWanted()) {
   <app-passcode-gate (unlocked)="unlocked()" />
 }

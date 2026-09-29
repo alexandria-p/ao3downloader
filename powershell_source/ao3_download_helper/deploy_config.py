@@ -3,7 +3,7 @@
     python deploy_config.py settings --out hosted-settings.ini
     python deploy_config.py page-config --settings hosted-settings.ini --out app-config.json
     python deploy_config.py local-settings --out windows-settings.ini
-    python deploy_config.py next-version --tags "$(git tag -l 'v*')" [--override 2.0.0]
+    python deploy_config.py next-version --tags "$(git tag -l 'v*')" --requested "$(cat VERSION)"
 
 `settings` starts from the settings.ini template and sets **every key in it** from a GitHub
 variable of the same name in upper snake case - `ExtraWaitTime` from `EXTRA_WAIT_TIME`,
@@ -37,10 +37,11 @@ address or the page's origin: the file is checked for both before it is written
 public key, which it derives from `AO3DOWNLOADER_PRIVATE_KEY` rather than taking as a second
 setting - a public key typed in separately is one that can stop matching.
 
-`next-version` is the version a deployment builds everything as: the highest `vX.Y.Z` tag
-already on the repository with its last number raised (`1.8.2` -> `1.8.3`), or `1.0.0` when
-there is none - or an override, for a major or minor step (`2.0.0`), which has to be higher
-than every version already released so no two builds ever share one. The workflow tags the
+`next-version` is the version a deployment builds everything as, from the `VERSION` file at
+the repository root and the `vX.Y.Z` tags already released: the file's version when it is
+higher than every release (a major or minor step, `2.0.0`), and otherwise the latest release
+with its last number raised (`1.8.2` -> `1.8.3`) - so leaving the file alone raises the
+version by one each deployment, and no two builds ever share one. The workflow tags the
 commit with it, and the same version goes into the page's `app-config.json`
 (`page-config --version`) and the Windows app.
 
@@ -300,19 +301,23 @@ def released(tags: list[str]) -> list[tuple[int, int, int]]:
     return found
 
 
-def next_version(tags: list[str], override: str = '') -> str:
-    """The version this deployment builds everything as."""
+def next_version(tags: list[str], requested: str = '') -> str:
+    """The version this deployment builds everything as.
+
+    `requested` is the `VERSION` file: used when it is higher than every version released,
+    and otherwise the latest release has its last number raised. It is a floor to raise when
+    a bigger step is wanted, not a record of what was released - the tags are that - so a file
+    left alone after a release is simply passed, and the version still goes up.
+    """
 
     latest = max(released(tags), default=None)
-    if override.strip():
-        wanted = version_parts(override.strip().removeprefix(TAG_PREFIX))
+    wanted = None
+    if requested.strip():
+        wanted = version_parts(requested.strip().removeprefix(TAG_PREFIX))
         if not wanted:
-            raise DeployError(f"'{override}' is not a version - three numbers, like 2.0.0")
-        if latest and wanted <= latest:
-            # a version is released once: a second build under it would have the page tell
-            # people who have the first that they are up to date when they are not
-            raise DeployError(f"{override.strip()} is not higher than {'.'.join(map(str, latest))}, "
-                              'the latest version already released')
+            raise DeployError(f"VERSION says '{requested.strip()}', which is not a version - "
+                              'three numbers, like 2.0.0')
+    if wanted and (not latest or wanted > latest):
         return '.'.join(map(str, wanted))
     if not latest: return FIRST_VERSION
     return f'{latest[0]}.{latest[1]}.{latest[2] + 1}'
@@ -387,7 +392,8 @@ def main(argv: list[str] | None = None) -> int:
     page.add_argument('--repo', default='', help='owner/name, where releases are published')
     bump = commands.add_parser('next-version', help='print the version this deployment builds')
     bump.add_argument('--tags', default='', help="the repository's tags, one per line")
-    bump.add_argument('--override', default='', help='a version to use instead, e.g. 2.0.0')
+    bump.add_argument('--requested', default='',
+                      help="the VERSION file's contents - used when higher than every release")
     local = commands.add_parser('local-settings', help="write the Windows app's settings.ini")
     local.add_argument('--out', required=True)
     args = parser.parse_args(argv)
@@ -413,7 +419,7 @@ def main(argv: list[str] | None = None) -> int:
             for key, (value, source) in resolve_local(variables, template).items():
                 print(f'  {key}={value}  ({source})')
         elif args.command == 'next-version':
-            print(next_version(args.tags.split(), args.override))
+            print(next_version(args.tags.split(), args.requested))
         else:
             config = page_config(Path(args.settings).read_text(encoding='utf-8'), dict(os.environ),
                                  args.version, args.repo)

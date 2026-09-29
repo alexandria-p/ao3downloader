@@ -309,3 +309,25 @@
   background: #22303a;
   font-size: 0.9rem;
 }
+
+/* what this page is and where it comes from - on every tab, and kept in view at the bottom
+   of the window, because nobody should have to scroll to the end of a library to find it */
+.app-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-top: 24px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.app-footer a {
+  color: var(--text-dim);
+}

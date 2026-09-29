@@ -80,7 +80,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1541 python passed; 598 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1547 python passed; 600 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -278,12 +278,15 @@ What not to break:
 
 ### Every deployment is one version, and every copy of the page checks for a newer one
 
-**The version comes from the tags.** `deploy-hosted.yml`'s first job, `version`, runs
-`deploy_config.py next-version` over the repository's `v*` tags: the highest `vX.Y.Z` with its
-last number raised, `1.0.0` when there is none, or the workflow's `version` input for a bigger
-step - which must be **higher** than every version released (`next_version` refuses a repeat,
-because two builds under one version would tell people with the first that they are up to
-date). Tags that are not `v` and three numbers are passed over. It **tags the commit before
+**The version comes from `VERSION` and the tags.** `deploy-hosted.yml`'s first job, `version`,
+runs `deploy_config.py next-version` with the repository's `v*` tags and the root `VERSION`
+file: the file's version when it is **higher** than every release, and otherwise the highest
+`vX.Y.Z` with its last number raised (`1.0.0`, or the file's, when there is none). So a
+routine deploy changes nothing, and a bigger step is `VERSION` raised and committed. The file
+is a floor, never written back - the tags are the record - and only a version above every
+release is used as it is, because two builds under one version would tell people with the
+first that they are up to date. Tags that are not `v` and three numbers are passed over; a
+`VERSION` that is not three numbers fails the deploy, and a test checks the committed one. It **tags the commit before
 anything is built**, so two deployments can never build one version; a deployment that fails
 later has used its number, and the next takes the one after - a gap, never a repeat.
 
@@ -305,6 +308,10 @@ again. It never asks for a page with no version (a bundle built on this computer
 writes `version: ''`), and anything failing - offline, rate-limited (60 an hour per address,
 unauthenticated), no release yet - is treated as nothing newer. GitHub's api sends CORS
 headers, which is what lets a page on `localhost` ask at all.
+
+**Every tab shows the version** in `.app-footer`, `position: sticky` at the bottom of the
+window so a long listing never hides it, with a link to `releasesRepo` on GitHub - or says
+`(built on this computer)` for a page with no version.
 
 **The FAQ pins a download panel first** (`.download-app`): the latest release's page
 (`releases/latest`, from `releasesRepo`, which defaults to this repository for a page with no
