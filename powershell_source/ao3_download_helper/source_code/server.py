@@ -2457,7 +2457,11 @@ def collection_links(job: Job, fileops: FileOps, ao3) -> list[tuple[str, list[st
         by_work: dict[str, set[str]] = {}
         by_external: dict[str, set[str]] = {}
         for name, collection in held.items():
-            for work in [*(collection.get('work_ids') or []), *(collection.get('bookmark_ids') or [])]:
+            series_works = collection.get('series_work_ids')
+            series_works = [w for ids in series_works.values() for w in ids or []] \
+                if isinstance(series_works, dict) else []
+            for work in [*(collection.get('work_ids') or []), *(collection.get('bookmark_ids') or []),
+                         *series_works]:
                 by_work.setdefault(str(work), set()).add(name)
             for external in collection.get('external_ids') or []:
                 by_external.setdefault(str(external), set()).add(name)
@@ -2721,12 +2725,13 @@ def watch_collections(job: Job, fileops: FileOps, ao3: Ao3) -> None:
     ao3.records_for = lambda ids: records_by_id(fileops, ids)
 
     def on_page(slug: str, key: str, page, ids: list[str], done: bool = False,
-                externals: list[str] | None = None) -> None:
+                externals: list[str] | None = None, series: list[str] | None = None) -> None:
         listing = state.setdefault(slug, {'done': False, 'listings': {}})['listings'] \
             .setdefault(key, {})
         listing['ids'] = list(ids)
         listing['done'] = done
         if externals: listing['externals'] = list(externals)
+        if series: listing['series'] = list(series)
         if page is not None: listing['page'] = page
         job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()),
                        externalsSaved=externals_so_far(job, ao3))

@@ -175,12 +175,15 @@ def collection_pages(url: str) -> BeautifulSoup:
     raise AssertionError(url)
 
 
-def run_collection(root: str, works: bool = False) -> None:
+def run_collection(root: str, works: bool = False, pages=collection_pages) -> list[str]:
+    asked = []
+    fetched = []
     repo = MagicMock()
     repo.__enter__ = MagicMock(return_value=repo)
     repo.__exit__ = MagicMock(return_value=False)
-    repo.get_soup.side_effect = collection_pages
-    repo.download_file.side_effect = lambda url, filetype: b'<html>work</html>'
+    repo.get_soup.side_effect = lambda url: asked.append(url) or pages(url)
+    repo.download_file.side_effect = \
+        lambda url, filetype: fetched.append(url) or b'<html>work</html>'
     job = server.Job(server.ACTION_COLLECTION, ['JSON', 'HTML'] if works else ['JSON'],
                      'Someone', server.resolve_options({'collectionWorks': works}),
                      url='https://archiveofourown.org/collections/alpha')
@@ -189,6 +192,7 @@ def run_collection(root: str, works: bool = False) -> None:
     with patch.object(server, 'FileOps', side_effect=lambda *a, **k: FileOps(LocalStorage(root))), \
          patch.object(server, 'Repository', return_value=repo):
         server.run_job(job, 'a-password')
+    return asked + fetched
 
 
 def readings(root: str, work: str) -> int:
@@ -594,3 +598,103 @@ def test_a_new_series_entry_is_named_from_its_title_not_from_a_lookup_by_number(
     names = [n for n in os.listdir(folder) if n.endswith('.json')]
     assert names
     assert not [n for n in names if n.endswith(' -.json') or '  ' in n]
+
+
+# region a series bookmarked in a collection
+
+# the series bookmarked among the items of the bookmarks listing, and the works on its page
+SERIES_ID = '15213'
+SERIES_WORKS = ['33671446', '33936370', '34644055', '91688086', '91707641']
+
+
+def with_a_series(url: str) -> BeautifulSoup:
+    """Collection 'alpha', whose bookmarked items include a series."""
+
+    if '/alpha/bookmarks' in url: return BeautifulSoup(BOOKMARKS, 'html.parser')
+    if f'/series/{SERIES_ID}' in url: return BeautifulSoup(SERIES, 'html.parser')
+    return collection_pages(url)
+
+
+def collection_file(root: str) -> dict:
+    with open(os.path.join(root, strings.COLLECTIONS_FOLDER_NAME, 'alpha.json'),
+              encoding='utf-8') as f:
+        return indexing.flatten(json.load(f))
+
+
+def index_files(root: str) -> set[str]:
+    folder = os.path.join(root, strings.INDEXING_FOLDER_NAME)
+    if not os.path.isdir(folder): return set()
+    return {n.split(' ')[0] for n in os.listdir(folder) if n.endswith('.json')}
+
+
+def test_a_collection_records_the_series_bookmarked_in_it_and_the_works_in_each(tmp_path):
+    root = str(tmp_path / 'library')
+    asked = run_collection(root, works=False, pages=with_a_series)
+
+    saved = collection_file(root)
+    assert saved['series_ids'] == [SERIES_ID]
+    assert saved['series_work_ids'] == {SERIES_ID: SERIES_WORKS}
+    # the series is read for its work numbers, once
+    assert len([url for url in asked if '/series/' in url]) == 1
+    # without the works option nothing is indexed - only the numbers recorded
+    assert not index_files(root) & set(SERIES_WORKS)
+
+
+def test_with_the_works_on_the_series_works_are_indexed_and_downloaded_too(tmp_path):
+    root = str(tmp_path / 'library')
+    asked = run_collection(root, works=True, pages=with_a_series)
+
+    assert collection_file(root)['series_work_ids'] == {SERIES_ID: SERIES_WORKS}
+    for work in SERIES_WORKS:
+        found = entry(root, work)
+        # there because of a series in a collection, not because you bookmarked it
+        assert found[strings.BOOKMARKED_FIELD] is False
+        assert found[indexing.FROM_SERIES] == [SERIES_ID]
+        assert found[indexing.FROM_COLLECTIONS] == ['alpha']
+        assert any(f'/downloads/{work}/' in url for url in asked)
+
+
+def test_a_series_work_you_already_indexed_learns_the_collection(bookmarked):
+    # the full scan walked the series you bookmarked, so its works are indexed already
+    run_collection(bookmarked, works=False, pages=with_a_series)
+
+    assert entry(bookmarked, SERIES_WORKS[0])[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def test_a_series_is_read_again_even_when_the_collections_count_has_not_changed(tmp_path):
+    # a series grows on its own - the collection's count says nothing about it
+    root = str(tmp_path / 'library')
+    run_collection(root, works=False, pages=with_a_series)
+
+    def grown(url: str) -> BeautifulSoup:
+        if '/series/' in url:
+            soup = BeautifulSoup(SERIES, 'html.parser')
+            soup.select_one('li.work.blurb').insert_before(
+                BeautifulSoup(WORK_BLURB.format(id='99999999'), 'html.parser'))
+            return soup
+        return with_a_series(url)
+    asked = run_collection(root, works=False, pages=grown)
+
+    assert any('/series/' in url for url in asked)
+    assert collection_file(root)['series_work_ids'] == {SERIES_ID: ['99999999', *SERIES_WORKS]}
+
+
+def test_a_series_that_will_not_read_keeps_the_works_the_file_had(tmp_path):
+    root = str(tmp_path / 'library')
+    run_collection(root, works=False, pages=with_a_series)
+    path = os.path.join(root, strings.COLLECTIONS_FOLDER_NAME, 'alpha.json')
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    # a changed count makes the listing be read again, and so the series
+    data['indexes'][-1]['bookmark_count'] = 99
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+
+    def broken(url: str) -> BeautifulSoup:
+        if '/series/' in url: raise RuntimeError('ao3 is down')
+        return with_a_series(url)
+    run_collection(root, works=False, pages=broken)
+
+    assert collection_file(root)['series_work_ids'] == {SERIES_ID: SERIES_WORKS}
+
+# endregion

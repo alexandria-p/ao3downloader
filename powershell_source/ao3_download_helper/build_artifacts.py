@@ -810,7 +810,9 @@ exactly like an index file:
       "subcollections": ["https://archiveofourown.org/collections/..."],
       "work_ids": ["34816549", "..."],
       "bookmark_ids": ["..."],
-      "external_ids": ["..."]
+      "external_ids": ["..."],
+      "series_ids": ["..."],
+      "series_work_ids": {"15213": ["33671446", "..."]}
     }
   ]
 }
@@ -825,6 +827,10 @@ exactly like an index file:
 - `external_ids` are the external works (hosted off ao3) among its bookmarked items, by ao3's
   own number for each - numbered apart from works. Opening the collection lists them after
   its bookmarked works
+- `series_ids` are the series bookmarked among its bookmarked items, and `series_work_ids`
+  the work numbers in each - read off each series' own page on every collection run, since
+  a series can grow without the collection's count changing. With *Index and download
+  encountered works* those works are indexed and downloaded too
 
 ### Re-indexing a collection you already have
 

@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1484 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1491 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1042,6 +1042,16 @@ The rules, and why:
   looks them up in `Library.externalsById`, never `worksById`, or external work 1 would show
   as work 1. Missing ones render as `placeholderExternal`, linking `/external_works/<n>`
   (the address real ao3 markup uses). Blurbs are told apart by `get_blurb_kind`.
+- **A series bookmarked among a collection's items** is recorded as `series_ids` (checkpointed
+  as `listings.bookmark_ids.series`, read back off `last_series`), and
+  `collection_series_works` reads each for its works into `series_work_ids` ({series: [work
+  numbers]}). With the works option it is `index_series` - the series walk's own, so a new
+  entry is `bookmarked: false` with `from_series` - and the works are downloaded; without it,
+  `read_series_work_ids` reads only the numbers. **Each series is read on every run, even
+  when the collection's count is unchanged**: a series grows on its own, and the count says
+  nothing about it. Once per run (`series_read` / `series_ids_found`); one that will not read
+  keeps the works the file had for it. `collection_links` counts these works as the
+  collection's, and `collection_saved` lists them with the collection's works.
 
 **`from_collections` is set in one place: the cleanup step**, for every workflow but the
 debug ones (`LINKING_ACTIONS`: full, quick and custom scans, the single fic, both collection

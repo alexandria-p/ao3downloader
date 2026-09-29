@@ -137,6 +137,11 @@ class Ao3:
         self.externals_indexed: dict[str, dict] = {}
         self.last_externals: list[str] = []
         self.collection_externals = 0
+        # series bookmarked among a collection's items, read back off `last_series` as external
+        # works are; and the work numbers of each series this run has read for a collection
+        # without indexing them - a series is read once however many collections hold it
+        self.last_series: list[str] = []
+        self.series_ids_found: dict[str, list[str]] = {}
         self.follow_subcollections = False
         self.follow_parents = False
         self.collections_seen: set[str] = set()
@@ -744,6 +749,10 @@ class Ao3:
         # the caller off `last_externals`
         external_ids: list[str] = [str(x) for x in (earlier or {}).get('externals') or []]
         self.last_externals = external_ids
+        # the series among the items, by ao3's number for them - read by the caller off
+        # `last_series`, which reads each one's works once the listing is done
+        series_ids: list[str] = [str(x) for x in (earlier or {}).get('series') or []]
+        self.last_series = series_ids
         start = int((earlier or {}).get('page') or 1)
         if found:
             # read before this attempt: indexed then, so downloaded with the rest now
@@ -755,6 +764,9 @@ class Ao3:
             externals: list[dict] = []
             for blurb in parse_soup.get_blurbs(soup):
                 kind, work = parse_soup.get_blurb_kind(blurb)
+                if kind == parse_soup.BLURB_SERIES:
+                    if work and work not in series_ids: series_ids.append(work)
+                    continue
                 if kind == parse_soup.BLURB_EXTERNAL:
                     if work and work not in external_ids: external_ids.append(work)
                     if self.collection_works is None or not work: continue
@@ -780,7 +792,7 @@ class Ao3:
                 self.save_collection_external(document, collection, link)
             if self.on_collection_page and key:
                 self.on_collection_page(collection, key, page, list(found),
-                                        externals=list(external_ids))
+                                        externals=list(external_ids), series=list(series_ids))
             page += 1
         return found
 
@@ -1103,8 +1115,10 @@ class Ao3:
         which a resumed run has to read again rather than skip."""
 
         if self.on_collection_done and slug not in self.unfinished_collections:
+            series_works = [w for ids in (document.get('series_work_ids') or {}).values()
+                            for w in ids or []]
             self.on_collection_done(slug, [str(x) for x in (document.get('work_ids') or []) +
-                                           (document.get('bookmark_ids') or [])],
+                                           (document.get('bookmark_ids') or []) + series_works],
                                     self.family_of(document))
 
 
@@ -1151,6 +1165,7 @@ class Ao3:
                 document[key] = kept
                 if key == 'bookmark_ids':
                     document['external_ids'] = [str(x) for x in previous.get('external_ids') or []]
+                    document['series_ids'] = [str(x) for x in previous.get('series_ids') or []]
                 print(strings.AO3_INFO_COLLECTION_UNCHANGED.format(slug, len(kept), label))
                 continue
             earlier = ((self.collections_before.get(slug) or {}).get('listings') or {}).get(key)
@@ -1158,17 +1173,21 @@ class Ao3:
                 if earlier and earlier.get('done'):
                     document[key] = [str(x) for x in earlier.get('ids') or []]
                     externals = [str(x) for x in earlier.get('externals') or []]
-                    if key == 'bookmark_ids': document['external_ids'] = externals
+                    series = [str(x) for x in earlier.get('series') or []]
+                    if key == 'bookmark_ids':
+                        document['external_ids'] = externals
+                        document['series_ids'] = series
                     self.keep_indexed(document[key])
                     if self.on_collection_page:
                         self.on_collection_page(slug, key, None, document[key], done=True,
-                                                externals=externals)
+                                                externals=externals, series=series)
                     continue
                 if earlier and int(earlier.get('page') or 1) > 1:
                     print(strings.AO3_INFO_RESUME_COLLECTION_PAGE.format(
                         slug, label, earlier['page']))
                 ids = self.collect_work_ids(url, slug, key, earlier)
                 externals = list(self.last_externals)
+                series = list(self.last_series)
                 resumed_from = int((earlier or {}).get('page') or 1)
                 count = document.get(count_key)
                 if key == 'work_ids' and resumed_from > 1 and isinstance(count, int) \
@@ -1181,17 +1200,27 @@ class Ao3:
                     ids = self.collect_work_ids(url, slug, key, {'ids': ids, 'page': 1},
                                                 stop=resumed_from - 1)
                 document[key] = ids
-                if key == 'bookmark_ids': document['external_ids'] = externals
+                if key == 'bookmark_ids':
+                    document['external_ids'] = externals
+                    document['series_ids'] = series
                 if self.on_collection_page:
-                    self.on_collection_page(slug, key, None, ids, done=True, externals=externals)
+                    self.on_collection_page(slug, key, None, ids, done=True, externals=externals,
+                                            series=series)
             except exceptions.CancelledException:
                 raise
             except Exception as e:
                 document[key] = []
-                if key == 'bookmark_ids': document['external_ids'] = []
+                if key == 'bookmark_ids':
+                    document['external_ids'] = []
+                    # a failed listing keeps the series it had, so their works are not
+                    # dropped from the file for want of a page
+                    document['series_ids'] = [str(x) for x in previous.get('series_ids') or []]
                 # saved with what it has, as ever - but not finished, so a resumed run reads it
                 self.unfinished_collections.add(slug)
                 self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': url}, e)
+
+        document['series_work_ids'] = self.collection_series_works(
+            slug, document.get('series_ids') or [], previous)
 
         if indexing_works:
             print(strings.AO3_INFO_COLLECTION_WORKS.format(
@@ -1219,6 +1248,73 @@ class Ao3:
                     self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': base}, e)
 
         return document
+
+
+    def collection_series_works(self, slug: str, series_ids: list[str],
+                                previous: dict) -> dict[str, list[str]]:
+        """The works of every series bookmarked among a collection's items, by series.
+
+        A collection records a series bookmark by the series' number, but the works are what
+        the collection holds through it - so each series is read for them, a request per 20
+        works. When the run indexes the collection's works, the series' works are indexed too
+        (`index_series`, as a bookmarked series of your own is walked: a new entry is not
+        bookmarked) and downloaded with the rest; otherwise only their numbers are read.
+
+        A series is read once per run, however many collections hold it. One that will not
+        read keeps the works the collection's file had for it.
+        """
+
+        before = previous.get('series_work_ids') if isinstance(previous.get('series_work_ids'), dict) else {}
+        found: dict[str, list[str]] = {}
+        if series_ids:
+            print(strings.AO3_INFO_COLLECTION_SERIES.format(slug, len(series_ids)))
+        for series_id in series_ids:
+            series_id = str(series_id)
+            self.check_cancelled()
+            works = self.series_read.get(series_id) or self.series_ids_found.get(series_id)
+            if works is None and self.collection_works is not None:
+                for document in self.index_series({'id': series_id, 'title': '', 'bookmark': None}):
+                    if document.get('id'): self.indexed_this_run[str(document['id'])] = document
+                    self.keep_collection_work(document)
+                works = self.series_read.get(series_id)
+            elif works is None:
+                works = self.read_series_work_ids(series_id)
+            if works is None:
+                works = [str(x) for x in before.get(series_id) or []]
+            else:
+                # works indexed before this run, off a listing, are downloaded with the rest
+                self.keep_indexed([w for w in works if w not in self.indexed_this_run])
+            found[series_id] = list(works)
+        return found
+
+
+    def read_series_work_ids(self, series_id: str) -> list[str] | None:
+        """Every work number on a series' pages, without indexing any of them - or None when
+        the series will not read."""
+
+        link = f'{strings.AO3_BASE_URL}/series/{series_id}'
+        found: list[str] = []
+        page = link
+        try:
+            total = None
+            while True:
+                self.check_cancelled()
+                soup = self.repo.get_soup(page)
+                if total is None: total = parse_soup.get_total_pages(soup)
+                for blurb in parse_soup.get_blurbs(soup):
+                    kind, work = parse_soup.get_blurb_kind(blurb)
+                    if kind == parse_soup.BLURB_WORK and work and work not in found:
+                        found.append(work)
+                if not total or parse_text.get_page_number(page) >= total: break
+                page = parse_text.get_next_page(page)
+        except exceptions.CancelledException:
+            raise
+        except Exception as e:
+            print(strings.ERROR_SERIES)
+            self.log_error({'message': strings.ERROR_SERIES, 'link': link}, e)
+            return None
+        self.series_ids_found[series_id] = found
+        return found
 
 
     def previous_collection(self, name: str) -> dict:

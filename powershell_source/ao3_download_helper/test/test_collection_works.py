@@ -477,7 +477,7 @@ def test_every_page_of_a_collection_listing_is_checkpointed():
     ao3, repo, _, _ = make_ao3()
     repo.get_soup.side_effect = one_collection([['1', '2'], ['3', '4'], ['5']], 5)
     pages = []
-    ao3.on_collection_page = lambda slug, key, page, ids, done=False, externals=None: \
+    ao3.on_collection_page = lambda slug, key, page, ids, done=False, externals=None, series=None: \
         pages.append((slug, key, page, ids, done))
 
     ao3.get_collection(ALPHA)
@@ -979,3 +979,35 @@ def test_the_external_works_found_so_far_go_into_the_checkpoint():
 
     saved = job.record.checkpoint.call_args.kwargs['collections']
     assert saved['alpha']['listings']['bookmark_ids']['externals'] == ['1']
+
+
+def test_the_series_found_so_far_go_into_the_checkpoint():
+    job = job_for(collectionWorks=False)
+    job.record = MagicMock()
+    job.record.data = {'progress': {}}
+    ao3 = Ao3(MagicMock(), MagicMock(), ['JSON'], None, False, False)
+
+    server.watch_collections(job, MagicMock(), ao3)
+    ao3.on_collection_page('alpha', 'bookmark_ids', 2, ['5'], series=['15213'])
+
+    saved = job.record.checkpoint.call_args.kwargs['collections']
+    assert saved['alpha']['listings']['bookmark_ids']['series'] == ['15213']
+
+
+def test_a_resumed_listing_the_earlier_attempt_finished_keeps_its_series():
+    ao3, repo, _, _ = make_ao3()
+    ao3.records_for = lambda ids: []
+    ao3.collections_before = {'alpha': {'listings': {
+        'bookmark_ids': {'page': 1, 'ids': [], 'series': ['15213'], 'done': True}}}}
+    series = '<ol class="index group"><li class="work blurb group" id="work_42">' \
+             '<h4 class="heading"><a href="/works/42">A</a></h4></li></ol>'
+
+    def pages(url: str) -> BeautifulSoup:
+        if '/series/15213' in url: return BeautifulSoup(series, 'html.parser')
+        return with_external()(url)
+    repo.get_soup.side_effect = pages
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/alpha')
+
+    assert records[0]['series_ids'] == ['15213']
+    assert records[0]['series_work_ids'] == {'15213': ['42']}

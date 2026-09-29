@@ -93,7 +93,7 @@ A `progress` section in the history file, written straight away each time:
 | a non-bookmark is re-read | the ones done so far (`nonBookmarksDone`) |
 | the file check starts | the **scope**: every work this run covers (`scope`) |
 | a custom run over a date range finishes a fic | the fics done so far (`updateDone`) |
-| a page of a collection's works or bookmarked items is read | per collection and listing (`collections.<name>.listings.work_ids` / `bookmark_ids`): the page number, every work number found so far, and whether the listing finished; plus `seriesMarked` and `externalsSaved` |
+| a page of a collection's works or bookmarked items is read | per collection and listing (`collections.<name>.listings.work_ids` / `bookmark_ids`): the page number, every work number found so far, the external works and series among the bookmarked items (`externals`, `series`), and whether the listing finished; plus `seriesMarked` and `externalsSaved` |
 | a collection is saved | that collection is `done`, with every work number it holds (`collections.<name>.works`) and, when the run follows subcollections or parents, the related collections it links to (`family`) |
 
 A resumed run starts its own history file with a copy of this, and carries on adding to it, so
