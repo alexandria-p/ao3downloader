@@ -295,9 +295,6 @@ def read_settings(fileops: FileOps) -> dict:
         # how long a paused background run is kept before it is abandoned - the page warns
         # with this number before a background run is paused
         'pausedRunTimeoutMinutes': paused_run_timeout(),
-        # how often a running run's history file is saved as it prints - what an interrupted
-        # run can lose from the end of its log
-        'runLogSaveSeconds': run_log_save_seconds(fileops),
     }
 
 
@@ -856,8 +853,7 @@ def run_job(job: Job, password: str) -> None:
                                             settings=settings_for_record(fileops),
                                             background=job.background,
                                             printed=before_record, helper=job.helper,
-                                            url=job.url,
-                                            flush_seconds=run_log_save_seconds(fileops))
+                                            url=job.url)
                 # the issues and fic lists go into every save, not only the last one
                 job.record.source = lambda: job.ao3
                 repo.login(job.username, password)
@@ -3435,18 +3431,6 @@ def background_running() -> bool:
     with Handler.jobs_lock:
         return any(job.background and not job.done.is_set() and not job.held.is_set()
                    and not job.cancel.is_set() for job in Handler.jobs.values())
-
-
-def run_log_save_seconds(fileops: FileOps) -> int:
-    """Seconds between saves of a run's history file while it prints; 0 saves every line."""
-
-    # a note about the run must never be what stops it starting, so anything unreadable is
-    # the default
-    try:
-        return max(0, int(fileops.get_ini_value_integer(
-            strings.INI_RUN_LOG_SAVE_SECONDS, strings.INI_DEFAULT_RUN_LOG_SAVE_SECONDS)))
-    except Exception:
-        return strings.INI_DEFAULT_RUN_LOG_SAVE_SECONDS
 
 
 def paused_run_timeout() -> int:

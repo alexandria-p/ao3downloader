@@ -195,23 +195,9 @@ def test_a_few_lines_over_a_long_stretch_still_reach_disk(tmp_path):
     record.save.assert_called_once()
 
 
-def test_the_wait_between_saves_is_the_one_the_run_was_given(tmp_path):
-    record = runs.RunRecord(fake_fileops(tmp_path), 'abcdef1234', 'sync', 'A Button',
-                            ['JSON'], {}, flush_seconds=5)
-    record.save()
-    record.save = MagicMock()
-    record.last_saved -= 4
-    record.line('not yet')
-    record.save.assert_not_called()
-
-    record.last_saved -= 1
-    record.line('now')
-    record.save.assert_called_once()
-
-
-def test_no_wait_at_all_saves_every_line(tmp_path):
-    record = runs.RunRecord(fake_fileops(tmp_path), 'abcdef1234', 'sync', 'A Button',
-                            ['JSON'], {}, flush_seconds=0)
+def test_saving_every_line_would_keep_the_whole_log(tmp_path, monkeypatch):
+    monkeypatch.setattr(runs, 'LOG_FLUSH_SECONDS', 0)
+    record = a_record(tmp_path)
 
     for n in range(3):
         record.line(f'line {n}')

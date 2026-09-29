@@ -30,8 +30,7 @@ STATUS_ABANDONED = 'abandoned'
 # has checked the helper is not still working on it. the helper never writes this itself
 STATUS_INTERRUPTED = 'interrupted'
 
-# How often a line of console output takes the record to disk: `RunLogSaveSeconds` in
-# settings.ini, this when it is not set.
+# How often a line of console output takes the record to disk.
 #
 # The whole file is rewritten on every save, and for a library in Dropbox that is an upload of
 # a file that grows to hundreds of kilobytes - so a line saves the record only once this long
@@ -42,7 +41,7 @@ STATUS_INTERRUPTED = 'interrupted'
 #
 # The trigger is a line arriving: nothing saves on a timer, so a run killed outright loses the
 # lines of its last stretch this long, however quiet it was afterwards.
-LOG_FLUSH_SECONDS = strings.INI_DEFAULT_RUN_LOG_SAVE_SECONDS
+LOG_FLUSH_SECONDS = 120
 
 # A run over a large library prints a line per fic per format, so this is a ceiling rather
 # than an expectation; most runs never approach it. The **last** lines are kept when it is
@@ -68,10 +67,8 @@ class RunRecord:
                  filetypes: list[str], options: dict,
                  printed: list[str] | None = None,
                  settings: dict | None = None, background: bool = False,
-                 helper: str = '', url: str = '',
-                 flush_seconds: int | None = None) -> None:
+                 helper: str = '', url: str = '') -> None:
         self.fileops = fileops
-        self.flush_seconds = LOG_FLUSH_SECONDS if flush_seconds is None else max(0, flush_seconds)
         # where the run keeps its issues and fic lists as it goes - the downloader, handed
         # over once the run has one (`run_job`). read on every save, so an interrupted run's
         # record is as current as its log rather than empty until an ending it never reaches
@@ -177,7 +174,7 @@ class RunRecord:
 
         Not saved per line on purpose: `save` rewrites the whole file, so a run printing a
         line per fic per format would rewrite a growing file thousands of times. A line
-        saves the record once `flush_seconds` have passed since the last save; a run killed
+        saves the record once `LOG_FLUSH_SECONDS` have passed since the last save; a run killed
         outright loses what it said since then, and everything else - a stop, a failure, a
         finish - goes through `save` anyway.
         """
@@ -191,7 +188,7 @@ class RunRecord:
                 del log[:dropped]
                 self.data['logTrimmed'] += dropped
             self.unsaved += 1
-            if time.monotonic() - self.last_saved >= self.flush_seconds:
+            if time.monotonic() - self.last_saved >= LOG_FLUSH_SECONDS:
                 self.save()
         except Exception:
             pass

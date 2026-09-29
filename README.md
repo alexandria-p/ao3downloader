@@ -112,8 +112,7 @@ the helper can only reach that folder through the open page.
   are not works - and a **Download log** button, the whole account the run gave in its
   window.
 - A run saves its History entry - log, issues and the fics it touched - as it goes: at every
-  checkpoint, and whenever it prints a line at least `RunLogSaveSeconds` (120 by default)
-  after the last save. So a run cut off outright - the helper crashing, or a deploy - keeps
+  checkpoint, and whenever it prints a line at least two minutes after the last save. So a run cut off outright - the helper crashing, or a deploy - keeps
   everything up to about its last two minutes. A run that is stopped, abandoned or fails
   saves everything on the way out.
 - If the helper is shut down mid-run, the run's History entry says **Running - not

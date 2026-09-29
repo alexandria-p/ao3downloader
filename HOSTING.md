@@ -72,7 +72,6 @@ In the repo: **Settings → Secrets and variables → Actions**.
 | `ENABLE_DEBUG_TOOLS` | `EnableDebugTools` | `false` | the debug panel and the single-pass runs in the page |
 | `ENABLE_CONSOLE_LOGGING` | `EnableConsoleLogging` | `false` | print every request and every line a run says to Render's **Logs** tab |
 | `PAUSED_RUN_TIMEOUT_MINUTES` | `PausedRunTimeoutMinutes` | `10` | minutes a paused background run is kept before it is abandoned; `0` never |
-| `RUN_LOG_SAVE_SECONDS` | `RunLogSaveSeconds` | `120` | how often a running run saves its History file as it prints - what a run cut off by a crash or deploy can lose from the end of its log; `0` every line |
 
 Numbers have to be whole numbers and switches `true` or `false`; anything else fails the
 deploy, naming the variable. `SavePassword` is the one key left out: the page never stores

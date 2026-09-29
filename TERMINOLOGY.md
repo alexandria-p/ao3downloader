@@ -95,7 +95,7 @@ the same thing in conversation.
 - **Paused-run timeout** [PausedRunTimeoutMinutes, PAUSED_RUN_TIMEOUT_MINUTES] - the setting for how many minutes a paused background run is kept; 0 is never.
 - **Continue in background** - the button that closes a background run's progress window and leaves the run going.
 - **Download log** - the button on a run's History entry that saves everything the run said in its window, line by line, as a text file. Kept in the run's history file as it goes, so a run that was stopped, abandoned or interrupted has one too. An interrupted run's stops at its last save.
-- **Run log save interval** [RunLogSaveSeconds, RUN_LOG_SAVE_SECONDS] - how often a running run saves its history file while it prints: when a line arrives at least this many seconds (120 by default; 0 is every line) after the last save. Checkpoints and the run ending save at once. Every save carries the issues and fic lists as well as the log.
+- **Run log save interval** - how often a running run saves its history file while it prints: when a line arrives at least 120 seconds after the last save (fixed, not a setting). Checkpoints and the run ending save at once. Every save carries the issues and fic lists as well as the log.
 - **Download issues** - the button on a run's History entry that saves everything it reported (failures, copies to check, bookmarks that are not works) as one text file. Was *Export all issues* at the end of a run.
 - **Deployment variable** [GitHub variable, repository variable] - a GitHub Actions variable the deploy workflow turns into a `settings.ini` key: `EXTRA_WAIT_TIME` becomes `ExtraWaitTime`. Every key has one except `SavePassword`.
 

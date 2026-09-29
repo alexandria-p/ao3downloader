@@ -895,8 +895,7 @@ what it saved stays saved, and starting it again carries on from what is still m
 Every run in the History tab has **Download issues** when it reported anything: one text file
 of what failed, what to check by hand, and the bookmarks that are not works. **Download log**
 saves the whole account the run gave in its window. Both are saved as the run goes - at every
-checkpoint, and when it prints a line at least `RunLogSaveSeconds` (120 by default) after the
-last save - so a run cut off by a crash keeps everything up to about its last two minutes.
+checkpoint, and when it prints a line at least two minutes after the last save - so a run cut off by a crash keeps everything up to about its last two minutes.
 
 ## A caveat about deploying this to a server
 
