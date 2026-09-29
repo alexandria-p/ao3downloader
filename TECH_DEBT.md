@@ -75,3 +75,8 @@ written.
 - **`unchanged_items` cannot see one work added and another removed** between runs of a
   collection: the count is the same, so the saved list is kept. Deleting the collection's
   json forces a full crawl.
+- **A series a collection holds is not read again when its entry already lists as many works
+  as the collection's blurb says** (`series_unchanged`), so the same blind spot applies: one
+  work removed and another added leaves the count unchanged and the old list kept. Deleting
+  the series' entry in `indexing/series/` makes the next collection run read it. A series
+  you bookmarked is read in full by every scan of your bookmarks anyway, which corrects it.
