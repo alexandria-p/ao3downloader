@@ -12,7 +12,7 @@ import package_windows
 # region what PyInstaller is asked for
 
 def test_the_app_is_a_folder_with_a_console_window():
-    arguments = package_windows.pyinstaller_arguments(Path('root'), Path('web'))
+    arguments = package_windows.pyinstaller_arguments(Path('root'), Path('web'), Path('defaults'))
 
     # a folder, not one self-unpacking file; and a window the helper can talk in
     assert '--onedir' in arguments and '--onefile' not in arguments
@@ -22,17 +22,19 @@ def test_the_app_is_a_folder_with_a_console_window():
 
 def test_the_settings_template_and_the_page_are_packed_in():
     root = Path('root')
-    arguments = package_windows.pyinstaller_arguments(root, Path('staged') / 'web')
+    arguments = package_windows.pyinstaller_arguments(root, Path('staged') / 'web', Path('staged') / 'config')
     data = [arguments[i + 1] for i, a in enumerate(arguments) if a == '--add-data']
 
     settings = root / build_artifacts.PYTHON_HOME / 'source_code' / 'settings'
     # read through importlib.resources, which PyInstaller cannot see on its own
     assert f'{settings}:source_code/settings' in data
     assert f'{Path("staged") / "web"}:web' in data
+    # the deployment's settings, packed inside the app as the defaults it starts from
+    assert f'{Path("staged") / "config"}:defaults' in data
 
 
 def test_the_entry_point_is_the_desktop_module():
-    arguments = package_windows.pyinstaller_arguments(Path('root'), Path('web'))
+    arguments = package_windows.pyinstaller_arguments(Path('root'), Path('web'), Path('defaults'))
 
     assert arguments[0] == str(Path('root') / build_artifacts.PYTHON_HOME / 'source_code' / 'desktop.py')
     assert (Path(__file__).parent / 'source_code' / 'desktop.py').is_file()
@@ -42,26 +44,24 @@ def test_the_entry_point_is_the_desktop_module():
 
 # region what goes beside the exe
 
-def staged(tmp_path: Path) -> Path:
-    staging = tmp_path / 'staging'
-    (staging / 'config').mkdir(parents=True)
-    (staging / 'config' / 'settings.ini').write_text('[settings]\nExtraWaitTime=5\n', encoding='utf-8')
+def app_folder(tmp_path: Path) -> Path:
     (tmp_path / 'dist' / 'ao3downloader').mkdir(parents=True)
-    return staging
+    return tmp_path
 
 
-def test_settings_and_a_readme_go_beside_the_exe(tmp_path):
-    app = package_windows.assemble(tmp_path, staged(tmp_path))
+def test_a_readme_goes_beside_the_exe(tmp_path):
+    app = package_windows.assemble(app_folder(tmp_path))
 
-    assert (app / 'config' / 'settings.ini').read_text(encoding='utf-8') == '[settings]\nExtraWaitTime=5\n'
     # notepad on an older Windows shows a file with bare newlines as one long line
     assert b'\r\n' in (app / 'README.txt').read_bytes()
     assert 'Run anyway' in (app / 'README.txt').read_text(encoding='utf-8')
+    assert 'Update now' in (app / 'README.txt').read_text(encoding='utf-8')
 
 
-def test_the_zip_unzips_into_one_folder(tmp_path):
-    app = package_windows.assemble(tmp_path, staged(tmp_path))
-    (app / '_internal').mkdir()
+def test_the_zip_unzips_into_one_folder_and_holds_no_settings(tmp_path):
+    app = package_windows.assemble(app_folder(tmp_path))
+    (app / '_internal' / 'defaults').mkdir(parents=True)
+    (app / '_internal' / 'defaults' / 'settings.ini').write_text('[settings]\n', encoding='utf-8')
     (app / '_internal' / 'python.dll').write_bytes(b'x')
 
     archive = package_windows.make_zip(app, tmp_path / 'app.zip')
@@ -69,7 +69,9 @@ def test_the_zip_unzips_into_one_folder(tmp_path):
     names = zipfile.ZipFile(archive).namelist()
     assert all(name.startswith('ao3downloader/') for name in names)
     assert 'ao3downloader/_internal/python.dll' in names
-    assert 'ao3downloader/config/settings.ini' in names
+    # nothing in config/ - so unzipping an update over the app can never replace the
+    # settings.ini someone has edited
+    assert not any(name.startswith('ao3downloader/config/') for name in names)
 
 
 def test_the_zip_is_named_for_the_system_it_was_built_on(monkeypatch):

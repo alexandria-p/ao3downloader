@@ -2,6 +2,7 @@ import { Injectable, signal } from '@angular/core';
 import { LibraryStore, StorageRequest, answerStorage, readRunHistory } from './library-store';
 import { HelperConnection } from './helper-connection';
 import { DropboxHandover } from './dropbox';
+import type { AppStatus } from './updates';
 
 /**
  * Talks to the local helper (ao3downloader.server) that actually performs downloads.
@@ -61,6 +62,8 @@ export interface ServerConfig {
   /** ticked when the dialog opens, but free to untick */
   defaults: string[];
   settings?: ServerSettings;
+  /** only the Windows app: its version, and whether it can update itself */
+  app?: AppStatus;
 }
 
 /** the questions the console menu asks after the file types */

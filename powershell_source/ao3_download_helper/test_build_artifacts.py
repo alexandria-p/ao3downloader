@@ -53,6 +53,12 @@ SavePassword=false
 
 # where downloads are saved
 DownloadFolder=downloads
+
+# where the page finds the helper
+HelperUrl=http://127.0.0.1:4400
+
+# whether the helper wants a passcode
+RequirePasscode=false
 """
 
 
@@ -292,7 +298,7 @@ def test_a_rebuild_adds_the_settings_an_older_settings_ini_lacks(fake_root):
     assert 'ExtraWaitTime=42' in text
     assert '# where downloads are saved\nDownloadFolder=downloads' in text
     assert build_artifacts.SAVE_PASSWORD_KEY not in text
-    assert result['settings_added'] == ['DownloadFolder']
+    assert result['settings_added'] == ['DownloadFolder', 'HelperUrl', 'RequirePasscode']
     assert result['config_created'] == []
 
 

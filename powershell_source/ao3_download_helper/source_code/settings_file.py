@@ -11,6 +11,11 @@ and its default value. The user's own values, comments and order are left exactl
 were - nothing is rewritten, only added to the end. The helper does it every time it starts
 (`server.serve`) and the bundler does it to `build/config/settings.ini`, so a build, a restart
 after an update, and a first start all end up with every setting written down.
+
+A setting the template **no longer has** - one a later version stopped using - is not deleted
+either (`deprecate_settings`): its line is commented out where it stands, with a note above it
+saying it is deprecated, so the file stops setting something nothing reads while still showing
+what it said. Nothing else about the file changes.
 """
 
 import importlib.resources
@@ -78,6 +83,37 @@ def fresh_settings(template: str) -> str:
     return template
 
 
+DEPRECATED_NOTE = ('# DEPRECATED: {key} is no longer used by this version of ao3downloader, and '
+                   'has no effect. Commented out rather than deleted, so you can see what it said.')
+
+
+def deprecate_settings(existing: str, template: str) -> tuple[str, list[str]]:
+    """`existing` with every setting the template no longer has commented out and marked
+    deprecated, and the names of those.
+
+    Only an active setting line is touched, and only by putting `# ` in front of it and the
+    note above it - its value, the comments around it and everything else stay as they were.
+    A line already commented out is left alone, so doing this twice changes nothing.
+    `LEFT_OUT` settings are never deprecated: they still exist, a page build only leaves them
+    out of the files it writes.
+    """
+
+    known = keys_in(template) | {key.lower() for key in LEFT_OUT}
+    lines = existing.split('\n')
+    deprecated: list[str] = []
+    out: list[str] = []
+    for line in lines:
+        match = KEY_LINE.match(line)
+        if match and match.group(1).lower() not in known:
+            key = match.group(1)
+            deprecated.append(key)
+            out.append(DEPRECATED_NOTE.format(key=key))
+            out.append('# ' + line.lstrip())
+            continue
+        out.append(line)
+    return '\n'.join(out), deprecated
+
+
 def complete_settings(existing: str, template: str) -> tuple[str, list[str]]:
     """`existing` with every setting it lacks appended, and the names of those added.
 
@@ -99,11 +135,14 @@ def complete_settings(existing: str, template: str) -> tuple[str, list[str]]:
     return text + '\n', [key for key, _ in missing]
 
 
-def ensure_settings_file(path: str, template: str | None = None) -> tuple[bool, list[str]]:
-    """Make sure the settings.ini at `path` exists and has every setting.
+def ensure_settings_file(path: str, template: str | None = None
+                         ) -> tuple[bool, list[str], list[str]]:
+    """Make sure the settings.ini at `path` exists and has every setting - and none that
+    this version no longer reads, uncommented.
 
-    Returns (created, the settings added to an existing one). Writes nothing when there is
-    nothing to write, so a settings.ini that is complete is never touched.
+    Returns (created, the settings added to an existing one, the settings it commented out as
+    deprecated). Writes nothing when there is nothing to write, so a settings.ini that is
+    complete and current is never touched.
     """
 
     template = template_text() if template is None else template
@@ -112,12 +151,17 @@ def ensure_settings_file(path: str, template: str | None = None) -> tuple[bool, 
         if folder: os.makedirs(folder, exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
             f.write(fresh_settings(template))
-        return True, []
+        return True, [], []
 
-    with open(path, encoding='utf-8') as f:
+    # newline='' reads and writes the file's own line endings as they are - a settings.ini
+    # edited in Notepad keeps its CRLFs rather than being rewritten with a different ending
+    with open(path, encoding='utf-8', newline='') as f:
         existing = f.read()
-    completed, added = complete_settings(existing, template)
-    if added:
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(completed)
-    return False, added
+    ending = '\r\n' if '\r\n' in existing else '\n'
+    text = existing.replace('\r\n', '\n')
+    text, deprecated = deprecate_settings(text, template)
+    text, added = complete_settings(text, template)
+    if added or deprecated:
+        with open(path, 'w', encoding='utf-8', newline='') as f:
+            f.write(text.replace('\n', ending))
+    return False, added, deprecated

@@ -44,7 +44,12 @@ Leave the window open and go to http://localhost:4200.
 - **Its `settings.ini` is written from the same GitHub deployment variables as the hosted copy** (`EXTRA_WAIT_TIME`, `FILE_NAME_LENGTH` and the rest), except that it always points at the helper the exe starts on your own computer (`HelperUrl=http://127.0.0.1:4400`, no passcode, no `PageOrigin`), and always has `EnableConsoleLogging=true`, so every request and every line a run says appears in the app's window. It never names your hosted helper or its page - the build fails if it would.
 - **Settings and logs** go beside the exe, in `config\settings.ini` and `logs\`. Your fics go wherever you open a library in the app, as always.
 - **Windows will warn that the app is not signed** the first time: choose **More info**, then **Run anyway**.
-- **Updating:** unzip the new one over the old folder. `settings.ini` is only ever added to, never replaced.
+- **Updating: click Update now.** When a newer version is out, the banner at the top of the page has an **Update now** button. The app downloads the new version from your latest GitHub release, checks it against the SHA-256 GitHub publishes for the zip, closes, swaps its own files for the new ones, and starts again; the page reloads itself when it is back - a few seconds. It will not update while a run is going (restarting would end it), and no run can start while it updates. If the swap fails partway, every old file is put back and the old version starts again, and the page says why (the details are in `update\update.log`).
+- **Or update by hand:** unzip the new zip over the old folder. Either way the same rule holds.
+- **Your `settings.ini` is kept, and only ever added to.** The zip has no `config\` folder at all, so neither way of updating can replace it. The app keeps its defaults inside its own files, and each time it starts:
+  - a setting the new version **added** is appended to your `settings.ini`, with its explanation and the value this build was deployed with;
+  - a setting the new version **no longer uses** is commented out where it is, with a `# DEPRECATED:` line above it - your value stays there to read, it just does nothing;
+  - everything you set is left exactly as it was.
 - A folder in a zip rather than one self-contained exe on purpose: a one-file exe unpacks itself into a temporary folder on every start, which is slow and is what antivirus programs most often object to.
 - It always serves the page on exactly `localhost:4200`, because that is the address the Dropbox app has registered. If a copy is already running, a second start says so and opens the page instead of starting another helper.
 
@@ -87,6 +92,7 @@ The `VERSION` file in the repository root decides it, compared with the latest r
 - The commit is tagged `vX.Y.Z` as the deployment starts, and the Windows zip is published as that version's release, marked latest.
 - **Every page shows its version** in a footer pinned to the bottom of the window, on every tab, with a link to the repository on GitHub.
 - **Every copy of the page checks for a newer release** each time it opens, and says so at the top with a link to download it - with **Dismiss and do not ask me again**, which that browser remembers. A page built on your own computer with `generate_build_artifacts.ps1` has no version, and never checks.
+- **The footer always says it too**, next to the version, as underlined text rather than a button: `up to date with latest`, or `update to latest (1.8.3)` - which in the Windows app starts the update, and elsewhere opens the release. So someone who dismissed the banner can still see a newer version is out. Dismissing hides the banner only; the check still runs. The footer says neither until GitHub has answered, so it never claims up to date on a guess.
 - The version lives in the build (the page's `app-config.json`), not in `settings.ini`: settings.ini is only ever added to, so a version kept there would still say the old one after an upgrade.
 
 

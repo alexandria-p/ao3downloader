@@ -79,19 +79,32 @@ describe('UpdateCheck', () => {
     expect(updates.newer()).toBeNull();
   });
 
-  it('never asks again once told not to, in a later visit too', async () => {
+  it('still checks once the banner is dismissed, for the footer', async () => {
     const first = checking('1.0.0', latestIs('v1.0.1'));
     await first.check();
     first.dismiss();
 
-    expect(first.newer()).toBeNull();
+    // the banner is told to go for good; what was found is still known
+    expect(first.dismissed()).toBe(true);
     expect(localStorage.getItem(DISMISSED_KEY)).toBe('true');
+    expect(first.newer()?.version).toBe('1.0.1');
 
     const fetcher = latestIs('v1.0.2');
     const later = checking('1.0.0', fetcher);
     await later.check();
-    expect(fetcher).not.toHaveBeenCalled();
-    expect(later.newer()).toBeNull();
+    expect(later.dismissed()).toBe(true);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(later.newer()?.version).toBe('1.0.2');
+  });
+
+  it('knows it is the latest only once GitHub has answered', async () => {
+    const answered = checking('1.0.0', latestIs('v1.0.0'));
+    await answered.check();
+    expect(answered.checked()).toBe(true);
+
+    const offline = checking('1.0.0', latestIs('v1.0.0', 500));
+    await offline.check();
+    expect(offline.checked()).toBe(false);
   });
 
   it('treats anything going wrong as nothing newer', async () => {
@@ -111,6 +124,103 @@ describe('UpdateCheck', () => {
     expect(new UpdateCheck(page('1.0.0')).latestUrl()).toBe(
       'https://github.com/someone/ao3downloader/releases/latest',
     );
+  });
+});
+
+describe('updating the Windows app from the page', () => {
+  function json(status: number, body: object): Response {
+    return new Response(JSON.stringify(body), { status });
+  }
+
+  /** a helper that answers each request with the next of `answers` - an Error for none at all */
+  function helperAnswering(answers: (Response | Error)[]) {
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      asked.push(url);
+      const next = answers.shift() ?? json(200, { app: { version: '1.8.2', updatable: true } });
+      if (next instanceof Error) throw next;
+      return next;
+    }));
+    const updates = new UpdateCheck(page('1.8.2'));
+    updates.pollMs = 0;
+    updates.waitMs = 5_000;
+    updates.reload = vi.fn();
+    return { updates, asked };
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('only offers to for a helper that is the Windows app', () => {
+    const updates = new UpdateCheck(page('1.8.2'));
+    updates.appStatus(undefined);
+    expect(updates.canUpdate()).toBe(false);
+    updates.appStatus({ version: '1.8.2', updatable: true });
+    expect(updates.canUpdate()).toBe(true);
+  });
+
+  it('waits out the app closing, and reloads once it is back as the new version', async () => {
+    const { updates, asked } = helperAnswering([
+      json(202, { version: '1.8.3' }),
+      new TypeError('Failed to fetch'),
+      new TypeError('Failed to fetch'),
+      json(200, { app: { version: '1.8.3', updatable: true } }),
+    ]);
+
+    await updates.updateNow();
+
+    expect(asked[0]).toBe('http://127.0.0.1:4400/api/update');
+    expect(updates.reload).toHaveBeenCalledOnce();
+  });
+
+  it('says why when the app will not update', async () => {
+    const { updates } = helperAnswering([
+      json(409, { error: 'A run is in progress. Updating restarts the app, which would stop it - update once it is complete.' }),
+    ]);
+
+    await updates.updateNow();
+
+    expect(updates.updating()).toEqual({
+      state: 'failed',
+      error: 'A run is in progress. Updating restarts the app, which would stop it - update once it is complete.',
+    });
+    expect(updates.reload).not.toHaveBeenCalled();
+  });
+
+  it('says so when the app comes back as the version it was', async () => {
+    // the swap failed and the app put its old files back
+    const { updates } = helperAnswering([
+      json(202, { version: '1.8.3' }),
+      new TypeError('Failed to fetch'),
+      json(200, { app: { version: '1.8.2', updatable: true, update: { state: 'failed', error: 'the file is in use' } } }),
+    ]);
+
+    await updates.updateNow();
+
+    expect(updates.updating()).toEqual({ state: 'failed', error: 'the file is in use' });
+    expect(updates.reload).not.toHaveBeenCalled();
+  });
+
+  it('gives up waiting in the end, saying what to do', async () => {
+    const { updates } = helperAnswering([json(202, { version: '1.8.3' })]);
+    updates.waitMs = 0;
+
+    await updates.updateNow();
+
+    expect(updates.updating().state).toBe('failed');
+  });
+
+  it('shows a failure the app reports once, until it has been read', () => {
+    const failed = { version: '1.8.2', updatable: true, update: { state: 'failed', error: 'disk full' } };
+    const first = new UpdateCheck(page('1.8.2'));
+    first.appStatus(failed);
+    expect(first.updating()).toEqual({ state: 'failed', error: 'disk full' });
+
+    first.acknowledgeFailure();
+    expect(first.updating()).toEqual({ state: 'idle' });
+
+    const later = new UpdateCheck(page('1.8.2'));
+    later.appStatus(failed);
+    expect(later.updating()).toEqual({ state: 'idle' });
   });
 });
 

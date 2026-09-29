@@ -79,9 +79,7 @@ def test_the_real_template_has_every_setting_the_helper_reads():
 def test_a_missing_file_is_written_from_the_template_without_the_password_setting(tmp_path):
     path = tmp_path / 'config' / 'settings.ini'
 
-    created, added = settings_file.ensure_settings_file(str(path), TEMPLATE)
-
-    assert (created, added) == (True, [])
+    assert settings_file.ensure_settings_file(str(path), TEMPLATE) == (True, [], [])
     text = path.read_text(encoding='utf-8')
     assert 'ExtraWaitTime=15' in text and 'NewSetting=7' in text
     assert 'SavePassword' not in text
@@ -91,7 +89,7 @@ def test_an_old_file_gets_what_it_lacks(tmp_path):
     path = tmp_path / 'settings.ini'
     path.write_text('[settings]\nExtraWaitTime=30\n', encoding='utf-8')
 
-    assert settings_file.ensure_settings_file(str(path), TEMPLATE) == (False, ['NewSetting'])
+    assert settings_file.ensure_settings_file(str(path), TEMPLATE) == (False, ['NewSetting'], [])
     assert 'NewSetting=7' in path.read_text(encoding='utf-8')
 
 
@@ -100,8 +98,74 @@ def test_a_complete_file_is_not_written_at_all(tmp_path):
     path.write_text('[settings]\nExtraWaitTime=30\nNewSetting=1\n', encoding='utf-8')
     os.utime(path, (1, 1))
 
-    assert settings_file.ensure_settings_file(str(path), TEMPLATE) == (False, [])
+    assert settings_file.ensure_settings_file(str(path), TEMPLATE) == (False, [], [])
     assert os.path.getmtime(path) == 1
+
+
+def test_a_setting_this_version_no_longer_reads_is_commented_out_and_marked(tmp_path):
+    path = tmp_path / 'settings.ini'
+    path.write_text('[settings]\n# how many pages at most\nOldLimit=40\nExtraWaitTime=30\n'
+                    'NewSetting=1\n', encoding='utf-8')
+
+    assert settings_file.ensure_settings_file(str(path), TEMPLATE) == (False, [], ['OldLimit'])
+
+    text = path.read_text(encoding='utf-8')
+    # the value is still there to read, the comment above it untouched - it just sets nothing
+    assert '# how many pages at most\n# DEPRECATED: OldLimit is no longer used' in text
+    assert '\n# OldLimit=40\n' in text
+    assert '\nOldLimit=' not in text
+    # everything else exactly as it was
+    assert 'ExtraWaitTime=30\nNewSetting=1\n' in text
+
+
+def test_marking_a_setting_deprecated_twice_changes_nothing(tmp_path):
+    path = tmp_path / 'settings.ini'
+    path.write_text('[settings]\nOldLimit=40\nExtraWaitTime=30\nNewSetting=1\n', encoding='utf-8')
+    settings_file.ensure_settings_file(str(path), TEMPLATE)
+    once = path.read_text(encoding='utf-8')
+
+    assert settings_file.ensure_settings_file(str(path), TEMPLATE) == (False, [], [])
+    assert path.read_text(encoding='utf-8') == once
+
+
+def test_a_setting_that_is_only_left_out_of_page_builds_is_never_deprecated(tmp_path):
+    # SavePassword still exists - a page build only leaves it out of the files it writes
+    path = tmp_path / 'settings.ini'
+    path.write_text('[settings]\nSavePassword=false\nExtraWaitTime=30\nNewSetting=1\n',
+                    encoding='utf-8')
+
+    assert settings_file.ensure_settings_file(str(path), settings_file.fresh_settings(TEMPLATE)) \
+        == (False, [], [])
+    assert 'SavePassword=false' in path.read_text(encoding='utf-8')
+
+
+def test_a_setting_is_added_and_another_deprecated_in_one_go(tmp_path):
+    path = tmp_path / 'settings.ini'
+    path.write_text('[settings]\nOldLimit=40\nExtraWaitTime=30\n', encoding='utf-8')
+
+    assert settings_file.ensure_settings_file(str(path), TEMPLATE) == (False, ['NewSetting'], ['OldLimit'])
+
+
+def test_a_file_edited_in_notepad_keeps_its_line_endings(tmp_path):
+    path = tmp_path / 'settings.ini'
+    path.write_bytes(b'[settings]\r\nOldLimit=40\r\nExtraWaitTime=30\r\n')
+
+    settings_file.ensure_settings_file(str(path), TEMPLATE)
+
+    data = path.read_bytes()
+    assert b'\r\n# OldLimit=40\r\n' in data
+    assert b'NewSetting=7' in data
+    assert b'\n' not in data.replace(b'\r\n', b'')
+
+
+def test_every_setting_the_helper_reads_is_in_the_template():
+    # anything read but missing from the template would be commented out as deprecated in
+    # every settings.ini the next time the helper starts
+    from source_code import strings
+    read = {value for name, value in vars(strings).items()
+            if name.startswith('INI_') and isinstance(value, str)
+            and name not in ('INI_FILE_NAME', 'INI_SECTION_NAME', 'INI_DEFAULT_HELPER_URL')}
+    assert {key.lower() for key in read} <= settings_file.keys_in(settings_file.template_text())
 
 # endregion
 

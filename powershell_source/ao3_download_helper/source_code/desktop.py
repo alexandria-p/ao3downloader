@@ -14,6 +14,7 @@ Dropbox app. A page on 4201 could not sign in to Dropbox.
 """
 
 import functools
+import json
 import os
 import sys
 import threading
@@ -21,7 +22,7 @@ import time
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-from source_code import server, strings
+from source_code import server, strings, updater as updates
 
 PAGE_HOST = '127.0.0.1'
 PAGE_PORT = 4200
@@ -35,6 +36,8 @@ OPEN_THIS = f'open any web browser to http://localhost:{PAGE_PORT}'
 CONFIG_FOLDER = 'config'
 LOG_FOLDER = 'logs'
 WEB_FOLDER = 'web'
+# the settings this build was made with, inside the app's own files (package_windows.py)
+DEFAULTS_FOLDER = 'defaults'
 
 # set to anything to start without opening a browser - for the build's own smoke test
 ENV_NO_BROWSER = 'AO3DOWNLOADER_NO_BROWSER'
@@ -57,6 +60,55 @@ def web_folder() -> str:
 
     bundled = getattr(sys, '_MEIPASS', None)
     return os.path.join(bundled or app_folder(), WEB_FOLDER)
+
+
+def defaults_file() -> str:
+    """The settings.ini this build was made with - its deployment's - packed inside it."""
+
+    bundled = getattr(sys, '_MEIPASS', None)
+    return os.path.join(bundled or app_folder(), DEFAULTS_FOLDER, strings.INI_FILE_NAME)
+
+
+def settings_up_to_date(root: str) -> None:
+    """Create config/settings.ini from this build's settings the first time, and bring it up
+    to date every time after: a setting this version added is appended with this build's
+    value, one it dropped is commented out and marked deprecated, and nothing the user set is
+    changed. The zip holds no config/ at all, so an update - from the button or unzipped by
+    hand - can never replace the file itself; this is how it catches up instead.
+
+    Run as plain python there are no packed defaults, and the helper completes the file from
+    the package's own template when it starts, as it always has.
+    """
+
+    defaults = defaults_file()
+    if not os.path.isfile(defaults): return
+    with open(defaults, encoding='utf-8') as f:
+        template = f.read()
+    server.bring_settings_up_to_date(os.path.join(root, CONFIG_FOLDER, strings.INI_FILE_NAME),
+                                     template)
+
+
+def build_info(web: str) -> tuple[str, str]:
+    """This build's version and the repository its releases come from, read from the page's
+    own config - so the helper and the page can never disagree about what this is."""
+
+    try:
+        with open(os.path.join(web, 'app-config.json'), encoding='utf-8') as f:
+            config = json.load(f)
+    except (OSError, ValueError):
+        return '', ''
+    return str(config.get('version') or ''), str(config.get('releasesRepo') or '')
+
+
+def make_updater(root: str, web: str) -> 'updates.Updater | None':
+    """An updater for this app, when it can update itself: the packaged app on Windows (the
+    swap runs in PowerShell, and only a packaged app is a folder to swap), built with a version
+    and a repository to look for a newer one in."""
+
+    if sys.platform != 'win32' or not getattr(sys, 'frozen', False): return None
+    version, repository = build_info(web)
+    if not version or not repository: return None
+    return updates.Updater(root, version, repository)
 
 
 def use_folders(root: str) -> None:
@@ -113,6 +165,7 @@ def stop(message: str) -> int:
 def main() -> int:
     root = app_folder()
     use_folders(root)
+    settings_up_to_date(root)
     web = web_folder()
     port = int(os.environ.get(server.ENV_PORT) or server.DEFAULT_PORT)
 
@@ -130,6 +183,13 @@ def main() -> int:
         print(OPEN_THIS)
         if not os.environ.get(ENV_NO_BROWSER): webbrowser.open(PAGE_URL)
         return stop('if the page does not work, close every ao3downloader window and start it again.')
+
+    server.Handler.updater = make_updater(root, web)
+    if server.Handler.updater and server.Handler.updater.state.get('state') == 'failed':
+        print(f"the last update did not finish: {server.Handler.updater.state.get('error')}")
+        print(f'this is still version {server.Handler.updater.version}. the log is in '
+              f'{os.path.join(root, updates.UPDATE_FOLDER, updates.LOG_NAME)}')
+        print()
 
     try:
         page = page_server(web)

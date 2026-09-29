@@ -38,6 +38,11 @@ ENTRY = Path(PACKAGE_NAME) / 'desktop.py'
 DIST = 'dist'
 STAGING = Path(DIST) / 'staging'
 WORK = Path(DIST) / 'pyinstaller'
+# the settings the app starts from, packed inside it: config/settings.ini is created from
+# them on the first start and completed from them on every start after. never in the zip's
+# config/ - there is no config/ in the zip at all, so unzipping an update can never replace
+# the one the user has edited
+DEFAULTS_FOLDER = 'defaults'
 
 README = """ao3downloader
 =============
@@ -53,16 +58,21 @@ Click "More info", then "Run anyway".
 
 Where things are
 ----------------
-config\\settings.ini   the app's settings - pacing, file names and the rest. Created on the
-                      first start; edit it while the app is closed.
+config\\settings.ini   the app's settings - pacing, file names and the rest. Created the
+                      first time the app starts; edit it while the app is closed.
 logs\\                 the helper's own log.
 
 Your fics are saved in whichever folder you open in the app, on this computer or in Dropbox.
 
 Updating
 --------
-Download the new zip and unzip it over this folder, or into a new one and copy your config
-folder across. Your settings are only ever added to, never replaced.
+When a newer version is out, the app says so at the top of the page. Click "Update now": it
+downloads the new version, closes, swaps itself for it and starts again - a few seconds.
+
+Or download the new zip yourself and unzip it over this folder. Nothing in the zip is in the
+config folder, so your settings.ini is never replaced either way. Each time the app starts it
+adds any setting a new version introduced, and comments out - marked DEPRECATED - any setting
+it no longer uses. Nothing you set is ever changed or deleted.
 
 If it will not start
 --------------------
@@ -97,7 +107,7 @@ def stage_web(root: Path, staging: Path, skip_web: bool, settings: Path | None =
     return web
 
 
-def pyinstaller_arguments(root: Path, web: Path) -> list[str]:
+def pyinstaller_arguments(root: Path, web: Path, defaults: Path) -> list[str]:
     python_home = root / PYTHON_HOME
     settings = python_home / PACKAGE_NAME / 'settings'
     return [
@@ -118,17 +128,15 @@ def pyinstaller_arguments(root: Path, web: Path) -> list[str]:
         # build_artifacts.HELPER_DATA names it
         '--add-data', f'{settings}:{PACKAGE_NAME}/settings',
         '--add-data', f'{web}:{build_artifacts.WEB_FOLDER}',
+        '--add-data', f'{defaults}:{DEFAULTS_FOLDER}',
     ]
 
 
-def assemble(root: Path, staging: Path) -> Path:
-    """Put the settings and a README beside the exe, and return the app's folder."""
+def assemble(root: Path) -> Path:
+    """Put a README beside the exe, and return the app's folder. No settings: see
+    `DEFAULTS_FOLDER`."""
 
     app = root / DIST / APP_NAME
-    config = app / build_artifacts.CONFIG_FOLDER
-    config.mkdir(exist_ok=True)
-    # shipped so it can be edited before the first start; the app adds to it, never replaces it
-    shutil.copyfile(staging / build_artifacts.CONFIG_FOLDER / 'settings.ini', config / 'settings.ini')
     (app / 'README.txt').write_text(README, encoding='utf-8', newline='\r\n')
     return app
 
@@ -175,9 +183,9 @@ def main() -> int:
 
     # imported here, so the rest of this module - and its tests - need no PyInstaller
     import PyInstaller.__main__
-    PyInstaller.__main__.run(pyinstaller_arguments(root, web))
+    PyInstaller.__main__.run(pyinstaller_arguments(root, web, staging / build_artifacts.CONFIG_FOLDER))
 
-    app = assemble(root, staging)
+    app = assemble(root)
     archive = make_zip(app, root / DIST / zip_name())
     print(f'\napp written to {app}')
     print(f'zip written to {archive}')

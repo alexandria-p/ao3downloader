@@ -174,5 +174,41 @@ Each deployment tags the commit with its version, and publishes the Windows app
 as that version's GitHub release, marked latest. Every copy of the page checks
 for a newer release each time it opens and says so at the top, with a link to
 download it and a "Dismiss and do not ask me again" button that the browser
-remembers. A bundle built with generate_build_artifacts.ps1 has no version, and
-never checks.
+remembers. Dismissing hides that banner only: the footer on every tab always
+says "up to date with latest" or "update to latest", as underlined text, so a
+newer version is never hidden for good. A bundle built with
+generate_build_artifacts.ps1 has no version, and never checks.
+
+
+================================================================================
+ UPDATING THE WINDOWS APP, AND WHAT HAPPENS TO SETTINGS.INI
+================================================================================
+
+In the Windows app the banner also has an "Update now" button. Clicking it:
+
+  1. downloads ao3downloader-windows.zip from the latest GitHub release, and
+     checks it against the SHA-256 GitHub publishes for it
+  2. unpacks it into update\new\ beside the exe
+  3. closes the app, and a small PowerShell script (update\apply-update.ps1)
+     swaps the old files for the new ones and starts the app again
+  4. the page reloads itself once the app is back
+
+It is refused while a run is going - restarting would end it - and no run can
+start while it updates. If a file will not move, the script puts every old file
+back and starts the old version again; update\update.log says what happened,
+and the page says the update did not go through.
+
+settings.ini is never replaced, by the button or by unzipping a new version by
+hand: the zip has no config\ folder at all. The app keeps the settings it was
+deployed with inside its own files, and every time it starts it compares
+config\settings.ini with them:
+
+  - a setting the new version ADDED is appended, with its explanation and the
+    value this build was deployed with
+  - a setting the new version NO LONGER USES is commented out where it stands,
+    with a "# DEPRECATED:" line above it - the old value is still there to read,
+    it just does nothing
+  - everything the user set is left exactly as it was, comments and all
+
+The same happens to build\config\settings.ini when the bundle is rebuilt, and
+to the settings.ini of a helper started any other way, each time it starts.

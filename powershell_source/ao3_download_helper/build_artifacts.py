@@ -274,7 +274,11 @@ def write_config(config_dir: Path, python_home: Path) -> tuple[list[str], list[s
     # added since it was written appended, explanation and default included - the helper
     # does the same each time it starts, so this only makes the build say so up front.
     # the web ui never stores a password, so that setting is left out either way
-    was_new, added = ensure_settings_file(str(settings), template)
+    was_new, added, deprecated = ensure_settings_file(str(settings), template)
+    if deprecated:
+        # said at build time, as the helper says it when it starts
+        print(f'settings.ini: {", ".join(deprecated)} no longer used - commented out and '
+              'marked deprecated')
     if was_new: created.append(settings.name)
 
     # an earlier build seeded this; it is the application's to create, not the build's
@@ -378,7 +382,7 @@ overwrites the rest.
 | `Start-Application.ps1` | Starts the helper and serves the site. Self-contained. |
 | `web/` | The compiled web app - plain static files. |
 | `ao3_download_helper/` | The python behind the download buttons. |
-| `config/settings.ini` | Your settings. Kept across rebuilds; a setting added in a newer version is appended to it, with its explanation and default. |
+| `config/settings.ini` | Your settings. Kept across rebuilds; a setting added in a newer version is appended to it, with its explanation and default, and one a newer version no longer uses is commented out and marked `# DEPRECATED:` - your values are never changed. |
 
 `ao3_download_helper/` holds **only what the web ui can actually invoke**. The console
 menu, its actions, and the ebook parsing that only those use are left out of the bundle:

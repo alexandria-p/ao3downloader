@@ -310,6 +310,18 @@
   font-size: 0.9rem;
 }
 
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* the one thing an update banner says that is a problem - amber, as a copy to check is */
+.update-available.update-failed {
+  border-color: #9a7a3d;
+  background: #3a3222;
+}
+
 /* what this page is and where it comes from - on every tab, and kept in view at the bottom
    of the window, because nobody should have to scroll to the end of a library to find it */
 .app-footer {
@@ -330,4 +342,29 @@
 
 .app-footer a {
   color: var(--text-dim);
+}
+
+/* whether this is the latest version: underlined text, never a button - the banner is the
+   loud way to say it, this is the one that is always there */
+.footer-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.footer-link:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.footer-link:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.footer-note {
+  font-style: italic;
 }

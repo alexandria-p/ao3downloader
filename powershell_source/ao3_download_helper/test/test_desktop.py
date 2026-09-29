@@ -160,3 +160,58 @@ def test_the_browser_is_opened_there_too(monkeypatch):
     opened.assert_called_once_with('http://localhost:4200/')
 
 # endregion
+
+
+# region settings.ini, kept and brought up to date
+
+DEFAULTS = """[settings]
+
+# seconds to wait after every request
+ExtraWaitTime=15
+
+# a setting a new version added
+NewSetting=7
+"""
+
+
+def packed(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(sys, '_MEIPASS', str(tmp_path / '_internal'), raising=False)
+    (tmp_path / '_internal' / 'defaults').mkdir(parents=True)
+    (tmp_path / '_internal' / 'defaults' / 'settings.ini').write_text(DEFAULTS, encoding='utf-8')
+
+
+def test_the_first_start_writes_settings_from_the_builds_own(tmp_path, monkeypatch):
+    packed(tmp_path, monkeypatch)
+
+    desktop.settings_up_to_date(str(tmp_path))
+
+    written = (tmp_path / 'config' / 'settings.ini').read_text(encoding='utf-8')
+    assert 'ExtraWaitTime=15' in written and 'NewSetting=7' in written
+
+
+def test_after_an_update_the_users_settings_stay_and_new_ones_arrive_with_the_builds_value(tmp_path, monkeypatch):
+    packed(tmp_path, monkeypatch)
+    (tmp_path / 'config').mkdir()
+    (tmp_path / 'config' / 'settings.ini').write_text(
+        '[settings]\n# my own note\nExtraWaitTime=60\nRetiredSetting=3\n', encoding='utf-8')
+
+    desktop.settings_up_to_date(str(tmp_path))
+
+    written = (tmp_path / 'config' / 'settings.ini').read_text(encoding='utf-8')
+    # theirs, exactly as they left it
+    assert '# my own note\nExtraWaitTime=60\n' in written
+    # the new one, with this build's value and its explanation
+    assert '# a setting a new version added\nNewSetting=7' in written
+    # the one this version dropped, commented out and said to be
+    assert '# DEPRECATED: RetiredSetting' in written
+    assert '# RetiredSetting=3' in written
+
+
+def test_run_as_plain_python_it_leaves_settings_to_the_helper(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, '_MEIPASS', str(tmp_path / 'nothing-packed'), raising=False)
+
+    desktop.settings_up_to_date(str(tmp_path))
+
+    assert not (tmp_path / 'config' / 'settings.ini').exists()
+
+# endregion
