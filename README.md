@@ -120,6 +120,26 @@ the helper can only reach that folder through the open page.
   offered. Nothing is marked interrupted while the helper cannot be asked, since a hosted
   one may just be waking up with the run still going.
 
+## What the History tab says about a run
+
+Every run is written down in History the moment it starts and kept up to date as it goes.
+Whatever it says, what the run saved stays saved, and its entry offers **Download log** and,
+when it reported anything, **Download issues**.
+
+| Status | What it means |
+| --- | --- |
+| **In progress - running** | The helper is working on it now. Pinned at the top of History; nothing else can start until it ends. Its own entry says **Running**, or **Running - not confirmed by the helper** while the helper has not answered (a hosted one may be waking up), or **Running on another helper** when another copy of the app started it on the same library. |
+| **In progress - paused** | You pressed Pause. It waits before its next request - never halfway through saving a file - and carries on when you press Resume. A background run left paused for 10 minutes is abandoned; any other run stays paused until you resume or stop it. |
+| **Finished** | It reached its end. Individual works can still have failed; they are in **Download issues**, and a later run tries them again. |
+| **Stopped** | You pressed Stop. It ended at the next safe point, keeping everything it saved. |
+| **Abandoned** | A background run left paused too long, which the helper ended rather than keep waiting. It ends just as a stopped run does. |
+| **Failed** | Something ended it early - AO3 refused the login, the login lapsed partway, or the library could not be reached. The reason is on its entry. |
+| **Interrupted** | It never got to say how it ended: the helper stopped, crashed or restarted (a deploy does this) while it was going. Marked once the helper answers without it. Its log and issues go up to its last save - at most about two minutes before it was cut off. |
+
+Anything that did not finish can be carried on: a full scan, quick scan or custom run offers
+**Resume**, a collection run offers **Run again**, and anything else you start again. Every
+run skips what is already downloaded and current, so going again only costs what is missing.
+
 # Original Readme
 
 > **Out of date for this fork.** The console program described below has been removed - the

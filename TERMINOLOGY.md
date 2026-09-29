@@ -31,7 +31,15 @@ the same thing in conversation.
 - **Scan** - can be used either to describe a scan workflow (full or quick), or to describe reading the library's existing files (the check step).
 - **Cleanup** - the step that removes older copies you chose to remove.
 - **Report** - the end-of-run lists of what failed, was skipped, or needs checking.
-- **Interrupted** - a run that never wrote its ending (the page closed, the helper stopped). The page marks its history file `interrupted` once the helper confirms it is not working on it.
+- **Run status** [outcome] - what a run's History entry says about how it went. Every status keeps what the run saved, and offers **Download log** and (when there are any) **Download issues**:
+  - **In progress - running** - the helper is working on it now; pinned at the top of History. Its own entry says *Running*, or *Running - not confirmed by the helper* (the helper has not answered yet), or *Running on another helper* (started from another copy of the app on the same library). Record status `running`.
+  - **In progress - paused** - the user pressed Pause; it waits before its next request, never mid-save. Not a record status: the record still says `running`. A background run left paused becomes *Abandoned*; any other stays paused until resumed or stopped.
+  - **Finished** [successful] - reached its end. Individual works may still have failed; they are in its issues. Record status `success`.
+  - **Stopped** - the user pressed Stop; it ended at the next safe point. Record status `stopped`.
+  - **Abandoned** - see below. Record status `abandoned`.
+  - **Failed** - an error ended it early (login refused, login lapsed, library unreachable); the reason is on the entry. Record status `failed`.
+  - **Interrupted** - see below. Record status `interrupted`.
+- **Interrupted** - a run that never wrote its ending (the page closed, the helper stopped, crashed or restarted - a deploy included). The page marks its history file `interrupted` once the helper confirms it is not working on it. Its log and issues go up to its last save, at most about two minutes behind.
 - **Resume** [pick up where it left off, re-attempt] - carry on a stopped, failed or interrupted scan as that same workflow, with its settings. See `RESUMING.md`. [EXPERIMENTAL]
 - **Baseline** - the moment a run's AO3 login succeeded; a resumed run keeps its first attempt's. What a quick scan measures back to.
 - **Progress** [checkpoint] - what a run saves in its history file as it goes, so it can be resumed: its step, each walk's page and last bookmark, series walked, and its scope.

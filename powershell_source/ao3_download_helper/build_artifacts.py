@@ -897,6 +897,33 @@ of what failed, what to check by hand, and the bookmarks that are not works. **D
 saves the whole account the run gave in its window. Both are saved as the run goes - at every
 checkpoint, and when it prints a line at least two minutes after the last save - so a run cut off by a crash keeps everything up to about its last two minutes.
 
+## What the History tab says about a run
+
+Whatever a run's entry says, what it saved stays saved, and it offers **Download log** and,
+when it reported anything, **Download issues**.
+
+- **In progress - running** - the helper is working on it now; pinned at the top, and nothing
+  else can start until it ends. Its own entry says **Running**, or **Running - not confirmed
+  by the helper** while the helper has not answered, or **Running on another helper** when
+  another copy of the app started it on the same library.
+- **In progress - paused** - you pressed Pause. It waits before its next request, never
+  halfway through saving a file, and carries on when you press Resume. A background run left
+  paused for 10 minutes is abandoned; any other run stays paused until resumed or stopped.
+- **Finished** - it reached its end. Individual works can still have failed; they are in
+  **Download issues**, and a later run tries them again.
+- **Stopped** - you pressed Stop. It ended at the next safe point, keeping what it saved.
+- **Abandoned** - a background run left paused too long, which the helper ended rather than
+  keep waiting. It ends just as a stopped run does.
+- **Failed** - something ended it early: AO3 refused the login, the login lapsed partway, or
+  the library could not be reached. The reason is on its entry.
+- **Interrupted** - it never got to say how it ended: the helper stopped, crashed or
+  restarted while it was going. Its log and issues go up to its last save, at most about two
+  minutes before it was cut off.
+
+Anything unfinished can be carried on: a full scan, quick scan or custom run offers
+**Resume**, a collection run offers **Run again**, and anything else you start again - it
+skips what is already downloaded and current.
+
 ## A caveat about deploying this to a server
 
 The web app is static and will serve from anywhere. The download buttons will not, as built
