@@ -1,0 +1,128 @@
+name: build windows app
+
+# The Windows app: a zip holding ao3downloader.exe, which starts the helper, serves the page
+# and opens the browser - in place of Start-Application.ps1, with nothing to install first.
+# package_windows.py builds it; this runs it on Windows, because PyInstaller builds for the
+# system it runs on.
+#
+# Run it by hand from the Actions tab, or as part of `deploy hosted app`, which calls it.
+# The zip is always kept as a download on the run; with a release tag it is also published
+# on that release, which gives it a link that does not expire:
+#   https://github.com/<owner>/<repo>/releases/download/<tag>/ao3downloader-windows.zip
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release to publish the zip on, replacing what is there. Empty for none.'
+        required: false
+        default: 'windows-app'
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: false
+        default: 'windows-app'
+  # built and tried - never published - on a pull request that changes how it is built
+  pull_request:
+    paths:
+      - '.github/workflows/build-windows.yml'
+      - 'powershell_source/ao3_download_helper/package_windows.py'
+      - 'powershell_source/ao3_download_helper/source_code/desktop.py'
+      - 'powershell_source/ao3_download_helper/build_artifacts.py'
+      - 'powershell_source/ao3_download_helper/pyproject.toml'
+      - 'powershell_source/ao3_download_helper/uv.lock'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and try the windows app
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      # only to publish the release
+      contents: write
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          # the angular cli needs 22.22.3+ or 24.15+
+          node-version: 24
+          cache: npm
+          cache-dependency-path: gui_source/package-lock.json
+
+      - name: setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: install the page's dependencies
+        working-directory: gui_source
+        run: npm ci
+
+      - name: install the helper's dependencies and pyinstaller
+        working-directory: powershell_source/ao3_download_helper
+        run: uv sync --frozen --group package
+
+      - name: build the app
+        working-directory: powershell_source/ao3_download_helper
+        run: uv run --no-sync python package_windows.py
+
+      - name: start the app from the zip, and check the page and the helper answer
+        # what someone downloading it does: unzip, start the exe. no browser on a runner
+        shell: pwsh
+        env:
+          AO3DOWNLOADER_NO_BROWSER: '1'
+        run: |
+          $place = Join-Path $env:RUNNER_TEMP 'unzipped'
+          Expand-Archive -Path dist/ao3downloader-windows.zip -DestinationPath $place -Force
+          $exe = Join-Path $place 'ao3downloader\ao3downloader.exe'
+          $app = Start-Process -FilePath $exe -PassThru -WindowStyle Hidden
+          try {
+            $page = $null; $helper = $null
+            foreach ($try in 1..60) {
+              Start-Sleep -Seconds 1
+              if ($app.HasExited) { throw "the app stopped by itself (exit code $($app.ExitCode))" }
+              try {
+                $page = Invoke-WebRequest -UseBasicParsing 'http://localhost:4200/'
+                $helper = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:4400/api/config' `
+                  -Headers @{ Origin = 'http://localhost:4200' }
+                break
+              } catch { }
+            }
+            if (-not $page -or $page.StatusCode -ne 200) { throw 'the page never answered on localhost:4200' }
+            if (-not $helper -or $helper.StatusCode -ne 200) { throw 'the helper never answered on 127.0.0.1:4400' }
+            $settings = Join-Path $place 'ao3downloader\config\settings.ini'
+            if (-not (Test-Path $settings)) { throw "no settings.ini beside the exe at $settings" }
+            Write-Host 'the page and the helper both answered, and settings.ini is beside the exe'
+          }
+          finally {
+            if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+          }
+
+      - name: keep the zip on this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: ao3downloader-windows
+          path: dist/ao3downloader-windows.zip
+          retention-days: 30
+
+      - name: publish it on the release
+        # never from a pull request, which has no release tag
+        if: github.event_name != 'pull_request' && inputs.release_tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          # replaced whole, so the tag moves to the commit the zip was built from
+          gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$TAG" dist/ao3downloader-windows.zip \
+            --target "$GITHUB_SHA" \
+            --title 'ao3downloader for Windows' \
+            --notes "Built from ${GITHUB_SHA::7}. Download ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe - the README inside says the rest. Windows may warn that the app is not signed: choose More info, then Run anyway."
+          echo "published: https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/ao3downloader-windows.zip"

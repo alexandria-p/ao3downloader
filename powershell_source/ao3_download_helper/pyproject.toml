@@ -45,6 +45,9 @@ dev = [
     "pytest-cov>=6.2.1",
     "syrupy>=4.9.1",
 ]
+package = [
+    "pyinstaller>=6.10",
+]
 
 [options.package-data]
 source_code.html = ["*.html"]

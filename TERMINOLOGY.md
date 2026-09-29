@@ -85,6 +85,8 @@ the same thing in conversation.
 
 - **The page** [web app, site, Angular app] - the Angular app you use in the browser; it owns the library.
 - **Helper** [local helper, server, python] - the program that talks to AO3: on `127.0.0.1:4400` normally, or on Render for a hosted copy.
+- **Bundle** [build, build folder, Start-Application] - the page and the helper gathered into `build/` by `generate_build_artifacts.ps1`, started with `Start-Application.ps1`. Needs uv.
+- **Windows app** [the exe, ao3downloader.exe, the zip, desktop app] - the bundle with Python packed in: `ao3downloader-windows.zip`, unzipped and started by double-clicking `ao3downloader.exe`. Starts the helper, serves the page on `localhost:4200` and opens the browser; settings and logs beside the exe. Built by `package_windows.py`, published on the `windows-app` release by the `build windows app` workflow (which `deploy hosted app` also runs).
 - **Hosted copy** [hosted helper, GitHub Pages copy, Render] - one person's copy on the web: the page on GitHub Pages under `/app/`, the helper on Render. Set up by `HOSTING.md`, deployed by the `deploy hosted app` workflow.
 - **Passcode** - what a hosted copy asks for before anything works. Checked by the helper, remembered by the browser once accepted. Its value is a secret (`AO3DOWNLOADER_PASSCODE`); `RequirePasscode` in settings.ini only turns it on.
 - **Passcode window** [passcode gate, passcode popup] - the window a passcode-protected page opens with, and comes back to if the helper refuses the saved passcode.

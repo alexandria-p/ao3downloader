@@ -41,6 +41,10 @@ PACKAGE_NAME = 'source_code'
 # they used have been deleted, so the package is exactly what the helper reaches. A name in
 # `left_behind` now means dead code, or a module that lost its last import by accident.
 HELPER_ENTRY = 'server'
+# the Windows app's own entry point (package_windows.py), which starts the helper. Followed
+# too when it is there, so it ships and is never reported as left behind - with it, the
+# bundle can be started by `python -m source_code.desktop` as well as by the launcher
+APP_ENTRY = 'desktop'
 # the page's own config, written into web/ from the bundle's settings.ini
 PAGE_CONFIG_FILE = 'app-config.json'
 
@@ -169,6 +173,8 @@ def helper_modules(package: Path) -> set[str]:
 
     seen: set[str] = set()
     pending = [entry]
+    app = f'{PACKAGE_NAME}.{APP_ENTRY}'
+    if module_file(package, app): pending.append(app)
     while pending:
         name = pending.pop()
         if name in seen: continue
@@ -385,6 +391,10 @@ downloads folder. Those are working files rather than part of the bundle - if yo
 folder somewhere else, leave `.venv/` behind and let the first run rebuild it.
 
 ## Running it
+
+On Windows, the **Windows app** does all of this without PowerShell or uv: a zip holding
+`ao3downloader.exe`, built by `package_windows.py` and published by the **build windows app**
+workflow. Unzip it and double-click the exe. The rest of this section is for this folder.
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/). Node is *not*
 needed - the web app is already compiled.
