@@ -158,12 +158,17 @@ Redirect URIs**, e.g. `https://alexandria-p.github.io/ao3downloader/app/`.
 Run **deploy hosted app** again. The helper is always deployed before the page, so a new page
 never goes out ahead of the helper it expects.
 
+Each run is a new **version**: the last number goes up by one (`1.8.2` -> `1.8.3`), or give
+**Version** (e.g. `2.0.0`) in **Run workflow** for a bigger step - it has to be higher than
+every version already released. The commit is tagged with it, and the page on GitHub Pages
+and the Windows app both carry it. README's **Versions** has the rest.
+
 To **change the passcode or the key**, update the secret and run the workflow. Each browser
 that saved the old passcode is asked for the new one the next time it talks to the helper.
 A new key needs the page rebuilt too, which the same run does.
 
-The same run also builds the **Windows app** and publishes it on the `windows-app` release
-(the `windows` job, which calls **build windows app**). It runs alongside the hosted deploy
+The same run also builds the **Windows app** and publishes it as that version's release,
+marked latest (the `windows` job, which calls **build windows app**). It runs alongside the hosted deploy
 and has nothing to do with it - the app runs its own helper on the computer it is started on.
 Its settings.ini is written from the same variables, except `HELPER_URL`, `REQUIRE_PASSCODE`,
 `PAGE_ORIGIN` and `ENABLE_CONSOLE_LOGGING` (always on in the app's window), which it ignores: it always points at its own helper, and the build fails

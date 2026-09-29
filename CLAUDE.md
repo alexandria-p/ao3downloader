@@ -80,7 +80,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1525 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1541 python passed; 598 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -270,11 +270,45 @@ What not to break:
   --settings` ships that file, and the page's `app-config.json` is read from it, so the two
   agree; the workflow's smoke test checks the page points at `127.0.0.1:4400`. The template's
   own example comment (`https://my-helper.onrender.com`) is generic and stays.
-- **`deploy-hosted.yml` calls it as a job of its own** (`workflow_call`), with no `needs`, so a
-  Windows build that fails never holds up the helper or the page. It replaces the
-  `windows-app` release each time, so the tag moves to the commit the zip was built from.
-  The app is not signed; Windows warns on first start, and the README in the zip says what to
-  click.
+- **`deploy-hosted.yml` calls it as a job of its own** (`workflow_call`), needing only the
+  `version` job, so a Windows build that fails never holds up the helper or the page. It
+  publishes the zip as that version's release (`vX.Y.Z`, marked latest); a re-run replaces the
+  zip on the same release. The app is not signed; Windows warns on first start, and the README
+  in the zip says what to click.
+
+### Every deployment is one version, and every copy of the page checks for a newer one
+
+**The version comes from the tags.** `deploy-hosted.yml`'s first job, `version`, runs
+`deploy_config.py next-version` over the repository's `v*` tags: the highest `vX.Y.Z` with its
+last number raised, `1.0.0` when there is none, or the workflow's `version` input for a bigger
+step - which must be **higher** than every version released (`next_version` refuses a repeat,
+because two builds under one version would tell people with the first that they are up to
+date). Tags that are not `v` and three numbers are passed over. It **tags the commit before
+anything is built**, so two deployments can never build one version; a deployment that fails
+later has used its number, and the next takes the one after - a gap, never a repeat.
+
+**Every build in the run gets that one version**: the hosted page's `app-config.json`
+(`page-config --version --repo`), and the Windows app's page (`package_windows.py --version
+--repo`, through `write_page_config`). The zip becomes that version's GitHub release.
+
+**It is in `app-config.json`, not settings.ini** - on purpose. settings.ini is only ever added to,
+never rewritten, so a version kept there would still say the old one after an upgrade and the
+page would offer the update for ever. The build is what has a version; the settings are the
+user's.
+
+**The page checks** (`updates.ts`, `UpdateCheck`): once per opening, `App` asks GitHub's api for
+`/repos/<releasesRepo>/releases/latest` and compares its `tag_name` with the page's own version
+**number by number** (`isNewer` - 1.10.0 is later than 1.9.0, which comparing text gets wrong).
+Newer means the `.update-available` banner, linking the release; **Dismiss and do not ask me
+again** writes `ao3.updateCheckDismissed` to localStorage and it never asks in that browser
+again. It never asks for a page with no version (a bundle built on this computer - `build()`
+writes `version: ''`), and anything failing - offline, rate-limited (60 an hour per address,
+unauthenticated), no release yet - is treated as nothing newer. GitHub's api sends CORS
+headers, which is what lets a page on `localhost` ask at all.
+
+**The FAQ pins a download panel first** (`.download-app`): the latest release's page
+(`releases/latest`, from `releasesRepo`, which defaults to this repository for a page with no
+config), what to do with the zip, and this page's version when it has one.
 
 ### A run can carry on in the background
 

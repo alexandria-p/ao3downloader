@@ -3,6 +3,7 @@
     python deploy_config.py settings --out hosted-settings.ini
     python deploy_config.py page-config --settings hosted-settings.ini --out app-config.json
     python deploy_config.py local-settings --out windows-settings.ini
+    python deploy_config.py next-version --tags "$(git tag -l 'v*')" [--override 2.0.0]
 
 `settings` starts from the settings.ini template and sets **every key in it** from a GitHub
 variable of the same name in upper snake case - `ExtraWaitTime` from `EXTRA_WAIT_TIME`,
@@ -35,6 +36,13 @@ address or the page's origin: the file is checked for both before it is written
 `page-config` writes the page's `app-config.json`: the helper url, the passcode flag, and the
 public key, which it derives from `AO3DOWNLOADER_PRIVATE_KEY` rather than taking as a second
 setting - a public key typed in separately is one that can stop matching.
+
+`next-version` is the version a deployment builds everything as: the highest `vX.Y.Z` tag
+already on the repository with its last number raised (`1.8.2` -> `1.8.3`), or `1.0.0` when
+there is none - or an override, for a major or minor step (`2.0.0`), which has to be higher
+than every version already released so no two builds ever share one. The workflow tags the
+commit with it, and the same version goes into the page's `app-config.json`
+(`page-config --version`) and the Windows app.
 
 **Neither file ever holds a secret.** The passcode and the private key stay GitHub secrets,
 handed to the host as environment variables. settings.ini goes into a public image and
@@ -86,6 +94,13 @@ CONSOLE_LOGGING = 'EnableConsoleLogging'
 # only place anyone sees what it is doing, so every request and run line is always shown there
 LOCAL_APP = {HELPER_URL: 'http://127.0.0.1:4400', REQUIRE_PASSCODE: 'false', PAGE_ORIGIN: '',
              CONSOLE_LOGGING: 'true'}
+
+# a release, as the workflow tags it and the page compares it: three whole numbers
+VERSION = re.compile(r'^(\d+)\.(\d+)\.(\d+)$')
+TAG_PREFIX = 'v'
+FIRST_VERSION = '1.0.0'
+# owner/name, as GitHub writes GITHUB_REPOSITORY - where the page looks for a newer release
+REPOSITORY = re.compile(r'^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$')
 
 KEY_LINE = re.compile(r'^([A-Za-z][A-Za-z0-9]*)\s*=(.*)$', re.MULTILINE)
 
@@ -267,6 +282,42 @@ def write_local_settings(variables: dict, template: str, default_page_origin: st
     return text
 
 
+def version_parts(version: str) -> tuple[int, int, int] | None:
+    match = VERSION.match(str(version or '').strip())
+    return tuple(int(x) for x in match.groups()) if match else None
+
+
+def released(tags: list[str]) -> list[tuple[int, int, int]]:
+    """Every version the tags name. Anything that is not `v` and three numbers is not a
+    release of this app, and is passed over rather than guessed at."""
+
+    found = []
+    for tag in tags:
+        tag = str(tag).strip()
+        if not tag.startswith(TAG_PREFIX): continue
+        parts = version_parts(tag[len(TAG_PREFIX):])
+        if parts: found.append(parts)
+    return found
+
+
+def next_version(tags: list[str], override: str = '') -> str:
+    """The version this deployment builds everything as."""
+
+    latest = max(released(tags), default=None)
+    if override.strip():
+        wanted = version_parts(override.strip().removeprefix(TAG_PREFIX))
+        if not wanted:
+            raise DeployError(f"'{override}' is not a version - three numbers, like 2.0.0")
+        if latest and wanted <= latest:
+            # a version is released once: a second build under it would have the page tell
+            # people who have the first that they are up to date when they are not
+            raise DeployError(f"{override.strip()} is not higher than {'.'.join(map(str, latest))}, "
+                              'the latest version already released')
+        return '.'.join(map(str, wanted))
+    if not latest: return FIRST_VERSION
+    return f'{latest[0]}.{latest[1]}.{latest[2] + 1}'
+
+
 def deploy_variables(environ: dict) -> dict:
     """The GitHub variables, from `DEPLOY_VARIABLES`, over any set directly in the environment.
 
@@ -302,7 +353,11 @@ def public_key_from(private_pem: str) -> str:
         serialization.PublicFormat.SubjectPublicKeyInfo).decode('ascii')
 
 
-def page_config(settings_text: str, environ: dict) -> dict:
+def page_config(settings_text: str, environ: dict, version: str = '', repository: str = '') -> dict:
+    if version and not version_parts(version):
+        raise DeployError(f"'{version}' is not a version - three numbers, like 2.0.0")
+    if repository and not REPOSITORY.match(repository):
+        raise DeployError(f"'{repository}' is not a repository - owner/name")
     config = read_settings(settings_text)
     check(config[HELPER_URL], config[REQUIRE_PASSCODE], config[PAGE_ORIGIN])
     private = environ.get(ENV_PRIVATE_KEY, '')
@@ -314,6 +369,9 @@ def page_config(settings_text: str, environ: dict) -> dict:
         'helperUrl': config[HELPER_URL],
         'requirePasscode': config[REQUIRE_PASSCODE],
         'publicKey': public_key_from(private) if private.strip() else '',
+        # what this page is, and where to look for a newer one
+        'version': version,
+        'releasesRepo': repository,
     }
 
 
@@ -325,6 +383,11 @@ def main(argv: list[str] | None = None) -> int:
     page = commands.add_parser('page-config', help="write the page's app-config.json")
     page.add_argument('--settings', required=True)
     page.add_argument('--out', required=True)
+    page.add_argument('--version', default='', help='the version this deployment builds')
+    page.add_argument('--repo', default='', help='owner/name, where releases are published')
+    bump = commands.add_parser('next-version', help='print the version this deployment builds')
+    bump.add_argument('--tags', default='', help="the repository's tags, one per line")
+    bump.add_argument('--override', default='', help='a version to use instead, e.g. 2.0.0')
     local = commands.add_parser('local-settings', help="write the Windows app's settings.ini")
     local.add_argument('--out', required=True)
     args = parser.parse_args(argv)
@@ -349,12 +412,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f'wrote {args.out}:')
             for key, (value, source) in resolve_local(variables, template).items():
                 print(f'  {key}={value}  ({source})')
+        elif args.command == 'next-version':
+            print(next_version(args.tags.split(), args.override))
         else:
-            config = page_config(Path(args.settings).read_text(encoding='utf-8'), dict(os.environ))
+            config = page_config(Path(args.settings).read_text(encoding='utf-8'), dict(os.environ),
+                                 args.version, args.repo)
             Path(args.out).write_text(json.dumps(config, indent=2) + '\n', encoding='utf-8')
             print(f"wrote {args.out}: helperUrl={config['helperUrl']}, "
                   f"requirePasscode={config['requirePasscode']}, "
-                  f"publicKey={'set' if config['publicKey'] else 'none'}")
+                  f"publicKey={'set' if config['publicKey'] else 'none'}, "
+                  f"version={config['version'] or 'none'}")
     except DeployError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1

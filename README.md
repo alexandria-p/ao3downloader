@@ -40,7 +40,7 @@ Leave the window open and go to http://localhost:4200.
 
 `ao3downloader-windows.zip` holds `ao3downloader.exe` with Python and every dependency packed beside it. Unzip it anywhere, double-click `ao3downloader.exe`, and it does what `Start-Application.ps1` does: starts the helper on port 4400, serves the web UI on http://localhost:4200, and opens your browser there. The window also says `open any web browser to http://localhost:4200`, for when the browser does not open by itself. Leave the window open while you use the app; close it to stop.
 
-- **Where to get it:** the **build windows app** workflow builds it on a Windows runner and publishes it on the `windows-app` release - `https://github.com/<owner>/<repo>/releases/download/windows-app/ao3downloader-windows.zip`. **deploy hosted app** runs that workflow too, alongside the hosted deploy. You can run **build windows app** on its own from the Actions tab; every run also keeps the zip on the run for 30 days.
+- **Where to get it:** every deployment publishes it as that version's release, marked latest, so the newest is always at `https://github.com/<owner>/<repo>/releases/latest` (the zip itself: `.../releases/latest/download/ao3downloader-windows.zip`). The FAQ in the app links there, pinned at the top. The **build windows app** workflow does the building on a Windows runner; **deploy hosted app** runs it alongside the hosted deploy. Run on its own from the Actions tab, it builds and tries the app, and publishes it only if given a version; every run keeps the zip on the run for 30 days.
 - **Its `settings.ini` is written from the same GitHub deployment variables as the hosted copy** (`EXTRA_WAIT_TIME`, `FILE_NAME_LENGTH` and the rest), except that it always points at the helper the exe starts on your own computer (`HelperUrl=http://127.0.0.1:4400`, no passcode, no `PageOrigin`), and always has `EnableConsoleLogging=true`, so every request and every line a run says appears in the app's window. It never names your hosted helper or its page - the build fails if it would.
 - **Settings and logs** go beside the exe, in `config\settings.ini` and `logs\`. Your fics go wherever you open a library in the app, as always.
 - **Windows will warn that the app is not signed** the first time: choose **More info**, then **Run anyway**.
@@ -65,7 +65,17 @@ Actions -> deploy hosted app (under All workflows) -> click Run Workflow event t
 
 It writes settings.ini and page config, build the helper as a dockerfile and pushes it to github container registry (Github Profile -> Packages). Then deploys to 'render' as a web service.
 
-Alongside that it builds the Windows app and publishes it on the `windows-app` release (see **The Windows app** above). That job does not hold up the hosted deploy, and a Windows build that fails does not stop it.
+Alongside that it builds the Windows app and publishes it as a release (see **The Windows app** above). That job does not hold up the hosted deploy, and a Windows build that fails does not stop it.
+
+### Versions
+
+Every deployment is one version, and everything it builds - the page on GitHub Pages and the Windows app - carries it.
+
+- **It goes up by one on its own:** the latest `vX.Y.Z` tag with its last number raised, so `1.8.2` becomes `1.8.3`. The first deployment is `1.0.0`.
+- **For a bigger step, give it one:** in **Run workflow**, fill in **Version** (e.g. `2.0.0`). It has to be higher than every version already released, or the deployment stops - two builds with one version would tell people with the first that they are up to date.
+- The commit is tagged `vX.Y.Z` as the deployment starts, and the Windows zip is published as that version's release, marked latest.
+- **Every copy of the page checks for a newer release** each time it opens, and says so at the top with a link to download it - with **Dismiss and do not ask me again**, which that browser remembers. A page built on your own computer with `generate_build_artifacts.ps1` has no version, and never checks.
+- The version lives in the build (the page's `app-config.json`), not in `settings.ini`: settings.ini is only ever added to, so a version kept there would still say the old one after an upgrade.
 
 
 ## Run development files:

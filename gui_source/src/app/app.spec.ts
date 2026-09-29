@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
 import { Jobs } from './jobs';
 import { Library } from './library';
+import { UpdateCheck } from './updates';
 import { Bookmark, BookmarksExport } from './bookmarks';
 import { Collection } from './collections';
 import { DropboxSession } from './dropbox';
@@ -667,8 +668,39 @@ describe('App', () => {
     expect(said).toContain('Your private bookmarks');
     expect(said).toContain('restricted to registered users');
     expect(
-      element.querySelector('app-faq a')?.getAttribute('href'),
+      element.querySelector('app-faq .lead a')?.getAttribute('href'),
     ).toBe('https://archiveofourown.org/faq/downloading-fanworks');
+  });
+
+  it('pins where to download the app to the top of the FAQ', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+
+    const first = element.querySelector('app-faq .faq')?.firstElementChild;
+    expect(first?.classList.contains('download-app')).toBe(true);
+    expect(first?.querySelector('a')?.getAttribute('href')).toBe(
+      'https://github.com/alexandria-p/ao3downloader/releases/latest',
+    );
+    expect(first?.textContent).toContain('ao3downloader.exe');
+  });
+
+  it('says when a newer version is out, and stops for good when told to', async () => {
+    const { fixture, element } = await render(1);
+    TestBed.inject(UpdateCheck).newer.set({ version: '1.8.3', url: 'https://github.com/x/y/releases/tag/v1.8.3' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const banner = element.querySelector('.update-available');
+    expect(banner?.textContent).toContain('1.8.3');
+    expect(banner?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/x/y/releases/tag/v1.8.3');
+
+    (banner?.querySelector('button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(element.querySelector('.update-available')).toBeNull();
+    expect(localStorage.getItem('ao3.updateCheckDismissed')).toBe('true');
   });
 
   // endregion

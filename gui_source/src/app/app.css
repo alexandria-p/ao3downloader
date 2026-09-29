@@ -294,3 +294,18 @@
   background: #22303a;
   font-size: 0.9rem;
 }
+
+/* news, not a problem - the calm blue the run banner wears */
+.update-available {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #5a7f9a;
+  border-radius: 3px;
+  background: #22303a;
+  font-size: 0.9rem;
+}

@@ -284,13 +284,17 @@ def write_config(config_dir: Path, python_home: Path) -> tuple[list[str], list[s
     return created, added
 
 
-def write_page_config(build_dir: Path) -> Path | None:
+def write_page_config(build_dir: Path, version: str = '', repository: str = '') -> Path | None:
     """Point the bundled page at the helper settings.ini names.
 
     The page cannot read settings.ini - it has to know where the helper is before it can
     ask the helper anything - so the two keys it needs are copied into `app-config.json`
     beside it, from the bundle's own settings.ini. Rewritten on every build, `--skip-web`
     included, so editing `HelperUrl` and rebuilding is enough.
+
+    `version` and `repository` say what this page is and where a newer release would be - the
+    Windows app's build passes both; a bundle built on this computer has neither, and its page
+    then never looks for an update.
 
     A bundle never carries a public key: it runs on this computer and sends the login to a
     helper on this computer. The hosted copy's page, which does, is built by the deploy
@@ -309,7 +313,8 @@ def write_page_config(build_dir: Path) -> Path | None:
         require = False
     path = web / PAGE_CONFIG_FILE
     path.write_text(json.dumps({'helperUrl': helper_url.strip().rstrip('/'),
-                                'requirePasscode': require, 'publicKey': ''}, indent=2) + '\n',
+                                'requirePasscode': require, 'publicKey': '',
+                                'version': version, 'releasesRepo': repository}, indent=2) + '\n',
                     encoding='utf-8')
     return path
 
@@ -395,6 +400,9 @@ folder somewhere else, leave `.venv/` behind and let the first run rebuild it.
 On Windows, the **Windows app** does all of this without PowerShell or uv: a zip holding
 `ao3downloader.exe`, built by `package_windows.py` and published by the **build windows app**
 workflow. Unzip it and double-click the exe. The rest of this section is for this folder.
+
+A deployment gives everything it builds one version, and that page checks GitHub for a newer
+release each time it opens. A bundle built here has no version, so its page never checks.
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/). Node is *not*
 needed - the web app is already compiled.

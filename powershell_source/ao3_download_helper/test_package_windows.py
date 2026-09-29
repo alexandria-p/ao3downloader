@@ -1,6 +1,7 @@
 """The Windows app's packaging - everything but running PyInstaller itself, which the
 `build windows app` workflow does on Windows and then starts the app it built."""
 
+import json
 import zipfile
 from pathlib import Path
 
@@ -94,9 +95,14 @@ def test_a_given_settings_ini_is_shipped_and_the_page_is_pointed_by_it(tmp_path,
     given.write_text('[settings]\nExtraWaitTime=30\nHelperUrl=http://127.0.0.1:4400\n', encoding='utf-8')
     staging = tmp_path / 'staging'
 
-    web = package_windows.stage_web(root, staging, skip_web=True, settings=given)
+    web = package_windows.stage_web(root, staging, skip_web=True, settings=given,
+                                    version='1.8.3', repository='someone/ao3downloader')
 
     assert 'ExtraWaitTime=30' in (staging / 'config' / 'settings.ini').read_text(encoding='utf-8')
-    assert '"helperUrl": "http://127.0.0.1:4400"' in (web / 'app-config.json').read_text(encoding='utf-8')
+    config = json.loads((web / 'app-config.json').read_text(encoding='utf-8'))
+    assert config['helperUrl'] == 'http://127.0.0.1:4400'
+    # the page in the app knows what it is, so it can tell when a newer one is out
+    assert config['version'] == '1.8.3'
+    assert config['releasesRepo'] == 'someone/ao3downloader'
 
 # endregion

@@ -89,6 +89,21 @@
   </p>
 }
 
+<!-- a newer release than this page - said until downloaded, or until told not to again -->
+@if (newerRelease(); as release) {
+  <p class="update-available" role="status">
+    <span>
+      <strong>A newer version is available: {{ release.version }}</strong>
+      (this is {{ currentVersion() }}).
+      <a [href]="release.url" target="_blank" rel="noopener">Download it from GitHub</a>
+      to run the latest on your computer.
+    </span>
+    <button type="button" class="button subtle" (click)="dismissUpdates()">
+      Dismiss and do not ask me again
+    </button>
+  </p>
+}
+
 <!-- covers everything while a library's folders are made or its works moved -->
 <app-setup-overlay />
 

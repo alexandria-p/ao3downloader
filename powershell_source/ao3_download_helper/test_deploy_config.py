@@ -187,7 +187,7 @@ def test_the_page_for_this_computer_needs_no_key():
     settings = deploy_config.write_settings({'REQUIRE_PASSCODE': 'false'}, template())
     config = deploy_config.page_config(settings, {})
     assert config == {'helperUrl': 'http://127.0.0.1:4400', 'requirePasscode': False,
-                      'publicKey': ''}
+                      'publicKey': '', 'version': '', 'releasesRepo': ''}
 
 
 def test_the_command_line_writes_both_files(tmp_path, monkeypatch, private_pem, capsys):
@@ -303,5 +303,61 @@ def test_the_command_line_writes_the_windows_apps_settings(tmp_path, monkeypatch
     written = out.read_text(encoding='utf-8')
     assert 'HelperUrl=http://127.0.0.1:4400\n' in written
     assert 'my-ao3-helper.onrender.com' not in capsys.readouterr().out
+
+# endregion
+
+
+# region the version a deployment builds
+
+@pytest.mark.parametrize('tags, expected', [
+    ([], '1.0.0'),
+    (['v1.8.2'], '1.8.3'),
+    (['v1.8.2', 'v1.10.0', 'v1.9.7'], '1.10.1'),
+    # anything that is not v and three numbers is not a release of this app
+    (['v1.8.2', 'windows-app', 'v2', 'release-9.9.9', 'v1.9.x'], '1.8.3'),
+])
+def test_each_deployment_raises_the_last_number_of_the_latest_release(tags, expected):
+    assert deploy_config.next_version(tags) == expected
+
+
+def test_a_version_can_be_given_for_a_bigger_step():
+    assert deploy_config.next_version(['v1.8.2'], '2.0.0') == '2.0.0'
+    assert deploy_config.next_version(['v1.8.2'], 'v1.9.0') == '1.9.0'
+    assert deploy_config.next_version([], '0.1.0') == '0.1.0'
+
+
+@pytest.mark.parametrize('override', ['1.8.2', '1.8.1', '0.9.0'])
+def test_a_given_version_already_released_or_older_fails_the_deploy(override):
+    # two builds sharing a version would tell people with the first that they are up to date
+    with pytest.raises(DeployError, match='not higher than 1.8.2'):
+        deploy_config.next_version(['v1.8.2'], override)
+
+
+@pytest.mark.parametrize('override', ['2', '2.0', 'two', '2.0.0-beta'])
+def test_a_given_version_that_is_not_three_numbers_fails_the_deploy(override):
+    with pytest.raises(DeployError, match='three numbers'):
+        deploy_config.next_version(['v1.8.2'], override)
+
+
+def test_the_command_line_prints_the_version(capsys):
+    assert deploy_config.main(['next-version', '--tags', 'v1.8.2\nv1.8.1\n']) == 0
+    assert capsys.readouterr().out.strip() == '1.8.3'
+
+
+def test_the_page_config_carries_the_version_and_where_releases_are():
+    config = deploy_config.page_config(deploy_config.write_settings({}, template()), {}, '1.8.3',
+                                       'someone/ao3downloader')
+
+    assert config['version'] == '1.8.3'
+    assert config['releasesRepo'] == 'someone/ao3downloader'
+
+
+@pytest.mark.parametrize('version, repo, reason', [
+    ('1.8', 'someone/ao3downloader', 'three numbers'),
+    ('1.8.3', 'https://evil.example', 'owner/name'),
+])
+def test_a_page_config_with_a_bad_version_or_repository_fails_the_build(version, repo, reason):
+    with pytest.raises(DeployError, match=reason):
+        deploy_config.page_config(deploy_config.write_settings({}, template()), {}, version, repo)
 
 # endregion

@@ -26,6 +26,7 @@ import { WorkList } from './work-list';
 import { Bookmark, ownerFromSource } from './bookmarks';
 import { APP_FOLDER_PATH, DropboxSession } from './dropbox';
 import { StorageChoice, StorageMode } from './storage-choice';
+import { UpdateCheck } from './updates';
 
 /** how often the page asks whether a run in progress has finished, while one is */
 const ACTIVE_RUN_POLL_MS = 30_000;
@@ -46,6 +47,11 @@ export class App {
   private readonly storage = inject(StorageChoice);
   private readonly dropbox = inject(DropboxSession);
   private readonly helper = inject(HelperConnection);
+  private readonly updates = inject(UpdateCheck);
+
+  /** a newer release than this page's own, once GitHub has said so */
+  protected readonly newerRelease = this.updates.newer;
+  protected readonly currentVersion = computed(() => this.helper.settings().version);
 
   protected readonly view = signal<View>('bookmarks');
   /**
@@ -204,6 +210,8 @@ export class App {
     void this.jobs.loadConfig();
     // a run left going in the background, from this page or another, is said at once
     void this.jobs.refreshActiveRuns();
+    // once per opening, and never for a page that has no version or was told not to
+    void this.updates.check();
     // and asked about again while one is going, so the banner goes when it finishes. only
     // then: with nothing running there is nothing to watch for, and a hosted helper is left
     // to sleep
@@ -214,6 +222,11 @@ export class App {
   }
 
   private watch: ReturnType<typeof setInterval> | undefined;
+
+  /** stop saying there is a newer release, in this browser, for good */
+  protected dismissUpdates(): void {
+    this.updates.dismiss();
+  }
 
   protected readonly works = computed<Bookmark[]>(() => this.data()?.works ?? []);
   protected readonly owner = computed(() => ownerFromSource(this.data()?.source ?? ''));

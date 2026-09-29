@@ -5,24 +5,26 @@ name: build windows app
 # package_windows.py builds it; this runs it on Windows, because PyInstaller builds for the
 # system it runs on.
 #
-# Run it by hand from the Actions tab, or as part of `deploy hosted app`, which calls it.
-# The zip is always kept as a download on the run; with a release tag it is also published
-# on that release, which gives it a link that does not expire:
-#   https://github.com/<owner>/<repo>/releases/download/<tag>/ao3downloader-windows.zip
+# `deploy hosted app` calls it with the version that deployment decided on, and it is then
+# published as that version's release - marked latest, so the newest is always at
+#   https://github.com/<owner>/<repo>/releases/latest
+# and the page in every copy of the app checks there for one newer than itself. Run by hand
+# from the Actions tab it builds and tries the app; given a version it publishes that too.
+# The zip is always kept as a download on the run.
 
 on:
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: 'Release to publish the zip on, replacing what is there. Empty for none.'
+      version:
+        description: 'Version to publish it as, e.g. 1.8.3. Empty to build and try it only.'
         required: false
-        default: 'windows-app'
+        default: ''
   workflow_call:
     inputs:
-      release_tag:
+      version:
         type: string
         required: false
-        default: 'windows-app'
+        default: ''
   # built and tried - never published - on a pull request that changes how it is built
   pull_request:
     paths:
@@ -86,13 +88,21 @@ jobs:
 
       - name: build the app
         working-directory: powershell_source/ao3_download_helper
-        run: uv run --no-sync python package_windows.py --settings windows-settings.ini
+        shell: bash
+        env:
+          # its page says which version it is, and checks the releases for a newer one. a
+          # build with no version - a pull request's - never checks
+          VERSION: ${{ inputs.version }}
+        run: |
+          uv run --no-sync python package_windows.py --settings windows-settings.ini \
+            --version "$VERSION" --repo "$GITHUB_REPOSITORY"
 
       - name: start the app from the zip, and check the page and the helper answer
         # what someone downloading it does: unzip, start the exe. no browser on a runner
         shell: pwsh
         env:
           AO3DOWNLOADER_NO_BROWSER: '1'
+          VERSION: ${{ inputs.version }}
         run: |
           $place = Join-Path $env:RUNNER_TEMP 'unzipped'
           Expand-Archive -Path dist/ao3downloader-windows.zip -DestinationPath $place -Force
@@ -117,6 +127,8 @@ jobs:
             # the page must be pointed at the exe's own helper, never the hosted one
             $pageConfig = Invoke-RestMethod 'http://localhost:4200/app-config.json'
             if ($pageConfig.helperUrl -ne 'http://127.0.0.1:4400') { throw "the page points at $($pageConfig.helperUrl)" }
+            # as text: an empty variable does not exist at all on windows, so it reads as null
+            if ("$($pageConfig.version)" -ne "$env:VERSION") { throw "the page says version '$($pageConfig.version)', not '$env:VERSION'" }
             Write-Host 'the page and the helper both answered, and settings.ini is beside the exe'
           }
           finally {
@@ -130,18 +142,25 @@ jobs:
           path: dist/ao3downloader-windows.zip
           retention-days: 30
 
-      - name: publish it on the release
-        # never from a pull request, which has no release tag
-        if: github.event_name != 'pull_request' && inputs.release_tag != ''
+      - name: publish it as this version's release
+        # never from a pull request, which has no version
+        if: github.event_name != 'pull_request' && inputs.version != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.release_tag }}
+          TAG: v${{ inputs.version }}
+          VERSION: ${{ inputs.version }}
         run: |
-          # replaced whole, so the tag moves to the commit the zip was built from
-          gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
-          gh release create "$TAG" dist/ao3downloader-windows.zip \
-            --target "$GITHUB_SHA" \
-            --title 'ao3downloader for Windows' \
-            --notes "Built from ${GITHUB_SHA::7}. Download ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe - the README inside says the rest. Windows may warn that the app is not signed: choose More info, then Run anyway."
-          echo "published: https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/ao3downloader-windows.zip"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # this version's release already there - a re-run: the zip is replaced
+            gh release upload "$TAG" dist/ao3downloader-windows.zip --clobber
+          else
+            # the deployment tagged the commit already; by hand, the tag is made here
+            gh release create "$TAG" dist/ao3downloader-windows.zip \
+              --target "$GITHUB_SHA" \
+              --latest \
+              --title "ao3downloader $VERSION" \
+              --notes "Download ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe - the README inside says the rest. Windows may warn that the app is not signed: choose More info, then Run anyway."
+          fi
+          echo "published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          echo "latest is always at: https://github.com/$GITHUB_REPOSITORY/releases/latest"

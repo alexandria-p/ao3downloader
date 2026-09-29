@@ -71,7 +71,8 @@ another window: close every ao3downloader window and start it again.
 """
 
 
-def stage_web(root: Path, staging: Path, skip_web: bool, settings: Path | None = None) -> Path:
+def stage_web(root: Path, staging: Path, skip_web: bool, settings: Path | None = None,
+              version: str = '', repository: str = '') -> Path:
     """The prebuilt page, with the config that points it at the helper on this computer.
 
     `settings` is the settings.ini to ship in place of the template's - it is also what the
@@ -92,7 +93,7 @@ def stage_web(root: Path, staging: Path, skip_web: bool, settings: Path | None =
         config.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(settings, config / 'settings.ini')
     build_artifacts.write_config(config, root / PYTHON_HOME)
-    build_artifacts.write_page_config(staging)
+    build_artifacts.write_page_config(staging, version, repository)
     return web
 
 
@@ -156,6 +157,10 @@ def main() -> int:
                         help='reuse the page already in build/web instead of compiling it')
     parser.add_argument('--settings', type=Path,
                         help='the settings.ini to ship, in place of the template')
+    parser.add_argument('--version', default='',
+                        help="this build's version, e.g. 1.8.3 - the page checks for newer ones")
+    parser.add_argument('--repo', default='',
+                        help='owner/name of the repository its releases are published on')
     args = parser.parse_args()
     if args.settings and not args.settings.is_file():
         raise SystemExit(f'no settings.ini at {args.settings}')
@@ -165,7 +170,8 @@ def main() -> int:
     if staging.exists(): shutil.rmtree(staging)
     staging.mkdir(parents=True)
 
-    web = stage_web(root, staging, args.skip_web, args.settings.resolve() if args.settings else None)
+    web = stage_web(root, staging, args.skip_web, args.settings.resolve() if args.settings else None,
+                    args.version, args.repo)
 
     # imported here, so the rest of this module - and its tests - need no PyInstaller
     import PyInstaller.__main__

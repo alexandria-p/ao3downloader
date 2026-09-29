@@ -403,8 +403,9 @@ def test_the_page_is_pointed_at_the_helper_settings_ini_names(fake_root):
     build_artifacts.build(fake_root, skip_web=True)
 
     written = json.loads((web / build_artifacts.PAGE_CONFIG_FILE).read_text(encoding='utf-8'))
+    # a bundle built on this computer has no version, so its page never looks for a newer one
     assert written == {'helperUrl': 'http://127.0.0.1:4500', 'requirePasscode': True,
-                       'publicKey': ''}
+                       'publicKey': '', 'version': '', 'releasesRepo': ''}
 
 
 def test_a_settings_ini_without_the_keys_points_the_page_at_this_computer(fake_root):
