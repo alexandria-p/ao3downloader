@@ -289,3 +289,71 @@ def test_a_stopped_run_notes_nothing():
     job.steps.skip.assert_called_once_with('cleanup')
 
 # endregion
+
+
+def forget_collections(root: str, work: str) -> None:
+    path = entry_path(root, work)
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    data.pop(indexing.FROM_COLLECTIONS, None)
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+
+
+def test_with_the_works_on_an_unchanged_work_still_learns_its_collection(bookmarked):
+    # the second run reads exactly what the first did, so the work itself has not changed
+    # and gets no new reading - but it still has to be told the collection holds it
+    run_collection(bookmarked, works=True)
+    forget_collections(bookmarked, NEWEST)
+    before = readings(bookmarked, NEWEST)
+
+    run_collection(bookmarked, works=True)
+
+    assert entry(bookmarked, NEWEST)[indexing.FROM_COLLECTIONS] == ['alpha']
+    assert readings(bookmarked, NEWEST) == before
+    assert entry(bookmarked, NEWEST)[strings.BOOKMARKED_FIELD] is True
+
+
+def test_with_the_works_on_the_crawl_alone_would_note_it(bookmarked):
+    # two ways write it on a run with the works on - the crawl's own save, and the cleanup.
+    # each is enough on its own: here the cleanup is kept out of it
+    run_collection(bookmarked, works=True)
+    forget_collections(bookmarked, NEWEST)
+
+    with patch.object(server, 'collection_links', return_value=[]):
+        run_collection(bookmarked, works=True)
+
+    assert entry(bookmarked, NEWEST)[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def test_with_the_works_on_the_cleanup_alone_would_note_it(bookmarked):
+    run_collection(bookmarked, works=True)
+    forget_collections(bookmarked, NEWEST)
+    real_save = server.Ao3.save_collection_work
+
+    def save_without_the_collection(self, document, collection, listing):
+        return real_save(self, document, '', listing)
+
+    with patch.object(server.Ao3, 'save_collection_work', save_without_the_collection):
+        run_collection(bookmarked, works=True)
+
+    assert entry(bookmarked, NEWEST)[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def entry_files(root: str, work: str) -> list[str]:
+    folder = os.path.join(root, strings.INDEXING_FOLDER_NAME)
+    return [n for n in os.listdir(folder) if n.startswith(work + ' ') and n.endswith('.json')]
+
+
+def test_a_work_retitled_since_it_was_indexed_keeps_its_one_entry_and_your_bookmark(bookmarked):
+    # the collection lists it as 'Work 66326125' by 'writer' - not the title and author it
+    # was indexed under - so the name its entry would be given now is not the one it has
+    assert len(entry_files(bookmarked, NEWEST)) == 1
+
+    run_collection(bookmarked, works=True)
+
+    assert len(entry_files(bookmarked, NEWEST)) == 1
+    found = entry(bookmarked, NEWEST)
+    assert found[strings.BOOKMARKED_FIELD] is True
+    assert found[indexing.FROM_COLLECTIONS] == ['alpha']
+    assert found['title'] == f'Work {NEWEST}'

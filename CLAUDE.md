@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1464 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1468 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1056,6 +1056,12 @@ looks at `ao3.reindexed` - so a work indexed after its collection learns it too.
 found by the number their file name starts with and read only when they might need it; it
 never creates an entry, never reaches ao3, skips when stopped, and swallows its own errors.
 
+**A collection run finds an existing entry by its number, not its name** (`Ao3.entry_path`,
+used by `as_not_yours` and the collection savers). The name is built from title and author,
+which change: looking up by the new name missed the entry, wrote a second file for the same
+work and recorded it not bookmarked - a test caught exactly that. The scans' walks and the
+series walk still write by name; `TECH_DEBT.md` has it.
+
 **A collection's family can be followed** (`subcollections`, `parentCollections` - clamped to
 the collection runs in `do_POST`). Every collection goes through `Ao3.take_collection`, which
 adds it to `collections_seen` **before** reading it and then queues its relatives
@@ -1533,6 +1539,9 @@ Three rules worth keeping:
   matching rule, and the collections format are documented in both by requirement.
 - Verify claims before reporting them. Several conclusions in this project's history were
   wrong until checked against real fixtures or a live run.
+- **`TECH_DEBT.md` (project root) lists the known weak spots** - `from_collections` among
+  them, and index writes that find an entry by the name it would have now. Read it before
+  working near either, and add to it when you leave something fragile behind.
 - **Keep `TERMINOLOGY.md` (project root) up to date with every change to the codebase.** It
   lists the project's terms (with the synonyms used in chat), each workflow's programmatic
   name, options and steps, and how every step works. Whenever a change adds, renames or

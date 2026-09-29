@@ -121,6 +121,9 @@ class Ao3:
         self.records_for = None
         # set when a resumed collection run went straight back to its download step
         self.scoped = False
+        # each index folder's entries by the number their file name starts with - see
+        # `entry_path`. listed when first asked for, once per run
+        self.entries_by_id: dict[str, dict[str, str]] = {}
         # collections saved with a listing that failed partway, which are not finished
         self.unfinished_collections: set[str] = set()
         # whether a collection run follows each collection's subcollections, its parent, or
@@ -755,9 +758,10 @@ class Ao3:
                         # read already this run, off another collection: only noted as found
                         # through this one too
                         if collection:
-                            self.save_entry({**self.externals_indexed[work],
-                                             indexing.FROM_COLLECTIONS: [collection]},
-                                            strings.EXTERNAL_INDEX_FOLDER_NAME)
+                            again = {**self.externals_indexed[work],
+                                     indexing.FROM_COLLECTIONS: [collection]}
+                            self.save_entry(again, strings.EXTERNAL_INDEX_FOLDER_NAME,
+                                            self.entry_path(again, strings.EXTERNAL_INDEX_FOLDER_NAME))
                         continue
                     externals.append(parse_soup.get_external_bookmark_metadata(blurb, work))
                     continue
@@ -769,7 +773,7 @@ class Ao3:
                     # read already this run, off another collection: not read twice, only
                     # noted as found through this one too, and downloaded with the rest
                     again = {**self.indexed_this_run[work], indexing.FROM_COLLECTIONS: [collection]}
-                    if collection: self.save_metadata(again)
+                    if collection: self.save_metadata(again, self.entry_path(again))
                     self.keep_collection_work(self.indexed_this_run[work])
                     continue
                 readings.append(parse_soup.get_blurb_metadata(blurb))
@@ -811,21 +815,22 @@ class Ao3:
         not bookmarked. Never downloaded - there is nothing on ao3 to download.
         """
 
-        self.as_not_yours(document, strings.EXTERNAL_INDEX_FOLDER_NAME)
+        path = self.as_not_yours(document, strings.EXTERNAL_INDEX_FOLDER_NAME)
         document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_EXTERNAL
         document['source'] = document.get('source') or listing
         if collection: document[indexing.FROM_COLLECTIONS] = [collection]
-        self.save_entry(document, strings.EXTERNAL_INDEX_FOLDER_NAME)
+        self.save_entry(document, strings.EXTERNAL_INDEX_FOLDER_NAME, path)
         if document.get('id'): self.externals_indexed[str(document['id'])] = document
         self.collection_externals += 1
 
 
-    def as_not_yours(self, document: dict, subfolder: str = '') -> None:
+    def as_not_yours(self, document: dict, subfolder: str = '') -> str:
         """Make a reading of somebody else's bookmark safe to write as an entry of yours.
 
         Their notes, tags and the rest of `BOOKMARK_OWN_FIELDS` are blanked - to the empty
         shape a series work has, rather than removed - then an entry that already exists gets
-        its own back, and its source. A new entry is recorded as not bookmarked.
+        its own back, and its source. A new entry is recorded as not bookmarked. Returns the
+        path the entry is at, or is to go - write it there.
         """
 
         for field in strings.BOOKMARK_OWN_FIELDS:
@@ -834,12 +839,44 @@ class Ao3:
                 document[field] = [] if isinstance(value, list) else \
                     False if isinstance(value, bool) else ''
         document.pop(strings.BOOKMARKED_FIELD, None)
-        existing = indexing.flatten(self.fileops.load_json(
-            self.metadata_path(document, subfolder))) or {}
+        path = self.entry_path(document, subfolder)
+        existing = indexing.flatten(self.fileops.load_json(path)) or {}
         for field in strings.BOOKMARK_OWN_FIELDS:
             if field in existing: document[field] = existing[field]
         document.setdefault(strings.BOOKMARKED_FIELD, False)
         if existing.get('source'): document['source'] = existing['source']
+        return path
+
+
+    def entry_path(self, document: dict, subfolder: str = '') -> str:
+        """Where an entry already lives, found by the number its file name starts with - or
+        where a new one would go.
+
+        Not by the name it would be given now: that is built from the title and author,
+        which change - a retitled work, a renamed author - and a lookup by the new name misses
+        the entry that is there, writes a second file for the same work, and records it as
+        not bookmarked. `series_path` finds series the same way for the same reason. The
+        folder is listed once per run and remembered.
+        """
+
+        folder = os.path.join(strings.INDEXING_FOLDER_NAME, subfolder) if subfolder \
+            else strings.INDEXING_FOLDER_NAME
+        known = self.entries_by_id.get(folder)
+        if known is None:
+            known = {}
+            try:
+                for name in self.fileops.list_files(os.path.join(self.fileops.downloadfolder, folder)):
+                    if not str(name).lower().endswith('.json'): continue
+                    number = parse_text.get_work_number_from_filename(str(name))
+                    if number: known.setdefault(number, str(name))
+            except Exception:
+                known = {}
+            self.entries_by_id[folder] = known
+        number = str(document.get('id') or '')
+        if number and number in known: return os.path.join(folder, known[number])
+        path = self.metadata_path(document, subfolder)
+        if number: known[number] = os.path.basename(path)
+        return path
 
 
     def save_collection_work(self, document: dict, collection: str, listing: str) -> dict:
@@ -852,11 +889,11 @@ class Ao3:
         exists keeps its own; a new one is recorded as **not bookmarked**.
         """
 
-        self.as_not_yours(document)
+        path = self.as_not_yours(document)
         document['source'] = document.get('source') or listing
         document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_WORK
         if collection: document[indexing.FROM_COLLECTIONS] = [collection]
-        self.save_metadata(document)
+        self.save_metadata(document, path)
         if document.get('id'): self.indexed_this_run[str(document['id'])] = document
         self.mark_series_of(document)
         return document
@@ -1255,11 +1292,12 @@ class Ao3:
              'error': strings.SKIPPED_UNREVEALED})
 
 
-    def save_metadata(self, document: dict) -> None:
-        """Write one work to its own json file, in the indexing subfolder."""
+    def save_metadata(self, document: dict, path: str | None = None) -> None:
+        """Write one work to its own json file, in the indexing subfolder - at `path` when
+        the caller has found where its entry already is."""
 
         try:
-            path = self.metadata_path(document)
+            path = path or self.metadata_path(document)
             # keep whatever readings the file already holds, and add this one only if it
             # says something new
             merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
@@ -1270,12 +1308,12 @@ class Ao3:
             self.log_error({'message': strings.ERROR_METADATA_SAVE, 'link': document.get('link')}, e)
 
 
-    def save_entry(self, document: dict, subfolder: str) -> None:
+    def save_entry(self, document: dict, subfolder: str, path: str | None = None) -> None:
         """Write a bookmark that is not a work - a series, an external work - to its folder
         inside indexing/, keeping its history the way a work's file does."""
 
         try:
-            path = self.metadata_path(document, subfolder)
+            path = path or self.metadata_path(document, subfolder)
             merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
             self.fileops.save_json(path, merged)
         except Exception as e:
