@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1455 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1464 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1044,6 +1044,17 @@ The rules, and why:
   looks them up in `Library.externalsById`, never `worksById`, or external work 1 would show
   as work 1. Missing ones render as `placeholderExternal`, linking `/external_works/<n>`
   (the address real ao3 markup uses). Blurbs are told apart by `get_blurb_kind`.
+
+**`from_collections` is also filled in by the cleanup step**, for works a run did not index
+through a collection. `collection_links` reads every saved collection file and returns
+`(path, list)` for each index entry missing one that holds it; `write_collection_links` sets
+the identity field straight onto the file (no new reading). A collection run looks at every
+work and external work its collections list (`job.collections_read`, from
+`note_collections_read`) - so with *Index and download encountered works* off, an indexed
+bookmark still learns it is in the collection. A full, quick or custom scan (`LINKING_SCANS`)
+looks at `ao3.reindexed` - so a work indexed after its collection learns it too. Entries are
+found by the number their file name starts with and read only when they might need it; it
+never creates an entry, never reaches ao3, skips when stopped, and swallows its own errors.
 
 **A collection's family can be followed** (`subcollections`, `parentCollections` - clamped to
 the collection runs in `do_POST`). Every collection goes through `Ao3.take_collection`, which

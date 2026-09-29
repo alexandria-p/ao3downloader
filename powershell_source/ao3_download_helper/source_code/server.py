@@ -330,6 +330,8 @@ class Job:
         # itself (`library`), and every question it could ask was answered before it started
         self.background = background
         self.library = library
+        # the collections a collection run read - its cleanup notes them on the works they hold
+        self.collections_read: list[str] = []
         self.started = runs.now()
         # when the user paused it, by the helper's own clock, or None while it is not paused.
         # a background run paused longer than `PausedRunTimeoutMinutes` is abandoned
@@ -2313,28 +2315,36 @@ def settle_duplicates(job: Job, records: list[dict], existing: dict,
 
 
 def cleanup(job: Job, fileops: FileOps, ao3) -> None:
-    """Remove the older copies marked for removal - the step before the report.
+    """Remove the older copies marked for removal, and note on indexed works which of your
+    collections hold them - the step before the report.
 
-    Skipped when nothing was marked, and when the run was stopped: a stop keeps everything
-    as it is, and the report says what was left. A marked file this run has since downloaded
-    over - the same name - is kept, since it is no longer the older copy. Each file's outcome
-    goes into the history as it happens.
+    Skipped when there is nothing to do, and when the run was stopped: a stop keeps
+    everything as it is, and the report says what was left. A marked file this run has since
+    downloaded over - the same name - is kept, since it is no longer the older copy. Each
+    file's outcome goes into the history as it happens.
     """
 
     pending = [x for x in job.removals if x.get('status') == 'pending']
-    if not pending:
+    if job.cancel.is_set():
+        if pending:
+            print(strings.AO3_INFO_CLEANUP_STOPPED.format(len(pending)))
+            for item in pending:
+                item['status'] = 'kept'
+                item['error'] = strings.CLEANUP_STOPPED
+            if job.record: job.record.removals(job.removals)
         job.steps.skip('cleanup')
         return
-    if job.cancel.is_set():
-        print(strings.AO3_INFO_CLEANUP_STOPPED.format(len(pending)))
-        for item in pending:
-            item['status'] = 'kept'
-            item['error'] = strings.CLEANUP_STOPPED
-        if job.record: job.record.removals(job.removals)
+
+    links = collection_links(job, fileops, ao3)
+    if not pending and not links:
         job.steps.skip('cleanup')
         return
 
     job.steps.start('cleanup')
+    if links: write_collection_links(fileops, links)
+    if not pending:
+        job.steps.done('cleanup')
+        return
     print(strings.AO3_INFO_CLEANUP.format(len(pending)))
     written = list(getattr(ao3, 'written', None) or [])
     for item in pending:
@@ -2351,6 +2361,104 @@ def cleanup(job: Job, fileops: FileOps, ao3) -> None:
             print(strings.AO3_INFO_CLEANUP_FAILED.format(item['file'], strings.CLEANUP_NOT_DELETED))
         if job.record: job.record.removals(job.removals)
     job.steps.done('cleanup')
+
+
+# the runs whose cleanup notes collections on the works they indexed - the scans. the
+# collection runs note the works their collections hold instead
+LINKING_SCANS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
+
+
+def collection_links(job: Job, fileops: FileOps, ao3) -> list[tuple[str, list[str]]]:
+    """The index entries that are missing a collection that holds them, and the whole list
+    each should have - `(path, from_collections)`.
+
+    Which works are looked at depends on the run. A collection run looks at every work (and
+    external work) the collections it read list - so with *Index and download encountered
+    works* off, a work you had already indexed still learns it is in the collection. A full,
+    quick or custom scan looks at every work it indexed, against every collection saved in
+    the library - so a work bookmarked after its collection was indexed learns it too.
+
+    Only entries already in the index are touched, and only when a collection is missing
+    from them. Nothing here reaches ao3, and anything that goes wrong is left undone rather
+    than failing a run over a note about where a work was found.
+    """
+
+    try:
+        if job.action not in COLLECTION_ACTIONS and job.action not in LINKING_SCANS: return []
+        held: dict[str, dict] = {}
+        folder = os.path.join(fileops.downloadfolder, strings.COLLECTIONS_FOLDER_NAME)
+        for name in fileops.list_files(folder):
+            if not str(name).lower().endswith('.json'): continue
+            collection = indexing.flatten(fileops.load_json(
+                os.path.join(strings.COLLECTIONS_FOLDER_NAME, name))) or {}
+            if collection.get('name'): held[str(collection['name'])] = collection
+        if not held: return []
+
+        by_work: dict[str, set[str]] = {}
+        by_external: dict[str, set[str]] = {}
+        for name, collection in held.items():
+            for work in [*(collection.get('work_ids') or []), *(collection.get('bookmark_ids') or [])]:
+                by_work.setdefault(str(work), set()).add(name)
+            for external in collection.get('external_ids') or []:
+                by_external.setdefault(str(external), set()).add(name)
+
+        if job.action in COLLECTION_ACTIONS:
+            read = [x for x in job.collections_read if x in held]
+            works = {w for w, names in by_work.items() if names & set(read)}
+            externals = {e for e, names in by_external.items() if names & set(read)}
+        else:
+            reindexed = getattr(ao3, 'reindexed', None)
+            works = {str(x) for x in reindexed} if isinstance(reindexed, set) else set()
+            externals = set()
+
+        return [*entries_missing(fileops, strings.INDEXING_FOLDER_NAME, works, by_work),
+                *entries_missing(fileops, os.path.join(strings.INDEXING_FOLDER_NAME,
+                                                       strings.EXTERNAL_INDEX_FOLDER_NAME),
+                                 externals, by_external)]
+    except exceptions.CancelledException:
+        raise
+    except Exception:
+        return []
+
+
+def entries_missing(fileops: FileOps, subfolder: str, ids: set[str],
+                    holders: dict[str, set[str]]) -> list[tuple[str, list[str]]]:
+    """The entries in `subfolder`, among `ids`, that lack a collection `holders` says holds
+    them - found by the number their file name starts with, read only when they might."""
+
+    wanted = {x for x in ids if x in holders}
+    if not wanted: return []
+    found = []
+    for name in fileops.list_files(os.path.join(fileops.downloadfolder, subfolder)):
+        if not str(name).lower().endswith('.json'): continue
+        work = parse_text.get_work_number_from_filename(name)
+        if work not in wanted: continue
+        path = os.path.join(subfolder, name)
+        data = fileops.load_json(path)
+        if not isinstance(data, dict): continue
+        have = {str(x) for x in data.get(indexing.FROM_COLLECTIONS) or []}
+        if holders[work] - have:
+            found.append((path, sorted(have | holders[work])))
+    return found
+
+
+def write_collection_links(fileops: FileOps, links: list[tuple[str, list[str]]]) -> None:
+    """Add the collections to each entry. `from_collections` is identity, not a reading, so
+    it goes straight onto the file - no new reading is added for it."""
+
+    written = 0
+    for path, names in links:
+        try:
+            data = fileops.load_json(path)
+            if not isinstance(data, dict): continue
+            data[indexing.FROM_COLLECTIONS] = names
+            fileops.save_json(path, data)
+            written += 1
+        except exceptions.CancelledException:
+            raise
+        except Exception:
+            continue
+    if written: print(strings.AO3_INFO_COLLECTIONS_LINKED.format(written))
 
 
 def report_not_removed(job: Job, report) -> None:
@@ -2444,6 +2552,7 @@ def run_collections(job: Job, fileops: FileOps, repo: Repository, report) -> Non
     ao3 = collections_ao3(job, fileops, repo, report, pages)
     records = crawl_collections(job, fileops, ao3, 'collections',
                                 lambda: ao3.get_collections(link))
+    note_collections_read(job, records)
 
     if records is None:
         pass # resumed at its download step: every collection was read by the earlier attempt
@@ -2471,6 +2580,7 @@ def run_collection(job: Job, fileops: FileOps, repo: Repository, report) -> None
     ao3 = collections_ao3(job, fileops, repo, report, None)
     records = crawl_collections(job, fileops, ao3, 'collection',
                                 lambda: ao3.get_collection(job.url))
+    note_collections_read(job, records)
 
     if records:
         print(strings.AO3_INFO_COLLECTIONS_DONE.format(
@@ -2498,6 +2608,16 @@ def collections_ao3(job: Job, fileops: FileOps, repo: Repository, report,
     job.ao3 = ao3
     watch_collections(job, fileops, ao3)
     return ao3
+
+
+def note_collections_read(job: Job, records: list[dict] | None) -> None:
+    """Which collections this run covered, for its cleanup to note on the works they hold.
+    A run resumed at its download step read none itself: the earlier attempt's count."""
+
+    if records is None:
+        job.collections_read = list((job.earlier_progress().get('collections') or {}).keys())
+    else:
+        job.collections_read = [str(r['name']) for r in records if r.get('name')]
 
 
 def crawl_collections(job: Job, fileops: FileOps, ao3: Ao3, step: str, crawl) -> list[dict] | None:

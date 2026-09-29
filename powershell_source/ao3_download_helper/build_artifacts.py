@@ -557,6 +557,10 @@ subcollections or parent as well, and theirs in turn, however far removed - inde
 rest, with their works when those are asked for. Each collection is read at most once per
 run, so collections that link back to each other cannot loop, and a run follows at most 200.
 
+Either way, a collection run's last step notes the collection on every work it holds that
+is already in your index (`from_collections`), and a full, quick or custom scan notes the
+saved collections that hold each work it indexes. Neither costs an ao3 request.
+
 History shows the link a collection run used. An unfinished one offers **Resume**: it saves
 its place after every page of each collection, so resuming skips the collections already
 finished and carries on from the page it reached.

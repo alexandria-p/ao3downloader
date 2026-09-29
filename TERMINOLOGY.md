@@ -335,7 +335,11 @@ Used by: custom run, when chosen.
 Used by: every workflow.
 - Removes the older copies you chose to remove at the older-copies question.
 - Keeps any file this run has since downloaded over, and anything if the run was stopped.
-- Skipped when nothing was marked.
+- Notes which collections hold an indexed work, adding them to its `from_collections`:
+  - a collection run: every work and external work the collections it read list that is already in the index - whether or not *Index and download encountered works* was ticked;
+  - a full, quick or custom scan: every work it indexed, against every collection saved in the library.
+  Only entries already in the index, only when a collection is missing, and without adding a reading - no AO3 requests.
+- Skipped when there is nothing to remove or note, and when the run was stopped.
 
 ### Report any failures
 Used by: every workflow.
