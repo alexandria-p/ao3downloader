@@ -125,6 +125,10 @@ class Ao3:
         self.unfinished_collections: set[str] = set()
         # whether a collection run follows each collection's subcollections, its parent, or
         # both - any number of steps away - and what it has read and has still to read
+        # external works indexed off collections' bookmarked items this run, by ao3's number
+        # for them - each written once, however many collections hold it
+        self.externals_indexed: dict[str, dict] = {}
+        self.collection_externals = 0
         self.follow_subcollections = False
         self.follow_parents = False
         self.collections_seen: set[str] = set()
@@ -731,9 +735,22 @@ class Ao3:
         for soup in self.walk_pages(parse_text.set_page_number(link, start) if start > 1
                                     else link, stop):
             readings: list[dict] = []
+            externals: list[dict] = []
             for blurb in parse_soup.get_blurbs(soup):
-                work = parse_soup.get_blurb_work_number(blurb)
-                if not work or work in found: continue
+                kind, work = parse_soup.get_blurb_kind(blurb)
+                if kind == parse_soup.BLURB_EXTERNAL:
+                    if self.collection_works is None or not work: continue
+                    if work in self.externals_indexed:
+                        # read already this run, off another collection: only noted as found
+                        # through this one too
+                        if collection:
+                            self.save_entry({**self.externals_indexed[work],
+                                             indexing.FROM_COLLECTIONS: [collection]},
+                                            strings.EXTERNAL_INDEX_FOLDER_NAME)
+                        continue
+                    externals.append(parse_soup.get_external_bookmark_metadata(blurb, work))
+                    continue
+                if kind != parse_soup.BLURB_WORK or not work or work in found: continue
                 found.append(work)
                 if self.collection_works is None: continue
                 self.note_unrevealed(blurb, work)
@@ -747,6 +764,8 @@ class Ao3:
                 readings.append(parse_soup.get_blurb_metadata(blurb))
             for document in readings:
                 self.keep_collection_work(self.save_collection_work(document, collection, link))
+            for document in externals:
+                self.save_collection_external(document, collection, link)
             if self.on_collection_page and key:
                 self.on_collection_page(collection, key, page, list(found))
             page += 1
@@ -771,6 +790,46 @@ class Ao3:
             self.collection_works.append(document)
 
 
+    def save_collection_external(self, document: dict, collection: str, listing: str) -> None:
+        """Index an external work - one hosted somewhere other than ao3 - that a collection's
+        bookmarked items include, in the same folder your own bookmarked external works go.
+
+        The rules of `save_collection_work`: it is somebody else's bookmark, so their notes and
+        tags are not written in as yours, an entry that exists keeps its own, and a new one is
+        not bookmarked. Never downloaded - there is nothing on ao3 to download.
+        """
+
+        self.as_not_yours(document, strings.EXTERNAL_INDEX_FOLDER_NAME)
+        document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_EXTERNAL
+        document['source'] = document.get('source') or listing
+        if collection: document[indexing.FROM_COLLECTIONS] = [collection]
+        self.save_entry(document, strings.EXTERNAL_INDEX_FOLDER_NAME)
+        if document.get('id'): self.externals_indexed[str(document['id'])] = document
+        self.collection_externals += 1
+
+
+    def as_not_yours(self, document: dict, subfolder: str = '') -> None:
+        """Make a reading of somebody else's bookmark safe to write as an entry of yours.
+
+        Their notes, tags and the rest of `BOOKMARK_OWN_FIELDS` are blanked - to the empty
+        shape a series work has, rather than removed - then an entry that already exists gets
+        its own back, and its source. A new entry is recorded as not bookmarked.
+        """
+
+        for field in strings.BOOKMARK_OWN_FIELDS:
+            if field in document:
+                value = document[field]
+                document[field] = [] if isinstance(value, list) else \
+                    False if isinstance(value, bool) else ''
+        document.pop(strings.BOOKMARKED_FIELD, None)
+        existing = indexing.flatten(self.fileops.load_json(
+            self.metadata_path(document, subfolder))) or {}
+        for field in strings.BOOKMARK_OWN_FIELDS:
+            if field in existing: document[field] = existing[field]
+        document.setdefault(strings.BOOKMARKED_FIELD, False)
+        if existing.get('source'): document['source'] = existing['source']
+
+
     def save_collection_work(self, document: dict, collection: str, listing: str) -> dict:
         """Index one work read off a collection's listing.
 
@@ -781,18 +840,8 @@ class Ao3:
         exists keeps its own; a new one is recorded as **not bookmarked**.
         """
 
-        # blanked rather than removed, so the entry has the shape a series work's does
-        for field in strings.BOOKMARK_OWN_FIELDS:
-            if field in document:
-                value = document[field]
-                document[field] = [] if isinstance(value, list) else \
-                    False if isinstance(value, bool) else ''
-        document.pop(strings.BOOKMARKED_FIELD, None)
-        existing = indexing.flatten(self.fileops.load_json(self.metadata_path(document))) or {}
-        for field in strings.BOOKMARK_OWN_FIELDS:
-            if field in existing: document[field] = existing[field]
-        document.setdefault(strings.BOOKMARKED_FIELD, False)
-        document['source'] = existing.get('source') or listing
+        self.as_not_yours(document)
+        document['source'] = document.get('source') or listing
         document[strings.BOOKMARK_TYPE_FIELD] = strings.BOOKMARK_TYPE_WORK
         if collection: document[indexing.FROM_COLLECTIONS] = [collection]
         self.save_metadata(document)
@@ -1004,6 +1053,7 @@ class Ao3:
 
         indexing_works = self.collection_works is not None
         before = len(self.collection_works or [])
+        externals_before = self.collection_externals
         for key, count_key, label, url in (
                 ('work_ids', 'work_count', 'works', f'{base}/works'),
                 ('bookmark_ids', 'bookmark_count', 'bookmarked items', f'{base}/bookmarks')):
@@ -1052,6 +1102,9 @@ class Ao3:
         if indexing_works:
             print(strings.AO3_INFO_COLLECTION_WORKS.format(
                 slug, len(self.collection_works or []) - before))
+            if self.collection_externals > externals_before:
+                print(strings.AO3_INFO_COLLECTION_EXTERNALS.format(
+                    slug, self.collection_externals - externals_before))
 
         # only worth asking for when the sidebar says there are some
         document['subcollections'] = []

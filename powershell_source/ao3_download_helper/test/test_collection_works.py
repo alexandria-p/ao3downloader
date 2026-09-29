@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from bs4 import BeautifulSoup
 
-from source_code import indexing, parse_text, runs, server, strings
+from source_code import indexing, parse_soup, parse_text, runs, server, strings
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
 from source_code.repo import Repository
@@ -774,5 +774,96 @@ def test_a_collection_run_is_told_which_relatives_to_follow(action):
 
     assert ao3.follow_subcollections is True
     assert ao3.follow_parents is False
+
+# endregion
+
+
+# region external works among a collection's bookmarked items
+
+def external_listing() -> BeautifulSoup:
+    """A real ao3 listing holding one external work - its number is 1, and its title links to
+    an ao3 address (/en/works/863) that it must never be taken for."""
+
+    with open(os.path.join(os.path.dirname(__file__), 'fixtures', 'externalWork.html'),
+              encoding='utf-8') as f:
+        return BeautifulSoup(f.read(), 'html.parser')
+
+
+def with_external(slugs: list[str] | None = None):
+    def dispatch(url: str) -> BeautifulSoup:
+        if '/bookmarks' in url: return external_listing()
+        return pages({slug: ['111'] for slug in (slugs or ['alpha'])})(url)
+    return dispatch
+
+
+def externals(files: dict) -> dict[str, dict]:
+    folder = os.path.join(strings.INDEXING_FOLDER_NAME, strings.EXTERNAL_INDEX_FOLDER_NAME)
+    return {str(indexing.flatten(data)['id']): indexing.flatten(data)
+            for path, data in files.items() if path.startswith(folder + os.sep)}
+
+
+def test_an_external_work_in_a_collections_bookmarks_is_indexed_with_your_external_works():
+    ao3, repo, _, files = make_ao3()
+    repo.get_soup.side_effect = with_external()
+
+    records = ao3.get_collections(COLLECTIONS_URL)
+
+    entry = externals(files)['1']
+    assert entry[strings.BOOKMARK_TYPE_FIELD] == strings.BOOKMARK_TYPE_EXTERNAL
+    assert entry['link'] == 'https://archiveofourown.org/en/works/863'
+    assert entry[indexing.FROM_COLLECTIONS] == ['alpha']
+    assert entry[strings.BOOKMARKED_FIELD] is False
+    # never a work: not among the collection's work numbers, not downloaded, and never
+    # taken for the ao3 work its title links to
+    assert records[0]['bookmark_ids'] == []
+    assert [w['id'] for w in ao3.collection_works] == ['111']
+    assert '863' not in entries(files)
+
+
+def test_somebody_elses_notes_on_an_external_work_are_not_written_in_as_yours():
+    ao3, repo, _, files = make_ao3()
+    repo.get_soup.side_effect = with_external()
+
+    ao3.get_collections(COLLECTIONS_URL)
+
+    entry = externals(files)['1']
+    assert entry['bookmark_notes'] == ''
+    assert entry['bookmark_tags'] == []
+
+
+def test_an_external_work_you_bookmarked_keeps_your_bookmark():
+    ao3, repo, _, files = make_ao3()
+    repo.get_soup.side_effect = with_external()
+    blurb = parse_soup.get_blurbs(external_listing())[0]
+    yours = parse_soup.get_external_bookmark_metadata(blurb, '1')
+    path = ao3.metadata_path(yours, strings.EXTERNAL_INDEX_FOLDER_NAME)
+    files[path] = {'id': '1', indexing.INDEXES: [{indexing.INDEXED_ON: 'earlier',
+                                                  'bookmark_notes': 'mine',
+                                                  strings.BOOKMARKED_FIELD: True}]}
+
+    ao3.get_collections(COLLECTIONS_URL)
+
+    entry = externals(files)['1']
+    assert entry[strings.BOOKMARKED_FIELD] is True
+    assert entry['bookmark_notes'] == 'mine'
+
+
+def test_an_external_work_in_two_collections_is_found_through_both():
+    ao3, repo, _, files = make_ao3()
+    repo.get_soup.side_effect = with_external(['alpha', 'beta'])
+
+    ao3.get_collections(COLLECTIONS_URL)
+
+    assert externals(files)['1'][indexing.FROM_COLLECTIONS] == ['alpha', 'beta']
+
+
+def test_external_works_are_left_alone_unless_the_works_are_asked_for():
+    ao3, repo, _, files = make_ao3()
+    ao3.collection_works = None
+    repo.get_soup.side_effect = with_external()
+
+    ao3.get_collections(COLLECTIONS_URL)
+
+    assert externals(files) == {}
 
 # endregion

@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1437 python passed; 579 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1442 python passed; 579 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1034,6 +1034,11 @@ The rules, and why:
   `from_series`, `indexing.merge` only ever adds to (`ACCUMULATED_FIELDS`).
 - Unrevealed works go through `note_unrevealed`, shared with `get_metadata`: indexed, held
   back from download, listed as skipped.
+- **External works** among a collection's bookmarked items are indexed by
+  `save_collection_external` into `indexing/external/`, under the same rules through the
+  shared `as_not_yours`; `externals_indexed` reads each once per run and only adds a second
+  collection to `from_collections`. They go in no `work_ids`/`bookmark_ids` - a collection file
+  holds work numbers - and are never downloaded. Blurbs are told apart by `get_blurb_kind`.
 
 **A collection's family can be followed** (`subcollections`, `parentCollections` - clamped to
 the collection runs in `do_POST`). Every collection goes through `Ao3.take_collection`, which

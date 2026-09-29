@@ -546,7 +546,8 @@ Both ask first whether to **Index and download encountered works**. Left off, no
 downloaded. Ticked, every work in the collection's works and bookmarked items is indexed off
 the pages the crawl reads anyway, then downloaded or updated as a scan would; a work you
 have not bookmarked is indexed as not bookmarked, and somebody else's bookmark notes are
-never written in as yours. It then offers **Get all works from encountered series** and asks
+never written in as yours. External works among its bookmarked items are indexed as well,
+beside your own, and never downloaded. It then offers **Get all works from encountered series** and asks
 for file types, and reads every collection's works again even when its count is unchanged.
 Leave it off for a collection of your own bookmarks, whose works are already indexed; it is
 recommended for a collection you think holds works or bookmarks outside your own.
