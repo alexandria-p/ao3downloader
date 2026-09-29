@@ -133,6 +133,37 @@ def test_a_work_you_bookmarked_keeps_your_bookmark():
     assert entry['bookmark_notes'] == 'mine'
     # and where it first came from
     assert entry['source'] == 'https://archiveofourown.org/users/me/bookmarks'
+    # now also found through the collection
+    assert entry[indexing.FROM_COLLECTIONS] == ['alpha']
+
+
+def test_a_bookmarked_work_found_through_a_series_too_keeps_that_as_well():
+    ao3, repo, _, files = make_ao3()
+    repo.get_soup.side_effect = pages({'alpha': ['111'], 'beta': ['111']})
+    path = ao3.metadata_path({'id': '111', 'title': 'Work 111', 'authors': ['writer']})
+    files[path] = {'id': '111', indexing.FROM_SERIES: ['77'],
+                   indexing.INDEXES: [{indexing.INDEXED_ON: 'earlier', 'title': 'Work 111',
+                                       'authors': ['writer'], strings.BOOKMARKED_FIELD: True}]}
+
+    ao3.get_collections(COLLECTIONS_URL)
+
+    entry = entries(files)['111']
+    assert entry[indexing.FROM_SERIES] == ['77']
+    assert entry[indexing.FROM_COLLECTIONS] == ['alpha', 'beta']
+    assert entry[strings.BOOKMARKED_FIELD] is True
+
+
+def test_without_the_works_option_a_bookmarked_work_is_not_touched():
+    ao3, repo, _, files = make_ao3()
+    ao3.collection_works = None
+    repo.get_soup.side_effect = pages({'alpha': ['111']})
+    path = ao3.metadata_path({'id': '111', 'title': 'Work 111', 'authors': ['writer']})
+    files[path] = {'id': '111', indexing.INDEXES: [{indexing.INDEXED_ON: 'earlier',
+                                                    strings.BOOKMARKED_FIELD: True}]}
+
+    ao3.get_collections(COLLECTIONS_URL)
+
+    assert indexing.FROM_COLLECTIONS not in files[path]
 
 
 def test_somebody_elses_bookmark_is_not_written_in_as_yours():
