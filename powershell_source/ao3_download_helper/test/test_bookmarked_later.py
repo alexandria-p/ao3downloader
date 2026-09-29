@@ -307,6 +307,16 @@ def test_one_linked_work_is_said_in_the_singular(bookmarked):
     assert '1 work has been linked to your collections' in log
 
 
+@pytest.mark.parametrize('works', [False, True])
+def test_a_collection_run_says_it_too(bookmarked, works):
+    before = set(records(bookmarked))
+    run_collection(bookmarked, works=works)
+    [record] = [r for i, r in records(bookmarked).items() if i not in before]
+
+    assert strings.AO3_INFO_COLLECTIONS_LINKING in record['log']
+    assert any(x.endswith('linked to your collections') for x in record['log'])
+
+
 def test_nothing_to_link_says_nothing_about_linking(bookmarked):
     saved_collection(bookmarked, [NEWEST])
     run(bookmarked, server.ACTION_BOOKMARKS)
