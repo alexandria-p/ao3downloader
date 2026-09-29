@@ -77,7 +77,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1442 python passed; 579 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1446 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1037,8 +1037,13 @@ The rules, and why:
 - **External works** among a collection's bookmarked items are indexed by
   `save_collection_external` into `indexing/external/`, under the same rules through the
   shared `as_not_yours`; `externals_indexed` reads each once per run and only adds a second
-  collection to `from_collections`. They go in no `work_ids`/`bookmark_ids` - a collection file
-  holds work numbers - and are never downloaded. Blurbs are told apart by `get_blurb_kind`.
+  collection to `from_collections`; never downloaded. Every collection run records them in
+  the collection's file as `external_ids` - read off the page anyway, kept through an
+  unchanged count and through a resume (`listings.bookmark_ids.externals`), reported by
+  `collect_work_ids` on `last_externals`. **They are numbered apart from works**: the page
+  looks them up in `Library.externalsById`, never `worksById`, or external work 1 would show
+  as work 1. Missing ones render as `placeholderExternal`, linking `/external_works/<n>`
+  (the address real ao3 markup uses). Blurbs are told apart by `get_blurb_kind`.
 
 **A collection's family can be followed** (`subcollections`, `parentCollections` - clamped to
 the collection runs in `do_POST`). Every collection goes through `Ao3.take_collection`, which

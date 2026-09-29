@@ -262,6 +262,50 @@ describe('CollectionsView', () => {
     expect(element.querySelector('.blurb .heading a.title')?.textContent?.trim()).toBe('Work 2');
   });
 
+  it('lists the external works among the bookmarked items, after the works', async () => {
+    await render([collection({ bookmark_ids: ['2'], external_ids: ['1'] })], ['1', '2']);
+    const external = { ...work('1'), link: 'https://example.com/story', title: 'Elsewhere',
+                       bookmark_type: 'external work' } as Bookmark;
+    library.externalsById.set(new Map([['1', external]]));
+    await openFirst();
+
+    expect(tab('Bookmarked items')?.textContent).toContain('2');
+    tab('Bookmarked items')!.click();
+    await fixture.whenStable();
+
+    const titles = Array.from(element.querySelectorAll('.blurb .heading a.title')).map((a) =>
+      a.textContent?.trim(),
+    );
+    // external work 1 is the one hosted elsewhere, never work 1 from the index
+    expect(titles).toEqual(['Work 2', 'Elsewhere']);
+  });
+
+  it('lists an external work that is not indexed by its number, linking to ao3\'s page for it', async () => {
+    await render([collection({ external_ids: ['7'] })], []);
+    await openFirst();
+    tab('Bookmarked items')!.click();
+    await fixture.whenStable();
+
+    const link = element.querySelector<HTMLAnchorElement>('.blurb .heading a.title')!;
+    expect(link.textContent?.trim()).toBe('External work 7');
+    expect(link.getAttribute('href')).toBe('https://archiveofourown.org/external_works/7');
+    expect(element.querySelector('.not-indexed')?.textContent).toContain('hosted somewhere other than AO3');
+  });
+
+  it('counts the external works in a collection\'s bookmarked items on its card', async () => {
+    await render([collection({ bookmark_ids: ['2', '3'], external_ids: ['1'] })], []);
+
+    const stats = element.querySelector('.collection .stats')?.textContent ?? '';
+    expect(stats.replace(/\s+/g, '')).toContain('Bookmarkeditems:3');
+  });
+
+  it('shows no external works on the works tab', async () => {
+    await render([collection({ work_ids: ['2'], external_ids: ['1'] })], ['2']);
+    await openFirst();
+
+    expect(element.querySelectorAll('.blurb')).toHaveLength(1);
+  });
+
   it('explains an empty listing instead of showing a bare table', async () => {
     // nothing was recorded for it at all - not the same as nothing being indexed
     await render([collection({ work_ids: [] })], ['1']);

@@ -128,6 +128,7 @@ class Ao3:
         # external works indexed off collections' bookmarked items this run, by ao3's number
         # for them - each written once, however many collections hold it
         self.externals_indexed: dict[str, dict] = {}
+        self.last_externals: list[str] = []
         self.collection_externals = 0
         self.follow_subcollections = False
         self.follow_parents = False
@@ -727,6 +728,11 @@ class Ao3:
         """
 
         found: list[str] = [str(x) for x in (earlier or {}).get('ids') or []]
+        # the external works among the items, by ao3's number for them - a bookmarked-items
+        # listing can hold them, and they have no work number to go in `found`. read back by
+        # the caller off `last_externals`
+        external_ids: list[str] = [str(x) for x in (earlier or {}).get('externals') or []]
+        self.last_externals = external_ids
         start = int((earlier or {}).get('page') or 1)
         if found:
             # read before this attempt: indexed then, so downloaded with the rest now
@@ -739,6 +745,7 @@ class Ao3:
             for blurb in parse_soup.get_blurbs(soup):
                 kind, work = parse_soup.get_blurb_kind(blurb)
                 if kind == parse_soup.BLURB_EXTERNAL:
+                    if work and work not in external_ids: external_ids.append(work)
                     if self.collection_works is None or not work: continue
                     if work in self.externals_indexed:
                         # read already this run, off another collection: only noted as found
@@ -767,7 +774,8 @@ class Ao3:
             for document in externals:
                 self.save_collection_external(document, collection, link)
             if self.on_collection_page and key:
-                self.on_collection_page(collection, key, page, list(found))
+                self.on_collection_page(collection, key, page, list(found),
+                                        externals=list(external_ids))
             page += 1
         return found
 
@@ -1063,20 +1071,26 @@ class Ao3:
                 previous, document, key, count_key)
             if kept is not None:
                 document[key] = kept
+                if key == 'bookmark_ids':
+                    document['external_ids'] = [str(x) for x in previous.get('external_ids') or []]
                 print(strings.AO3_INFO_COLLECTION_UNCHANGED.format(slug, len(kept), label))
                 continue
             earlier = ((self.collections_before.get(slug) or {}).get('listings') or {}).get(key)
             try:
                 if earlier and earlier.get('done'):
                     document[key] = [str(x) for x in earlier.get('ids') or []]
+                    externals = [str(x) for x in earlier.get('externals') or []]
+                    if key == 'bookmark_ids': document['external_ids'] = externals
                     self.keep_indexed(document[key])
                     if self.on_collection_page:
-                        self.on_collection_page(slug, key, None, document[key], done=True)
+                        self.on_collection_page(slug, key, None, document[key], done=True,
+                                                externals=externals)
                     continue
                 if earlier and int(earlier.get('page') or 1) > 1:
                     print(strings.AO3_INFO_RESUME_COLLECTION_PAGE.format(
                         slug, label, earlier['page']))
                 ids = self.collect_work_ids(url, slug, key, earlier)
+                externals = list(self.last_externals)
                 resumed_from = int((earlier or {}).get('page') or 1)
                 count = document.get(count_key)
                 if key == 'work_ids' and resumed_from > 1 and isinstance(count, int) \
@@ -1089,12 +1103,14 @@ class Ao3:
                     ids = self.collect_work_ids(url, slug, key, {'ids': ids, 'page': 1},
                                                 stop=resumed_from - 1)
                 document[key] = ids
+                if key == 'bookmark_ids': document['external_ids'] = externals
                 if self.on_collection_page:
-                    self.on_collection_page(slug, key, None, ids, done=True)
+                    self.on_collection_page(slug, key, None, ids, done=True, externals=externals)
             except exceptions.CancelledException:
                 raise
             except Exception as e:
                 document[key] = []
+                if key == 'bookmark_ids': document['external_ids'] = []
                 # saved with what it has, as ever - but not finished, so a resumed run reads it
                 self.unfinished_collections.add(slug)
                 self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': url}, e)

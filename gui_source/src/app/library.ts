@@ -77,6 +77,11 @@ export class Library {
    * yours - so a work's 'Part N of' line can list the rest of its series.
    */
   readonly seriesById = signal<Map<string, Bookmark>>(new Map());
+  /**
+   * Every external work entry by ao3's number for it - kept apart from works because the two
+   * are numbered separately, so a collection's external works are never matched to a work.
+   */
+  readonly externalsById = signal<Map<string, Bookmark>>(new Map());
   readonly error = signal('');
   readonly loading = signal(false);
   /** a folder is remembered but the browser wants the permission confirmed again */
@@ -255,6 +260,7 @@ export class Library {
     this.pdfFiles.set(new Map());
     this.worksById.set(new Map());
     this.seriesById.set(new Map());
+    this.externalsById.set(new Map());
   }
 
   /**
@@ -421,13 +427,16 @@ export class Library {
       this.pdfFiles.set(copies.pdf);
       const byId = new Map<string, Bookmark>();
       const seriesById = new Map<string, Bookmark>();
+      const externalsById = new Map<string, Bookmark>();
       for (const entry of works) {
         if (!entry.id) continue;
         if (isWorkEntry(entry)) byId.set(entry.id, entry);
         else if (entry.bookmark_type === 'series bookmark') seriesById.set(entry.id, entry);
+        else if (entry.bookmark_type === 'external work') externalsById.set(entry.id, entry);
       }
       this.worksById.set(byId);
       this.seriesById.set(seriesById);
+      this.externalsById.set(externalsById);
 
       // the listing is your bookmarks: works, series and external works you bookmarked,
       // but not a work that is only here because a series holds it - that is in its card

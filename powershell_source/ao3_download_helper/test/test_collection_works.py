@@ -418,7 +418,7 @@ def test_every_page_of_a_collection_listing_is_checkpointed():
     ao3, repo, _, _ = make_ao3()
     repo.get_soup.side_effect = one_collection([['1', '2'], ['3', '4'], ['5']], 5)
     pages = []
-    ao3.on_collection_page = lambda slug, key, page, ids, done=False: \
+    ao3.on_collection_page = lambda slug, key, page, ids, done=False, externals=None: \
         pages.append((slug, key, page, ids, done))
 
     ao3.get_collection(ALPHA)
@@ -867,3 +867,53 @@ def test_external_works_are_left_alone_unless_the_works_are_asked_for():
     assert externals(files) == {}
 
 # endregion
+
+
+def test_a_collection_records_the_external_works_among_its_bookmarked_items():
+    # whether or not the works are indexed: the numbers come off the page read anyway
+    for works in (True, False):
+        ao3, repo, _, _ = make_ao3()
+        if not works: ao3.collection_works = None
+        repo.get_soup.side_effect = with_external()
+
+        records = ao3.get_collections(COLLECTIONS_URL)
+
+        assert records[0]['external_ids'] == ['1']
+        assert records[0]['bookmark_ids'] == []
+
+
+def test_an_unchanged_collection_keeps_the_external_works_it_had():
+    previous = stored(work_count=2, work_ids=['111', '222'], bookmark_count=3,
+                      bookmark_ids=['333'], external_ids=['1'])
+    ao3, repo, _, _ = make_ao3({os.path.join(strings.COLLECTIONS_FOLDER_NAME, 'alpha.json'): previous})
+    ao3.collection_works = None
+    repo.get_soup.side_effect = with_external()
+
+    records = ao3.get_collections(COLLECTIONS_URL)
+
+    assert records[0]['external_ids'] == ['1']
+
+
+def test_a_resumed_listing_keeps_the_external_works_it_had_found():
+    ao3, repo, _, _ = make_ao3()
+    ao3.records_for = lambda ids: []
+    ao3.collections_before = {'alpha': {'listings': {
+        'bookmark_ids': {'page': 1, 'ids': [], 'externals': ['7'], 'done': True}}}}
+    repo.get_soup.side_effect = with_external()
+
+    records = ao3.get_collection('https://archiveofourown.org/collections/alpha')
+
+    assert records[0]['external_ids'] == ['7']
+
+
+def test_the_external_works_found_so_far_go_into_the_checkpoint():
+    job = job_for(collectionWorks=True)
+    job.record = MagicMock()
+    job.record.data = {'progress': {}}
+    ao3 = Ao3(MagicMock(), MagicMock(), ['HTML'], None, False, False)
+
+    server.watch_collections(job, MagicMock(), ao3)
+    ao3.on_collection_page('alpha', 'bookmark_ids', 2, ['5'], externals=['1'])
+
+    saved = job.record.checkpoint.call_args.kwargs['collections']
+    assert saved['alpha']['listings']['bookmark_ids']['externals'] == ['1']

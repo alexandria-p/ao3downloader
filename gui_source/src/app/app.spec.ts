@@ -78,6 +78,7 @@ function collection(name: string): Collection {
     subcollections: [],
     work_ids: [],
     bookmark_ids: [],
+    external_ids: [],
   };
 }
 

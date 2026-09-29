@@ -803,7 +803,8 @@ exactly like an index file:
       "parent_collection": "https://archiveofourown.org/collections/yuletide",
       "subcollections": ["https://archiveofourown.org/collections/..."],
       "work_ids": ["34816549", "..."],
-      "bookmark_ids": ["..."]
+      "bookmark_ids": ["..."],
+      "external_ids": ["..."]
     }
   ]
 }
@@ -815,6 +816,9 @@ exactly like an index file:
   subcollection you own gets a file of its own
 - `work_ids` and `bookmark_ids` are the work numbers in the collection's works and
   bookmarked items, which is what your downloaded file names start with
+- `external_ids` are the external works (hosted off ao3) among its bookmarked items, by ao3's
+  own number for each - numbered apart from works. Opening the collection lists them after
+  its bookmarked works
 
 ### Re-indexing a collection you already have
 

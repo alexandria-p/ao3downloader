@@ -2,7 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { Library } from './library';
 import { WorkList } from './work-list';
-import { Bookmark, pageItems, paragraphs, placeholderWork } from './bookmarks';
+import { Bookmark, pageItems, paragraphs, placeholderExternal, placeholderWork } from './bookmarks';
 import {
   Collection,
   collectionBadges,
@@ -78,8 +78,22 @@ export class CollectionsView {
    */
   protected readonly openWorks = computed<Bookmark[]>(() => {
     const byId = this.worksById();
-    return this.openIds().map((id) => byId.get(id) ?? placeholderWork(id));
+    const works = this.openIds().map((id) => byId.get(id) ?? placeholderWork(id));
+    const collection = this.open();
+    if (!collection || this.tab() !== 'bookmarks') return works;
+    // external works after the works: looked up among external works only, since the two
+    // are numbered separately and external work 1 is not work 1
+    const externals = this.library.externalsById();
+    return [
+      ...works,
+      ...collection.external_ids.map((id) => externals.get(id) ?? placeholderExternal(id)),
+    ];
   });
+
+  /** everything among a collection's bookmarked items: works, and external works */
+  protected bookmarkedCount(collection: Collection): number {
+    return collection.bookmark_ids.length + collection.external_ids.length;
+  }
 
   protected readonly missingCount = computed(
     () => this.openWorks().filter((work) => work.placeholder).length,
@@ -89,7 +103,7 @@ export class CollectionsView {
     const missing = this.missingCount();
     if (missing === 0) return '';
     return (
-      `${missing.toLocaleString()} of ${this.openIds().length.toLocaleString()} works in this ` +
+      `${missing.toLocaleString()} of ${this.openWorks().length.toLocaleString()} works in this ` +
       'collection are not in your bookmarks index. They are listed by work number, and open ' +
       'on AO3 rather than as a local copy.'
     );

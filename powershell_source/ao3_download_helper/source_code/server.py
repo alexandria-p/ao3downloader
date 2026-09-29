@@ -2538,11 +2538,13 @@ def watch_collections(job: Job, fileops: FileOps, ao3: Ao3) -> None:
         restore_series(job, ao3)
     ao3.records_for = lambda ids: records_by_id(fileops, ids)
 
-    def on_page(slug: str, key: str, page, ids: list[str], done: bool = False) -> None:
+    def on_page(slug: str, key: str, page, ids: list[str], done: bool = False,
+                externals: list[str] | None = None) -> None:
         listing = state.setdefault(slug, {'done': False, 'listings': {}})['listings'] \
             .setdefault(key, {})
         listing['ids'] = list(ids)
         listing['done'] = done
+        if externals: listing['externals'] = list(externals)
         if page is not None: listing['page'] = page
         job.checkpoint(collections=state, seriesMarked=list(ao3.series_marked.values()))
 

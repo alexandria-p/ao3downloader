@@ -152,10 +152,15 @@
       } @else if (work.placeholder) {
         <!-- listed by number only: nothing is indexed about it, so there is nothing to show -->
         <h4 class="heading">
-          <a class="title" [href]="work.link" target="_blank" rel="noopener">Work {{ work.id }}</a>
+          <a class="title" [href]="work.link" target="_blank" rel="noopener">{{ work.title }}</a>
         </h4>
         <p class="not-indexed">
-          Not in your bookmarks index, so only its work number is known. Open it on AO3.
+          @if (typeOf(work) === 'external work') {
+            An external work - hosted somewhere other than AO3 - that is not in your index, so
+            only AO3's number for it is known. Open AO3's page for it to find where it is.
+          } @else {
+            Not in your bookmarks index, so only its work number is known. Open it on AO3.
+          }
         </p>
       } @else {
         <p class="datetime">{{ work.date_updated }}</p>
