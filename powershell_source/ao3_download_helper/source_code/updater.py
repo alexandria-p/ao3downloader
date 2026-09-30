@@ -1,25 +1,29 @@
-"""Updating the Windows app from inside itself: the page's **Update now**.
+"""Updating the Windows or Mac app from inside itself: the page's **Update now**.
 
-Only the Windows app can do this (`desktop.py` sets `Handler.updater`) - it is the one copy
+Only the packaged app can do this (`desktop.py` sets `Handler.updater`) - it is the one copy
 that is a folder of files on someone's computer, installed from a GitHub release. A helper run
 any other way answers the update endpoints 404, and its page never shows the button.
 
 What happens, in order:
 
-1. `latest` asks GitHub for the repository's latest release and finds its
-   `ao3downloader-windows.zip`. It has to be newer than this app, or nothing happens.
-2. `install` downloads it into `update/` beside the exe and checks it: against the SHA-256
+1. `latest` asks GitHub for the repository's latest release and finds this app's zip -
+   `ao3downloader-windows.zip`, or on a Mac the one for its chip. It has to be newer than this
+   app, or nothing happens.
+2. `install` downloads it into `update/` beside the program and checks it: against the SHA-256
    GitHub publishes for the file, and entry by entry - every file has to land inside the
-   app's own folder, and the zip has to hold the exe and its `_internal/`. Anything wrong and
-   nothing is touched.
-3. It unpacks it into `update/new/`, writes `update/apply-update.ps1`, starts that - hidden,
-   detached - and closes the app.
-4. The script waits for the app to be gone (a running exe cannot be replaced on Windows),
-   moves each top-level item of the old app into `update/previous/` and the new one in its
-   place, and starts the app again. If a move fails it puts every old item back first, so the
-   app that starts is always a whole one - the new version, or the old one it was. It writes
-   what it did to `update/update.log`, which the restarted app reads (`last_result`) so the
-   page can say an update failed.
+   app's own folder (a symlink too, wherever it points), and the zip has to hold the program
+   and its `_internal/`. Anything wrong and nothing is touched.
+3. It unpacks it into `update/new/` - keeping each file's permissions and each symlink, which
+   the Mac app needs - writes the swap script, starts it detached, and closes the app.
+4. The script waits for the app to be gone, moves each top-level item of the old app into
+   `update/previous/` and the new one in its place, and starts the app again. If a move fails
+   it puts every old item back first, so the app that starts is always a whole one - the new
+   version, or the old one it was. It writes what it did to `update/update.log`, which the
+   restarted app reads (`last_result`) so the page can say an update failed.
+
+The swap is PowerShell on Windows (`SWAP_SCRIPT`) and bash on a Mac (`MAC_SWAP_SCRIPT`), and
+the two write the same log lines. On a Mac the app lives in a Terminal window, so the script
+starts it again by opening `Start ao3downloader.command` in a new one.
 
 `config/` and `logs/` are never moved: they are not in the zip, and the script skips them by
 name as well. So an update never touches the user's settings.ini - the restarted app adds any
@@ -29,6 +33,7 @@ new setting to it, and comments out any the new version dropped (`desktop.settin
 import hashlib
 import os
 import re
+import stat
 import subprocess
 import sys
 import threading
@@ -43,6 +48,15 @@ ASSET_NAME = 'ao3downloader-windows.zip'
 # the folder the zip unpacks into: every entry has to be inside it
 ZIP_ROOT = 'ao3downloader'
 EXE_NAME = 'ao3downloader.exe'
+MAC_PROGRAM = 'ao3downloader'
+# what a Mac is started by - the script the swap reopens in Terminal (package_app.MAC_LAUNCHER)
+MAC_LAUNCHER = 'Start ao3downloader.command'
+# which Mac zip is this Mac's: the same names package_app builds them under
+MAC_CHIPS = {'arm64': 'apple-silicon', 'x86_64': 'intel'}
+# left by the Mac swap for the app it starts: a Terminal window opened by `open` gets none of
+# the script's environment, so this says what AO3DOWNLOADER_NO_BROWSER says on Windows - the
+# page is still open, and reloads itself
+RESTARTED_MARKER = 'restarted'
 UPDATE_FOLDER = 'update'
 # never moved or replaced: the user's, not the app's
 KEPT = ('config', 'logs', UPDATE_FOLDER)
@@ -51,6 +65,7 @@ GITHUB_API = 'https://api.github.com'
 # the Windows build does exactly that. only ever set by whoever starts the app
 ENV_UPDATE_SOURCE = 'AO3DOWNLOADER_UPDATE_SOURCE'
 SCRIPT_NAME = 'apply-update.ps1'
+MAC_SCRIPT_NAME = 'apply-update.sh'
 LOG_NAME = 'update.log'
 # what the swap script itself printed, errors included
 OUTPUT_NAME = 'swap-output.txt'
@@ -89,38 +104,104 @@ def is_newer(candidate: str, current: str) -> bool:
     return bool(a and b and a > b)
 
 
-def check_zip(archive: zipfile.ZipFile) -> None:
-    """Refuse a zip that is not this app, or that would write anywhere but the app's folder."""
+@dataclass
+class Kind:
+    """What an update looks like on one system: which zip, which program must be in it, and
+    how the swap script is written and started."""
+
+    asset: str
+    program: str
+    script_name: str
+    script: str
+    encoding: str
+
+    def command(self, script: Path, app_dir: Path, pid: int) -> list[str]:
+        if self.script_name == SCRIPT_NAME:
+            return ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                    '-WindowStyle', 'Hidden', '-File', str(script),
+                    '-AppDir', str(app_dir), '-ProcessId', str(pid)]
+        return ['/bin/bash', str(script), str(app_dir), str(pid)]
+
+
+def kind_for(platform: str | None = None, machine: str | None = None) -> Kind | None:
+    """This system's update, or None where the app has none."""
+
+    platform = platform or sys.platform
+    if platform == 'win32':
+        return Kind(ASSET_NAME, EXE_NAME, SCRIPT_NAME, SWAP_SCRIPT, 'utf-8-sig')
+    if platform == 'darwin':
+        import platform as machines
+        chip = MAC_CHIPS.get(machine or machines.machine())
+        if not chip: return None
+        return Kind(f'{ZIP_ROOT}-macos-{chip}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8')
+    return None
+
+
+def entry_parts(name: str) -> tuple[str, ...]:
+    return PurePosixPath(name.replace('\\', '/')).parts
+
+
+def is_link(info: zipfile.ZipInfo) -> bool:
+    return stat.S_ISLNK(info.external_attr >> 16)
+
+
+def check_zip(archive: zipfile.ZipFile, program: str = EXE_NAME) -> None:
+    """Refuse a zip that is not this app, or that would write anywhere but the app's folder -
+    through a symlink as much as through a name."""
 
     names = archive.namelist()
-    for name in names:
+    for info in archive.infolist():
+        name = info.filename
         path = PurePosixPath(name.replace('\\', '/'))
         # a ':' anywhere is refused too: on Windows a part like 'C:' jumps to another drive
         if path.is_absolute() or '..' in path.parts or not path.parts or path.parts[0] != ZIP_ROOT \
                 or any(':' in part for part in path.parts):
             raise UpdateError(f'the download has a file where it should not be ({name}) - '
                               'not installing it')
-    if f'{ZIP_ROOT}/{EXE_NAME}' not in names:
-        raise UpdateError(f'the download has no {EXE_NAME} - not installing it')
+        if is_link(info):
+            # a link is only ever to a sibling inside the app: never absolute, never climbing
+            # out of the folder it sits in
+            target = archive.read(info).decode('utf-8', errors='replace')
+            depth = len(path.parts) - 2
+            climbs = 0
+            for part in PurePosixPath(target).parts:
+                climbs = climbs + 1 if part == '..' else climbs - (part not in ('.', ''))
+                if climbs > depth: break
+            if PurePosixPath(target).is_absolute() or climbs > depth or ':' in target:
+                raise UpdateError(f'the download has a link pointing out of the app ({name}) - '
+                                  'not installing it')
+    if f'{ZIP_ROOT}/{program}' not in names:
+        raise UpdateError(f'the download has no {program} - not installing it')
     if not any(name.startswith(f'{ZIP_ROOT}/_internal/') for name in names):
         raise UpdateError('the download has no _internal folder - not installing it')
 
 
 def unpack(archive: zipfile.ZipFile, destination: Path) -> None:
     """Everything under the zip's top folder into `destination`, except anything under a
-    folder that is the user's - a zip that carried one would otherwise replace it."""
+    folder that is the user's - a zip that carried one would otherwise replace it.
+
+    Each file keeps the permissions it was zipped with, and a symlink is made as a symlink:
+    `ZipFile.extract` does neither, and the Mac app needs both - its program must stay
+    executable, and PyInstaller's Mac build links parts of its folder to each other.
+    `check_zip` has already refused a link pointing anywhere else."""
 
     for info in archive.infolist():
-        parts = PurePosixPath(info.filename.replace('\\', '/')).parts[1:]
+        parts = entry_parts(info.filename)[1:]
         if not parts or parts[0] in KEPT: continue
         target = destination.joinpath(*parts)
         if info.is_dir():
             target.mkdir(parents=True, exist_ok=True)
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
+        if is_link(info):
+            os.symlink(archive.read(info).decode('utf-8'), target)
+            continue
         with archive.open(info) as source, open(target, 'wb') as out:
             while chunk := source.read(1024 * 1024):
                 out.write(chunk)
+        mode = (info.external_attr >> 16) & 0o777
+        if mode and sys.platform != 'win32':
+            target.chmod(mode)
 
 
 def launch_environment() -> dict:
@@ -142,14 +223,18 @@ def launch_detached(command: list[str], output: Path | None = None) -> None:
     or failing to parse - never reaches its own log, and would otherwise leave no trace."""
 
     flags = 0
+    detach = {}
     if sys.platform == 'win32':
         # a hidden console of its own rather than none: Windows PowerShell started with no
         # console at all (DETACHED_PROCESS) was seen to end before running a single line
         flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        # a session of its own, so closing the app's Terminal window does not take it along
+        detach = {'start_new_session': True}
     sink = open(output, 'ab') if output else subprocess.DEVNULL
     try:
         subprocess.Popen(command, creationflags=flags, close_fds=True, env=launch_environment(),
-                         stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT)
+                         stdin=subprocess.DEVNULL, stdout=sink, stderr=subprocess.STDOUT, **detach)
     finally:
         if output: sink.close()
 
@@ -160,8 +245,11 @@ class Updater:
     def __init__(self, app_dir: str, version: str, repository: str,
                  get: Callable = requests.get,
                  launch: Callable[..., None] = launch_detached,
-                 leave: Callable[[], None] = lambda: os._exit(0)):
+                 leave: Callable[[], None] = lambda: os._exit(0),
+                 kind: Kind | None = None):
         self.app_dir = Path(app_dir)
+        # Windows, unless told otherwise: desktop.make_updater passes this system's
+        self.kind = kind or kind_for('win32')
         self.version = version
         self.repository = repository
         self.get = get
@@ -224,9 +312,9 @@ class Updater:
         version = str(release.get('tag_name') or '').removeprefix('v')
         if not version_parts(version):
             raise UpdateError(f"the latest release is not a version this app understands ({version or 'none'})")
-        asset = next((a for a in release.get('assets') or [] if a.get('name') == ASSET_NAME), None)
+        asset = next((a for a in release.get('assets') or [] if a.get('name') == self.kind.asset), None)
         if not asset or not asset.get('browser_download_url'):
-            raise UpdateError(f'the latest release, {version}, has no {ASSET_NAME}')
+            raise UpdateError(f'the latest release, {version}, has no {self.kind.asset}')
         download = str(asset['browser_download_url'])
         # the real thing is only ever https; a stand-in source is on this computer
         if not download.startswith('https://') and self.source == GITHUB_API:
@@ -262,8 +350,8 @@ class Updater:
             probe.unlink()
         except OSError as e:
             raise UpdateError(f'the app cannot write to its own folder ({self.app_dir}) - if it '
-                              'is somewhere Windows protects, like Program Files, move it to '
-                              'your own folders and start it from there') from e
+                              'is somewhere protected, like Program Files or Applications, move '
+                              'it to your own folders and start it from there') from e
         with self.lock:
             self.state = {'state': 'downloading', 'version': release.version}
         threading.Thread(target=self.install, args=(release,), daemon=True).start()
@@ -275,16 +363,17 @@ class Updater:
             new = self.update_dir / 'new'
             if new.exists(): remove_tree(new)
             with zipfile.ZipFile(archive_path) as archive:
-                check_zip(archive)
+                check_zip(archive, self.kind.program)
                 unpack(archive, new)
-            script = self.update_dir / SCRIPT_NAME
-            script.write_text(SWAP_SCRIPT, encoding='utf-8-sig')
+            script = self.update_dir / self.kind.script_name
+            script.write_text(self.kind.script, encoding=self.kind.encoding, newline='\n'
+                              if self.kind.script_name == MAC_SCRIPT_NAME else None)
             with self.lock:
                 self.state = {'state': 'restarting', 'version': release.version}
             print(f'updating to {release.version}: the app will close and start again in a moment')
-            self.launch(['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-                         '-WindowStyle', 'Hidden', '-File', str(script),
-                         '-AppDir', str(self.app_dir), '-ProcessId', str(os.getpid())],
+            if self.kind.script_name == MAC_SCRIPT_NAME:
+                print('it opens in a new window - this one can be closed once it has')
+            self.launch(self.kind.command(script, self.app_dir, os.getpid()),
                         self.update_dir / OUTPUT_NAME)
             threading.Timer(EXIT_DELAY_SECONDS, self.leave).start()
         except Exception as e:
@@ -409,4 +498,71 @@ finally {
     Start-Process -FilePath (Join-Path $AppDir 'ao3downloader.exe') -WorkingDirectory $AppDir
     Say 'started the app again'
 }
+'''
+
+
+# Written into update/ and run by bash once the app has closed - the Mac's SWAP_SCRIPT, doing
+# the same things in the same order and writing the same log lines, so `last_result` reads
+# either. A rename on the same disk cannot be half-done, so it needs none of the retrying the
+# Windows one does for locked files; it still puts every old item back if any move fails.
+# The app runs in Terminal on a Mac, so it is started again by opening its launcher, in a new
+# window - which gets none of this script's environment, hence the marker file.
+MAC_SWAP_SCRIPT = r'''#!/bin/bash
+APP_DIR="$1"
+APP_PID="$2"
+UPDATE="$APP_DIR/update"
+NEW="$UPDATE/new"
+PREVIOUS="$UPDATE/previous"
+LOG="$UPDATE/update.log"
+
+say() { printf '%s %s\n' "$(date -u '+%Y-%m-%d %H:%M:%SZ')" "$1" >> "$LOG"; }
+
+start_again() {
+    # the page is still open and reloads itself, so the app must not open a second tab
+    touch "$UPDATE/restarted"
+    if open -a Terminal "$APP_DIR/Start ao3downloader.command"; then
+        say 'started the app again'
+    else
+        say 'could not start the app again - double-click Start ao3downloader.command'
+    fi
+}
+
+say "waiting for the app (process $APP_PID) to close"
+for _ in $(seq 1 120); do
+    kill -0 "$APP_PID" 2>/dev/null || break
+    sleep 0.5
+done
+
+rm -rf "$PREVIOUS"
+if ! mkdir -p "$PREVIOUS"; then
+    say "update failed: could not make $PREVIOUS"
+    start_again
+    exit 0
+fi
+
+moved=()
+placed=()
+failure=''
+while IFS= read -r -d '' item; do
+    name="$(basename "$item")"
+    case "$name" in config|logs|update) continue ;; esac
+    if [ -e "$APP_DIR/$name" ] || [ -L "$APP_DIR/$name" ]; then
+        if ! mv "$APP_DIR/$name" "$PREVIOUS/$name"; then failure="could not move $name aside"; break; fi
+        moved+=("$name")
+    fi
+    if ! mv "$NEW/$name" "$APP_DIR/$name"; then failure="could not move the new $name in"; break; fi
+    placed+=("$name")
+done < <(find "$NEW" -mindepth 1 -maxdepth 1 -print0)
+
+if [ -n "$failure" ]; then
+    say "could not swap the files ($failure) - putting the old ones back"
+    for name in "${placed[@]}"; do rm -rf "${APP_DIR:?}/$name"; done
+    for name in "${moved[@]}"; do mv "$PREVIOUS/$name" "$APP_DIR/$name"; done
+    say "update failed: $failure"
+else
+    names="$(IFS=,; echo "${placed[*]}")"
+    say "swapped ${names//,/, }"
+    rm -rf "$PREVIOUS" "$NEW" "$UPDATE/download.zip"
+fi
+start_again
 '''

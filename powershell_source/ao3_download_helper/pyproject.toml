@@ -19,7 +19,11 @@ keywords = [
 ]
 dependencies = [
     "beautifulsoup4>=4.13.4",
-    "cryptography>=45",
+    # cryptography stopped publishing Intel Mac wheels at 49. built from source there it links
+    # a Homebrew OpenSSL that PyInstaller does not pack, and the Intel Mac app fails to start -
+    # so an Intel Mac keeps the last release with a wheel, which carries its own OpenSSL
+    "cryptography>=45; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "cryptography>=45,<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "mobi>=0.3.3",
     "pypdf>=6.14.2",
     "requests>=2.32.5",

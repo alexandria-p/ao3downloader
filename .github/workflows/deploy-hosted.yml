@@ -266,3 +266,14 @@ jobs:
       version: ${{ needs.version.outputs.version }}
     permissions:
       contents: write
+
+  mac:
+    name: build the mac app and publish it
+    # the same as the windows app: needs only the version, runs alongside everything else,
+    # and adds its zip to the same release
+    needs: version
+    uses: ./.github/workflows/build-mac.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    permissions:
+      contents: write

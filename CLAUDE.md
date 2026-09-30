@@ -35,13 +35,15 @@ powershell_source/
     test_build_artifacts.py       its tests (next to it, not in test/)
     deploy_config.py              writes the hosted settings.ini and app-config.json
     test_deploy_config.py         its tests
-    package_windows.py            builds the Windows app (PyInstaller) into dist/*.zip
-    test_package_windows.py       its tests
+    package_app.py            builds the Windows or Mac app (PyInstaller) into dist/*.zip
+    test_package_app.py       its tests
     Dockerfile, .dockerignore     the hosted helper's image
     pyproject.toml, uv.lock, .venv/
-.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls build-windows
+.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls both app builds
 .github/workflows/build-windows.yml   builds, tries and publishes the Windows app
+.github/workflows/build-mac.yml       builds, tries and publishes the Mac app
 HOSTING.md                        how to set the hosted copy up
+wiki/                             the GitHub wiki's source; publish-wiki.yml copies it there
 build/                            generated; config/settings.ini is NOT overwritten
 ```
 
@@ -89,7 +91,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1593 python passed; 614 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1616 python passed; 615 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -242,7 +244,7 @@ does: settings and logs beside the exe (`config/`, `logs/`, through the same
 `AO3DOWNLOADER_CONFIG_FOLDER` / `_LOG_FOLDER` a build uses), the prebuilt page served from the
 exe's own files, the helper started in the foreground (`server.serve`, so everything the
 helper says and does is unchanged), the browser opened once the helper answers.
-`package_windows.py` stages the page and settings through `build_artifacts`' own functions,
+`package_app.py` stages the page and settings through `build_artifacts`' own functions,
 runs PyInstaller, and zips the folder. The bundler follows imports from `desktop` as well as
 `server` (`APP_ENTRY`), so it is shipped in `build/` too rather than reported left behind.
 
@@ -263,7 +265,7 @@ What not to break:
 - **PyInstaller builds for the system it runs on.** `build-windows.yml` builds on
   `windows-latest`, unzips the result, starts the exe (`AO3DOWNLOADER_NO_BROWSER`), and fails
   unless the page and the helper both answer and `settings.ini` appeared beside the exe. Run
-  on Linux, `package_windows.py` builds the same app for Linux - which is how it was tested
+  on Linux, `package_app.py` builds the same app for Linux - which is how it was tested
   here. PyInstaller is in the `package` dependency group, so nothing else installs it.
 - **Its settings.ini comes from the deployment's variables, pointed at its own helper.**
   `deploy_config.py local-settings` (`write_local_settings`) sets every key from the same
@@ -275,7 +277,7 @@ What not to break:
   rather than a second variable when it should always differ.
   `refuse_hosted_addresses` then fails the build if the text names the hosted helper's host
   or the page's origin anywhere - through any key, not only those three. Nothing is added:
-  the same keys and comments as the template, `SavePassword` left out. `package_windows.py
+  the same keys and comments as the template, `SavePassword` left out. `package_app.py
   --settings` packs that file **inside** the app (`_internal/defaults/settings.ini`,
   `DEFAULTS_FOLDER`), and the page's `app-config.json` is read from it, so the two agree; the
   workflow's smoke test checks the page points at `127.0.0.1:4400`. The template's own example
@@ -287,12 +289,74 @@ What not to break:
   the deployment's values and dropped ones commented out as deprecated (see **A settings.ini
   is only ever added to**). Don't put `config/` back in the zip.
 
-### The Windows app updates itself
+### The Mac app is the same app, started by a script
+
+`build-mac.yml` runs `package_app.py` twice, as a matrix: on `macos-latest` for Apple
+silicon and on `macos-15-intel` for Intel, adding `ao3downloader-macos-apple-silicon.zip` and
+`ao3downloader-macos-intel.zip` to the same release as the Windows zip (`package_app.system`
+names a Mac zip by `platform.machine()`; Windows stays plain `windows`, the name the updater
+looks for). **Not one universal build**: that needs a universal Python and universal copies
+of every compiled library, and the Python uv installs is per-chip; the Intel build would run
+on Apple silicon through Rosetta, but Apple is winding Rosetta down. Each job checks
+`lipo -archs` on its program matches its chip, and each README names the other zip. The
+program is the same `desktop.py`; what differs is all about getting a Mac to start it and to
+use the right browser.
+
+- **`Start ao3downloader.command` is what people double-click** (`MAC_LAUNCHER`), not the
+  program. A browser quarantines a download and Archive Utility quarantines every file it
+  unzips, so an unsigned program would be refused, and each library it loads could be too.
+  The script is the one thing macOS asks about (Privacy & Security > Open Anyway - macOS 15
+  dropped Control-click > Open), and it `xattr -dr com.apple.quarantine .` its own folder
+  before it `exec`s the program, so nothing is asked twice. The CI marks every unzipped file
+  quarantined, runs the script, and fails if any mark is left.
+- **`make_zip` keeps permissions and stores symlinks as symlinks.** The program and the
+  script must stay executable, and PyInstaller's Mac output links parts of its folder to each
+  other: `os.walk` does not follow a link to a folder, and a link to a file followed is a
+  second copy. The CI unzips with `ditto`, as Finder does, and runs `codesign --verify` - an
+  Apple silicon Mac will not run a binary whose ad-hoc signature a copy broke.
+- **Chrome is asked for by name** (`desktop.open_page`, `MAC_BROWSERS`), because the page opens
+  a folder through the File System Access API and a Mac's default browser, Safari, has none.
+  `open -a` fails for an app that is not installed, so the next is tried, and only when none
+  is there does it fall back to the default browser - whose page then says why it cannot open
+  a folder. The window says `open Chrome to http://localhost:4200` (`where_to_go`), not "any
+  web browser".
+- **Update now works on a Mac too** - see **The app updates itself** for the Mac's side.
+- **Intel Macs keep `cryptography<49`** (`pyproject.toml`, by marker; uv locks both versions).
+  cryptography stopped publishing Intel Mac wheels at 49, so uv compiled it on the Intel
+  runner against Homebrew's OpenSSL; PyInstaller packed a different `libssl.3.dylib`, and the
+  app died at import with `Symbol not found: _SSL_get0_group_name`. 48.0.1's universal2 wheel
+  carries its own OpenSSL. Every other platform stays on the latest.
+- **Both builds publish to one release, at once.** Whichever gets there first creates it and
+  the other's create fails harmlessly, then each uploads its zip with `--clobber`. The notes
+  are the same text in both workflows, since either may write them. For the minutes between
+  the release appearing and a system's zip landing, Update now there fails with "the latest
+  release has no ao3downloader-<system>.zip" - clear, and gone on the next try.
+
+### The app updates itself
 
 **Update now** (the banner, only when `/api/config` says `app.updatable`) posts
-`/api/update`; `source_code/updater.py` does the rest. Only the packaged app on Windows with
-a version and a repository has an `Updater` (`desktop.make_updater`, set on
+`/api/update`; `source_code/updater.py` does the rest. Only the packaged app on Windows or a
+Mac with a version and a repository has an `Updater` (`desktop.make_updater`, set on
 `Handler.updater`); every other helper answers 404 and its page only links the release.
+`updater.kind_for` says what an update is on each system (`Kind`): which release asset
+(`ao3downloader-windows.zip`, or `ao3downloader-macos-<chip>.zip` by `platform.machine()`),
+which program must be in the zip, and which swap script, started how.
+
+**On a Mac** the swap is bash (`MAC_SWAP_SCRIPT`, `update/apply-update.sh`), started in a new
+session (`start_new_session`) so closing the app's Terminal window does not take it along. It
+does what the PowerShell one does, in the same order, writing the **same log lines**
+(`swapped`, `update failed:`) so `last_result` reads either - but needs no retry loop, since a
+rename on one disk cannot be half-done or locked. It restarts the app with `open -a Terminal`
+on the launcher, **in a new window**, which gets none of the script's environment - so instead
+of `AO3DOWNLOADER_NO_BROWSER` it leaves `update/restarted`, which `desktop.restarted_by_update`
+reads and deletes (no second tab, once). The old window says it can be closed. **`unpack`
+restores each file's mode and makes symlinks as symlinks** (`ZipFile.extract` does neither,
+and the Mac app needs both), and **`check_zip` refuses a symlink that is absolute or climbs out
+of the app**, so a link cannot reach past the folder the zip unpacks into. Files `requests`
+downloads carry no quarantine mark, so an updated app opens without Gatekeeper asking again.
+`test_mac_update.py` runs the real script under bash with stand-in `open` and `mv`: a clean
+swap, and a failed move rolled back.
+
 
 - **One run or one update, never both.** `start_update` checks for a run and `claim`s the
   updater under `Handler.jobs_lock` - the lock a run is started under - and a run start checks
@@ -326,7 +390,8 @@ a version and a repository has an `Updater` (`desktop.make_updater`, set on
   the helper not answering is the swap, not a failure; the same version coming back after
   that is. It reloads the page once the helper reports the new version, and gives up after
   `waitMs`. A reported failure is shown once and remembered as seen (`ao3.updateFailureSeen`).
-- **Tested end to end on Windows**: `build-windows.yml` installs the zip, edits its
+- **Tested end to end on Windows and both Macs**: `build-windows.yml` (and `build-mac.yml`, the
+  same way, checking the app came back in a new Terminal window) installs the zip, edits its
   settings.ini (a changed value, a comment, a key the app does not know), serves the same zip
   as `99.0.0` from `stand_in_release.py`, posts `/api/update`, and checks the files were
   replaced, the edits kept, the unknown key commented out as deprecated, and `update/` cleaned
@@ -352,7 +417,7 @@ anything is built**, so two deployments can never build one version; a deploymen
 later has used its number, and the next takes the one after - a gap, never a repeat.
 
 **Every build in the run gets that one version**: the hosted page's `app-config.json`
-(`page-config --version --repo`), and the Windows app's page (`package_windows.py --version
+(`page-config --version --repo`), and the Windows app's page (`package_app.py --version
 --repo`, through `write_page_config`). The zip becomes that version's GitHub release.
 
 **It is in `app-config.json`, not settings.ini** - on purpose. settings.ini is only ever added to,
@@ -1738,6 +1803,10 @@ Three rules worth keeping:
 - **`TECH_DEBT.md` (project root) lists the known weak spots** - `from_collections` among
   them, and index writes that find an entry by the name it would have now. Read it before
   working near either, and add to it when you leave something fragile behind.
+- **`wiki/` is the GitHub wiki, short.** `publish-wiki.yml` replaces the wiki with it on every
+  change on `main`, so edit it there, never on the wiki. It is the brief version for people
+  using the app; the root documents stay the full record. When a change alters what a user
+  sees or does - a run, an option, a setting, a file name - update the page it belongs on.
 - **Keep `TERMINOLOGY.md` (project root) up to date with every change to the codebase.** It
   lists the project's terms (with the synonyms used in chat), each workflow's programmatic
   name, options and steps, and how every step works. Whenever a change adds, renames or

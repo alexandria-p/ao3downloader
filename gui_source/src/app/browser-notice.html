@@ -2,35 +2,49 @@
 
 <div class="dialog" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
   <header>
-    <h2>This works in Chromium browsers</h2>
+    <h2>Saving to Dropbox, or to this device</h2>
     <button type="button" class="icon" (click)="dismiss()" aria-label="Close">&times;</button>
   </header>
 
   <section class="body">
-    @if (supported) {
+    <div class="option">
+      <h3>Using Dropbox? You are all set.</h3>
       <p>
-        Everything is saved straight into the folder you choose - your downloaded works, the
-        index, any images, and the record of each run. Nothing is uploaded anywhere, and
-        nothing is kept by this site.
+        A library in Dropbox works in any browser, on any device - phones and tablets
+        included - and a run can carry on without this page, if you tick
+        <strong>Run as background task</strong> when you start it.
       </p>
+    </div>
 
-      <p class="hint">
-        Writing into a folder you picked needs the File System Access API, which
-        <strong>Chrome, Edge, Brave, Opera and Arc</strong> have. Firefox and Safari do not,
-        so downloading will not work there. Your browser supports it, so you are set.
-      </p>
+    <div class="option">
+      <h3>Saving to a folder on this device needs three things</h3>
+      <ul>
+        <li><strong>A computer</strong>, not a phone or tablet.</li>
+        <li>
+          <strong>A Chromium browser</strong> - Chrome, Edge, Brave, Opera or Arc. Writing to
+          a folder you pick needs the File System Access API, which Firefox and Safari do not
+          have.
+        </li>
+        <li>
+          <strong>This page kept open for the whole run.</strong> The page does the saving, so
+          closing it stops the run - and a large library can take hours.
+        </li>
+      </ul>
+    </div>
+
+    @if (supported) {
+      <p class="hint">This browser can save to a folder on this device.</p>
     } @else {
       <p class="warning">
-        <strong>This browser cannot download.</strong> Saving into a folder you choose needs
-        the File System Access API, and only Chromium browsers have it -
-        <strong>Chrome, Edge, Brave, Opera or Arc</strong>. Firefox and Safari do not.
-      </p>
-
-      <p class="hint">
-        You can still open a folder and browse a library that is already there. Starting a
-        run needs one of the browsers above.
+        <strong>This browser cannot save to a folder on this device.</strong> Use Dropbox,
+        or open this page in one of the browsers above on a computer. You can still open a
+        folder here and browse a library that is already in it.
       </p>
     }
+
+    <p class="hint">
+      Either way, nothing is uploaded anywhere else, and nothing is kept by this site.
+    </p>
   </section>
 
   <footer>

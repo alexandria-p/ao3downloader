@@ -314,6 +314,9 @@ describe('App', () => {
     const notice = element.querySelector('app-browser-notice');
     expect(notice).toBeTruthy();
     expect(notice?.textContent).toContain('Chromium');
+    // a Dropbox library needs none of it, and the notice says so first
+    expect(notice?.textContent).toContain('Using Dropbox? You are all set.');
+    expect(notice?.textContent).toContain('This page kept open for the whole run');
   });
 
   it('does not say it again once it has been dismissed', async () => {
@@ -683,6 +686,25 @@ describe('App', () => {
       'https://github.com/alexandria-p/ao3downloader/releases/latest',
     );
     expect(first?.textContent).toContain('ao3downloader.exe');
+    expect(first?.textContent).toContain('ao3downloader-macos-apple-silicon.zip');
+    expect(first?.textContent).toContain('ao3downloader-macos-intel.zip');
+    expect(first?.textContent).toContain('Start ao3downloader.command');
+  });
+
+  it('has a Report a bug tab next to the FAQ that points at the GitHub issues', async () => {
+    const { fixture, element } = await render(1);
+    const tabs = Array.from(element.querySelectorAll('nav.views button')).map((b) => b.textContent?.trim());
+    expect(tabs.indexOf('Report a bug')).toBe(tabs.indexOf('FAQ') + 1);
+
+    tab(element, 'Report a bug')!.click();
+    await fixture.whenStable();
+
+    const page = element.querySelector('.report-bug');
+    expect(page?.querySelector('a')?.getAttribute('href')).toBe(
+      'https://github.com/alexandria-p/ao3downloader/issues',
+    );
+    // something to read, not a folder to act on - no run buttons
+    expect(element.querySelector('.actions')).toBeNull();
   });
 
   it('says its version and links the repository on every tab', async () => {

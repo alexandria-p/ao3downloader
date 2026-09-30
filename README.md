@@ -53,12 +53,22 @@ Leave the window open and go to http://localhost:4200.
 - A folder in a zip rather than one self-contained exe on purpose: a one-file exe unpacks itself into a temporary folder on every start, which is slow and is what antivirus programs most often object to.
 - It always serves the page on exactly `localhost:4200`, because that is the address the Dropbox app has registered. If a copy is already running, a second start says so and opens the page instead of starting another helper.
 
-To build it yourself (on Windows, since PyInstaller builds for the system it runs on):
+### The Mac app - for Apple silicon and Intel Macs
+
+The same app, for a Mac: `ao3downloader-macos-apple-silicon.zip` for a Mac with Apple silicon (M1 or later), and `ao3downloader-macos-intel.zip` for an Intel Mac - published in the same release as the Windows zip by the **build mac app** workflow, each on a macOS runner with that chip. Open the zip, move the `ao3downloader` folder somewhere to keep it, and double-click **`Start ao3downloader.command`**. A Terminal window opens, and the app starts the helper, serves the web UI on http://localhost:4200, and opens **Chrome** there. Leave the Terminal window open while you use the app; close it to stop.
+
+- **Use Chrome** - or Edge, Brave, Opera or Arc. The app opens a folder on your Mac through the File System Access API, which Safari and Firefox do not have, so they cannot save your fics. Safari is a Mac's default browser, so the app asks for Chrome by name (then Edge, Brave, Arc, Opera), and only falls back to the default browser if none is installed. The window says `open Chrome to http://localhost:4200` for the same reason.
+- **The first time, macOS will not open it**, because the app is not signed by Apple: it says it cannot check it for malicious software. Click **Done**, then open **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to `Start ao3downloader.command`. You only do this once: the script then lifts the download quarantine off the whole folder, so macOS does not ask again about the program or any of its parts. (From Terminal, `xattr -dr com.apple.quarantine <the folder>` does the same.)
+- **Settings, logs and deployment variables** work exactly as in the Windows app: `config/settings.ini` and `logs/` beside the program, written from the same deployment variables, pointed at the helper on your own Mac, kept across updates and only ever added to.
+- **Updating: click Update now**, as on Windows. The app downloads the zip for its own chip from your latest release, checks its SHA-256, closes, swaps its files with a bash script (`update/apply-update.sh`), and opens again in a new Terminal window; the page reloads itself. The old window can then be closed. If a file will not move, every old file is put back and the old version opens again, saying why (`update/update.log`). Or copy a new zip's contents over the folder by hand - it has no `config/`, so your `settings.ini` stays as it is either way.
+- **Two zips, not one.** PyInstaller builds for the chip it runs on, so each is built on its own runner (`macos-latest` for Apple silicon, `macos-15-intel` for Intel). A single universal build would need a universal Python and universal copies of every compiled library, which the Python uv installs is not. The Intel zip would also run on Apple silicon through Rosetta, but more slowly, and Apple is winding Rosetta down - so each Mac gets its own, and each zip's README points at the other.
+
+To build either app yourself (on the system it is for, since PyInstaller builds for the system it runs on):
 
 ```
 cd powershell_source/ao3_download_helper
 uv sync --group package
-uv run --no-sync python package_windows.py
+uv run --no-sync python package_app.py
 ```
 
 The zip lands in `dist/` at the repository root.
@@ -70,11 +80,11 @@ Actions -> deploy hosted app (under All workflows) -> click Run Workflow event t
 
 It writes settings.ini and page config, build the helper as a dockerfile and pushes it to github container registry (Github Profile -> Packages). Then deploys to 'render' as a web service.
 
-Alongside that it builds the Windows app and publishes it as a release (see **The Windows app** above). That job does not hold up the hosted deploy, and a Windows build that fails does not stop it.
+Alongside that it builds the Windows app and the Mac app and publishes both zips as one release (see **The Windows app** and **The Mac app** above). Neither job holds up the hosted deploy, and an app build that fails does not stop it.
 
 ### Versions
 
-Every deployment is one version, and everything it builds - the page on GitHub Pages and the Windows app - carries it.
+Every deployment is one version, and everything it builds - the page on GitHub Pages, the Windows app and the Mac app - carries it.
 
 The `VERSION` file in the repository root decides it, compared with the latest release on GitHub (its `vX.Y.Z` tag) as the deployment starts:
 
@@ -89,7 +99,7 @@ The `VERSION` file in the repository root decides it, compared with the latest r
 - **A bigger step: raise `VERSION` and commit it** (`2.0.0`, or `1.9.0`), then deploy. Only a version higher than every release is used as it is, so two builds can never share a version.
 - The deployment never writes `VERSION` back - the release tags are the record of what went out. `VERSION` is a floor you raise when you want to.
 - `VERSION` has to be three numbers (`2.0.0`); anything else stops the deployment before it builds.
-- The commit is tagged `vX.Y.Z` as the deployment starts, and the Windows zip is published as that version's release, marked latest.
+- The commit is tagged `vX.Y.Z` as the deployment starts, and the Windows and Mac zips are published as that version's release, marked latest.
 - **Every page shows its version** in a footer pinned to the bottom of the window, on every tab, with a link to the repository on GitHub.
 - **Every copy of the page checks for a newer release** each time it opens, and says so at the top with a link to download it - with **Dismiss and do not ask me again**, which that browser remembers. A page built on your own computer with `generate_build_artifacts.ps1` has no version, and never checks.
 - **The footer always says it too**, next to the version, as underlined text rather than a button: `up to date with latest`, or `update to latest (1.8.3)` - which in the Windows app starts the update, and elsewhere opens the release. So someone who dismissed the banner can still see a newer version is out. Dismissing hides the banner only; the check still runs. The footer says neither until GitHub has answered, so it never claims up to date on a guess.

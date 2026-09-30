@@ -159,6 +159,56 @@ def test_the_browser_is_opened_there_too(monkeypatch):
 
     opened.assert_called_once_with('http://localhost:4200/')
 
+
+class Ran:
+    """Stands in for `open -a`: succeeds only for the applications `installed` names."""
+
+    def __init__(self, installed=()):
+        self.installed = installed
+        self.asked = []
+
+    def __call__(self, command, **_):
+        self.asked.append(command[2])
+        return type('Result', (), {'returncode': 0 if command[2] in self.installed else 1})()
+
+
+def test_on_a_mac_chrome_is_asked_for_by_name_rather_than_the_default_browser(monkeypatch):
+    # Safari is a Mac's default, and it cannot open a folder for the page
+    monkeypatch.delenv(desktop.ENV_NO_BROWSER, raising=False)
+    ran = Ran(installed=('Google Chrome',))
+    with patch.object(desktop.webbrowser, 'open') as opened:
+        desktop.open_page('darwin', run=ran)
+
+    assert ran.asked == ['Google Chrome']
+    assert not opened.called
+
+
+def test_on_a_mac_without_chrome_another_browser_that_can_open_a_folder_is_tried(monkeypatch):
+    monkeypatch.delenv(desktop.ENV_NO_BROWSER, raising=False)
+    ran = Ran(installed=('Brave Browser',))
+    with patch.object(desktop.webbrowser, 'open') as opened:
+        desktop.open_page('darwin', run=ran)
+
+    assert ran.asked == ['Google Chrome', 'Microsoft Edge', 'Brave Browser']
+    assert not opened.called
+
+
+def test_on_a_mac_with_none_of_them_the_default_browser_is_opened(monkeypatch):
+    # the page then says why it cannot open a folder, which is better than nothing opening
+    monkeypatch.delenv(desktop.ENV_NO_BROWSER, raising=False)
+    ran = Ran()
+    with patch.object(desktop.webbrowser, 'open') as opened:
+        desktop.open_page('darwin', run=ran)
+
+    assert ran.asked == list(desktop.MAC_BROWSERS)
+    opened.assert_called_once_with('http://localhost:4200/')
+
+
+def test_on_a_mac_the_window_says_to_use_chrome():
+    assert desktop.where_to_go('darwin').startswith('open Chrome to http://localhost:4200')
+    assert 'Safari' in desktop.where_to_go('darwin')
+    assert desktop.where_to_go('win32') == 'open any web browser to http://localhost:4200'
+
 # endregion
 
 

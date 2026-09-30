@@ -1,21 +1,28 @@
-"""The Windows app: one double-click in place of Start-Application.ps1.
+"""The app, for Windows and macOS: one double-click in place of Start-Application.ps1.
 
-Built into `ao3downloader.exe` by `package_windows.py`. It does what the PowerShell launcher
-does in a generated build - starts the local helper, serves the prebuilt page, and points the
-browser at it - with Python and every dependency inside the exe's folder, so nothing has to
-be installed first.
+Built into the `ao3downloader` program by `package_app.py`. It does what the PowerShell
+launcher does in a generated build - starts the local helper, serves the prebuilt page, and
+points the browser at it - with Python and every dependency inside the program's folder, so
+nothing has to be installed first.
 
-Everything the app writes sits beside the exe: `config/` (settings.ini, data.json) and
+Everything the app writes sits beside the program: `config/` (settings.ini, data.json) and
 `logs/`. The library - where fics are saved - is still whichever folder the page opens.
 
 The page is served at exactly `http://localhost:4200`, never another port: the Dropbox
 sign-in returns to the page's own address, and that address has to be registered with the
 Dropbox app. A page on 4201 could not sign in to Dropbox.
+
+On a Mac the browser matters more than on Windows. The page opens a folder through the File
+System Access API, which Chromium has and Safari and Firefox do not - and Safari is what a Mac
+opens by default. So there the app asks for Chrome, or another Chromium browser, by name
+(`MAC_BROWSERS`), and only falls back to the default browser when none is installed; the page
+then says why it cannot open a folder.
 """
 
 import functools
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -32,11 +39,16 @@ PAGE_URL = f'http://localhost:{PAGE_PORT}/'
 # what the window tells people to open, for when the browser does not open by itself - or
 # they closed it, or want a different one
 OPEN_THIS = f'open any web browser to http://localhost:{PAGE_PORT}'
+# on a Mac the default browser is Safari, which cannot open a folder for the page
+OPEN_THIS_ON_A_MAC = (f'open Chrome to http://localhost:{PAGE_PORT} - not Safari or Firefox, '
+                      'which cannot open a folder to save your fics in')
+# asked for by name on a Mac, first installed wins: each can open a folder for the page
+MAC_BROWSERS = ('Google Chrome', 'Microsoft Edge', 'Brave Browser', 'Arc', 'Opera')
 
 CONFIG_FOLDER = 'config'
 LOG_FOLDER = 'logs'
 WEB_FOLDER = 'web'
-# the settings this build was made with, inside the app's own files (package_windows.py)
+# the settings this build was made with, inside the app's own files (package_app.py)
 DEFAULTS_FOLDER = 'defaults'
 
 # set to anything to start without opening a browser - for the build's own smoke test
@@ -47,7 +59,7 @@ HELPER_WAIT_SECONDS = 15
 
 
 def app_folder() -> str:
-    """The folder the exe is in - or, run as plain python, the current folder."""
+    """The folder the program is in - or, run as plain python, the current folder."""
 
     if getattr(sys, 'frozen', False):
         return os.path.dirname(os.path.abspath(sys.executable))
@@ -101,14 +113,29 @@ def build_info(web: str) -> tuple[str, str]:
 
 
 def make_updater(root: str, web: str) -> 'updates.Updater | None':
-    """An updater for this app, when it can update itself: the packaged app on Windows (the
-    swap runs in PowerShell, and only a packaged app is a folder to swap), built with a version
-    and a repository to look for a newer one in."""
+    """An updater for this app, when it can update itself: the packaged app on Windows or a Mac
+    (only a packaged app is a folder to swap), built with a version and a repository to look for
+    a newer one in."""
 
-    if sys.platform != 'win32' or not getattr(sys, 'frozen', False): return None
+    kind = updates.kind_for()
+    if not kind or not getattr(sys, 'frozen', False): return None
     version, repository = build_info(web)
     if not version or not repository: return None
-    return updates.Updater(root, version, repository)
+    return updates.Updater(root, version, repository, kind=kind)
+
+
+def restarted_by_update(root: str) -> bool:
+    """Whether a Mac update's swap just started this app - it leaves a marker, since a window
+    opened in Terminal gets none of its environment. Read once and removed: the page is still
+    open and reloads itself, so no second tab, this time only."""
+
+    marker = os.path.join(root, updates.UPDATE_FOLDER, updates.RESTARTED_MARKER)
+    if not os.path.exists(marker): return False
+    try:
+        os.remove(marker)
+    except OSError:
+        pass
+    return True
 
 
 def use_folders(root: str) -> None:
@@ -135,6 +162,27 @@ def page_server(folder: str) -> ThreadingHTTPServer:
     return ThreadingHTTPServer((PAGE_HOST, PAGE_PORT), handler)
 
 
+def where_to_go(platform: str | None = None) -> str:
+    """What the window tells people to open."""
+
+    return OPEN_THIS_ON_A_MAC if (platform or sys.platform) == 'darwin' else OPEN_THIS
+
+
+def open_page(platform: str | None = None, run=subprocess.run) -> None:
+    """Point a browser at the page - on a Mac, one that can open a folder for it."""
+
+    if os.environ.get(ENV_NO_BROWSER): return
+    if (platform or sys.platform) == 'darwin':
+        for browser in MAC_BROWSERS:
+            try:
+                # `open -a` fails when there is no such application installed
+                if run(['open', '-a', browser, PAGE_URL], capture_output=True).returncode == 0:
+                    return
+            except OSError:
+                break
+    webbrowser.open(PAGE_URL)
+
+
 def open_browser_when_ready(port: int) -> None:
     """Open the page once the helper answers, so the first thing it does - asking the helper
     for its settings - does not fail. Opened anyway after a while: the page can still browse
@@ -144,9 +192,9 @@ def open_browser_when_ready(port: int) -> None:
     while time.monotonic() < deadline and not server.already_listening(server.HOST, port):
         time.sleep(0.25)
     print()
-    print(OPEN_THIS)
+    print(where_to_go())
     print()
-    if not os.environ.get(ENV_NO_BROWSER): webbrowser.open(PAGE_URL)
+    open_page()
 
 
 def stop(message: str) -> int:
@@ -165,6 +213,7 @@ def stop(message: str) -> int:
 def main() -> int:
     root = app_folder()
     use_folders(root)
+    if restarted_by_update(root): os.environ[ENV_NO_BROWSER] = '1'
     settings_up_to_date(root)
     web = web_folder()
     port = int(os.environ.get(server.ENV_PORT) or server.DEFAULT_PORT)
@@ -180,8 +229,8 @@ def main() -> int:
         # almost always the app already running, in another window. opening the page is
         # what the person wanted, so do that rather than only complaining
         print('ao3downloader seems to be running already, in another window.')
-        print(OPEN_THIS)
-        if not os.environ.get(ENV_NO_BROWSER): webbrowser.open(PAGE_URL)
+        print(where_to_go())
+        open_page()
         return stop('if the page does not work, close every ao3downloader window and start it again.')
 
     server.Handler.updater = make_updater(root, web)

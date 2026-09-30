@@ -148,7 +148,8 @@ and run anywhere, rather than a site to host publicly.
 ================================================================================
 
 Every deployment ("deploy hosted app" in the Actions tab) is one version, and
-everything it builds carries it: the page on GitHub Pages and the Windows app.
+everything it builds carries it: the page on GitHub Pages, the Windows app and
+the Mac app.
 The page shows it in the footer on every tab.
 
 The VERSION file in the project root decides it, compared with the latest
@@ -171,7 +172,8 @@ are the record of what went out. A VERSION that is not three numbers stops the
 deployment before anything is built.
 
 Each deployment tags the commit with its version, and publishes the Windows app
-as that version's GitHub release, marked latest. Every copy of the page checks
+and the Mac app as that version's GitHub release, marked latest - one zip each,
+built side by side by the "build windows app" and "build mac app" workflows. Every copy of the page checks
 for a newer release each time it opens and says so at the top, with a link to
 download it and a "Dismiss and do not ask me again" button that the browser
 remembers. Dismissing hides that banner only: the footer on every tab always
@@ -212,3 +214,33 @@ config\settings.ini with them:
 
 The same happens to build\config\settings.ini when the bundle is rebuilt, and
 to the settings.ini of a helper started any other way, each time it starts.
+
+
+================================================================================
+ THE MAC APP
+================================================================================
+
+The same app, for a Mac, in two zips - one per kind of Mac, because the app is
+built for the chip of the machine it is built on:
+
+    ao3downloader-macos-apple-silicon.zip   a Mac with an M1 or later
+    ao3downloader-macos-intel.zip           an Intel Mac
+
+Both are built by the "build mac app" workflow, each on a macOS runner with that
+chip, and published in the same release as the Windows zip.
+
+  1. open the zip, and move the ao3downloader folder somewhere to keep it
+  2. double-click "Start ao3downloader.command" - a Terminal window opens, and
+     Chrome opens the app on http://localhost:4200
+  3. the first time, macOS will not open it, because it is not signed by Apple:
+     click Done, then System Settings > Privacy & Security > Open Anyway. Only
+     once - the script clears the download quarantine off the whole folder
+
+Use Chrome, Edge, Brave, Opera or Arc. Safari and Firefox cannot open a folder
+on the Mac for a web page, so they cannot save your fics; the app asks for
+Chrome by name for that reason, rather than the default browser.
+
+"Update now" works on a Mac too: the app downloads the zip for its own chip,
+closes, swaps its files with a bash script (update/apply-update.sh) and opens
+again in a new Terminal window. Or copy a new zip's contents over the folder by
+hand. settings.ini is kept and only added to, exactly as on Windows.

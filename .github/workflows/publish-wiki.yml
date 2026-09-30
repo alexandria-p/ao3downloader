@@ -1,0 +1,59 @@
+name: publish wiki
+
+# Copies wiki/ to the repository's GitHub wiki, which is a git repository of its own
+# (<repo>.wiki.git). wiki/ is the source: whatever is on the wiki is replaced, so edit the pages
+# there, not on the wiki. wiki/README.md explains the folder and is not published.
+#
+# GitHub only creates a wiki's repository once it has a page, so before the first run turn
+# Wikis on (Settings > General > Features) and save any page on the Wiki tab. This run then
+# replaces it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wiki/**'
+      - '.github/workflows/publish-wiki.yml'
+  workflow_dispatch:
+
+permissions:
+  # the workflow's own token can push to this repository's wiki
+  contents: write
+
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish wiki/ to the wiki
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: copy wiki/ to the wiki
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
+          target="$RUNNER_TEMP/wiki"
+          if ! git clone --quiet --depth 1 "$remote" "$target" 2>/dev/null; then
+            echo "::error::there is no wiki to publish to yet. Turn Wikis on (Settings > General > Features), save any first page on the Wiki tab, then run this again."
+            exit 1
+          fi
+          cd "$target"
+          # replaced, not merged: a page deleted from wiki/ goes from the wiki too
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          rsync -a --exclude README.md "$GITHUB_WORKSPACE/wiki/" ./
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'the wiki is already up to date'
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' \
+              -c user.email='41898269+github-actions[bot]@users.noreply.github.com' \
+              commit --quiet -m "Publish wiki/ from ${GITHUB_SHA::7}"
+          git push --quiet origin HEAD
+          echo "published: https://github.com/${GITHUB_REPOSITORY}/wiki"

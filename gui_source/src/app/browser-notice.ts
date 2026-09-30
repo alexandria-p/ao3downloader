@@ -10,13 +10,14 @@ export function browserNoticeSeen(): boolean {
 }
 
 /**
- * Said once, on the first visit: this needs a Chromium browser.
+ * Said once, on the first visit: where a library can be kept, and what each way needs.
  *
- * Everything is written straight into the folder you pick - the works, the index, the
- * images, the run history - and the only way a page can write to a folder you chose is the
- * File System Access API, which Chromium has and Firefox and Safari do not. There is no
- * fallback that writes: a page without it can be handed files to read, but cannot put one
- * back.
+ * A library in Dropbox needs nothing special - the page reaches it over Dropbox's own api,
+ * in any browser on any device, and a background run can carry on with the page closed. A
+ * folder on this device is the demanding one: the page writes into it itself, which takes the
+ * File System Access API (Chromium on a computer - Firefox, Safari and mobile browsers do not
+ * have it), and the page has to stay open for the whole run, because it is the page that does
+ * the writing. A large library can take hours, and that is worth knowing before starting.
  *
  * Shown on the first visit rather than at the moment it bites, because the moment it bites
  * is after someone has picked a folder and started a run - too late to be useful. Dismissing
@@ -31,7 +32,7 @@ export function browserNoticeSeen(): boolean {
 export class BrowserNotice {
   readonly dismissed = output<void>();
 
-  /** whether this browser can actually do it, which changes the note from a caveat to a wall */
+  /** whether this browser can save to a folder here, which turns the last line into a warning */
   protected readonly supported = supportsDirectoryPicker();
 
   protected dismiss(): void {
