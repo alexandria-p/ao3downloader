@@ -314,6 +314,9 @@ describe('App', () => {
     const notice = element.querySelector('app-browser-notice');
     expect(notice).toBeTruthy();
     expect(notice?.textContent).toContain('Chromium');
+    // a Dropbox library needs none of it, and the notice says so first
+    expect(notice?.textContent).toContain('Using Dropbox? You are all set.');
+    expect(notice?.textContent).toContain('This page kept open for the whole run');
   });
 
   it('does not say it again once it has been dismissed', async () => {

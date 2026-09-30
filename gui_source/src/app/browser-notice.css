@@ -80,6 +80,36 @@ footer {
   border-top: 1px solid var(--border);
 }
 
+/* the two ways to keep a library, each in its own box so the one that applies is easy to find */
+.option {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+
+.option h3 {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.option p,
+.option ul {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.option ul {
+  padding-left: 18px;
+}
+
+.option li + li {
+  margin-top: 4px;
+}
+
 .hint {
   margin: 0 0 12px;
   color: var(--text-dim);
