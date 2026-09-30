@@ -1,0 +1,181 @@
+name: build mac app
+
+# The Mac app: a zip holding the ao3downloader program and "Start ao3downloader.command",
+# which starts the helper, serves the page and opens Chrome - in place of
+# Start-Application.ps1, with nothing to install first. package_app.py builds it; this runs it
+# on macOS, because PyInstaller builds for the system it runs on. macos-latest is Apple
+# silicon, so the app is for Apple silicon Macs.
+#
+# `deploy hosted app` calls it with the version that deployment decided on, and the zip is
+# then added to that version's release, beside the Windows one. Run by hand from the Actions
+# tab it builds and tries the app; given a version it publishes that too. The zip is always
+# kept as a download on the run.
+#
+# There is no in-app update on a Mac - the swap is a Windows script - so nothing here tries
+# one: the page links the newer release instead.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish it as, e.g. 1.8.3. Empty to build and try it only.'
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: false
+        default: ''
+  # built and tried - never published - on a pull request that changes how it is built
+  pull_request:
+    paths:
+      - '.github/workflows/build-mac.yml'
+      - 'powershell_source/ao3_download_helper/package_app.py'
+      - 'powershell_source/ao3_download_helper/source_code/desktop.py'
+      - 'powershell_source/ao3_download_helper/source_code/settings_file.py'
+      - 'powershell_source/ao3_download_helper/build_artifacts.py'
+      - 'powershell_source/ao3_download_helper/pyproject.toml'
+      - 'powershell_source/ao3_download_helper/uv.lock'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and try the mac app
+    runs-on: macos-latest
+    timeout-minutes: 30
+    permissions:
+      # only to publish the release
+      contents: write
+    env:
+      APP_VERSION: ${{ inputs.version || '0.0.1' }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          # the angular cli needs 22.22.3+ or 24.15+
+          node-version: 24
+          cache: npm
+          cache-dependency-path: gui_source/package-lock.json
+
+      - name: setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: install the page's dependencies
+        working-directory: gui_source
+        run: npm ci
+
+      - name: install the helper's dependencies and pyinstaller
+        working-directory: powershell_source/ao3_download_helper
+        run: uv sync --frozen --group package
+
+      - name: write the app's settings.ini from the deployment variables
+        # the same variables, and the same pinned local-helper settings, as the Windows app
+        working-directory: powershell_source/ao3_download_helper
+        env:
+          # variables only - secrets are never in `vars`, and none is used here
+          DEPLOY_VARIABLES: ${{ toJSON(vars) }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
+          export DEFAULT_PAGE_ORIGIN="https://${owner}.github.io"
+          uv run --no-sync python deploy_config.py local-settings --out mac-settings.ini
+
+      - name: build the app
+        working-directory: powershell_source/ao3_download_helper
+        run: |
+          uv run --no-sync python package_app.py --settings mac-settings.ini \
+            --version "$APP_VERSION" --repo "$GITHUB_REPOSITORY"
+
+      - name: unzip it as a download would be, start it, and check the page and the helper answer
+        # what someone downloading it does: unzip it as Finder does (ditto keeps what the
+        # zip holds - permissions and links), with every file quarantined as a browser marks a
+        # download, then double-click the .command - here, run it. no browser on a runner
+        env:
+          AO3DOWNLOADER_NO_BROWSER: '1'
+        run: |
+          place="$RUNNER_TEMP/unzipped"
+          rm -rf "$place" && mkdir -p "$place"
+          ditto -x -k dist/ao3downloader-macos.zip "$place"
+          app="$place/ao3downloader"
+          find "$app" -exec xattr -w com.apple.quarantine "0081;$(printf %x "$(date +%s)");Chrome;" {} \; 2>/dev/null || true
+          if ! xattr -p com.apple.quarantine "$app/ao3downloader" >/dev/null 2>&1; then
+            echo "could not mark the download quarantined"; exit 1
+          fi
+
+          # the zip must not have broken the signature an Apple silicon Mac insists on
+          codesign --verify --verbose "$app/ao3downloader"
+          if [ ! -x "$app/Start ao3downloader.command" ]; then echo "the launcher is not executable"; exit 1; fi
+
+          # the launcher execs the program, so this is the app's own process
+          bash "$app/Start ao3downloader.command" > "$RUNNER_TEMP/app.log" 2>&1 &
+          started=$!
+          stop() { kill "$started" 2>/dev/null || true; }
+          trap stop EXIT
+          ok=''
+          for try in $(seq 1 60); do
+            sleep 1
+            if ! kill -0 "$started" 2>/dev/null; then echo "the app stopped by itself"; cat "$RUNNER_TEMP/app.log"; exit 1; fi
+            if curl -sf -o /dev/null http://localhost:4200/ \
+              && curl -sf -o /dev/null -H 'Origin: http://localhost:4200' http://127.0.0.1:4400/api/config; then
+              ok=yes; break
+            fi
+          done
+          if [ -z "$ok" ]; then echo "the page or the helper never answered"; cat "$RUNNER_TEMP/app.log"; exit 1; fi
+
+          if [ ! -f "$app/config/settings.ini" ]; then echo "no settings.ini beside the program"; exit 1; fi
+          # the launcher lifts the quarantine off the whole folder, so macOS asks only once
+          if xattr -r "$app" | grep -q com.apple.quarantine; then
+            echo "files are still quarantined:"; xattr -r "$app" | grep com.apple.quarantine | head; exit 1
+          fi
+          # the page must be pointed at the app's own helper, never the hosted one
+          config=$(curl -s http://localhost:4200/app-config.json)
+          echo "$config"
+          helper=$(echo "$config" | python3 -c 'import json,sys; print(json.load(sys.stdin)["helperUrl"])')
+          version=$(echo "$config" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          if [ "$helper" != 'http://127.0.0.1:4400' ]; then echo "the page points at $helper"; exit 1; fi
+          if [ "$version" != "$APP_VERSION" ]; then echo "the page says version '$version', not '$APP_VERSION'"; exit 1; fi
+          # no in-app updater on a Mac: the page must not offer Update now
+          updatable=$(curl -s -H 'Origin: http://localhost:4200' http://127.0.0.1:4400/api/config \
+            | python3 -c 'import json,sys; print(bool((json.load(sys.stdin).get("app") or {}).get("updatable")))')
+          if [ "$updatable" != 'False' ]; then echo "the helper offers an in-app update on a Mac"; exit 1; fi
+          echo 'the page and the helper both answered, settings.ini is beside the program, and nothing is quarantined'
+
+      - name: keep the zip on this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: ao3downloader-macos
+          path: dist/ao3downloader-macos.zip
+          retention-days: 30
+
+      - name: add it to this version's release
+        # never from a pull request, which has no version
+        if: github.event_name != 'pull_request' && inputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ inputs.version }}
+          VERSION: ${{ inputs.version }}
+        # the Windows build publishes to the same release, at the same time: whichever gets
+        # there first makes it, and the other's create fails harmlessly. keep the notes the same
+        # in both workflows, since either may be the one that writes them
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --latest \
+              --title "ao3downloader $VERSION" \
+              --notes "Windows: download ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe. Windows may warn that the app is not signed: choose More info, then Run anyway.
+
+          Mac (Apple silicon): download ao3downloader-macos.zip, open it, and double-click Start ao3downloader.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
+
+          The README inside each zip says the rest." \
+              || echo 'the release was made meanwhile, by the other build'
+          fi
+          gh release upload "$TAG" dist/ao3downloader-macos.zip --clobber
+          echo "published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

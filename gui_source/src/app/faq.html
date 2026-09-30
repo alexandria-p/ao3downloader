@@ -3,11 +3,21 @@
   <div class="download-app" role="note">
     <p>
       <strong>Run it on your own computer.</strong>
-      The Windows app is everything this page needs, in one download - nothing else to install.
-      <a [href]="latestUrl" target="_blank" rel="noopener">Download the latest version from GitHub</a>
-      (<code>ao3downloader-windows.zip</code>), unzip it, and double-click
-      <code>ao3downloader.exe</code>.
+      The app is everything this page needs, in one download - nothing else to install.
+      <a [href]="latestUrl" target="_blank" rel="noopener">Download the latest version from GitHub</a>:
     </p>
+    <ul>
+      <li>
+        <strong>Windows:</strong> <code>ao3downloader-windows.zip</code> - unzip it and
+        double-click <code>ao3downloader.exe</code>.
+      </li>
+      <li>
+        <strong>Mac</strong> (Apple silicon): <code>ao3downloader-macos.zip</code> - open it and
+        double-click <code>Start ao3downloader.command</code>. Use it in Chrome, Edge, Brave or
+        Arc: Safari and Firefox cannot open a folder to save your fics in.
+      </li>
+    </ul>
+    <p>The README in the zip says what to do the first time, when the app is not yet trusted.</p>
     @if (version) {
       <p>This page is version {{ version }}.</p>
     }

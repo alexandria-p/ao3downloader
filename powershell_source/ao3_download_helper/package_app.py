@@ -1,22 +1,23 @@
-"""Build the Windows app: a zip holding `ao3downloader.exe` and everything it needs.
+"""Build the app for Windows or macOS: a zip holding the `ao3downloader` program and everything
+it needs.
 
-Unzipped and double-clicked, the exe does what `Start-Application.ps1` does in a generated
-build - see `source_code/desktop.py` - with Python and every dependency packed beside it, so
-the person using it needs no PowerShell, uv or Python.
+Unzipped and started, the program does what `Start-Application.ps1` does in a generated build -
+see `source_code/desktop.py` - with Python and every dependency packed beside it, so the person
+using it needs no PowerShell, uv or Python.
 
-A folder in a zip rather than one self-contained exe, on purpose: a one-file exe unpacks
-itself into a temporary folder on every start, which is slow and is the thing antivirus
-programs most often object to, and the app needs a folder beside it for its settings and
-logs anyway.
+A folder in a zip rather than one self-contained program, on purpose: a one-file program
+unpacks itself into a temporary folder on every start, which is slow and is the thing antivirus
+programs most often object to, and the app needs a folder beside it for its settings and logs
+anyway.
 
-PyInstaller builds for the system it runs on, so the Windows zip is built on Windows - the
-`build windows app` workflow does it on a Windows runner. Run elsewhere, this builds the same
-app for that system, which is how it is tested.
+PyInstaller builds for the system it runs on, so each zip is built on its own system - the
+`build windows app` and `build mac app` workflows do it on a Windows and a macOS runner. Run on
+Linux, this builds the same app for Linux, which is how it is tested.
 
     uv sync --group package
-    uv run --no-sync python package_windows.py [--skip-web] [--settings windows-settings.ini]
+    uv run --no-sync python package_app.py [--skip-web] [--settings app-settings.ini]
 
-`--settings` is the settings.ini to ship - the workflow writes one from the deployment's
+`--settings` is the settings.ini to ship - the workflows write one from the deployment's
 variables with `deploy_config.py local-settings`, pointed at the app's own helper. Without it
 the app ships the template's.
 
@@ -24,7 +25,9 @@ The zip lands in `dist/` at the repository root.
 """
 
 import argparse
+import os
 import shutil
+import stat
 import sys
 import zipfile
 from pathlib import Path
@@ -44,7 +47,21 @@ WORK = Path(DIST) / 'pyinstaller'
 # the one the user has edited
 DEFAULTS_FOLDER = 'defaults'
 
-README = """ao3downloader
+# on a Mac, what someone double-clicks. A program downloaded from the internet is quarantined,
+# and so is every file unzipped from it; macOS asks once about this script (see MAC_README),
+# and the script then lifts the quarantine off the rest of the folder, so the program and its
+# libraries are not each refused in turn
+MAC_LAUNCHER = 'Start ao3downloader.command'
+MAC_LAUNCHER_SCRIPT = """#!/bin/bash
+# double-click to start ao3downloader. it opens in Terminal - leave that window open while you
+# use the app, and close it to stop.
+cd "$(dirname "$0")" || exit 1
+# a downloaded zip marks everything in it as quarantined; this app is opened on purpose
+xattr -dr com.apple.quarantine . 2>/dev/null
+exec ./ao3downloader
+"""
+
+WINDOWS_README = """ao3downloader
 =============
 
 Starting it
@@ -79,6 +96,56 @@ If it will not start
 The window says why and stays open. The usual reason is that the app is already running in
 another window: close every ao3downloader window and start it again.
 """
+
+MAC_README = f"""ao3downloader
+=============
+
+This is for Macs with Apple silicon (M1 or later).
+
+Starting it
+-----------
+Move this folder somewhere to keep it - your Applications or Documents folder - then
+double-click "{MAC_LAUNCHER}". A Terminal window opens and Google Chrome opens the app. If
+it does not, open Chrome to http://localhost:4200 - the window says so too. Leave the window
+open while you use the app; close it to stop. Everything the app does is shown in it.
+
+Use Chrome, or Edge, Brave, Opera or Arc. Safari and Firefox cannot open a folder on your Mac
+for a web page, so they cannot save your fics.
+
+The first time, macOS says it cannot check the app for malicious software, because the app is
+not signed by Apple. Click "Done" (not "Move to Trash"), then open System Settings, go to
+Privacy & Security, scroll down, and click "Open Anyway" next to "{MAC_LAUNCHER}". Confirm,
+and it starts. You only do this once: the first start clears the warning for the whole folder.
+
+Where things are
+----------------
+config/settings.ini   the app's settings - pacing, file names and the rest. Created the
+                      first time the app starts; edit it while the app is closed.
+logs/                 the helper's own log.
+
+Your fics are saved in whichever folder you open in the app, on this Mac or in Dropbox.
+
+Updating
+--------
+When a newer version is out, the app says so at the top of the page, with a link to it.
+Download the new zip, unzip it, and copy everything in it over this folder - or move your
+config folder into the new one. Nothing in the zip is in the config folder, so your
+settings.ini is never replaced. Each time the app starts it adds any setting a new version
+introduced, and comments out - marked DEPRECATED - any setting it no longer uses. Nothing you
+set is ever changed or deleted.
+
+If it will not start
+--------------------
+The window says why and stays open. The usual reason is that the app is already running in
+another window: close every ao3downloader window in Terminal and start it again.
+"""
+
+
+def system(platform: str | None = None) -> str:
+    """What the zip is named for: windows, macos, or whatever else it was built on."""
+
+    platform = platform or sys.platform
+    return {'win32': 'windows', 'darwin': 'macos'}.get(platform, platform)
 
 
 def stage_web(root: Path, staging: Path, skip_web: bool, settings: Path | None = None,
@@ -132,29 +199,49 @@ def pyinstaller_arguments(root: Path, web: Path, defaults: Path) -> list[str]:
     ]
 
 
-def assemble(root: Path) -> Path:
-    """Put a README beside the exe, and return the app's folder. No settings: see
-    `DEFAULTS_FOLDER`."""
+def assemble(root: Path, platform: str | None = None) -> Path:
+    """Put a README beside the program - and on a Mac the script that starts it - and return
+    the app's folder. No settings: see `DEFAULTS_FOLDER`."""
 
     app = root / DIST / APP_NAME
-    (app / 'README.txt').write_text(README, encoding='utf-8', newline='\r\n')
+    if system(platform) == 'macos':
+        (app / 'README.txt').write_text(MAC_README, encoding='utf-8', newline='\n')
+        launcher = app / MAC_LAUNCHER
+        launcher.write_text(MAC_LAUNCHER_SCRIPT, encoding='utf-8', newline='\n')
+        launcher.chmod(0o755)
+    else:
+        # notepad on an older Windows shows a file with bare newlines as one long line
+        (app / 'README.txt').write_text(WINDOWS_README, encoding='utf-8', newline='\r\n')
     return app
 
 
-def zip_name() -> str:
-    system = 'windows' if sys.platform == 'win32' else sys.platform
-    return f'{APP_NAME}-{system}.zip'
+def zip_name(platform: str | None = None) -> str:
+    return f'{APP_NAME}-{system(platform)}.zip'
 
 
 def make_zip(app: Path, destination: Path) -> Path:
     """Zip the app's folder, keeping the folder itself at the top so unzipping makes one
-    folder rather than scattering files."""
+    folder rather than scattering files.
+
+    Each file keeps its permissions - the program and the Mac launcher have to stay
+    executable - and a symlink is stored as a symlink, never followed: PyInstaller's Mac
+    build links parts of its own folder to each other, and a link followed into a copy
+    would duplicate what it points at, or be left out when it points at a folder."""
 
     if destination.exists(): destination.unlink()
     with zipfile.ZipFile(destination, 'w', zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(app.rglob('*')):
-            if path.is_file():
-                archive.write(path, Path(APP_NAME) / path.relative_to(app))
+        for folder, folders, files in os.walk(app):
+            folders.sort()
+            for name in sorted(folders + files):
+                path = Path(folder) / name
+                entry = (Path(APP_NAME) / path.relative_to(app)).as_posix()
+                if path.is_symlink():
+                    link = zipfile.ZipInfo(entry)
+                    link.create_system = 3
+                    link.external_attr = (stat.S_IFLNK | 0o755) << 16
+                    archive.writestr(link, os.readlink(path))
+                elif path.is_file():
+                    archive.write(path, entry)
     return destination
 
 

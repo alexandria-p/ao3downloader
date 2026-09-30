@@ -41,7 +41,7 @@ PACKAGE_NAME = 'source_code'
 # they used have been deleted, so the package is exactly what the helper reaches. A name in
 # `left_behind` now means dead code, or a module that lost its last import by accident.
 HELPER_ENTRY = 'server'
-# the Windows app's own entry point (package_windows.py), which starts the helper. Followed
+# the Windows and Mac app's own entry point (package_app.py), which starts the helper. Followed
 # too when it is there, so it ships and is never reported as left behind - with it, the
 # bundle can be started by `python -m source_code.desktop` as well as by the launcher
 APP_ENTRY = 'desktop'
@@ -401,9 +401,11 @@ folder somewhere else, leave `.venv/` behind and let the first run rebuild it.
 
 ## Running it
 
-On Windows, the **Windows app** does all of this without PowerShell or uv: a zip holding
-`ao3downloader.exe`, built by `package_windows.py` and published by the **build windows app**
-workflow. Unzip it and double-click the exe. The rest of this section is for this folder.
+On Windows and on an Apple silicon Mac, the **app** does all of this without PowerShell or
+uv: a zip built by `package_app.py` and published by the **build windows app** and **build
+mac app** workflows. On Windows, unzip it and double-click `ao3downloader.exe`; on a Mac,
+double-click `Start ao3downloader.command`, and use Chrome rather than Safari. The rest of
+this section is for this folder.
 
 A deployment gives everything it builds one version, and that page checks GitHub for a newer
 release each time it opens. A bundle built here has no version, so its page never checks.

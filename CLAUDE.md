@@ -35,12 +35,13 @@ powershell_source/
     test_build_artifacts.py       its tests (next to it, not in test/)
     deploy_config.py              writes the hosted settings.ini and app-config.json
     test_deploy_config.py         its tests
-    package_windows.py            builds the Windows app (PyInstaller) into dist/*.zip
-    test_package_windows.py       its tests
+    package_app.py            builds the Windows or Mac app (PyInstaller) into dist/*.zip
+    test_package_app.py       its tests
     Dockerfile, .dockerignore     the hosted helper's image
     pyproject.toml, uv.lock, .venv/
-.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls build-windows
+.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls both app builds
 .github/workflows/build-windows.yml   builds, tries and publishes the Windows app
+.github/workflows/build-mac.yml       builds, tries and publishes the Mac app
 HOSTING.md                        how to set the hosted copy up
 build/                            generated; config/settings.ini is NOT overwritten
 ```
@@ -89,7 +90,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1593 python passed; 614 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1601 python passed; 614 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -242,7 +243,7 @@ does: settings and logs beside the exe (`config/`, `logs/`, through the same
 `AO3DOWNLOADER_CONFIG_FOLDER` / `_LOG_FOLDER` a build uses), the prebuilt page served from the
 exe's own files, the helper started in the foreground (`server.serve`, so everything the
 helper says and does is unchanged), the browser opened once the helper answers.
-`package_windows.py` stages the page and settings through `build_artifacts`' own functions,
+`package_app.py` stages the page and settings through `build_artifacts`' own functions,
 runs PyInstaller, and zips the folder. The bundler follows imports from `desktop` as well as
 `server` (`APP_ENTRY`), so it is shipped in `build/` too rather than reported left behind.
 
@@ -263,7 +264,7 @@ What not to break:
 - **PyInstaller builds for the system it runs on.** `build-windows.yml` builds on
   `windows-latest`, unzips the result, starts the exe (`AO3DOWNLOADER_NO_BROWSER`), and fails
   unless the page and the helper both answer and `settings.ini` appeared beside the exe. Run
-  on Linux, `package_windows.py` builds the same app for Linux - which is how it was tested
+  on Linux, `package_app.py` builds the same app for Linux - which is how it was tested
   here. PyInstaller is in the `package` dependency group, so nothing else installs it.
 - **Its settings.ini comes from the deployment's variables, pointed at its own helper.**
   `deploy_config.py local-settings` (`write_local_settings`) sets every key from the same
@@ -275,7 +276,7 @@ What not to break:
   rather than a second variable when it should always differ.
   `refuse_hosted_addresses` then fails the build if the text names the hosted helper's host
   or the page's origin anywhere - through any key, not only those three. Nothing is added:
-  the same keys and comments as the template, `SavePassword` left out. `package_windows.py
+  the same keys and comments as the template, `SavePassword` left out. `package_app.py
   --settings` packs that file **inside** the app (`_internal/defaults/settings.ini`,
   `DEFAULTS_FOLDER`), and the page's `app-config.json` is read from it, so the two agree; the
   workflow's smoke test checks the page points at `127.0.0.1:4400`. The template's own example
@@ -286,6 +287,39 @@ What not to break:
   created from them on the first start, and on every start after, new settings appended with
   the deployment's values and dropped ones commented out as deprecated (see **A settings.ini
   is only ever added to**). Don't put `config/` back in the zip.
+
+### The Mac app is the same app, started by a script
+
+`build-mac.yml` runs `package_app.py` on `macos-latest` (Apple silicon - there is no Intel
+build) and adds `ao3downloader-macos.zip` to the same release as the Windows zip. The program
+is the same `desktop.py`; what differs is all about getting a Mac to start it and to use the
+right browser.
+
+- **`Start ao3downloader.command` is what people double-click** (`MAC_LAUNCHER`), not the
+  program. A browser quarantines a download and Archive Utility quarantines every file it
+  unzips, so an unsigned program would be refused, and each library it loads could be too.
+  The script is the one thing macOS asks about (Privacy & Security > Open Anyway - macOS 15
+  dropped Control-click > Open), and it `xattr -dr com.apple.quarantine .` its own folder
+  before it `exec`s the program, so nothing is asked twice. The CI marks every unzipped file
+  quarantined, runs the script, and fails if any mark is left.
+- **`make_zip` keeps permissions and stores symlinks as symlinks.** The program and the
+  script must stay executable, and PyInstaller's Mac output links parts of its folder to each
+  other: `os.walk` does not follow a link to a folder, and a link to a file followed is a
+  second copy. The CI unzips with `ditto`, as Finder does, and runs `codesign --verify` - an
+  Apple silicon Mac will not run a binary whose ad-hoc signature a copy broke.
+- **Chrome is asked for by name** (`desktop.open_page`, `MAC_BROWSERS`), because the page opens
+  a folder through the File System Access API and a Mac's default browser, Safari, has none.
+  `open -a` fails for an app that is not installed, so the next is tried, and only when none
+  is there does it fall back to the default browser - whose page then says why it cannot open
+  a folder. The window says `open Chrome to http://localhost:4200` (`where_to_go`), not "any
+  web browser".
+- **No Update now.** `make_updater` is Windows-only (the swap is PowerShell), so the helper
+  reports no `app` and the page links the release; the CI checks it does not offer one.
+- **Both builds publish to one release, at once.** Whichever gets there first creates it and
+  the other's create fails harmlessly, then each uploads its zip with `--clobber`. The notes
+  are the same text in both workflows, since either may write them. For the minutes between
+  the release appearing and the Windows zip landing, Update now fails with "the latest
+  release has no ao3downloader-windows.zip" - clear, and gone on the next try.
 
 ### The Windows app updates itself
 
@@ -352,7 +386,7 @@ anything is built**, so two deployments can never build one version; a deploymen
 later has used its number, and the next takes the one after - a gap, never a repeat.
 
 **Every build in the run gets that one version**: the hosted page's `app-config.json`
-(`page-config --version --repo`), and the Windows app's page (`package_windows.py --version
+(`page-config --version --repo`), and the Windows app's page (`package_app.py --version
 --repo`, through `write_page_config`). The zip becomes that version's GitHub release.
 
 **It is in `app-config.json`, not settings.ini** - on purpose. settings.ini is only ever added to,
