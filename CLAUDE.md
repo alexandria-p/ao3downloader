@@ -43,6 +43,7 @@ powershell_source/
 .github/workflows/build-windows.yml   builds, tries and publishes the Windows app
 .github/workflows/build-mac.yml       builds, tries and publishes the Mac app
 HOSTING.md                        how to set the hosted copy up
+wiki/                             the GitHub wiki's source; publish-wiki.yml copies it there
 build/                            generated; config/settings.ini is NOT overwritten
 ```
 
@@ -1778,6 +1779,10 @@ Three rules worth keeping:
 - **`TECH_DEBT.md` (project root) lists the known weak spots** - `from_collections` among
   them, and index writes that find an entry by the name it would have now. Read it before
   working near either, and add to it when you leave something fragile behind.
+- **`wiki/` is the GitHub wiki, short.** `publish-wiki.yml` replaces the wiki with it on every
+  change on `main`, so edit it there, never on the wiki. It is the brief version for people
+  using the app; the root documents stay the full record. When a change alters what a user
+  sees or does - a run, an option, a setting, a file name - update the page it belongs on.
 - **Keep `TERMINOLOGY.md` (project root) up to date with every change to the codebase.** It
   lists the project's terms (with the synonyms used in chat), each workflow's programmatic
   name, options and steps, and how every step works. Whenever a change adds, renames or
