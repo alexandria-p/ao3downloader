@@ -683,7 +683,8 @@ describe('App', () => {
       'https://github.com/alexandria-p/ao3downloader/releases/latest',
     );
     expect(first?.textContent).toContain('ao3downloader.exe');
-    expect(first?.textContent).toContain('ao3downloader-macos.zip');
+    expect(first?.textContent).toContain('ao3downloader-macos-apple-silicon.zip');
+    expect(first?.textContent).toContain('ao3downloader-macos-intel.zip');
     expect(first?.textContent).toContain('Start ao3downloader.command');
   });
 

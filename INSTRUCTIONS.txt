@@ -220,9 +220,14 @@ to the settings.ini of a helper started any other way, each time it starts.
  THE MAC APP
 ================================================================================
 
-ao3downloader-macos.zip is the same app for a Mac with Apple silicon (M1 or
-later). It is built on a macOS runner by the "build mac app" workflow - Intel
-Macs are not built for.
+The same app, for a Mac, in two zips - one per kind of Mac, because the app is
+built for the chip of the machine it is built on:
+
+    ao3downloader-macos-apple-silicon.zip   a Mac with an M1 or later
+    ao3downloader-macos-intel.zip           an Intel Mac
+
+Both are built by the "build mac app" workflow, each on a macOS runner with that
+chip, and published in the same release as the Windows zip.
 
   1. open the zip, and move the ao3downloader folder somewhere to keep it
   2. double-click "Start ao3downloader.command" - a Terminal window opens, and

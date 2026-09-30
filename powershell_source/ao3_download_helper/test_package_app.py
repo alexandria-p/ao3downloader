@@ -107,9 +107,22 @@ def test_the_zip_is_named_for_the_system_it_was_built_on(monkeypatch):
     monkeypatch.setattr(package_app.sys, 'platform', 'win32')
     assert package_app.zip_name() == 'ao3downloader-windows.zip'
     monkeypatch.setattr(package_app.sys, 'platform', 'darwin')
-    assert package_app.zip_name() == 'ao3downloader-macos.zip'
+    monkeypatch.setattr(package_app.machines, 'machine', lambda: 'arm64')
+    assert package_app.zip_name() == 'ao3downloader-macos-apple-silicon.zip'
+    monkeypatch.setattr(package_app.machines, 'machine', lambda: 'x86_64')
+    assert package_app.zip_name() == 'ao3downloader-macos-intel.zip'
     monkeypatch.setattr(package_app.sys, 'platform', 'linux')
     assert package_app.zip_name() == 'ao3downloader-linux.zip'
+
+
+def test_each_mac_readme_says_which_macs_it_is_for_and_where_the_other_one_is(tmp_path):
+    silicon = (package_app.assemble(app_folder(tmp_path / 'one'), 'darwin', 'arm64') / 'README.txt').read_text(encoding='utf-8')
+    assert 'Apple silicon (M1 or later)' in silicon.split('Starting it')[0]
+    assert 'ao3downloader-macos-intel.zip' in silicon
+
+    intel = (package_app.assemble(app_folder(tmp_path / 'two'), 'darwin', 'x86_64') / 'README.txt').read_text(encoding='utf-8')
+    assert 'This is for Intel Macs' in intel
+    assert 'ao3downloader-macos-apple-silicon.zip' in intel
 
 
 def test_the_zip_keeps_the_program_executable(tmp_path):

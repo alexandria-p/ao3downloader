@@ -90,7 +90,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1601 python passed; 614 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1602 python passed; 614 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -290,10 +290,16 @@ What not to break:
 
 ### The Mac app is the same app, started by a script
 
-`build-mac.yml` runs `package_app.py` on `macos-latest` (Apple silicon - there is no Intel
-build) and adds `ao3downloader-macos.zip` to the same release as the Windows zip. The program
-is the same `desktop.py`; what differs is all about getting a Mac to start it and to use the
-right browser.
+`build-mac.yml` runs `package_app.py` twice, as a matrix: on `macos-latest` for Apple
+silicon and on `macos-15-intel` for Intel, adding `ao3downloader-macos-apple-silicon.zip` and
+`ao3downloader-macos-intel.zip` to the same release as the Windows zip (`package_app.system`
+names a Mac zip by `platform.machine()`; Windows stays plain `windows`, the name the updater
+looks for). **Not one universal build**: that needs a universal Python and universal copies
+of every compiled library, and the Python uv installs is per-chip; the Intel build would run
+on Apple silicon through Rosetta, but Apple is winding Rosetta down. Each job checks
+`lipo -archs` on its program matches its chip, and each README names the other zip. The
+program is the same `desktop.py`; what differs is all about getting a Mac to start it and to
+use the right browser.
 
 - **`Start ao3downloader.command` is what people double-click** (`MAC_LAUNCHER`), not the
   program. A browser quarantines a download and Archive Utility quarantines every file it

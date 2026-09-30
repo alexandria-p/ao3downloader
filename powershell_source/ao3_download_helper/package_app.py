@@ -26,6 +26,7 @@ The zip lands in `dist/` at the repository root.
 
 import argparse
 import os
+import platform as machines
 import shutil
 import stat
 import sys
@@ -97,10 +98,22 @@ The window says why and stays open. The usual reason is that the app is already 
 another window: close every ao3downloader window and start it again.
 """
 
+# which Mac a build is for - PyInstaller builds for the chip it runs on, so each is built on its
+# own runner. the Intel one would also run on Apple silicon through Rosetta, but more slowly,
+# and Apple is winding Rosetta down, so each Mac gets its own
+MAC_CHIPS = {'arm64': 'apple-silicon', 'x86_64': 'intel'}
+MAC_FOR = {
+    'apple-silicon': ('This is for Macs with Apple silicon (M1 or later). For an Intel Mac, download\n'
+                      f'{APP_NAME}-macos-intel.zip instead.'),
+    'intel': ('This is for Intel Macs. For a Mac with Apple silicon (M1 or later), download\n'
+              f'{APP_NAME}-macos-apple-silicon.zip instead - this one would run there too, through\n'
+              'Rosetta, but more slowly.'),
+}
+
 MAC_README = f"""ao3downloader
 =============
 
-This is for Macs with Apple silicon (M1 or later).
+{{which}}
 
 Starting it
 -----------
@@ -141,11 +154,24 @@ another window: close every ao3downloader window in Terminal and start it again.
 """
 
 
-def system(platform: str | None = None) -> str:
-    """What the zip is named for: windows, macos, or whatever else it was built on."""
+def mac_chip(machine: str | None = None) -> str:
+    """apple-silicon or intel: which Macs a build made here runs on."""
+
+    machine = machine or machines.machine()
+    return MAC_CHIPS.get(machine, machine)
+
+
+def system(platform: str | None = None, machine: str | None = None) -> str:
+    """What the zip is named for: windows, macos-apple-silicon, macos-intel, or whatever else
+    it was built on. Windows stays plain `windows` - the in-app updater looks for that name."""
 
     platform = platform or sys.platform
-    return {'win32': 'windows', 'darwin': 'macos'}.get(platform, platform)
+    if platform == 'darwin': return f'macos-{mac_chip(machine)}'
+    return {'win32': 'windows'}.get(platform, platform)
+
+
+def mac_readme(chip: str) -> str:
+    return MAC_README.format(which=MAC_FOR.get(chip, MAC_FOR['apple-silicon']))
 
 
 def stage_web(root: Path, staging: Path, skip_web: bool, settings: Path | None = None,
@@ -199,13 +225,13 @@ def pyinstaller_arguments(root: Path, web: Path, defaults: Path) -> list[str]:
     ]
 
 
-def assemble(root: Path, platform: str | None = None) -> Path:
+def assemble(root: Path, platform: str | None = None, machine: str | None = None) -> Path:
     """Put a README beside the program - and on a Mac the script that starts it - and return
     the app's folder. No settings: see `DEFAULTS_FOLDER`."""
 
     app = root / DIST / APP_NAME
-    if system(platform) == 'macos':
-        (app / 'README.txt').write_text(MAC_README, encoding='utf-8', newline='\n')
+    if (platform or sys.platform) == 'darwin':
+        (app / 'README.txt').write_text(mac_readme(mac_chip(machine)), encoding='utf-8', newline='\n')
         launcher = app / MAC_LAUNCHER
         launcher.write_text(MAC_LAUNCHER_SCRIPT, encoding='utf-8', newline='\n')
         launcher.chmod(0o755)
@@ -215,8 +241,8 @@ def assemble(root: Path, platform: str | None = None) -> Path:
     return app
 
 
-def zip_name(platform: str | None = None) -> str:
-    return f'{APP_NAME}-{system(platform)}.zip'
+def zip_name(platform: str | None = None, machine: str | None = None) -> str:
+    return f'{APP_NAME}-{system(platform, machine)}.zip'
 
 
 def make_zip(app: Path, destination: Path) -> Path:

@@ -244,7 +244,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ inputs.version }}
           VERSION: ${{ inputs.version }}
-        # the Mac build publishes to the same release, at the same time: whichever gets there
+        # the two Mac builds publish to the same release, at the same time: whichever gets there
         # first makes it, and the other's create fails harmlessly. keep the notes the same in
         # both workflows, since either may be the one that writes them. by hand, with no
         # deployment before it, the tag is made here too
@@ -256,10 +256,10 @@ jobs:
               --title "ao3downloader $VERSION" \
               --notes "Windows: download ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe. Windows may warn that the app is not signed: choose More info, then Run anyway.
 
-          Mac (Apple silicon): download ao3downloader-macos.zip, open it, and double-click Start ao3downloader.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
+          Mac: download ao3downloader-macos-apple-silicon.zip for an M1 or later, or ao3downloader-macos-intel.zip for an Intel Mac, open it, and double-click Start ao3downloader.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
 
           The README inside each zip says the rest." \
-              || echo 'the release was made meanwhile, by the other build'
+              || echo 'the release was made meanwhile, by another build'
           fi
           # a re-run replaces the zip
           gh release upload "$TAG" dist/ao3downloader-windows.zip --clobber

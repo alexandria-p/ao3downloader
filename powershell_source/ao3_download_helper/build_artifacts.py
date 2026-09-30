@@ -401,9 +401,9 @@ folder somewhere else, leave `.venv/` behind and let the first run rebuild it.
 
 ## Running it
 
-On Windows and on an Apple silicon Mac, the **app** does all of this without PowerShell or
-uv: a zip built by `package_app.py` and published by the **build windows app** and **build
-mac app** workflows. On Windows, unzip it and double-click `ao3downloader.exe`; on a Mac,
+On Windows and on a Mac, the **app** does all of this without PowerShell or uv: a zip
+built by `package_app.py` and published by the **build windows app** and **build mac app**
+workflows. On Windows, unzip it and double-click `ao3downloader.exe`; on a Mac,
 double-click `Start ao3downloader.command`, and use Chrome rather than Safari. The rest of
 this section is for this folder.
 
