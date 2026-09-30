@@ -368,3 +368,23 @@
 .footer-note {
   font-style: italic;
 }
+
+/* a short page, not a document: a link and what to put in the issue */
+.report-bug {
+  max-width: 640px;
+  margin: 8px 0 24px;
+}
+
+.report-bug h2 {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+}
+
+.report-bug p {
+  margin: 0 0 10px;
+}
+
+.report-bug .hint {
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}

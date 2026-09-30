@@ -32,7 +32,7 @@ import { UpdateCheck } from './updates';
 const ACTIVE_RUN_POLL_MS = 30_000;
 
 /** the two things this folder holds, the pages that show them, and the two reading pages */
-export type View = 'bookmarks' | 'collections' | 'history' | 'faq';
+export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug';
 
 @Component({
   selector: 'app-root',
@@ -62,6 +62,7 @@ export class App {
   protected readonly currentVersion = computed(() => this.helper.settings().version);
   protected readonly repositoryName = computed(() => this.helper.settings().releasesRepo);
   protected readonly repositoryUrl = computed(() => `https://github.com/${this.repositoryName()}`);
+  protected readonly issuesUrl = computed(() => `${this.repositoryUrl()}/issues`);
   /** only the Windows app can install an update itself; anywhere else the banner links it */
   protected readonly canUpdate = this.updates.canUpdate;
   protected readonly updateProgress = this.updates.updating;

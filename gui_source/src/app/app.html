@@ -198,6 +198,14 @@
   >
     FAQ
   </button>
+  <button
+    type="button"
+    [class.current]="view() === 'bug'"
+    [attr.aria-current]="view() === 'bug' ? 'page' : null"
+    (click)="setView('bug')"
+  >
+    Report a bug
+  </button>
 </nav>
 
 <!--
@@ -206,7 +214,7 @@
   to work out what it already has and writes everything back into it. the panel below
   already asks for one, so an empty button bar above it would only repeat the question.
 -->
-@if (view() !== 'faq' && view() !== 'history' && canRun()) {
+@if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && canRun()) {
 <div class="actions">
   @if (view() === 'bookmarks') {
     <!--
@@ -288,7 +296,7 @@
   }
 
   <!-- the faq is worth reading before a folder is chosen, so it is not held behind one -->
-  @if (isEmpty() && view() !== 'faq' && view() !== 'history') {
+  @if (isEmpty() && view() !== 'faq' && view() !== 'history' && view() !== 'bug') {
     <section class="empty">
       <h2>Choose your downloads folder</h2>
       <p>
@@ -369,6 +377,19 @@
   <app-collections-view />
 } @else if (view() === 'history') {
   <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)" />
+} @else if (view() === 'bug') {
+  <section class="report-bug">
+    <h2>Report a bug</h2>
+    <p>
+      Something not working? Open an issue on
+      <a [href]="issuesUrl()" target="_blank" rel="noopener">GitHub</a>.
+    </p>
+    <p class="hint">
+      Say what you did and what happened, and which version this is (at the bottom of the
+      page). If a run went wrong, attach its log: <strong>History</strong>, then
+      <strong>Download log</strong>.
+    </p>
+  </section>
 } @else {
   <app-faq />
 }
