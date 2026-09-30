@@ -41,6 +41,10 @@ PACKAGE_NAME = 'source_code'
 # they used have been deleted, so the package is exactly what the helper reaches. A name in
 # `left_behind` now means dead code, or a module that lost its last import by accident.
 HELPER_ENTRY = 'server'
+# the Windows app's own entry point (package_windows.py), which starts the helper. Followed
+# too when it is there, so it ships and is never reported as left behind - with it, the
+# bundle can be started by `python -m source_code.desktop` as well as by the launcher
+APP_ENTRY = 'desktop'
 # the page's own config, written into web/ from the bundle's settings.ini
 PAGE_CONFIG_FILE = 'app-config.json'
 
@@ -169,6 +173,8 @@ def helper_modules(package: Path) -> set[str]:
 
     seen: set[str] = set()
     pending = [entry]
+    app = f'{PACKAGE_NAME}.{APP_ENTRY}'
+    if module_file(package, app): pending.append(app)
     while pending:
         name = pending.pop()
         if name in seen: continue
@@ -268,7 +274,11 @@ def write_config(config_dir: Path, python_home: Path) -> tuple[list[str], list[s
     # added since it was written appended, explanation and default included - the helper
     # does the same each time it starts, so this only makes the build say so up front.
     # the web ui never stores a password, so that setting is left out either way
-    was_new, added = ensure_settings_file(str(settings), template)
+    was_new, added, deprecated = ensure_settings_file(str(settings), template)
+    if deprecated:
+        # said at build time, as the helper says it when it starts
+        print(f'settings.ini: {", ".join(deprecated)} no longer used - commented out and '
+              'marked deprecated')
     if was_new: created.append(settings.name)
 
     # an earlier build seeded this; it is the application's to create, not the build's
@@ -278,13 +288,17 @@ def write_config(config_dir: Path, python_home: Path) -> tuple[list[str], list[s
     return created, added
 
 
-def write_page_config(build_dir: Path) -> Path | None:
+def write_page_config(build_dir: Path, version: str = '', repository: str = '') -> Path | None:
     """Point the bundled page at the helper settings.ini names.
 
     The page cannot read settings.ini - it has to know where the helper is before it can
     ask the helper anything - so the two keys it needs are copied into `app-config.json`
     beside it, from the bundle's own settings.ini. Rewritten on every build, `--skip-web`
     included, so editing `HelperUrl` and rebuilding is enough.
+
+    `version` and `repository` say what this page is and where a newer release would be - the
+    Windows app's build passes both; a bundle built on this computer has neither, and its page
+    then never looks for an update.
 
     A bundle never carries a public key: it runs on this computer and sends the login to a
     helper on this computer. The hosted copy's page, which does, is built by the deploy
@@ -303,7 +317,8 @@ def write_page_config(build_dir: Path) -> Path | None:
         require = False
     path = web / PAGE_CONFIG_FILE
     path.write_text(json.dumps({'helperUrl': helper_url.strip().rstrip('/'),
-                                'requirePasscode': require, 'publicKey': ''}, indent=2) + '\n',
+                                'requirePasscode': require, 'publicKey': '',
+                                'version': version, 'releasesRepo': repository}, indent=2) + '\n',
                     encoding='utf-8')
     return path
 
@@ -367,7 +382,7 @@ overwrites the rest.
 | `Start-Application.ps1` | Starts the helper and serves the site. Self-contained. |
 | `web/` | The compiled web app - plain static files. |
 | `ao3_download_helper/` | The python behind the download buttons. |
-| `config/settings.ini` | Your settings. Kept across rebuilds; a setting added in a newer version is appended to it, with its explanation and default. |
+| `config/settings.ini` | Your settings. Kept across rebuilds; a setting added in a newer version is appended to it, with its explanation and default, and one a newer version no longer uses is commented out and marked `# DEPRECATED:` - your values are never changed. |
 
 `ao3_download_helper/` holds **only what the web ui can actually invoke**. The console
 menu, its actions, and the ebook parsing that only those use are left out of the bundle:
@@ -385,6 +400,13 @@ downloads folder. Those are working files rather than part of the bundle - if yo
 folder somewhere else, leave `.venv/` behind and let the first run rebuild it.
 
 ## Running it
+
+On Windows, the **Windows app** does all of this without PowerShell or uv: a zip holding
+`ao3downloader.exe`, built by `package_windows.py` and published by the **build windows app**
+workflow. Unzip it and double-click the exe. The rest of this section is for this folder.
+
+A deployment gives everything it builds one version, and that page checks GitHub for a newer
+release each time it opens. A bundle built here has no version, so its page never checks.
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/). Node is *not*
 needed - the web app is already compiled.

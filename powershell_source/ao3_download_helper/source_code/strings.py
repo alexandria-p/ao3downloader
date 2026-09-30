@@ -576,6 +576,8 @@ ERROR_SESSION_EXPIRED = (
     'AO3 has stopped recognising your login, so the rest of this run would fail. '
     'Everything downloaded so far has been kept - log in again and start the same run, '
     'and it will carry on from what is still missing.')
+ERROR_UPDATE_DURING_RUN = 'A run is in progress. Updating restarts the app, which would stop it - update once it is complete.'
+ERROR_RUN_DURING_UPDATE = 'The app is updating itself, and will restart in a moment. Start the run once it is back.'
 ERROR_RUN_IN_PROGRESS = 'A run is already in progress. Wait until it is complete to start a new one - the History tab shows it.'
 ERROR_BACKGROUND_NEEDS_DROPBOX = 'A background run needs a library in Dropbox, and this request came without a Dropbox sign-in. Sign in to Dropbox and try again.'
 ERROR_NOT_A_WORK_LINK = 'That is not an ao3 work. Paste a link like https://archiveofourown.org/works/34816549, or just the work number.'

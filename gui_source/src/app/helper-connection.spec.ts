@@ -7,7 +7,7 @@ const HOSTED = 'https://helper.example.com';
 
 function hosted(publicKey = '', requirePasscode = true): HelperConnection {
   const helper = new HelperConnection();
-  helper.settings.set({ helperUrl: HOSTED, requirePasscode, publicKey });
+  helper.settings.set({ ...DEFAULT_PAGE_CONFIG, helperUrl: HOSTED, requirePasscode, publicKey });
   return helper;
 }
 

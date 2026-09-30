@@ -36,7 +36,10 @@ def no_runs_left_over():
     progress' for ever, and every test after it would be refused.
     """
 
-    with patch.dict(server.Handler.jobs, clear=True):
+    # and with no updater - only the Windows app has one, and a test that gives it one would
+    # otherwise leave every helper after it offering to update itself
+    with patch.dict(server.Handler.jobs, clear=True), \
+         patch.object(server.Handler, 'updater', None):
         yield
 EBOOK_DIR = os.path.join(FIXTURES_DIR, 'ebook')
 

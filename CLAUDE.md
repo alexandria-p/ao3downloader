@@ -35,9 +35,12 @@ powershell_source/
     test_build_artifacts.py       its tests (next to it, not in test/)
     deploy_config.py              writes the hosted settings.ini and app-config.json
     test_deploy_config.py         its tests
+    package_windows.py            builds the Windows app (PyInstaller) into dist/*.zip
+    test_package_windows.py       its tests
     Dockerfile, .dockerignore     the hosted helper's image
     pyproject.toml, uv.lock, .venv/
-.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy
+.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls build-windows
+.github/workflows/build-windows.yml   builds, tries and publishes the Windows app
 HOSTING.md                        how to set the hosted copy up
 build/                            generated; config/settings.ini is NOT overwritten
 ```
@@ -51,7 +54,16 @@ comment block and default included - leaving the user's values, comments and ord
 they were. The helper runs it on every start (`server.bring_settings_up_to_date`, before
 anything reads the file), and the bundler on `build/config/settings.ini`, printing what it
 added. So a setting added to the template reaches every existing install the next time it
-starts, and is visible and editable there rather than a hidden default. `settings_file.LEFT_OUT`
+starts, and is visible and editable there rather than a hidden default. **A setting the
+template no longer has is commented out, never deleted** (`deprecate_settings`): its line gets
+`# ` in front and a `# DEPRECATED: ...` line above, where it stands, so the file stops setting
+what nothing reads while still showing what it said. It only touches active `Key=` lines, so a
+second pass changes nothing, and never deprecates a `LEFT_OUT` key (it still exists, page
+builds only leave it out). This is only safe while **every key the code reads is in the
+template** - a test (`test_every_setting_the_helper_reads_is_in_the_template`) holds that,
+because a key read but missing from the template would be switched off in every install on
+its next start. The file's own line endings are kept (`newline=''`), so a Notepad-edited file
+stays CRLF. `ensure_settings_file` returns `(created, added, deprecated)`. `settings_file.LEFT_OUT`
 (`SavePassword`) is kept out of every file written for the web page - the bundler and
 `deploy_config.py` use the same list. `conftest.py` points `AO3DOWNLOADER_CONFIG_FOLDER` at a
 temporary folder for every test, or a test that starts the helper would leave a settings.ini
@@ -77,7 +89,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1498 python passed; 583 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1593 python passed; 614 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -221,6 +233,153 @@ The request log (`logs/log.jsonl`) is **written and never read** - the one reade
 which nothing calls - so a hosted helper losing it on every restart costs nothing.
 `ignorelist.txt` is the one helper-side file that does change a run, and a hosted helper
 has none.
+
+### The Windows app is the bundle with Python packed in
+
+`ao3downloader.exe` replaces `Start-Application.ps1` for people who should not need
+PowerShell or uv. `source_code/desktop.py` is its entry point - it does what the launcher
+does: settings and logs beside the exe (`config/`, `logs/`, through the same
+`AO3DOWNLOADER_CONFIG_FOLDER` / `_LOG_FOLDER` a build uses), the prebuilt page served from the
+exe's own files, the helper started in the foreground (`server.serve`, so everything the
+helper says and does is unchanged), the browser opened once the helper answers.
+`package_windows.py` stages the page and settings through `build_artifacts`' own functions,
+runs PyInstaller, and zips the folder. The bundler follows imports from `desktop` as well as
+`server` (`APP_ENTRY`), so it is shipped in `build/` too rather than reported left behind.
+
+What not to break:
+
+- **The page is served on exactly `localhost:4200`**, and the browser sent to `localhost`, not
+  `127.0.0.1`: the Dropbox sign-in returns to the page's own address, which has to be
+  registered with the Dropbox app, and the two hosts are different origins.
+- **A folder in a zip, not `--onefile`**: a one-file exe unpacks to a temp folder on every
+  start, which is slow and is what antivirus most often flags.
+- **The window says where to go**: `open any web browser to http://localhost:4200`
+  (`OPEN_THIS`), once the helper answers - and when a second start finds one already running -
+  as well as opening the default browser, for when that does not happen or is closed.
+- **Nothing fails silently.** A double-clicked console app that exits closes before anyone
+  reads why, so every failure goes through `desktop.stop`, which holds the window open. A
+  second start while one is running opens the page and stops there - it never starts a
+  second helper (see **Only one helper may run at a time**).
+- **PyInstaller builds for the system it runs on.** `build-windows.yml` builds on
+  `windows-latest`, unzips the result, starts the exe (`AO3DOWNLOADER_NO_BROWSER`), and fails
+  unless the page and the helper both answer and `settings.ini` appeared beside the exe. Run
+  on Linux, `package_windows.py` builds the same app for Linux - which is how it was tested
+  here. PyInstaller is in the `package` dependency group, so nothing else installs it.
+- **Its settings.ini comes from the deployment's variables, pointed at its own helper.**
+  `deploy_config.py local-settings` (`write_local_settings`) sets every key from the same
+  GitHub variables the hosted copy uses, except the three hosting keys, which are pinned by
+  `LOCAL_APP`: `HelperUrl=http://127.0.0.1:4400`, `RequirePasscode=false` (a local helper has
+  no passcode to check, and would refuse to start asking for one), `PageOrigin` empty - and
+  `EnableConsoleLogging=true`, because the window is the only place anyone sees what the app
+  is doing. `LOCAL_APP` is **the** place the app deviates from the deployment; add a key there
+  rather than a second variable when it should always differ.
+  `refuse_hosted_addresses` then fails the build if the text names the hosted helper's host
+  or the page's origin anywhere - through any key, not only those three. Nothing is added:
+  the same keys and comments as the template, `SavePassword` left out. `package_windows.py
+  --settings` packs that file **inside** the app (`_internal/defaults/settings.ini`,
+  `DEFAULTS_FOLDER`), and the page's `app-config.json` is read from it, so the two agree; the
+  workflow's smoke test checks the page points at `127.0.0.1:4400`. The template's own example
+  comment (`https://my-helper.onrender.com`) is generic and stays.
+- **The zip has no `config/` at all**, so neither the Update now button nor unzipping by hand
+  can replace a user's settings.ini. `desktop.settings_up_to_date` runs
+  `server.bring_settings_up_to_date` against the packed defaults before the helper starts:
+  created from them on the first start, and on every start after, new settings appended with
+  the deployment's values and dropped ones commented out as deprecated (see **A settings.ini
+  is only ever added to**). Don't put `config/` back in the zip.
+
+### The Windows app updates itself
+
+**Update now** (the banner, only when `/api/config` says `app.updatable`) posts
+`/api/update`; `source_code/updater.py` does the rest. Only the packaged app on Windows with
+a version and a repository has an `Updater` (`desktop.make_updater`, set on
+`Handler.updater`); every other helper answers 404 and its page only links the release.
+
+- **One run or one update, never both.** `start_update` checks for a run and `claim`s the
+  updater under `Handler.jobs_lock` - the lock a run is started under - and a run start checks
+  `updater.busy()` (`checking`, `downloading`, `restarting`) under it too. A failed update is
+  not busy, so it never blocks runs.
+- **What it installs**: `latest` reads `/repos/<repo>/releases/latest`, takes its
+  `ao3downloader-windows.zip`, and only if newer (`is_newer`, number by number). The download
+  must be https (unless `AO3DOWNLOADER_UPDATE_SOURCE` points it at a stand-in), match GitHub's
+  published `digest` (SHA-256) and `size`, and pass `check_zip`: every entry under
+  `ao3downloader/`, none absolute or with `..`, the exe and `_internal/` present. `unpack`
+  skips `config/`, `logs/` and `update/` even if a zip carried them. Any failure leaves the app
+  untouched and `state: failed` with the reason.
+- **The swap is a PowerShell script** (`SWAP_SCRIPT`, written to `update/apply-update.ps1`,
+  started with `CREATE_NO_WINDOW` - a hidden console of its own, not `DETACHED_PROCESS`: started with no
+  console at all, the script never wrote a line of its log on the Windows runner), because a running exe cannot replace its own files. The app
+  exits (`os._exit` after `EXIT_DELAY_SECONDS`, so the 202 gets out); the script waits for its
+  process, moves each top-level item into `update/previous/` and the new one in, **retrying a
+  locked file for ~20s and clearing any half-made copy between tries** (`Move-Carefully` - where
+  a rename is refused a move can fall back to copying, which left a copy that made every retry
+  fail; found running the script under pwsh on Linux). If any move still fails it **puts every
+  old item back** before starting the app, so what starts is always a whole app. It always
+  restarts it, with `AO3DOWNLOADER_NO_BROWSER` so no second tab opens, and writes
+  `update/update.log` (and whatever the script itself printed, to `update/swap-output.txt` -
+  a script that will not even start never reaches its own log). The script and the app it
+  restarts run with `PYINSTALLER_RESET_ENVIRONMENT=1`: a frozen app hands its `_PYI_*`
+  variables down, and PyInstaller says to reset them when starting another frozen program.
+  The restarted app reads `update.log`'s latest outcome (`last_result`) and
+  reports as `state: failed` so the page can say so. Windows PowerShell 5.1 is the target -
+  no `&&`, `??` or ternaries.
+- **The page waits it out** (`UpdateCheck.updateNow`): after the 202 it polls `/api/config`;
+  the helper not answering is the swap, not a failure; the same version coming back after
+  that is. It reloads the page once the helper reports the new version, and gives up after
+  `waitMs`. A reported failure is shown once and remembered as seen (`ao3.updateFailureSeen`).
+- **Tested end to end on Windows**: `build-windows.yml` installs the zip, edits its
+  settings.ini (a changed value, a comment, a key the app does not know), serves the same zip
+  as `99.0.0` from `stand_in_release.py`, posts `/api/update`, and checks the files were
+  replaced, the edits kept, the unknown key commented out as deprecated, and `update/` cleaned
+  up. Unpublished builds are version `0.0.1` (`APP_VERSION`) so they have one to update from.
+- **`deploy-hosted.yml` calls it as a job of its own** (`workflow_call`), needing only the
+  `version` job, so a Windows build that fails never holds up the helper or the page. It
+  publishes the zip as that version's release (`vX.Y.Z`, marked latest); a re-run replaces the
+  zip on the same release. The app is not signed; Windows warns on first start, and the README
+  in the zip says what to click.
+
+### Every deployment is one version, and every copy of the page checks for a newer one
+
+**The version comes from `VERSION` and the tags.** `deploy-hosted.yml`'s first job, `version`,
+runs `deploy_config.py next-version` with the repository's `v*` tags and the root `VERSION`
+file: the file's version when it is **higher** than every release, and otherwise the highest
+`vX.Y.Z` with its last number raised (`1.0.0`, or the file's, when there is none). So a
+routine deploy changes nothing, and a bigger step is `VERSION` raised and committed. The file
+is a floor, never written back - the tags are the record - and only a version above every
+release is used as it is, because two builds under one version would tell people with the
+first that they are up to date. Tags that are not `v` and three numbers are passed over; a
+`VERSION` that is not three numbers fails the deploy, and a test checks the committed one. It **tags the commit before
+anything is built**, so two deployments can never build one version; a deployment that fails
+later has used its number, and the next takes the one after - a gap, never a repeat.
+
+**Every build in the run gets that one version**: the hosted page's `app-config.json`
+(`page-config --version --repo`), and the Windows app's page (`package_windows.py --version
+--repo`, through `write_page_config`). The zip becomes that version's GitHub release.
+
+**It is in `app-config.json`, not settings.ini** - on purpose. settings.ini is only ever added to,
+never rewritten, so a version kept there would still say the old one after an upgrade and the
+page would offer the update for ever. The build is what has a version; the settings are the
+user's.
+
+**The page checks** (`updates.ts`, `UpdateCheck`): once per opening, `App` asks GitHub's api for
+`/repos/<releasesRepo>/releases/latest` and compares its `tag_name` with the page's own version
+**number by number** (`isNewer` - 1.10.0 is later than 1.9.0, which comparing text gets wrong).
+Newer means the `.update-available` banner, linking the release; **Dismiss and do not ask me
+again** writes `ao3.updateCheckDismissed` to localStorage and hides **the banner only** - the
+check still runs, because the footer always says what it found (`up to date with latest`, or
+underlined `update to latest (X)`, which in the Windows app starts the update), so someone who
+dismissed the banner still sees a newer version is out. `checked` is set only once GitHub has
+answered, so the footer never claims up to date on a guess. It never asks for a page with no version (a bundle built on this computer - `build()`
+writes `version: ''`), and anything failing - offline, rate-limited (60 an hour per address,
+unauthenticated), no release yet - is treated as nothing newer. GitHub's api sends CORS
+headers, which is what lets a page on `localhost` ask at all.
+
+**Every tab shows the version** in `.app-footer`, `position: sticky` at the bottom of the
+window so a long listing never hides it, with a link to `releasesRepo` on GitHub - or says
+`(built on this computer)` for a page with no version.
+
+**The FAQ pins a download panel first** (`.download-app`): the latest release's page
+(`releases/latest`, from `releasesRepo`, which defaults to this repository for a page with no
+config), what to do with the zip, and this page's version when it has one.
 
 ### A run can carry on in the background
 

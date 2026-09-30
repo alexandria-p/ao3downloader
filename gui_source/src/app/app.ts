@@ -26,6 +26,7 @@ import { WorkList } from './work-list';
 import { Bookmark, ownerFromSource } from './bookmarks';
 import { APP_FOLDER_PATH, DropboxSession } from './dropbox';
 import { StorageChoice, StorageMode } from './storage-choice';
+import { UpdateCheck } from './updates';
 
 /** how often the page asks whether a run in progress has finished, while one is */
 const ACTIVE_RUN_POLL_MS = 30_000;
@@ -46,6 +47,32 @@ export class App {
   private readonly storage = inject(StorageChoice);
   private readonly dropbox = inject(DropboxSession);
   private readonly helper = inject(HelperConnection);
+  private readonly updates = inject(UpdateCheck);
+
+  /** a newer release than this page's own, once GitHub has said so - the footer says it always */
+  protected readonly newerRelease = this.updates.newer;
+  /** ...and the banner until it is dismissed */
+  protected readonly bannerRelease = computed(() => (this.updates.dismissed() ? null : this.updates.newer()));
+  /** only once GitHub has answered: not knowing is not the same as being the latest */
+  protected readonly upToDate = computed(() => this.updates.checked() && !this.updates.newer());
+  protected readonly latestReleaseUrl = computed(() => {
+    this.helper.settings();
+    return this.updates.latestUrl();
+  });
+  protected readonly currentVersion = computed(() => this.helper.settings().version);
+  protected readonly repositoryName = computed(() => this.helper.settings().releasesRepo);
+  protected readonly repositoryUrl = computed(() => `https://github.com/${this.repositoryName()}`);
+  /** only the Windows app can install an update itself; anywhere else the banner links it */
+  protected readonly canUpdate = this.updates.canUpdate;
+  protected readonly updateProgress = this.updates.updating;
+  protected readonly updateTarget = computed(() => {
+    const progress = this.updateProgress();
+    return progress.state === 'updating' ? progress.version : '';
+  });
+  protected readonly updateError = computed(() => {
+    const progress = this.updateProgress();
+    return progress.state === 'failed' ? progress.error : '';
+  });
 
   protected readonly view = signal<View>('bookmarks');
   /**
@@ -204,6 +231,14 @@ export class App {
     void this.jobs.loadConfig();
     // a run left going in the background, from this page or another, is said at once
     void this.jobs.refreshActiveRuns();
+    // once per opening, and never for a page that has no version or was told not to
+    void this.updates.check();
+    // whether the helper is the Windows app, which can update itself - and whether its last
+    // update went through. untracked, or clearing a failure would bring it straight back
+    effect(() => {
+      const app = this.jobs.config()?.app;
+      untracked(() => this.updates.appStatus(app));
+    });
     // and asked about again while one is going, so the banner goes when it finishes. only
     // then: with nothing running there is nothing to watch for, and a hosted helper is left
     // to sleep
@@ -214,6 +249,20 @@ export class App {
   }
 
   private watch: ReturnType<typeof setInterval> | undefined;
+
+  /** stop saying there is a newer release, in this browser, for good */
+  protected dismissUpdates(): void {
+    this.updates.dismiss();
+  }
+
+  /** the Windows app: download the newer release, restart as it, and reload this page */
+  protected updateNow(): void {
+    void this.updates.updateNow();
+  }
+
+  protected clearUpdateError(): void {
+    this.updates.acknowledgeFailure();
+  }
 
   protected readonly works = computed<Bookmark[]>(() => this.data()?.works ?? []);
   protected readonly owner = computed(() => ownerFromSource(this.data()?.source ?? ''));

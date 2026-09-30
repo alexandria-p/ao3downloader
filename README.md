@@ -36,12 +36,64 @@ powershell.exe -ExecutionPolicy Bypass -File .\Start-Application.ps1
 This starts the local download helper on port 4400 and the web UI on port 4200
 Leave the window open and go to http://localhost:4200.
 
+### The Windows app - no PowerShell, nothing to install
+
+`ao3downloader-windows.zip` holds `ao3downloader.exe` with Python and every dependency packed beside it. Unzip it anywhere, double-click `ao3downloader.exe`, and it does what `Start-Application.ps1` does: starts the helper on port 4400, serves the web UI on http://localhost:4200, and opens your browser there. The window also says `open any web browser to http://localhost:4200`, for when the browser does not open by itself. Leave the window open while you use the app; close it to stop.
+
+- **Where to get it:** every deployment publishes it as that version's release, marked latest, so the newest is always at `https://github.com/<owner>/<repo>/releases/latest` (the zip itself: `.../releases/latest/download/ao3downloader-windows.zip`). The FAQ in the app links there, pinned at the top. The **build windows app** workflow does the building on a Windows runner; **deploy hosted app** runs it alongside the hosted deploy. Run on its own from the Actions tab, it builds and tries the app, and publishes it only if given a version; every run keeps the zip on the run for 30 days.
+- **Its `settings.ini` is written from the same GitHub deployment variables as the hosted copy** (`EXTRA_WAIT_TIME`, `FILE_NAME_LENGTH` and the rest), except that it always points at the helper the exe starts on your own computer (`HelperUrl=http://127.0.0.1:4400`, no passcode, no `PageOrigin`), and always has `EnableConsoleLogging=true`, so every request and every line a run says appears in the app's window. It never names your hosted helper or its page - the build fails if it would.
+- **Settings and logs** go beside the exe, in `config\settings.ini` and `logs\`. Your fics go wherever you open a library in the app, as always.
+- **Windows will warn that the app is not signed** the first time: choose **More info**, then **Run anyway**.
+- **Updating: click Update now.** When a newer version is out, the banner at the top of the page has an **Update now** button. The app downloads the new version from your latest GitHub release, checks it against the SHA-256 GitHub publishes for the zip, closes, swaps its own files for the new ones, and starts again; the page reloads itself when it is back - a few seconds. It will not update while a run is going (restarting would end it), and no run can start while it updates. If the swap fails partway, every old file is put back and the old version starts again, and the page says why (the details are in `update\update.log`).
+- **Or update by hand:** unzip the new zip over the old folder. Either way the same rule holds.
+- **Your `settings.ini` is kept, and only ever added to.** The zip has no `config\` folder at all, so neither way of updating can replace it. The app keeps its defaults inside its own files, and each time it starts:
+  - a setting the new version **added** is appended to your `settings.ini`, with its explanation and the value this build was deployed with;
+  - a setting the new version **no longer uses** is commented out where it is, with a `# DEPRECATED:` line above it - your value stays there to read, it just does nothing;
+  - everything you set is left exactly as it was.
+- A folder in a zip rather than one self-contained exe on purpose: a one-file exe unpacks itself into a temporary folder on every start, which is slow and is what antivirus programs most often object to.
+- It always serves the page on exactly `localhost:4200`, because that is the address the Dropbox app has registered. If a copy is already running, a second start says so and opens the page instead of starting another helper.
+
+To build it yourself (on Windows, since PyInstaller builds for the system it runs on):
+
+```
+cd powershell_source/ao3_download_helper
+uv sync --group package
+uv run --no-sync python package_windows.py
+```
+
+The zip lands in `dist/` at the repository root.
+
 ## Deploy
 
 Open Github repo,
 Actions -> deploy hosted app (under All workflows) -> click Run Workflow event trigger
 
 It writes settings.ini and page config, build the helper as a dockerfile and pushes it to github container registry (Github Profile -> Packages). Then deploys to 'render' as a web service.
+
+Alongside that it builds the Windows app and publishes it as a release (see **The Windows app** above). That job does not hold up the hosted deploy, and a Windows build that fails does not stop it.
+
+### Versions
+
+Every deployment is one version, and everything it builds - the page on GitHub Pages and the Windows app - carries it.
+
+The `VERSION` file in the repository root decides it, compared with the latest release on GitHub (its `vX.Y.Z` tag) as the deployment starts:
+
+| `VERSION` says | Latest release | This deployment is |
+| --- | --- | --- |
+| `2.0.0` - higher | `1.8.2` | `2.0.0` - the file's version |
+| `1.8.2` - the same | `1.8.2` | `1.8.3` - the latest, raised by one |
+| `1.0.0` - lower | `1.8.2` | `1.8.3` - the latest, raised by one |
+| `1.0.0` | none yet | `1.0.0` |
+
+- **Routine deploys: leave `VERSION` alone.** Once it has been released it is the same as or lower than the latest, so every deployment goes up by one on its own (`1.8.2` -> `1.8.3`).
+- **A bigger step: raise `VERSION` and commit it** (`2.0.0`, or `1.9.0`), then deploy. Only a version higher than every release is used as it is, so two builds can never share a version.
+- The deployment never writes `VERSION` back - the release tags are the record of what went out. `VERSION` is a floor you raise when you want to.
+- `VERSION` has to be three numbers (`2.0.0`); anything else stops the deployment before it builds.
+- The commit is tagged `vX.Y.Z` as the deployment starts, and the Windows zip is published as that version's release, marked latest.
+- **Every page shows its version** in a footer pinned to the bottom of the window, on every tab, with a link to the repository on GitHub.
+- **Every copy of the page checks for a newer release** each time it opens, and says so at the top with a link to download it - with **Dismiss and do not ask me again**, which that browser remembers. A page built on your own computer with `generate_build_artifacts.ps1` has no version, and never checks.
+- **The footer always says it too**, next to the version, as underlined text rather than a button: `up to date with latest`, or `update to latest (1.8.3)` - which in the Windows app starts the update, and elsewhere opens the release. So someone who dismissed the banner can still see a newer version is out. Dismissing hides the banner only; the check still runs. The footer says neither until GitHub has answered, so it never claims up to date on a guess.
+- The version lives in the build (the page's `app-config.json`), not in `settings.ini`: settings.ini is only ever added to, so a version kept there would still say the old one after an upgrade.
 
 
 ## Run development files:

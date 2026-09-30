@@ -1,4 +1,18 @@
 <section class="faq">
+  <!-- pinned first: the one thing on this page that is not about AO3 itself -->
+  <div class="download-app" role="note">
+    <p>
+      <strong>Run it on your own computer.</strong>
+      The Windows app is everything this page needs, in one download - nothing else to install.
+      <a [href]="latestUrl" target="_blank" rel="noopener">Download the latest version from GitHub</a>
+      (<code>ao3downloader-windows.zip</code>), unzip it, and double-click
+      <code>ao3downloader.exe</code>.
+    </p>
+    @if (version) {
+      <p>This page is version {{ version }}.</p>
+    }
+  </div>
+
   <h2>About downloading from AO3</h2>
 
   <p class="lead">

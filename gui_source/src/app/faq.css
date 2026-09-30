@@ -155,3 +155,21 @@
 .faq a {
   color: #9fc4dc;
 }
+
+/* pinned at the top: advice, so it wears the calm blue the rest of the app uses for it */
+.download-app {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border: 1px solid #5a7f9a;
+  border-radius: 3px;
+  background: #22303a;
+}
+
+.download-app p {
+  margin: 0;
+}
+
+.download-app p + p {
+  margin-top: 6px;
+  font-size: 0.86rem;
+}

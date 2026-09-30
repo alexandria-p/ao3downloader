@@ -53,6 +53,12 @@ SavePassword=false
 
 # where downloads are saved
 DownloadFolder=downloads
+
+# where the page finds the helper
+HelperUrl=http://127.0.0.1:4400
+
+# whether the helper wants a passcode
+RequirePasscode=false
 """
 
 
@@ -292,7 +298,7 @@ def test_a_rebuild_adds_the_settings_an_older_settings_ini_lacks(fake_root):
     assert 'ExtraWaitTime=42' in text
     assert '# where downloads are saved\nDownloadFolder=downloads' in text
     assert build_artifacts.SAVE_PASSWORD_KEY not in text
-    assert result['settings_added'] == ['DownloadFolder']
+    assert result['settings_added'] == ['DownloadFolder', 'HelperUrl', 'RequirePasscode']
     assert result['config_created'] == []
 
 
@@ -403,8 +409,9 @@ def test_the_page_is_pointed_at_the_helper_settings_ini_names(fake_root):
     build_artifacts.build(fake_root, skip_web=True)
 
     written = json.loads((web / build_artifacts.PAGE_CONFIG_FILE).read_text(encoding='utf-8'))
+    # a bundle built on this computer has no version, so its page never looks for a newer one
     assert written == {'helperUrl': 'http://127.0.0.1:4500', 'requirePasscode': True,
-                       'publicKey': ''}
+                       'publicKey': '', 'version': '', 'releasesRepo': ''}
 
 
 def test_a_settings_ini_without_the_keys_points_the_page_at_this_computer(fake_root):
@@ -474,6 +481,19 @@ def test_the_build_says_what_it_left_behind(fake_root):
 
     assert 'source_code.main' in result['left_behind']
     assert 'source_code.server' not in result['left_behind']
+
+
+def test_the_windows_apps_entry_point_is_shipped_with_what_it_imports(fake_root):
+    # desktop.py starts the helper for the Windows app; nothing the helper imports reaches it,
+    # so it is followed as an entry point of its own rather than reported as left behind
+    package = fake_root / build_artifacts.PYTHON_HOME / build_artifacts.PACKAGE_NAME
+    write_module(package, 'desktop.py', ['from source_code import server, parse_text'])
+
+    result = build_artifacts.build(fake_root, skip_web=True)
+
+    assert 'source_code.desktop' not in result['left_behind']
+    shipped = fake_root / 'build' / build_artifacts.HELPER_FOLDER / build_artifacts.PACKAGE_NAME
+    assert (shipped / 'desktop.py').is_file()
 
 
 def test_a_module_the_helper_starts_importing_is_shipped_without_being_listed(fake_root):

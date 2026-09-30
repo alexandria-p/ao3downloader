@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './app';
 import { Jobs } from './jobs';
 import { Library } from './library';
+import { UpdateCheck } from './updates';
 import { Bookmark, BookmarksExport } from './bookmarks';
 import { Collection } from './collections';
 import { DropboxSession } from './dropbox';
@@ -667,8 +668,147 @@ describe('App', () => {
     expect(said).toContain('Your private bookmarks');
     expect(said).toContain('restricted to registered users');
     expect(
-      element.querySelector('app-faq a')?.getAttribute('href'),
+      element.querySelector('app-faq .lead a')?.getAttribute('href'),
     ).toBe('https://archiveofourown.org/faq/downloading-fanworks');
+  });
+
+  it('pins where to download the app to the top of the FAQ', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+
+    const first = element.querySelector('app-faq .faq')?.firstElementChild;
+    expect(first?.classList.contains('download-app')).toBe(true);
+    expect(first?.querySelector('a')?.getAttribute('href')).toBe(
+      'https://github.com/alexandria-p/ao3downloader/releases/latest',
+    );
+    expect(first?.textContent).toContain('ao3downloader.exe');
+  });
+
+  it('says its version and links the repository on every tab', async () => {
+    const { fixture, element } = await render(1);
+    TestBed.inject(HelperConnection).settings.update((c) => ({ ...c, version: '1.8.2' }));
+    for (const name of ['Bookmarks', 'Collections', 'History', 'FAQ']) {
+      tab(element, name)!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const footer = element.querySelector('.app-footer');
+      expect(footer?.textContent).toContain('version 1.8.2');
+      expect(footer?.querySelector('a')?.getAttribute('href')).toBe(
+        'https://github.com/alexandria-p/ao3downloader',
+      );
+    }
+  });
+
+  it('says a page built on this computer has no version', async () => {
+    const { element } = await render(1);
+
+    expect(element.querySelector('.app-footer')?.textContent).toContain('(built on this computer)');
+  });
+
+  it('offers to update only when the helper is the Windows app', async () => {
+    const { fixture, element } = await render(1);
+    const updates = TestBed.inject(UpdateCheck);
+    updates.newer.set({ version: '1.8.3', url: 'https://github.com/x/y/releases/tag/v1.8.3' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const buttons = () => Array.from(element.querySelectorAll('.update-available button')).map((b) => b.textContent?.trim());
+    // anywhere else, the page can only link the release
+    expect(buttons()).not.toContain('Update now');
+    expect(element.querySelector('.update-available a')?.textContent).toContain('Download it from GitHub');
+
+    updates.canUpdate.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(buttons()).toContain('Update now');
+  });
+
+  it('says in the footer when this is the latest version', async () => {
+    const { fixture, element } = await render(1);
+    TestBed.inject(UpdateCheck).checked.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const link = element.querySelector('.app-footer .footer-link');
+    expect(link?.textContent?.trim()).toBe('up to date with latest');
+    expect(link?.getAttribute('href')).toBe('https://github.com/alexandria-p/ao3downloader/releases/latest');
+  });
+
+  it('says nothing in the footer about being the latest until GitHub has answered', async () => {
+    const { element } = await render(1);
+
+    expect(element.querySelector('.app-footer .footer-link')).toBeNull();
+  });
+
+  it('still says in the footer that a newer version is out once the banner is dismissed', async () => {
+    const { fixture, element } = await render(1);
+    const updates = TestBed.inject(UpdateCheck);
+    updates.checked.set(true);
+    updates.newer.set({ version: '1.8.3', url: 'https://github.com/x/y/releases/tag/v1.8.3' });
+    updates.dismiss();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(element.querySelector('.update-available')).toBeNull();
+    const link = element.querySelector('.app-footer .footer-link');
+    expect(link?.textContent?.trim()).toBe('update to latest (1.8.3)');
+    expect(link?.getAttribute('href')).toBe('https://github.com/x/y/releases/tag/v1.8.3');
+  });
+
+  it('in the Windows app, updating from the footer starts the update itself', async () => {
+    const { fixture, element } = await render(1);
+    const updates = TestBed.inject(UpdateCheck);
+    updates.checked.set(true);
+    updates.canUpdate.set(true);
+    updates.newer.set({ version: '1.8.3', url: 'https://github.com/x/y/releases/tag/v1.8.3' });
+    const started = vi.spyOn(updates, 'updateNow').mockResolvedValue();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const link = element.querySelector('.app-footer .footer-link') as HTMLButtonElement;
+    expect(link.tagName).toBe('BUTTON');
+    link.click();
+
+    expect(started).toHaveBeenCalledOnce();
+  });
+
+  it('says what is happening while the app updates itself', async () => {
+    const { fixture, element } = await render(1);
+    TestBed.inject(UpdateCheck).updating.set({ state: 'updating', version: '1.8.3' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(element.querySelector('.update-available')?.textContent).toContain('Updating to 1.8.3');
+  });
+
+  it('says when an update did not go through', async () => {
+    const { fixture, element } = await render(1);
+    TestBed.inject(UpdateCheck).updating.set({ state: 'failed', error: 'the file is in use' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const banner = element.querySelector('.update-failed');
+    expect(banner?.textContent).toContain('the file is in use');
+    expect(banner?.textContent).toContain('Your settings and your library are as they were');
+  });
+
+  it('says when a newer version is out, and stops for good when told to', async () => {
+    const { fixture, element } = await render(1);
+    TestBed.inject(UpdateCheck).newer.set({ version: '1.8.3', url: 'https://github.com/x/y/releases/tag/v1.8.3' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const banner = element.querySelector('.update-available');
+    expect(banner?.textContent).toContain('1.8.3');
+    expect(banner?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/x/y/releases/tag/v1.8.3');
+
+    (banner?.querySelector('button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(element.querySelector('.update-available')).toBeNull();
+    expect(localStorage.getItem('ao3.updateCheckDismissed')).toBe('true');
   });
 
   // endregion

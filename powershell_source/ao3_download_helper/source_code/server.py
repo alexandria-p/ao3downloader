@@ -27,7 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
 
-from source_code import access, dropbox_library, exceptions, settings_file, indexing, parse_soup, parse_text, progress, runs, strings
+from source_code import access, dropbox_library, exceptions, settings_file, indexing, parse_soup, parse_text, progress, runs, strings, updater as updates
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -3255,6 +3255,9 @@ def page_may_call(origin: str, hosted_page: str) -> bool:
 class Handler(BaseHTTPRequestHandler):
     jobs: dict[str, Job] = {}
     jobs_lock = threading.Lock()
+    # the Windows app sets this (desktop.py): it is the one copy that can update itself.
+    # everything else answers the update endpoints 404
+    updater: 'updates.Updater | None' = None
 
     server_version = 'ao3downloader-local'
 
@@ -3343,6 +3346,8 @@ class Handler(BaseHTTPRequestHandler):
                 'forced': FORCED_FILETYPES,
                 'defaults': DEFAULT_FILETYPES,
                 'settings': read_settings(fileops),
+                # only the Windows app: its version, and how an update is going
+                **({'app': Handler.updater.status()} if Handler.updater else {}),
             })
             return
 
@@ -3366,6 +3371,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if not self.admitted(): return
+
+        if self.path == '/api/update':
+            self.start_update()
+            return
 
         if self.path == '/api/runs/floors':
             # the page reads the run history out of the library it holds, and asks which of
@@ -3514,8 +3523,14 @@ class Handler(BaseHTTPRequestHandler):
         # together cannot both get in. two runs writing one library would each plan from a
         # folder the other is changing
         with Handler.jobs_lock:
+            # claimed under this same lock by start_update, so a run cannot slip in between
+            # the check that none is going and the app closing to update
+            updating = Handler.updater is not None and Handler.updater.busy()
             busy = next((j for j in Handler.jobs.values() if not j.done.is_set()), None)
-            if busy is None: Handler.jobs[job.id] = job
+            if busy is None and not updating: Handler.jobs[job.id] = job
+        if updating:
+            self.send_json(409, {'error': strings.ERROR_RUN_DURING_UPDATE})
+            return
         if busy is not None:
             self.send_json(409, {'error': strings.ERROR_RUN_IN_PROGRESS, 'activeJob': busy.id})
             return
@@ -3524,6 +3539,30 @@ class Handler(BaseHTTPRequestHandler):
         thread.start()
 
         self.send_json(202, {'jobId': job.id, 'filetypes': filetypes, 'options': options})
+
+    def start_update(self) -> None:
+        """Update the Windows app to the latest release: 202 once it is downloading, and the
+        app closes and starts again on its own. Never while a run is going - restarting would
+        end it - and a run cannot start while an update is under way."""
+
+        if Handler.updater is None:
+            self.send_json(404, {'error': 'not found'})
+            return
+        with Handler.jobs_lock:
+            busy = next((j for j in Handler.jobs.values() if not j.done.is_set()), None)
+            claimed = busy is None and Handler.updater.claim()
+        if busy is not None:
+            self.send_json(409, {'error': strings.ERROR_UPDATE_DURING_RUN, 'activeJob': busy.id})
+            return
+        if not claimed:
+            self.send_json(409, {'error': 'an update is already under way'})
+            return
+        try:
+            release = Handler.updater.begin()
+        except updates.UpdateError as e:
+            self.send_json(409, {'error': str(e)})
+            return
+        self.send_json(202, {'version': release.version})
 
     def cancel_job(self, job_id: str) -> None:
         with Handler.jobs_lock:
@@ -3869,25 +3908,30 @@ def startup_problem(host: str, fileops: FileOps) -> str:
     return ''
 
 
-def bring_settings_up_to_date(path: str) -> None:
-    """Write settings.ini if it is missing, or add any setting it lacks, and say which.
+def bring_settings_up_to_date(path: str, template: str | None = None) -> None:
+    """Write settings.ini if it is missing, or add any setting it lacks, and say which - and
+    comment out, marked deprecated, any setting this version no longer reads.
 
-    Only ever adds - the user's own values are left as they are. A settings.ini that cannot
-    be written (read-only, say) is reported and left: the helper still runs on the defaults,
-    which is what it would have done anyway.
+    The user's own values are left as they are. `template` is what to fill in from: the
+    package's own settings.ini, or - for the Windows app - the defaults its deployment built
+    it with. A settings.ini that cannot be written (read-only, say) is reported and left: the
+    helper still runs on the defaults, which is what it would have done anyway.
     """
 
     try:
-        created, added = settings_file.ensure_settings_file(path)
+        created, added, deprecated = settings_file.ensure_settings_file(path, template)
     except OSError as e:
         print(f'settings.ini: could not bring {os.path.abspath(path)} up to date ({e}); '
               'using the defaults for anything missing')
         return
     if created:
         print(f'settings.ini: created {os.path.abspath(path)}')
-    elif added:
+    if added:
         print(f'settings.ini: added {", ".join(added)} to {os.path.abspath(path)}, with their '
               'defaults - edit them there to change them')
+    if deprecated:
+        print(f'settings.ini: {", ".join(deprecated)} no longer used by this version - commented '
+              f'out in {os.path.abspath(path)} and marked deprecated')
 
 
 def serve(port: int | None = None, host: str | None = None) -> None:

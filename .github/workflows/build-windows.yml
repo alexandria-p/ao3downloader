@@ -1,0 +1,260 @@
+name: build windows app
+
+# The Windows app: a zip holding ao3downloader.exe, which starts the helper, serves the page
+# and opens the browser - in place of Start-Application.ps1, with nothing to install first.
+# package_windows.py builds it; this runs it on Windows, because PyInstaller builds for the
+# system it runs on.
+#
+# `deploy hosted app` calls it with the version that deployment decided on, and it is then
+# published as that version's release - marked latest, so the newest is always at
+#   https://github.com/<owner>/<repo>/releases/latest
+# and the page in every copy of the app checks there for one newer than itself. Run by hand
+# from the Actions tab it builds and tries the app; given a version it publishes that too.
+# The zip is always kept as a download on the run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish it as, e.g. 1.8.3. Empty to build and try it only.'
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: false
+        default: ''
+  # built and tried - never published - on a pull request that changes how it is built
+  pull_request:
+    paths:
+      - '.github/workflows/build-windows.yml'
+      - 'powershell_source/ao3_download_helper/package_windows.py'
+      - 'powershell_source/ao3_download_helper/source_code/desktop.py'
+      - 'powershell_source/ao3_download_helper/source_code/updater.py'
+      - 'powershell_source/ao3_download_helper/source_code/settings_file.py'
+      - 'powershell_source/ao3_download_helper/stand_in_release.py'
+      - 'powershell_source/ao3_download_helper/build_artifacts.py'
+      - 'powershell_source/ao3_download_helper/pyproject.toml'
+      - 'powershell_source/ao3_download_helper/uv.lock'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build and try the windows app
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      # only to publish the release
+      contents: write
+    env:
+      # the version it is built as. one that is not published - a pull request's - is 0.0.1,
+      # older than any release: it still has a version, so its update can be tried below
+      APP_VERSION: ${{ inputs.version || '0.0.1' }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          # the angular cli needs 22.22.3+ or 24.15+
+          node-version: 24
+          cache: npm
+          cache-dependency-path: gui_source/package-lock.json
+
+      - name: setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: install the page's dependencies
+        working-directory: gui_source
+        run: npm ci
+
+      - name: install the helper's dependencies and pyinstaller
+        working-directory: powershell_source/ao3_download_helper
+        run: uv sync --frozen --group package
+
+      - name: write the app's settings.ini from the deployment variables
+        # the same variables the hosted copy is built from, so the app paces and names
+        # things as the hosted helper does - but pointed at the helper the exe starts itself.
+        # the hosted helper's address and the page's origin are never written; the build
+        # fails if either would be
+        working-directory: powershell_source/ao3_download_helper
+        env:
+          # variables only - secrets are never in `vars`, and none is used here
+          DEPLOY_VARIABLES: ${{ toJSON(vars) }}
+          OWNER: ${{ github.repository_owner }}
+        shell: bash
+        run: |
+          # checked for too, though nothing here would write it
+          export DEFAULT_PAGE_ORIGIN="https://${OWNER,,}.github.io"
+          uv run --no-sync python deploy_config.py local-settings --out windows-settings.ini
+
+      - name: build the app
+        working-directory: powershell_source/ao3_download_helper
+        shell: bash
+        # its page says which version it is, and checks the releases for a newer one
+        run: |
+          uv run --no-sync python package_windows.py --settings windows-settings.ini \
+            --version "$APP_VERSION" --repo "$GITHUB_REPOSITORY"
+
+      - name: start the app from the zip, and check the page and the helper answer
+        # what someone downloading it does: unzip, start the exe. no browser on a runner
+        shell: pwsh
+        env:
+          AO3DOWNLOADER_NO_BROWSER: '1'
+        run: |
+          $place = Join-Path $env:RUNNER_TEMP 'unzipped'
+          Expand-Archive -Path dist/ao3downloader-windows.zip -DestinationPath $place -Force
+          $exe = Join-Path $place 'ao3downloader\ao3downloader.exe'
+          $app = Start-Process -FilePath $exe -PassThru -WindowStyle Hidden
+          try {
+            $page = $null; $helper = $null
+            foreach ($try in 1..60) {
+              Start-Sleep -Seconds 1
+              if ($app.HasExited) { throw "the app stopped by itself (exit code $($app.ExitCode))" }
+              try {
+                $page = Invoke-WebRequest -UseBasicParsing 'http://localhost:4200/'
+                $helper = Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:4400/api/config' `
+                  -Headers @{ Origin = 'http://localhost:4200' }
+                break
+              } catch { }
+            }
+            if (-not $page -or $page.StatusCode -ne 200) { throw 'the page never answered on localhost:4200' }
+            if (-not $helper -or $helper.StatusCode -ne 200) { throw 'the helper never answered on 127.0.0.1:4400' }
+            $settings = Join-Path $place 'ao3downloader\config\settings.ini'
+            if (-not (Test-Path $settings)) { throw "no settings.ini beside the exe at $settings" }
+            # the page must be pointed at the exe's own helper, never the hosted one
+            $pageConfig = Invoke-RestMethod 'http://localhost:4200/app-config.json'
+            if ($pageConfig.helperUrl -ne 'http://127.0.0.1:4400') { throw "the page points at $($pageConfig.helperUrl)" }
+            if ("$($pageConfig.version)" -ne "$env:APP_VERSION") { throw "the page says version '$($pageConfig.version)', not '$env:APP_VERSION'" }
+            Write-Host 'the page and the helper both answered, and settings.ini is beside the exe'
+          }
+          finally {
+            if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+          }
+
+      - name: install the app, change its settings, and update it from a stand-in release
+        # what someone with the app does when a newer version is out: Update now. the
+        # stand-in offers this same zip as 99.0.0, so the app downloads it, closes, has its
+        # files swapped by the script and starts again. what has to be true afterwards: the
+        # files were replaced, the user's settings.ini kept every edit, a setting the new
+        # version does not know was commented out as deprecated, and the swap cleaned up
+        shell: pwsh
+        env:
+          AO3DOWNLOADER_NO_BROWSER: '1'
+          AO3DOWNLOADER_UPDATE_SOURCE: 'http://127.0.0.1:8765'
+        run: |
+          $zip = (Resolve-Path dist/ao3downloader-windows.zip).Path
+          $place = Join-Path $env:RUNNER_TEMP 'installed'
+          Expand-Archive -Path $zip -DestinationPath $place -Force
+          $root = Join-Path $place 'ao3downloader'
+          $settings = Join-Path $root 'config\settings.ini'
+          $origin = @{ Origin = 'http://localhost:4200' }
+
+          function Wait-ForHelper([int] $seconds) {
+            foreach ($try in 1..$seconds) {
+              Start-Sleep -Seconds 1
+              try { return Invoke-RestMethod 'http://127.0.0.1:4400/api/config' -Headers $origin -TimeoutSec 2 } catch { }
+            }
+            throw "the helper did not answer within $seconds seconds"
+          }
+
+          $release = Start-Process -PassThru -WindowStyle Hidden -FilePath 'uv' `
+            -WorkingDirectory 'powershell_source/ao3_download_helper' `
+            -ArgumentList @('run', '--no-sync', 'python', 'stand_in_release.py', "`"$zip`"", '8765')
+          $app = Start-Process -FilePath (Join-Path $root 'ao3downloader.exe') -PassThru -WindowStyle Hidden
+          try {
+            $config = Wait-ForHelper 60
+            if (-not $config.app.updatable) { throw 'the installed app does not say it can update itself' }
+            if ($config.app.version -ne $env:APP_VERSION) { throw "the app says it is $($config.app.version)" }
+
+            # what someone might have done since installing it
+            $text = (Get-Content -Raw $settings) -replace '(?m)^ExtraWaitTime=.*$', 'ExtraWaitTime=42'
+            $text += "`r`n# my own note`r`nRetiredSetting=3`r`n"
+            Set-Content -NoNewline -Path $settings -Value $text
+            Set-Content -Path (Join-Path $root '_internal\from-the-old-version.txt') -Value 'old'
+
+            $answer = Invoke-WebRequest -UseBasicParsing -Method Post 'http://127.0.0.1:4400/api/update' `
+              -Headers $origin -ContentType 'application/json' -Body '{}'
+            if ($answer.StatusCode -ne 202) { throw "the update was not started: $($answer.StatusCode) $($answer.Content)" }
+            Write-Host "update started: $($answer.Content)"
+
+            Wait-Process -Id $app.Id -Timeout 120
+            Write-Host 'the app closed for the swap'
+            $config = Wait-ForHelper 120
+            Write-Host "the app is back: $($config.app | ConvertTo-Json -Compress)"
+
+            $log = Get-Content -Raw (Join-Path $root 'update\update.log')
+            Write-Host $log
+            if ($log -notmatch 'swapped') { throw 'the swap script did not say it swapped the files' }
+            if ($config.app.update.state -eq 'failed') { throw "the app says the update failed: $($config.app.update.error)" }
+            if (Test-Path (Join-Path $root '_internal\from-the-old-version.txt')) { throw 'the old _internal is still there' }
+            foreach ($left in @('update\new', 'update\previous', 'update\download.zip')) {
+              if (Test-Path (Join-Path $root $left)) { throw "the swap left $left behind" }
+            }
+
+            $after = Get-Content -Raw $settings
+            Write-Host $after
+            foreach ($kept in @('ExtraWaitTime=42', '# my own note')) {
+              if (-not $after.Contains($kept)) { throw "settings.ini lost '$kept'" }
+            }
+            if (-not $after.Contains('# DEPRECATED: RetiredSetting')) { throw 'RetiredSetting was not marked deprecated' }
+            if ($after -match '(?m)^RetiredSetting=') { throw 'RetiredSetting is still set' }
+            if (-not $after.Contains('# RetiredSetting=3')) { throw 'RetiredSetting was not kept, commented out' }
+            Write-Host 'updated: new files in place, settings.ini kept and brought up to date'
+          }
+          catch {
+            # everything that says why, since nobody can look at the runner afterwards
+            Write-Host '--- what the app folder holds ---'
+            Get-ChildItem -Force $root | ForEach-Object { Write-Host $_.Name }
+            Write-Host '--- what update\ holds ---'
+            Get-ChildItem -Force -Recurse -Depth 1 (Join-Path $root 'update') -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host $_.FullName.Substring($root.Length) }
+            foreach ($evidence in @('update\update.log', 'update\swap-output.txt')) {
+              $path = Join-Path $root $evidence
+              if (Test-Path $path) { Write-Host "--- $evidence ---"; Get-Content -Raw $path | Write-Host }
+              else { Write-Host "--- no $evidence ---" }
+            }
+            Write-Host '--- processes ---'
+            Get-Process -Name 'ao3downloader', 'powershell' -ErrorAction SilentlyContinue |
+              Format-Table Id, ProcessName, StartTime -AutoSize | Out-String | Write-Host
+            throw
+          }
+          finally {
+            Get-Process -Name 'ao3downloader' -ErrorAction SilentlyContinue | Stop-Process -Force
+            if (-not $release.HasExited) { Stop-Process -Id $release.Id -Force }
+          }
+
+      - name: keep the zip on this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: ao3downloader-windows
+          path: dist/ao3downloader-windows.zip
+          retention-days: 30
+
+      - name: publish it as this version's release
+        # never from a pull request, which has no version
+        if: github.event_name != 'pull_request' && inputs.version != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ inputs.version }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # this version's release already there - a re-run: the zip is replaced
+            gh release upload "$TAG" dist/ao3downloader-windows.zip --clobber
+          else
+            # the deployment tagged the commit already; by hand, the tag is made here
+            gh release create "$TAG" dist/ao3downloader-windows.zip \
+              --target "$GITHUB_SHA" \
+              --latest \
+              --title "ao3downloader $VERSION" \
+              --notes "Download ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe - the README inside says the rest. Windows may warn that the app is not signed: choose More info, then Run anyway."
+          fi
+          echo "published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          echo "latest is always at: https://github.com/$GITHUB_REPOSITORY/releases/latest"

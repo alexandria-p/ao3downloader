@@ -17,12 +17,23 @@ export interface PageConfig {
   requirePasscode: boolean;
   /** PEM public key the ao3 login is sealed with, or '' to send it as it is */
   publicKey: string;
+  /**
+   * the version this page was built as - one deployment builds every copy of the page and
+   * the Windows app with the same one - or '' for a build made on this computer
+   */
+  version: string;
+  /** owner/name of the GitHub repository its releases are published on */
+  releasesRepo: string;
 }
 
 export const DEFAULT_PAGE_CONFIG: PageConfig = {
   helperUrl: 'http://127.0.0.1:4400',
   requirePasscode: false,
   publicKey: '',
+  version: '',
+  // where the Windows app is published. a deployment writes its own repository here; this is
+  // what a page built on this computer points people at to download the app
+  releasesRepo: 'alexandria-p/ao3downloader',
 };
 
 export const PAGE_CONFIG_FILE = 'app-config.json';
@@ -248,6 +259,15 @@ export function readPageConfig(raw: unknown): PageConfig {
     helperUrl,
     requirePasscode: given['requirePasscode'] === true,
     publicKey: typeof given['publicKey'] === 'string' ? given['publicKey'].trim() : '',
+    version:
+      typeof given['version'] === 'string' && /^\d+\.\d+\.\d+$/.test(given['version'].trim())
+        ? given['version'].trim()
+        : '',
+    releasesRepo:
+      typeof given['releasesRepo'] === 'string' &&
+      /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(given['releasesRepo'].trim())
+        ? given['releasesRepo'].trim()
+        : DEFAULT_PAGE_CONFIG.releasesRepo,
   };
 }
 

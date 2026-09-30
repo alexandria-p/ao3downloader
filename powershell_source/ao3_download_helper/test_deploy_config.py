@@ -187,7 +187,7 @@ def test_the_page_for_this_computer_needs_no_key():
     settings = deploy_config.write_settings({'REQUIRE_PASSCODE': 'false'}, template())
     config = deploy_config.page_config(settings, {})
     assert config == {'helperUrl': 'http://127.0.0.1:4400', 'requirePasscode': False,
-                      'publicKey': ''}
+                      'publicKey': '', 'version': '', 'releasesRepo': ''}
 
 
 def test_the_command_line_writes_both_files(tmp_path, monkeypatch, private_pem, capsys):
@@ -217,5 +217,159 @@ def test_the_command_line_fails_the_build_on_a_bad_setup(tmp_path, monkeypatch, 
 
     assert deploy_config.main(['settings', '--out', str(tmp_path / 's.ini')]) == 1
     assert 'https' in capsys.readouterr().err
+
+# endregion
+
+
+# region the Windows app's settings.ini
+
+RENDER = {'HELPER_URL': 'https://my-ao3-helper.onrender.com', 'REQUIRE_PASSCODE': 'true',
+          'PAGE_ORIGIN': 'https://someone-else.github.io', 'EXTRA_WAIT_TIME': '30',
+          'FILE_NAME_LENGTH': '80'}
+
+
+def test_the_windows_app_takes_every_other_setting_from_the_variables():
+    written = deploy_config.write_local_settings(RENDER, template())
+
+    assert 'ExtraWaitTime=30\n' in written
+    assert 'FileNameLength=80\n' in written
+
+
+def test_the_windows_app_points_at_its_own_helper_whatever_the_variables_say():
+    written = deploy_config.write_local_settings(RENDER, template())
+
+    assert deploy_config.read_settings(written) == {
+        'HelperUrl': 'http://127.0.0.1:4400', 'RequirePasscode': False, 'PageOrigin': ''}
+
+
+def test_the_hosted_helper_and_page_are_named_nowhere_in_the_windows_apps_settings():
+    written = deploy_config.write_local_settings(RENDER, template(), 'https://alexandria-p.github.io')
+
+    assert 'my-ao3-helper.onrender.com' not in written
+    assert 'someone-else.github.io' not in written
+    assert 'alexandria-p.github.io' not in written
+
+
+def test_a_hosted_address_carried_into_another_setting_fails_the_build():
+    # a variable holding the hosted helper's address under some other name would put it in
+    # the file all the same - the check is on the text, not only on the three keys
+    smuggled = {**RENDER, 'EXTRA_WAIT_TIME': '30'}
+    text = template().replace('ExtraWaitTime=15', 'ExtraWaitTime=15\nNote=')
+    smuggled['NOTE'] = 'see https://my-ao3-helper.onrender.com'
+
+    with pytest.raises(DeployError, match='my-ao3-helper.onrender.com'):
+        deploy_config.write_local_settings(smuggled, text)
+
+
+def test_the_windows_app_always_shows_what_it_is_doing_in_its_window():
+    # its window is the only place anyone sees the requests and a run's lines - on whatever
+    # the hosted copy is set to
+    for given in ('false', 'true', ''):
+        written = deploy_config.write_local_settings({**RENDER, 'ENABLE_CONSOLE_LOGGING': given},
+                                                     template())
+        assert 'EnableConsoleLogging=true\n' in written
+
+
+def test_the_hosted_copy_still_takes_console_logging_from_its_variable():
+    written = deploy_config.write_settings({**HOSTED, 'ENABLE_CONSOLE_LOGGING': 'false'}, template())
+
+    assert 'EnableConsoleLogging=false\n' in written
+
+
+def test_the_windows_app_leaves_out_the_password_setting_as_every_page_build_does():
+    written = deploy_config.write_local_settings({}, template())
+
+    assert 'SavePassword' not in written
+
+
+def test_the_windows_app_adds_nothing_the_template_does_not_have():
+    # only values change: the same keys and the same comments, in the same order
+    written = deploy_config.write_local_settings(RENDER, template())
+    keys = list(deploy_config.template_keys(written))
+    expected = [k for k in deploy_config.template_keys(template()) if k not in deploy_config.LEFT_OUT]
+
+    assert keys == expected
+    comments = [line for line in written.splitlines() if line.startswith('#')]
+    assert comments == [line for line in deploy_config.strip_setting(template(), 'SavePassword').splitlines()
+                        if line.startswith('#')]
+
+
+def test_the_command_line_writes_the_windows_apps_settings(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv('DEPLOY_VARIABLES', json.dumps(RENDER))
+    out = tmp_path / 'windows-settings.ini'
+
+    assert deploy_config.main(['local-settings', '--out', str(out)]) == 0
+
+    written = out.read_text(encoding='utf-8')
+    assert 'HelperUrl=http://127.0.0.1:4400\n' in written
+    assert 'my-ao3-helper.onrender.com' not in capsys.readouterr().out
+
+# endregion
+
+
+# region the version a deployment builds
+
+@pytest.mark.parametrize('tags, expected', [
+    ([], '1.0.0'),
+    (['v1.8.2'], '1.8.3'),
+    (['v1.8.2', 'v1.10.0', 'v1.9.7'], '1.10.1'),
+    # anything that is not v and three numbers is not a release of this app
+    (['v1.8.2', 'windows-app', 'v2', 'release-9.9.9', 'v1.9.x'], '1.8.3'),
+])
+def test_each_deployment_raises_the_last_number_of_the_latest_release(tags, expected):
+    assert deploy_config.next_version(tags) == expected
+
+
+@pytest.mark.parametrize('tags, requested, expected', [
+    # higher than every release: the file's version, for a bigger step
+    (['v1.8.2'], '2.0.0', '2.0.0'),
+    (['v1.8.2'], '1.9.0', '1.9.0'),
+    (['v1.8.2'], 'v1.8.3', '1.8.3'),
+    # equal to or below the latest release - a file left alone: the latest, raised by one
+    (['v1.8.2'], '1.8.2', '1.8.3'),
+    (['v1.8.2'], '1.0.0', '1.8.3'),
+    (['v2.0.0', 'v2.0.1'], '2.0.0', '2.0.2'),
+    # nothing released yet: the file's version, or 1.0.0 with none
+    ([], '0.1.0', '0.1.0'),
+    ([], '', '1.0.0'),
+    # a VERSION file ending in a Windows line break
+    (['v1.8.2'], '2.0.0\r\n', '2.0.0'),
+])
+def test_the_version_file_is_used_when_higher_and_passed_when_not(tags, requested, expected):
+    assert deploy_config.next_version(tags, requested) == expected
+
+
+@pytest.mark.parametrize('requested', ['2', '2.0', 'two', '2.0.0-beta'])
+def test_a_version_file_that_is_not_three_numbers_fails_the_deploy(requested):
+    with pytest.raises(DeployError, match='three numbers'):
+        deploy_config.next_version(['v1.8.2'], requested)
+
+
+def test_the_repositorys_version_file_is_a_version():
+    # the deploy reads it; a typo there would fail the deploy, so fail here first
+    text = (deploy_config.HERE.parents[1] / 'VERSION').read_text(encoding='utf-8')
+    assert deploy_config.version_parts(text.strip())
+
+
+def test_the_command_line_prints_the_version(capsys):
+    assert deploy_config.main(['next-version', '--tags', 'v1.8.2\nv1.8.1\n', '--requested', '1.0.0']) == 0
+    assert capsys.readouterr().out.strip() == '1.8.3'
+
+
+def test_the_page_config_carries_the_version_and_where_releases_are():
+    config = deploy_config.page_config(deploy_config.write_settings({}, template()), {}, '1.8.3',
+                                       'someone/ao3downloader')
+
+    assert config['version'] == '1.8.3'
+    assert config['releasesRepo'] == 'someone/ao3downloader'
+
+
+@pytest.mark.parametrize('version, repo, reason', [
+    ('1.8', 'someone/ao3downloader', 'three numbers'),
+    ('1.8.3', 'https://evil.example', 'owner/name'),
+])
+def test_a_page_config_with_a_bad_version_or_repository_fails_the_build(version, repo, reason):
+    with pytest.raises(DeployError, match=reason):
+        deploy_config.page_config(deploy_config.write_settings({}, template()), {}, version, repo)
 
 # endregion

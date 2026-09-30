@@ -89,6 +89,64 @@
   </p>
 }
 
+<!--
+  a newer release than this page - said until installed, or until told not to again. the
+  Windows app can install it itself; anywhere else the page can only link it
+-->
+@switch (updateProgress().state) {
+  @case ('updating') {
+    <p class="update-available" role="status">
+      <span>
+        <strong>Updating to {{ updateTarget() }}...</strong>
+        The app is downloading it, then closes, swaps itself for the new version and starts
+        again. This page reloads by itself once it is back - leave it open.
+      </span>
+    </p>
+  }
+  @case ('failed') {
+    <p class="update-available update-failed" role="alert">
+      <span>
+        <strong>The update did not go through:</strong> {{ updateError() }}
+        @if (newerRelease(); as release) {
+          You can <a [href]="release.url" target="_blank" rel="noopener">download it from GitHub</a>
+          instead.
+        }
+        Your settings and your library are as they were.
+      </span>
+      <button type="button" class="button subtle" (click)="clearUpdateError()">OK</button>
+    </p>
+  }
+  @default {
+    @if (bannerRelease(); as release) {
+      <p class="update-available" role="status">
+        <span>
+          <strong>A newer version is available: {{ release.version }}</strong>
+          (this is {{ currentVersion() }}).
+          @if (canUpdate()) {
+            Update now and the app restarts as the new version in a few seconds - your
+            settings and your library stay as they are.
+          } @else {
+            <a [href]="release.url" target="_blank" rel="noopener">Download it from GitHub</a>
+            to run the latest on your computer.
+          }
+        </span>
+        <span class="update-actions">
+          @if (canUpdate()) {
+            <button type="button" class="button primary" [disabled]="updateProgress().state === 'starting' || !!activeRun()"
+              [title]="activeRun() ? 'Wait until the run in progress is complete - updating restarts the app' : ''"
+              (click)="updateNow()">
+              Update now
+            </button>
+          }
+          <button type="button" class="button subtle" (click)="dismissUpdates()">
+            Dismiss and do not ask me again
+          </button>
+        </span>
+      </p>
+    }
+  }
+}
+
 <!-- covers everything while a library's folders are made or its works moved -->
 <app-setup-overlay />
 
@@ -314,6 +372,32 @@
 } @else {
   <app-faq />
 }
+
+<!-- on every tab, and pinned to the bottom of the window while a long listing scrolls -->
+<footer class="app-footer">
+  <!--
+    always says whether this is the latest, so someone who dismissed the banner still sees
+    a newer one is out - as underlined text rather than a button, quieter than the banner
+  -->
+  <span>
+    ao3downloader {{ currentVersion() ? 'version ' + currentVersion() : '(built on this computer)' }}
+    @if (updateProgress().state === 'updating') {
+      &middot; <span class="footer-note">updating to {{ updateTarget() }}...</span>
+    } @else if (newerRelease(); as release) {
+      &middot;
+      @if (canUpdate()) {
+        <button type="button" class="footer-link" [disabled]="updateProgress().state === 'starting' || !!activeRun()"
+          [title]="activeRun() ? 'Wait until the run in progress is complete - updating restarts the app' : 'Download ' + release.version + ' and restart as it'"
+          (click)="updateNow()">update to latest ({{ release.version }})</button>
+      } @else {
+        <a class="footer-link" [href]="release.url" target="_blank" rel="noopener">update to latest ({{ release.version }})</a>
+      }
+    } @else if (upToDate()) {
+      &middot; <a class="footer-link" [href]="latestReleaseUrl()" target="_blank" rel="noopener">up to date with latest</a>
+    }
+  </span>
+  <a [href]="repositoryUrl()" target="_blank" rel="noopener">{{ repositoryName() }} on GitHub</a>
+</footer>
 
 @if (passcodeWanted()) {
   <app-passcode-gate (unlocked)="unlocked()" />

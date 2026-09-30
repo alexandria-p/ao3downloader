@@ -20,8 +20,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  version:
+    name: decide this deployment's version and tag it
+    # one version for everything this run builds - the page on github pages and the windows
+    # app. the VERSION file when it is higher than every release (a bigger step, like 2.0.0),
+    # and otherwise the latest release with its last number raised
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # to push the tag
+      contents: write
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: work out the version
+        id: next
+        working-directory: powershell_source/ao3_download_helper
+        run: |
+          git fetch --tags --force --quiet
+          uv sync --frozen
+          version=$(uv run --no-sync python deploy_config.py next-version \
+            --tags "$(git tag -l 'v*')" --requested "$(cat "$GITHUB_WORKSPACE/VERSION")")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "this deployment is version $version"
+
+      - name: tag the commit with it
+        # tagged before anything is built, so two deployments can never build the same
+        # version. a deployment that fails after this has used its number, and the next one
+        # takes the one after - a gap, never a repeat
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          git tag "v$VERSION" "$GITHUB_SHA"
+          git push origin "v$VERSION"
+
   settings:
     name: write settings.ini and the page's config
+    needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -43,13 +85,16 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           # read only to derive the public key for the page; never written anywhere
           AO3DOWNLOADER_PRIVATE_KEY: ${{ secrets.AO3DOWNLOADER_PRIVATE_KEY }}
+          # the page says which version it is, and checks the releases for a newer one
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           # the pages site's own address, used when PAGE_ORIGIN is not set. a browser sends
           # it lowercase
           export DEFAULT_PAGE_ORIGIN="https://${OWNER,,}.github.io"
           uv sync --frozen
           uv run --no-sync python deploy_config.py settings --out hosted-settings.ini
-          uv run --no-sync python deploy_config.py page-config --settings hosted-settings.ini --out app-config.json
+          uv run --no-sync python deploy_config.py page-config --settings hosted-settings.ini --out app-config.json \
+            --version "$VERSION" --repo "$GITHUB_REPOSITORY"
 
       - name: keep them for the next jobs
         uses: actions/upload-artifact@v4
@@ -209,3 +254,15 @@ jobs:
       - name: deploy
         id: deploy
         uses: actions/deploy-pages@v4
+
+  windows:
+    name: build the windows app and publish it
+    # nothing here depends on the hosted copy - only on the version - so it runs alongside
+    # it, and a windows build that fails does not hold up the helper or the page. the app
+    # runs its own helper on the computer it is started on - it never talks to the hosted one
+    needs: version
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    permissions:
+      contents: write

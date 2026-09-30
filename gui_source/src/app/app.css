@@ -294,3 +294,77 @@
   background: #22303a;
   font-size: 0.9rem;
 }
+
+/* news, not a problem - the calm blue the run banner wears */
+.update-available {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid #5a7f9a;
+  border-radius: 3px;
+  background: #22303a;
+  font-size: 0.9rem;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* the one thing an update banner says that is a problem - amber, as a copy to check is */
+.update-available.update-failed {
+  border-color: #9a7a3d;
+  background: #3a3222;
+}
+
+/* what this page is and where it comes from - on every tab, and kept in view at the bottom
+   of the window, because nobody should have to scroll to the end of a library to find it */
+.app-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-top: 24px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.app-footer a {
+  color: var(--text-dim);
+}
+
+/* whether this is the latest version: underlined text, never a button - the banner is the
+   loud way to say it, this is the one that is always there */
+.footer-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.footer-link:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.footer-link:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.footer-note {
+  font-style: italic;
+}
