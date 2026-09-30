@@ -322,6 +322,11 @@ use the right browser.
   web browser".
 - **No Update now.** `make_updater` is Windows-only (the swap is PowerShell), so the helper
   reports no `app` and the page links the release; the CI checks it does not offer one.
+- **Intel Macs keep `cryptography<49`** (`pyproject.toml`, by marker; uv locks both versions).
+  cryptography stopped publishing Intel Mac wheels at 49, so uv compiled it on the Intel
+  runner against Homebrew's OpenSSL; PyInstaller packed a different `libssl.3.dylib`, and the
+  app died at import with `Symbol not found: _SSL_get0_group_name`. 48.0.1's universal2 wheel
+  carries its own OpenSSL. Every other platform stays on the latest.
 - **Both builds publish to one release, at once.** Whichever gets there first creates it and
   the other's create fails harmlessly, then each uploads its zip with `--clobber`. The notes
   are the same text in both workflows, since either may write them. For the minutes between

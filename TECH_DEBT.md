@@ -80,3 +80,8 @@ written.
   work removed and another added leaves the count unchanged and the old list kept. Deleting
   the series' entry in `indexing/series/` makes the next collection run read it. A series
   you bookmarked is read in full by every scan of your bookmarks anyway, which corrects it.
+- **Intel Macs are held on `cryptography<49`.** 49 was the first release with no Intel Mac
+  wheel, and building it from source there links an OpenSSL PyInstaller does not pack. So the
+  Intel Mac app gets no cryptography fixes after 48.x. When that matters, either build it on
+  the Intel runner with OpenSSL linked statically (`OPENSSL_STATIC=1`, `OPENSSL_DIR` at
+  Homebrew's `openssl@3`), or drop the Intel build.
