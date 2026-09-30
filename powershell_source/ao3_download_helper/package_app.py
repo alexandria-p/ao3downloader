@@ -140,10 +140,12 @@ Your fics are saved in whichever folder you open in the app, on this Mac or in D
 
 Updating
 --------
-When a newer version is out, the app says so at the top of the page, with a link to it.
-Download the new zip, unzip it, and copy everything in it over this folder - or move your
-config folder into the new one. Nothing in the zip is in the config folder, so your
-settings.ini is never replaced. Each time the app starts it adds any setting a new version
+When a newer version is out, the app says so at the top of the page. Click "Update now": it
+downloads the new version, closes, swaps itself for it and opens again in a new Terminal
+window - a few seconds. The old window can then be closed.
+
+Or download the new zip yourself and copy everything in it over this folder. Nothing in the
+zip is in the config folder, so your settings.ini is never replaced either way. Each time the app starts it adds any setting a new version
 introduced, and comments out - marked DEPRECATED - any setting it no longer uses. Nothing you
 set is ever changed or deleted.
 

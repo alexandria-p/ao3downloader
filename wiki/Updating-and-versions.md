@@ -2,9 +2,8 @@
 
 When a newer version is out, a banner at the top of the page says so. The footer always says `up to date with latest` or `update to latest (X)`, even after you dismiss the banner.
 
-- **Windows:** click **Update now**. The app downloads the new version, checks it against GitHub's SHA-256, restarts itself, and the page reloads - a few seconds. It won't update while a run is going. If anything fails, the old version is put back and the page says why (`update\update.log`).
-- **Mac:** follow the link, download the new zip, and copy its contents over your folder.
-- **By hand, either system:** unzip the new version over the old folder.
+- **Windows or Mac:** click **Update now**. The app downloads the new version, checks it against GitHub's SHA-256, restarts itself, and the page reloads - a few seconds. On a Mac it opens in a new Terminal window; close the old one. It won't update while a run is going. If anything fails, the old version is put back and the page says why (`update/update.log`).
+- **By hand:** unzip the new version over the old folder.
 
 Your `settings.ini` is never replaced: the zip has no `config/` folder. See [[Settings]] for how new settings are added to it.
 

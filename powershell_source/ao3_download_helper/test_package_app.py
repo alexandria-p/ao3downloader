@@ -83,8 +83,8 @@ def test_the_mac_readme_says_how_to_get_past_the_first_warning_and_which_browser
     assert 'Open Anyway' in readme
     assert package_app.MAC_LAUNCHER in readme
     assert 'Chrome' in readme and 'Safari' in readme
-    # no in-app updater on a Mac - the swap is a Windows script
-    assert 'Update now' not in readme
+    # the Mac app updates itself too, opening again in a new Terminal window
+    assert 'Update now' in readme and 'new Terminal' in readme
 
 
 def test_the_zip_unzips_into_one_folder_and_holds_no_settings(tmp_path):

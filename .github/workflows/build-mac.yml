@@ -13,8 +13,8 @@ name: build mac app
 # tab it builds and tries the app; given a version it publishes that too. The zips are always
 # kept as downloads on the run.
 #
-# There is no in-app update on a Mac - the swap is a Windows script - so nothing here tries
-# one: the page links the newer release instead.
+# The app updates itself on a Mac too (Update now): the swap is a bash script that reopens it
+# in Terminal. Every build tries a real update from a stand-in release, as the Windows one does.
 
 on:
   workflow_dispatch:
@@ -35,6 +35,8 @@ on:
       - '.github/workflows/build-mac.yml'
       - 'powershell_source/ao3_download_helper/package_app.py'
       - 'powershell_source/ao3_download_helper/source_code/desktop.py'
+      - 'powershell_source/ao3_download_helper/source_code/updater.py'
+      - 'powershell_source/ao3_download_helper/stand_in_release.py'
       - 'powershell_source/ao3_download_helper/source_code/settings_file.py'
       - 'powershell_source/ao3_download_helper/build_artifacts.py'
       - 'powershell_source/ao3_download_helper/pyproject.toml'
@@ -159,11 +161,87 @@ jobs:
           version=$(echo "$config" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
           if [ "$helper" != 'http://127.0.0.1:4400' ]; then echo "the page points at $helper"; exit 1; fi
           if [ "$version" != "$APP_VERSION" ]; then echo "the page says version '$version', not '$APP_VERSION'"; exit 1; fi
-          # no in-app updater on a Mac: the page must not offer Update now
+          # the packaged app updates itself - the step below tries it
           updatable=$(curl -s -H 'Origin: http://localhost:4200' http://127.0.0.1:4400/api/config \
             | python3 -c 'import json,sys; print(bool((json.load(sys.stdin).get("app") or {}).get("updatable")))')
-          if [ "$updatable" != 'False' ]; then echo "the helper offers an in-app update on a Mac"; exit 1; fi
+          if [ "$updatable" != 'True' ]; then echo "the app does not say it can update itself"; exit 1; fi
           echo 'the page and the helper both answered, settings.ini is beside the program, and nothing is quarantined'
+
+      - name: install the app, change its settings, and update it from a stand-in release
+        # as the Windows build does: the same zip served as 99.0.0, with someone's edits to
+        # settings.ini made first. on a Mac the swap reopens the app in a new Terminal window,
+        # which is part of what this tries
+        env:
+          AO3DOWNLOADER_UPDATE_SOURCE: http://127.0.0.1:8765
+        run: |
+          place="$RUNNER_TEMP/installed"
+          rm -rf "$place" && mkdir -p "$place"
+          ditto -x -k "$ZIP" "$place"
+          app="$place/ao3downloader"
+          settings="$app/config/settings.ini"
+          origin='Origin: http://localhost:4200'
+          helper() { curl -sf --max-time 2 -H "$origin" http://127.0.0.1:4400/api/config; }
+          wait_for_helper() {
+            for _ in $(seq 1 "$1"); do sleep 1; if helper > /dev/null; then return 0; fi; done
+            echo "the helper did not answer within $1 seconds"; return 1
+          }
+          field() { python3 -c "import json,sys; d=json.load(sys.stdin)['app']; print($1)"; }
+
+          (cd powershell_source/ao3_download_helper \
+            && uv run --no-sync python stand_in_release.py "$GITHUB_WORKSPACE/$ZIP" 8765 > "$RUNNER_TEMP/release.log" 2>&1 &)
+          AO3DOWNLOADER_NO_BROWSER=1 bash "$app/Start ao3downloader.command" > "$RUNNER_TEMP/installed.log" 2>&1 &
+          started=$!
+          finish() {
+            status=$?
+            if [ "$status" != 0 ]; then
+              echo '--- what the app folder holds ---'; ls -la "$app" "$app/update" 2>/dev/null
+              for f in update/update.log update/swap-output.txt; do echo "--- $f ---"; cat "$app/$f" 2>/dev/null || echo '(none)'; done
+              echo '--- the stand-in release ---'; cat "$RUNNER_TEMP/release.log"
+              echo '--- processes ---'; pgrep -lf ao3downloader || true
+            fi
+            pkill -x ao3downloader || true
+            pkill -f stand_in_release.py || true
+            osascript -e 'tell application "Terminal" to quit' 2>/dev/null || true
+          }
+          trap finish EXIT
+
+          wait_for_helper 60
+          if [ "$(helper | field 'd["version"]')" != "$APP_VERSION" ]; then echo "the app is not $APP_VERSION"; exit 1; fi
+
+          # what someone might have done since installing it
+          sed -i '' 's/^ExtraWaitTime=.*/ExtraWaitTime=42/' "$settings"
+          printf '\n# my own note\nRetiredSetting=3\n' >> "$settings"
+          echo old > "$app/_internal/from-the-old-version.txt"
+
+          code=$(curl -s -o "$RUNNER_TEMP/update.json" -w '%{http_code}' -X POST -H "$origin" \
+            -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4400/api/update)
+          if [ "$code" != 202 ]; then echo "the update was not started: $code $(cat "$RUNNER_TEMP/update.json")"; exit 1; fi
+          echo "update started: $(cat "$RUNNER_TEMP/update.json")"
+
+          for _ in $(seq 1 120); do kill -0 "$started" 2>/dev/null || break; sleep 1; done
+          if kill -0 "$started" 2>/dev/null; then echo 'the app never closed for the swap'; exit 1; fi
+          echo 'the app closed for the swap'
+          wait_for_helper 120
+          echo "the app is back: $(helper)"
+
+          log=$(cat "$app/update/update.log")
+          echo "$log"
+          case "$log" in *swapped*) ;; *) echo 'the swap script did not say it swapped the files'; exit 1 ;; esac
+          if [ "$(helper | field 'd["update"]["state"]')" = failed ]; then echo 'the app says the update failed'; exit 1; fi
+          if [ -e "$app/_internal/from-the-old-version.txt" ]; then echo 'the old _internal is still there'; exit 1; fi
+          for left in update/new update/previous update/download.zip update/restarted; do
+            if [ -e "$app/$left" ]; then echo "the swap left $left behind"; exit 1; fi
+          done
+          if [ ! -x "$app/ao3downloader" ]; then echo 'the new program is not executable'; exit 1; fi
+
+          after=$(cat "$settings")
+          echo "$after"
+          grep -q '^ExtraWaitTime=42$' "$settings" || { echo "settings.ini lost ExtraWaitTime=42"; exit 1; }
+          grep -q '^# my own note$' "$settings" || { echo 'settings.ini lost the note'; exit 1; }
+          grep -q '# DEPRECATED: RetiredSetting' "$settings" || { echo 'RetiredSetting was not marked deprecated'; exit 1; }
+          if grep -q '^RetiredSetting=' "$settings"; then echo 'RetiredSetting is still set'; exit 1; fi
+          grep -q '^# RetiredSetting=3$' "$settings" || { echo 'RetiredSetting was not kept, commented out'; exit 1; }
+          echo 'updated: new files in place, the app back in a new window, settings.ini kept and brought up to date'
 
       - name: keep the zip on this run
         uses: actions/upload-artifact@v4

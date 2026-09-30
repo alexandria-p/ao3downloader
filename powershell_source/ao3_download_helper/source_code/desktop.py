@@ -113,14 +113,29 @@ def build_info(web: str) -> tuple[str, str]:
 
 
 def make_updater(root: str, web: str) -> 'updates.Updater | None':
-    """An updater for this app, when it can update itself: the packaged app on Windows (the
-    swap runs in PowerShell, and only a packaged app is a folder to swap), built with a version
-    and a repository to look for a newer one in."""
+    """An updater for this app, when it can update itself: the packaged app on Windows or a Mac
+    (only a packaged app is a folder to swap), built with a version and a repository to look for
+    a newer one in."""
 
-    if sys.platform != 'win32' or not getattr(sys, 'frozen', False): return None
+    kind = updates.kind_for()
+    if not kind or not getattr(sys, 'frozen', False): return None
     version, repository = build_info(web)
     if not version or not repository: return None
-    return updates.Updater(root, version, repository)
+    return updates.Updater(root, version, repository, kind=kind)
+
+
+def restarted_by_update(root: str) -> bool:
+    """Whether a Mac update's swap just started this app - it leaves a marker, since a window
+    opened in Terminal gets none of its environment. Read once and removed: the page is still
+    open and reloads itself, so no second tab, this time only."""
+
+    marker = os.path.join(root, updates.UPDATE_FOLDER, updates.RESTARTED_MARKER)
+    if not os.path.exists(marker): return False
+    try:
+        os.remove(marker)
+    except OSError:
+        pass
+    return True
 
 
 def use_folders(root: str) -> None:
@@ -198,6 +213,7 @@ def stop(message: str) -> int:
 def main() -> int:
     root = app_folder()
     use_folders(root)
+    if restarted_by_update(root): os.environ[ENV_NO_BROWSER] = '1'
     settings_up_to_date(root)
     web = web_folder()
     port = int(os.environ.get(server.ENV_PORT) or server.DEFAULT_PORT)

@@ -63,7 +63,7 @@ export class App {
   protected readonly repositoryName = computed(() => this.helper.settings().releasesRepo);
   protected readonly repositoryUrl = computed(() => `https://github.com/${this.repositoryName()}`);
   protected readonly issuesUrl = computed(() => `${this.repositoryUrl()}/issues`);
-  /** only the Windows app can install an update itself; anywhere else the banner links it */
+  /** only the Windows or Mac app can install an update itself; anywhere else the banner links it */
   protected readonly canUpdate = this.updates.canUpdate;
   protected readonly updateProgress = this.updates.updating;
   protected readonly updateTarget = computed(() => {
@@ -234,7 +234,7 @@ export class App {
     void this.jobs.refreshActiveRuns();
     // once per opening, and never for a page that has no version or was told not to
     void this.updates.check();
-    // whether the helper is the Windows app, which can update itself - and whether its last
+    // whether the helper is the Windows or Mac app, which can update itself - and whether its last
     // update went through. untracked, or clearing a failure would bring it straight back
     effect(() => {
       const app = this.jobs.config()?.app;
@@ -256,7 +256,7 @@ export class App {
     this.updates.dismiss();
   }
 
-  /** the Windows app: download the newer release, restart as it, and reload this page */
+  /** the Windows or Mac app: download the newer release, restart as it, and reload this page */
   protected updateNow(): void {
     void this.updates.updateNow();
   }

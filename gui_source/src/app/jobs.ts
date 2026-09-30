@@ -62,7 +62,7 @@ export interface ServerConfig {
   /** ticked when the dialog opens, but free to untick */
   defaults: string[];
   settings?: ServerSettings;
-  /** only the Windows app: its version, and whether it can update itself */
+  /** only the Windows or Mac app: its version, and whether it can update itself */
   app?: AppStatus;
 }
 

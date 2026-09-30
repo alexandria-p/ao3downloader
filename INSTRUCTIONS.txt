@@ -240,6 +240,7 @@ Use Chrome, Edge, Brave, Opera or Arc. Safari and Firefox cannot open a folder
 on the Mac for a web page, so they cannot save your fics; the app asks for
 Chrome by name for that reason, rather than the default browser.
 
-There is no "Update now" on a Mac - the swap is a Windows script. The banner and
-the footer link the newer release; download it and copy its contents over the
-folder. settings.ini is kept and only added to, exactly as on Windows.
+"Update now" works on a Mac too: the app downloads the zip for its own chip,
+closes, swaps its files with a bash script (update/apply-update.sh) and opens
+again in a new Terminal window. Or copy a new zip's contents over the folder by
+hand. settings.ini is kept and only added to, exactly as on Windows.

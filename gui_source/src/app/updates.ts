@@ -91,9 +91,9 @@ export class UpdateCheck {
     this.dismissed.set(true);
   }
 
-  // region updating the Windows app from here
+  // region updating the Windows or Mac app from here
 
-  /** whether this page's helper is the Windows app, which can update itself */
+  /** whether this page's helper is the Windows or Mac app, which can update itself */
   readonly canUpdate = signal(false);
   /** how an update asked for from this page is going */
   readonly updating = signal<UpdateProgress>({ state: 'idle' });
@@ -184,7 +184,7 @@ export class UpdateCheck {
   // endregion
 }
 
-/** the Windows app, as its helper describes itself */
+/** the Windows or Mac app, as its helper describes itself */
 export interface AppStatus {
   version: string;
   updatable: boolean;

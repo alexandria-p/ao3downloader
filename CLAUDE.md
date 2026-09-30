@@ -91,7 +91,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1602 python passed; 614 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1616 python passed; 615 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -320,8 +320,7 @@ use the right browser.
   is there does it fall back to the default browser - whose page then says why it cannot open
   a folder. The window says `open Chrome to http://localhost:4200` (`where_to_go`), not "any
   web browser".
-- **No Update now.** `make_updater` is Windows-only (the swap is PowerShell), so the helper
-  reports no `app` and the page links the release; the CI checks it does not offer one.
+- **Update now works on a Mac too** - see **The app updates itself** for the Mac's side.
 - **Intel Macs keep `cryptography<49`** (`pyproject.toml`, by marker; uv locks both versions).
   cryptography stopped publishing Intel Mac wheels at 49, so uv compiled it on the Intel
   runner against Homebrew's OpenSSL; PyInstaller packed a different `libssl.3.dylib`, and the
@@ -330,15 +329,34 @@ use the right browser.
 - **Both builds publish to one release, at once.** Whichever gets there first creates it and
   the other's create fails harmlessly, then each uploads its zip with `--clobber`. The notes
   are the same text in both workflows, since either may write them. For the minutes between
-  the release appearing and the Windows zip landing, Update now fails with "the latest
-  release has no ao3downloader-windows.zip" - clear, and gone on the next try.
+  the release appearing and a system's zip landing, Update now there fails with "the latest
+  release has no ao3downloader-<system>.zip" - clear, and gone on the next try.
 
-### The Windows app updates itself
+### The app updates itself
 
 **Update now** (the banner, only when `/api/config` says `app.updatable`) posts
-`/api/update`; `source_code/updater.py` does the rest. Only the packaged app on Windows with
-a version and a repository has an `Updater` (`desktop.make_updater`, set on
+`/api/update`; `source_code/updater.py` does the rest. Only the packaged app on Windows or a
+Mac with a version and a repository has an `Updater` (`desktop.make_updater`, set on
 `Handler.updater`); every other helper answers 404 and its page only links the release.
+`updater.kind_for` says what an update is on each system (`Kind`): which release asset
+(`ao3downloader-windows.zip`, or `ao3downloader-macos-<chip>.zip` by `platform.machine()`),
+which program must be in the zip, and which swap script, started how.
+
+**On a Mac** the swap is bash (`MAC_SWAP_SCRIPT`, `update/apply-update.sh`), started in a new
+session (`start_new_session`) so closing the app's Terminal window does not take it along. It
+does what the PowerShell one does, in the same order, writing the **same log lines**
+(`swapped`, `update failed:`) so `last_result` reads either - but needs no retry loop, since a
+rename on one disk cannot be half-done or locked. It restarts the app with `open -a Terminal`
+on the launcher, **in a new window**, which gets none of the script's environment - so instead
+of `AO3DOWNLOADER_NO_BROWSER` it leaves `update/restarted`, which `desktop.restarted_by_update`
+reads and deletes (no second tab, once). The old window says it can be closed. **`unpack`
+restores each file's mode and makes symlinks as symlinks** (`ZipFile.extract` does neither,
+and the Mac app needs both), and **`check_zip` refuses a symlink that is absolute or climbs out
+of the app**, so a link cannot reach past the folder the zip unpacks into. Files `requests`
+downloads carry no quarantine mark, so an updated app opens without Gatekeeper asking again.
+`test_mac_update.py` runs the real script under bash with stand-in `open` and `mv`: a clean
+swap, and a failed move rolled back.
+
 
 - **One run or one update, never both.** `start_update` checks for a run and `claim`s the
   updater under `Handler.jobs_lock` - the lock a run is started under - and a run start checks
@@ -372,7 +390,8 @@ a version and a repository has an `Updater` (`desktop.make_updater`, set on
   the helper not answering is the swap, not a failure; the same version coming back after
   that is. It reloads the page once the helper reports the new version, and gives up after
   `waitMs`. A reported failure is shown once and remembered as seen (`ao3.updateFailureSeen`).
-- **Tested end to end on Windows**: `build-windows.yml` installs the zip, edits its
+- **Tested end to end on Windows and both Macs**: `build-windows.yml` (and `build-mac.yml`, the
+  same way, checking the app came back in a new Terminal window) installs the zip, edits its
   settings.ini (a changed value, a comment, a key the app does not know), serves the same zip
   as `99.0.0` from `stand_in_release.py`, posts `/api/update`, and checks the files were
   replaced, the edits kept, the unknown key commented out as deprecated, and `update/` cleaned
