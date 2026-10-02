@@ -1,6 +1,6 @@
 Settings live in `settings.ini`:
 
-- **Windows/Mac app** - `config/settings.ini`, beside the program
+- **Windows/Mac/Linux app** - `config/settings.ini`, beside the program
 - **Bundle** - `build/config/settings.ini`
 - **Development** - `powershell_source/settings.ini`
 
@@ -14,7 +14,7 @@ Edit it while the app is closed.
 | `FileNameLength` | `50` | Longest file name before the title is shortened. Keeps you under Windows' path limit. `0` never shortens. |
 | `EnableDebugLogging` | `false` | More detail in the helper's log file. |
 | `EnableDebugTools` | `false` | Shows the debug runs and the debug panel in the run window. |
-| `EnableConsoleLogging` | `false` | Prints every request and every line a run says to the helper's window. Always on in the Windows/Mac app. Never prints your password or passcode. |
+| `EnableConsoleLogging` | `false` | Prints every request and every line a run says to the helper's window. Always on in the Windows/Mac/Linux app. Never prints your password or passcode. |
 | `PausedRunTimeoutMinutes` | `10` | Minutes a paused background run waits before it's abandoned. `0` never. |
 | `HelperUrl` | `http://127.0.0.1:4400` | Where the page finds the helper. Only changes for a [[hosted copy|Hosting your own copy]]. |
 | `RequirePasscode` | `false` | Makes the helper refuse every request without the passcode. For a hosted copy. |
@@ -27,4 +27,4 @@ When a new version adds a setting, it's appended to your file with its explanati
 
 ## Hosted copies and the apps
 
-The deploy workflow writes every setting from a GitHub variable named after it in upper snake case: `ExtraWaitTime` from `EXTRA_WAIT_TIME`. The Windows and Mac apps use the same variables, but always point at their own helper, with no passcode. See [[Hosting your own copy]].
+The deploy workflow writes every setting from a GitHub variable named after it in upper snake case: `ExtraWaitTime` from `EXTRA_WAIT_TIME`. The Windows, Mac and Linux apps use the same variables, but always point at their own helper, with no passcode. See [[Hosting your own copy]].

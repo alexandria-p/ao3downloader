@@ -1,8 +1,9 @@
-"""The Mac app updating itself: which zip it takes, what it keeps as it unpacks, and the bash
-script that swaps the files and opens the app again in Terminal.
+"""The Mac and Linux apps updating themselves: which zip each takes, what it keeps as it
+unpacks, and the bash script that swaps the files and starts the app again - in a new Terminal
+window on a Mac, through its launcher on Linux.
 
 The swap script is run for real here, under bash, against a stand-in app folder - with `open`
-replaced by a script that notes what it was asked to open, since there is no Terminal to open.
+and `setsid` replaced by scripts that note what they were asked to start.
 """
 
 import hashlib
@@ -78,8 +79,8 @@ def github(asset: str, body: bytes):
     return get
 
 
-def mac_updater(tmp_path, chip='arm64', body=None):
-    kind = updates.kind_for('darwin', chip)
+def mac_updater(tmp_path, chip='arm64', body=None, platform='darwin'):
+    kind = updates.kind_for(platform, chip)
     launch, leave = MagicMock(), MagicMock()
     get = github(kind.asset, mac_zip() if body is None else body)
     update = Updater(str(tmp_path), '1.8.2', 'x/y', get=get, launch=launch, leave=leave, kind=kind)
@@ -94,8 +95,10 @@ def test_each_mac_takes_the_zip_for_its_own_chip_and_windows_keeps_its_own():
     assert updates.kind_for('darwin', 'arm64').asset == 'ao3downloader-macos-apple-silicon.zip'
     assert updates.kind_for('darwin', 'x86_64').asset == 'ao3downloader-macos-intel.zip'
     assert updates.kind_for('win32').asset == 'ao3downloader-windows.zip'
+    assert updates.kind_for('linux', 'x86_64').asset == 'ao3downloader-linux-x86_64.zip'
     # a system with no published app has nothing to update from
-    assert updates.kind_for('linux') is None
+    assert updates.kind_for('linux', 'aarch64') is None
+    assert updates.kind_for('freebsd14', 'amd64') is None
 
 
 def test_a_mac_downloads_its_own_zip_from_the_release(tmp_path):
@@ -156,11 +159,22 @@ def test_a_mac_update_hands_over_to_bash_with_the_mac_script(tmp_path):
 
     command = launch.call_args.args[0]
     script = tmp_path / 'update' / 'apply-update.sh'
-    assert command == ['/bin/bash', str(script), str(tmp_path), str(os.getpid())]
+    assert command == ['/bin/bash', str(script), str(tmp_path), str(os.getpid()), 'macos']
     assert script.read_bytes() == updates.MAC_SWAP_SCRIPT.encode('utf-8')
     assert b'\r' not in script.read_bytes()
     assert (tmp_path / 'update' / 'new' / 'ao3downloader').read_bytes() == b'new program'
     assert update.status()['update'] == {'state': 'restarting', 'version': '1.8.3'}
+
+def test_a_linux_update_hands_over_to_the_same_script_told_it_is_on_linux(tmp_path):
+    update, get, launch = mac_updater(tmp_path, 'x86_64', platform='linux')
+    assert update.claim()
+    (tmp_path / updates.UPDATE_FOLDER).mkdir()
+    update.install(update.latest())
+
+    assert get.fetched == 'https://x/ao3downloader-linux-x86_64.zip'
+    command = launch.call_args.args[0]
+    assert command == ['/bin/bash', str(tmp_path / 'update' / 'apply-update.sh'), str(tmp_path),
+                       str(os.getpid()), 'linux']
 
 # endregion
 
@@ -179,28 +193,33 @@ def stand_in_app(tmp_path: Path) -> Path:
     (new / 'ao3downloader').write_bytes(b'new program')
     (new / '_internal' / 'new-only.txt').write_text('new', encoding='utf-8')
     (new / updates.MAC_LAUNCHER).write_text('#!/bin/bash\n', encoding='utf-8')
+    (new / updates.LINUX_LAUNCHER).write_text('#!/bin/bash\n', encoding='utf-8')
     (app / 'update' / 'apply-update.sh').write_text(updates.MAC_SWAP_SCRIPT, encoding='utf-8')
     return app
 
 
-def swap(tmp_path: Path, app: Path, fail_moving: str = '') -> tuple[str, str]:
-    """Run the script with `open` noting what it opened, and `mv` refusing one name."""
+def swap(tmp_path: Path, app: Path, fail_moving: str = '', system: str = 'macos') -> tuple[str, str]:
+    """Run the script with `open` and `setsid` noting what they started, and `mv` refusing
+    one name."""
 
     shims = tmp_path / 'shims'
     shims.mkdir()
     opened = tmp_path / 'opened.txt'
     (shims / 'open').write_text(f'#!/bin/bash\necho "$@" >> "{opened}"\n', encoding='utf-8')
+    (shims / 'setsid').write_text(f'#!/bin/bash\necho "setsid $@ [$AO3DOWNLOADER_IN_TERMINAL]" >> "{opened}"\n', encoding='utf-8')
     real_mv = subprocess.run(['bash', '-c', 'command -v mv'], capture_output=True, text=True).stdout.strip()
     (shims / 'mv').write_text(
         '#!/bin/bash\n'
         f'if [ -n "{fail_moving}" ] && [ "$(basename "$2")" = "{fail_moving}" ] && [[ "$1" == */new/* ]]; then exit 1; fi\n'
         f'exec {real_mv} "$@"\n', encoding='utf-8')
     for shim in shims.iterdir(): shim.chmod(0o755)
-    environment = {**os.environ, 'PATH': f'{shims}{os.pathsep}{os.environ["PATH"]}'}
+    # as the app had it, started in the window its launcher opened
+    environment = {**os.environ, 'PATH': f'{shims}{os.pathsep}{os.environ["PATH"]}',
+                   'AO3DOWNLOADER_IN_TERMINAL': '1'}
     # a process that has already gone, as the app has by the time the script runs
     gone = subprocess.Popen(['true'])
     gone.wait()
-    subprocess.run(['bash', str(app / 'update' / 'apply-update.sh'), str(app), str(gone.pid)],
+    subprocess.run(['bash', str(app / 'update' / 'apply-update.sh'), str(app), str(gone.pid), system],
                    env=environment, check=True, timeout=60)
     log = (app / 'update' / 'update.log').read_text(encoding='utf-8')
     return log, opened.read_text(encoding='utf-8') if opened.exists() else ''
@@ -239,6 +258,32 @@ def test_a_mac_swap_that_cannot_move_a_file_puts_the_old_app_back_and_says_so(tm
     assert 'could not move the new ao3downloader in' in \
         updates.Updater(str(app), '1.8.2', 'x/y').last_result()
 
+@needs_bash
+def test_the_linux_swap_replaces_the_app_and_starts_it_again_through_its_launcher(tmp_path):
+    app = stand_in_app(tmp_path)
+    log, opened = swap(tmp_path, app, system='linux')
+
+    assert 'swapped' in log and 'started the app again' in log
+    assert (app / 'ao3downloader').read_bytes() == b'new program'
+    assert not (app / '_internal' / 'old-only.txt').exists()
+    assert 'ExtraWaitTime=42' in (app / 'config' / 'settings.ini').read_text(encoding='utf-8')
+    for gone in ('new', 'previous'):
+        assert not (app / 'update' / gone).exists()
+    # in a session of its own, never through macOS's open - and free to open a window of its
+    # own, which the old app's marker would have stopped
+    assert opened.strip() == f'setsid -f {app / updates.LINUX_LAUNCHER} []'
+    assert (app / 'update' / updates.RESTARTED_MARKER).exists()
+
+
+@needs_bash
+def test_a_linux_swap_that_cannot_move_a_file_puts_the_old_app_back(tmp_path):
+    app = stand_in_app(tmp_path)
+    log, opened = swap(tmp_path, app, fail_moving='ao3downloader', system='linux')
+
+    assert 'putting the old ones back' in log
+    assert (app / 'ao3downloader').read_bytes() == b'old program'
+    assert opened.startswith('setsid')
+
 # endregion
 
 
@@ -266,6 +311,21 @@ def test_the_packaged_mac_app_can_update_itself(monkeypatch, tmp_path):
 
     assert update is not None
     assert update.kind.asset == 'ao3downloader-macos-apple-silicon.zip'
+    assert update.status()['updatable'] is True
+
+
+def test_the_packaged_linux_app_can_update_itself(monkeypatch, tmp_path):
+    monkeypatch.setattr(desktop.sys, 'platform', 'linux')
+    monkeypatch.setattr(desktop.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(updates.sys, 'platform', 'linux')
+    monkeypatch.setattr(desktop, 'build_info', lambda web: ('1.8.2', 'x/y'))
+    import platform
+    monkeypatch.setattr(platform, 'machine', lambda: 'x86_64')
+
+    update = desktop.make_updater(str(tmp_path), 'web')
+
+    assert update is not None
+    assert update.kind.asset == 'ao3downloader-linux-x86_64.zip'
     assert update.status()['updatable'] is True
 
 # endregion

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from source_code import desktop, server, strings
+from source_code import desktop, server, strings, updater as updates
 
 
 @pytest.fixture(autouse=True)
@@ -107,7 +107,7 @@ def test_the_app_already_running_is_said_rather_than_starting_a_second_helper(tm
     assert not serve.called and not page.called
     out = capsys.readouterr().out
     assert 'running already' in out
-    assert 'open any web browser to http://localhost:4200' in out
+    assert desktop.where_to_go() in out
 
 
 def test_a_helper_that_will_not_start_holds_the_window_open(tmp_path, monkeypatch):
@@ -147,7 +147,7 @@ def test_the_window_says_where_to_point_a_browser_once_the_helper_answers(monkey
          patch.object(desktop.webbrowser, 'open') as opened:
         desktop.open_browser_when_ready(server.DEFAULT_PORT)
 
-    assert 'open any web browser to http://localhost:4200' in capsys.readouterr().out
+    assert desktop.where_to_go() in capsys.readouterr().out
     assert not opened.called
 
 
@@ -208,6 +208,60 @@ def test_on_a_mac_the_window_says_to_use_chrome():
     assert desktop.where_to_go('darwin').startswith('open Chrome to http://localhost:4200')
     assert 'Safari' in desktop.where_to_go('darwin')
     assert desktop.where_to_go('win32') == 'open any web browser to http://localhost:4200'
+
+
+def test_on_linux_the_window_says_to_use_chrome_or_chromium():
+    assert desktop.where_to_go('linux').startswith('open Chrome or Chromium to http://localhost:4200')
+    assert 'Firefox' in desktop.where_to_go('linux')
+
+
+def open_on_linux(monkeypatch, installed: tuple, starts: bool = True):
+    monkeypatch.delenv(desktop.ENV_NO_BROWSER, raising=False)
+    started = []
+
+    def start(command):
+        started.append(command)
+        return starts
+
+    with patch.object(desktop.webbrowser, 'open') as opened:
+        desktop.open_page('linux', which=lambda name: f'/usr/bin/{name}' if name in installed else None,
+                          start=start)
+    return started, opened
+
+
+def test_on_linux_a_chromium_browser_is_looked_for_rather_than_the_default(monkeypatch):
+    # the default is usually Firefox, which cannot open a folder for the page
+    started, opened = open_on_linux(monkeypatch, ('firefox', 'xdg-open', 'chromium'))
+
+    assert started == [['/usr/bin/chromium', 'http://localhost:4200/']]
+    assert not opened.called
+
+
+def test_on_linux_with_none_of_them_the_desktop_default_is_opened(monkeypatch):
+    started, opened = open_on_linux(monkeypatch, ('xdg-open',))
+
+    assert started == [['/usr/bin/xdg-open', 'http://localhost:4200/']]
+    assert not opened.called
+
+
+def test_on_linux_with_nothing_to_open_it_python_s_own_browser_finder_is_tried(monkeypatch):
+    started, opened = open_on_linux(monkeypatch, ('google-chrome', 'xdg-open'), starts=False)
+
+    assert len(started) == 2
+    opened.assert_called_once_with('http://localhost:4200/')
+
+
+def test_a_browser_started_from_the_linux_app_gets_the_system_s_libraries(monkeypatch):
+    # PyInstaller points LD_LIBRARY_PATH at the app's own libraries, and a browser handed
+    # them can fail to start
+    monkeypatch.setattr(updates.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(updates.sys, 'platform', 'linux')
+    environment = {'LD_LIBRARY_PATH': '/app/_internal', 'LD_LIBRARY_PATH_ORIG': '/opt/lib', 'HOME': '/home/me'}
+    assert updates.system_environment(environment) == {'LD_LIBRARY_PATH': '/opt/lib', 'HOME': '/home/me'}
+    assert updates.system_environment({'LD_LIBRARY_PATH': '/app/_internal'}) == {}
+    # not frozen, nothing was changed to put back
+    monkeypatch.setattr(updates.sys, 'frozen', False)
+    assert updates.system_environment(environment) == environment
 
 # endregion
 

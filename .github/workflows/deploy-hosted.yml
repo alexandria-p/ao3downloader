@@ -22,8 +22,8 @@ concurrency:
 jobs:
   version:
     name: decide this deployment's version and tag it
-    # one version for everything this run builds - the page on github pages and the windows
-    # app. the VERSION file when it is higher than every release (a bigger step, like 2.0.0),
+    # one version for everything this run builds - the page on github pages and the windows,
+    # mac and linux apps. the VERSION file when it is higher than every release (a bigger step, like 2.0.0),
     # and otherwise the latest release with its last number raised
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -273,6 +273,17 @@ jobs:
     # and adds its zip to the same release
     needs: version
     uses: ./.github/workflows/build-mac.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+    permissions:
+      contents: write
+
+  linux:
+    name: build the linux app and publish it
+    # the same as the windows and mac apps: needs only the version, runs alongside everything
+    # else, and adds its zip to the same release
+    needs: version
+    uses: ./.github/workflows/build-linux.yml
     with:
       version: ${{ needs.version.outputs.version }}
     permissions:

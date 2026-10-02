@@ -1,4 +1,4 @@
-"""Build the app for Windows or macOS: a zip holding the `ao3downloader` program and everything
+"""Build the app for Windows, macOS or Linux: a zip holding the `ao3downloader` program and everything
 it needs.
 
 Unzipped and started, the program does what `Start-Application.ps1` does in a generated build -
@@ -11,8 +11,8 @@ programs most often object to, and the app needs a folder beside it for its sett
 anyway.
 
 PyInstaller builds for the system it runs on, so each zip is built on its own system - the
-`build windows app` and `build mac app` workflows do it on a Windows and a macOS runner. Run on
-Linux, this builds the same app for Linux, which is how it is tested.
+`build windows app`, `build mac app` and `build linux app` workflows do it on a Windows, a macOS
+and an Ubuntu runner.
 
     uv sync --group package
     uv run --no-sync python package_app.py [--skip-web] [--settings app-settings.ini]
@@ -59,6 +59,30 @@ MAC_LAUNCHER_SCRIPT = """#!/bin/bash
 cd "$(dirname "$0")" || exit 1
 # a downloaded zip marks everything in it as quarantined; this app is opened on purpose
 xattr -dr com.apple.quarantine . 2>/dev/null
+exec ./ao3downloader
+"""
+
+# on Linux, what someone runs. A file manager runs a script in no terminal at all, so where
+# there is a desktop and no terminal it opens one to run itself in - the app's window is where
+# it says what it is doing, and closing it stops the app. With no desktop (a server, ssh, the
+# swap restarting it with nothing to show it in) it runs the app straight
+LINUX_LAUNCHER = 'Start ao3downloader.sh'
+LINUX_LAUNCHER_SCRIPT = """#!/bin/bash
+# start ao3downloader. it runs in a terminal window - leave that open while you use the app,
+# and close it to stop.
+cd "$(dirname "$0")" || exit 1
+if [ ! -t 1 ] && [ -z "$AO3DOWNLOADER_IN_TERMINAL" ] && { [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; }; then
+    export AO3DOWNLOADER_IN_TERMINAL=1
+    here="$(pwd)/$(basename "$0")"
+    for terminal in x-terminal-emulator gnome-terminal konsole xfce4-terminal mate-terminal kitty alacritty xterm; do
+        command -v "$terminal" > /dev/null 2>&1 || continue
+        case "$terminal" in
+            gnome-terminal) exec gnome-terminal -- "$here" ;;
+            xfce4-terminal) exec xfce4-terminal -x "$here" ;;
+            *) exec "$terminal" -e "$here" ;;
+        esac
+    done
+fi
 exec ./ao3downloader
 """
 
@@ -156,6 +180,52 @@ another window: close every ao3downloader window in Terminal and start it again.
 """
 
 
+# which Linux machines a build is named for. Only x86_64 is published; anything else is named
+# for what it is
+LINUX_MACHINES = {'x86_64': 'x86_64', 'amd64': 'x86_64'}
+
+LINUX_README = f"""ao3downloader
+=============
+
+This is for Linux on 64-bit Intel or AMD processors (x86_64).
+
+Starting it
+-----------
+Unzip this folder somewhere to keep it, then run "{LINUX_LAUNCHER}" - double-click it (your
+file manager may ask whether to run it), or from a terminal: ./"{LINUX_LAUNCHER}". A terminal
+window opens and your browser opens the app. If it does not, open Chrome or Chromium to
+http://localhost:4200 - the window says so too. Leave the window open while you use the app;
+close it to stop. Everything the app does is shown in it.
+
+Use Chrome, Chromium, Edge, Brave, Vivaldi or Opera. Firefox cannot open a folder on your
+computer for a web page, so it cannot save your fics there - Dropbox works in any browser.
+
+Where things are
+----------------
+config/settings.ini   the app's settings - pacing, file names and the rest. Created the
+                      first time the app starts; edit it while the app is closed.
+logs/                 the helper's own log.
+
+Your fics are saved in whichever folder you open in the app, on this computer or in Dropbox.
+
+Updating
+--------
+When a newer version is out, the app says so at the top of the page. Click "Update now": it
+downloads the new version, closes, swaps itself for it and starts again in a new window - a
+few seconds. The old window can then be closed.
+
+Or download the new zip yourself and unzip it over this folder. Nothing in the zip is in the
+config folder, so your settings.ini is never replaced either way. Each time the app starts it
+adds any setting a new version introduced, and comments out - marked DEPRECATED - any setting
+it no longer uses. Nothing you set is ever changed or deleted.
+
+If it will not start
+--------------------
+The window says why and stays open. The usual reason is that the app is already running in
+another window: close every ao3downloader window and start it again.
+"""
+
+
 def mac_chip(machine: str | None = None) -> str:
     """apple-silicon or intel: which Macs a build made here runs on."""
 
@@ -163,12 +233,19 @@ def mac_chip(machine: str | None = None) -> str:
     return MAC_CHIPS.get(machine, machine)
 
 
+def linux_machine(machine: str | None = None) -> str:
+    machine = (machine or machines.machine()).lower()
+    return LINUX_MACHINES.get(machine, machine)
+
+
 def system(platform: str | None = None, machine: str | None = None) -> str:
-    """What the zip is named for: windows, macos-apple-silicon, macos-intel, or whatever else
-    it was built on. Windows stays plain `windows` - the in-app updater looks for that name."""
+    """What the zip is named for: windows, macos-apple-silicon, macos-intel, linux-x86_64, or
+    whatever else it was built on. Windows stays plain `windows` - the in-app updater looks for
+    that name, as it does for the others (updater.kind_for)."""
 
     platform = platform or sys.platform
     if platform == 'darwin': return f'macos-{mac_chip(machine)}'
+    if platform.startswith('linux'): return f'linux-{linux_machine(machine)}'
     return {'win32': 'windows'}.get(platform, platform)
 
 
@@ -228,11 +305,17 @@ def pyinstaller_arguments(root: Path, web: Path, defaults: Path) -> list[str]:
 
 
 def assemble(root: Path, platform: str | None = None, machine: str | None = None) -> Path:
-    """Put a README beside the program - and on a Mac the script that starts it - and return
-    the app's folder. No settings: see `DEFAULTS_FOLDER`."""
+    """Put a README beside the program - and on a Mac or Linux the script that starts it - and
+    return the app's folder. No settings: see `DEFAULTS_FOLDER`."""
 
     app = root / DIST / APP_NAME
-    if (platform or sys.platform) == 'darwin':
+    platform = platform or sys.platform
+    if platform.startswith('linux'):
+        (app / 'README.txt').write_text(LINUX_README, encoding='utf-8', newline='\n')
+        launcher = app / LINUX_LAUNCHER
+        launcher.write_text(LINUX_LAUNCHER_SCRIPT, encoding='utf-8', newline='\n')
+        launcher.chmod(0o755)
+    elif platform == 'darwin':
         (app / 'README.txt').write_text(mac_readme(mac_chip(machine)), encoding='utf-8', newline='\n')
         launcher = app / MAC_LAUNCHER
         launcher.write_text(MAC_LAUNCHER_SCRIPT, encoding='utf-8', newline='\n')
@@ -251,7 +334,7 @@ def make_zip(app: Path, destination: Path) -> Path:
     """Zip the app's folder, keeping the folder itself at the top so unzipping makes one
     folder rather than scattering files.
 
-    Each file keeps its permissions - the program and the Mac launcher have to stay
+    Each file keeps its permissions - the program and the Mac and Linux launchers have to stay
     executable - and a symlink is stored as a symlink, never followed: PyInstaller's Mac
     build links parts of its own folder to each other, and a link followed into a copy
     would duplicate what it points at, or be left out when it points at a folder."""

@@ -4,7 +4,7 @@ A fork of [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader) th
 
 ## Start here
 
-- **[[Getting started]]** - download the app for Windows or Mac and run your first scan.
+- **[[Getting started]]** - download the app for Windows, Mac or Linux and run your first scan.
 - **[[Runs]]** - which button to press, and what each one does.
 - **[[Your library]]** - what gets saved where, and how files are named.
 - **[[Troubleshooting]]** - rate limits, warnings, and what to do when something breaks.

@@ -1,4 +1,4 @@
-For **one person**: the page on GitHub Pages, the helper on Render's free plan. Everyone else should use the [[Windows or Mac app|Getting started]].
+For **one person**: the page on GitHub Pages, the helper on Render's free plan. Everyone else should use the [[Windows, Mac or Linux app|Getting started]].
 
 It's locked two ways:
 
@@ -26,7 +26,7 @@ Neither secret is ever published: both live in GitHub secrets and Render's envir
 
 ## Deploying changes
 
-Run **deploy hosted app**. It deploys the helper before the page, and builds the Windows and Mac apps alongside. Each run is a new [[version|Updating and versions]].
+Run **deploy hosted app**. It deploys the helper before the page, and builds the Windows, Mac and Linux apps alongside. Each run is a new [[version|Updating and versions]].
 
 ## Things to know
 

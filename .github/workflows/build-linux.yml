@@ -1,20 +1,20 @@
-name: build mac app
+name: build linux app
 
-# The Mac app: a zip holding the ao3downloader program and "Start ao3downloader.command",
-# which starts the helper, serves the page and opens Chrome - in place of
+# The Linux app: a zip holding the ao3downloader program and "Start ao3downloader.sh", which
+# starts the helper, serves the page and opens Chrome or Chromium - in place of
 # Start-Application.ps1, with nothing to install first. package_app.py builds it; this runs it
-# on macOS, because PyInstaller builds for the system it runs on - and for the chip it runs on,
-# so there are two builds, each on its own runner: Apple silicon on macos-latest, Intel on
-# macos-15-intel. One universal build would need a universal Python and universal copies of
-# every compiled library, which the Python uv installs is not.
+# on Linux, because PyInstaller builds for the system it runs on. Built on the oldest Ubuntu
+# runner, since the program needs at least the glibc it was built against: the older that is,
+# the more Linux systems it starts on. x86_64 only.
 #
-# `deploy hosted app` calls it with the version that deployment decided on, and both zips are
-# then added to that version's release, beside the Windows one. Run by hand from the Actions
-# tab it builds and tries the app; given a version it publishes that too. The zips are always
-# kept as downloads on the run.
+# `deploy hosted app` calls it with the version that deployment decided on, and the zip is
+# then added to that version's release, beside the Windows and Mac ones. Run by hand from the
+# Actions tab it builds and tries the app; given a version it publishes that too. The zip is
+# always kept as a download on the run.
 #
-# The app updates itself on a Mac too (Update now): the swap is a bash script that reopens it
-# in Terminal. Every build tries a real update from a stand-in release, as the Windows one does.
+# The app updates itself on Linux too (Update now): the same bash swap the Mac uses, starting
+# the app again through its launcher. Every build tries a real update from a stand-in release,
+# as the Windows and Mac ones do.
 
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ on:
   # built and tried - never published - on a pull request that changes how it is built
   pull_request:
     paths:
-      - '.github/workflows/build-mac.yml'
+      - '.github/workflows/build-linux.yml'
       - 'powershell_source/ao3_download_helper/package_app.py'
       - 'powershell_source/ao3_download_helper/source_code/desktop.py'
       - 'powershell_source/ao3_download_helper/source_code/updater.py'
@@ -47,26 +47,15 @@ permissions:
 
 jobs:
   build:
-    name: build and try the mac app (${{ matrix.chip }})
-    strategy:
-      # one chip failing says nothing about the other
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-latest
-            chip: apple-silicon
-            arch: arm64
-          - runner: macos-15-intel
-            chip: intel
-            arch: x86_64
-    runs-on: ${{ matrix.runner }}
+    name: build and try the linux app
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
       # only to publish the release
       contents: write
     env:
       APP_VERSION: ${{ inputs.version || '0.0.1' }}
-      ZIP: dist/ao3downloader-macos-${{ matrix.chip }}.zip
+      ZIP: dist/ao3downloader-linux-x86_64.zip
 
     steps:
       - name: checkout
@@ -101,40 +90,32 @@ jobs:
         run: |
           owner=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
           export DEFAULT_PAGE_ORIGIN="https://${owner}.github.io"
-          uv run --no-sync python deploy_config.py local-settings --out mac-settings.ini
+          uv run --no-sync python deploy_config.py local-settings --out linux-settings.ini
 
       - name: build the app
         working-directory: powershell_source/ao3_download_helper
         run: |
-          uv run --no-sync python package_app.py --settings mac-settings.ini \
+          uv run --no-sync python package_app.py --settings linux-settings.ini \
             --version "$APP_VERSION" --repo "$GITHUB_REPOSITORY"
 
       - name: unzip it as a download would be, start it, and check the page and the helper answer
-        # what someone downloading it does: unzip it as Finder does (ditto keeps what the
-        # zip holds - permissions and links), with every file quarantined as a browser marks a
-        # download, then double-click the .command - here, run it. no browser on a runner
+        # what someone downloading it does: unzip it (unzip keeps what the zip holds -
+        # permissions and links) and run the launcher. no desktop and no browser on a runner,
+        # so the launcher runs the program straight rather than opening a terminal for it
         env:
           AO3DOWNLOADER_NO_BROWSER: '1'
-          MATRIX_ARCH: ${{ matrix.arch }}
         run: |
           place="$RUNNER_TEMP/unzipped"
           rm -rf "$place" && mkdir -p "$place"
-          ditto -x -k "$ZIP" "$place"
+          unzip -q "$ZIP" -d "$place"
           app="$place/ao3downloader"
-          find "$app" -exec xattr -w com.apple.quarantine "0081;$(printf %x "$(date +%s)");Chrome;" {} \; 2>/dev/null || true
-          if ! xattr -p com.apple.quarantine "$app/ao3downloader" >/dev/null 2>&1; then
-            echo "could not mark the download quarantined"; exit 1
-          fi
-
-          # the zip must not have broken the signature an Apple silicon Mac insists on
-          codesign --verify --verbose "$app/ao3downloader"
-          # and it must be built for the chip it is named for
-          archs=$(lipo -archs "$app/ao3downloader")
-          if [ "$archs" != "$MATRIX_ARCH" ]; then echo "built for '$archs', not $MATRIX_ARCH"; exit 1; fi
-          if [ ! -x "$app/Start ao3downloader.command" ]; then echo "the launcher is not executable"; exit 1; fi
+          if [ ! -x "$app/ao3downloader" ]; then echo "the program is not executable"; exit 1; fi
+          if [ ! -x "$app/Start ao3downloader.sh" ]; then echo "the launcher is not executable"; exit 1; fi
+          file "$app/ao3downloader"
+          file "$app/ao3downloader" | grep -q 'x86-64' || { echo 'not built for x86_64'; exit 1; }
 
           # the launcher execs the program, so this is the app's own process
-          bash "$app/Start ao3downloader.command" > "$RUNNER_TEMP/app.log" 2>&1 &
+          "$app/Start ao3downloader.sh" > "$RUNNER_TEMP/app.log" 2>&1 < /dev/null &
           started=$!
           stop() { kill "$started" 2>/dev/null || true; }
           trap stop EXIT
@@ -150,10 +131,6 @@ jobs:
           if [ -z "$ok" ]; then echo "the page or the helper never answered"; cat "$RUNNER_TEMP/app.log"; exit 1; fi
 
           if [ ! -f "$app/config/settings.ini" ]; then echo "no settings.ini beside the program"; exit 1; fi
-          # the launcher lifts the quarantine off the whole folder, so macOS asks only once
-          if xattr -r "$app" | grep -q com.apple.quarantine; then
-            echo "files are still quarantined:"; xattr -r "$app" | grep com.apple.quarantine | head; exit 1
-          fi
           # the page must be pointed at the app's own helper, never the hosted one
           config=$(curl -s http://localhost:4200/app-config.json)
           echo "$config"
@@ -165,18 +142,18 @@ jobs:
           updatable=$(curl -s -H 'Origin: http://localhost:4200' http://127.0.0.1:4400/api/config \
             | python3 -c 'import json,sys; print(bool((json.load(sys.stdin).get("app") or {}).get("updatable")))')
           if [ "$updatable" != 'True' ]; then echo "the app does not say it can update itself"; exit 1; fi
-          echo 'the page and the helper both answered, settings.ini is beside the program, and nothing is quarantined'
+          echo 'the page and the helper both answered, and settings.ini is beside the program'
 
       - name: install the app, change its settings, and update it from a stand-in release
-        # as the Windows build does: the same zip served as 99.0.0, with someone's edits to
-        # settings.ini made first. on a Mac the swap reopens the app in a new Terminal window,
-        # which is part of what this tries
+        # as the Windows and Mac builds do: the same zip served as 99.0.0, with someone's edits
+        # to settings.ini made first. the swap starts the app again through its launcher, in a
+        # session of its own, which is part of what this tries
         env:
           AO3DOWNLOADER_UPDATE_SOURCE: http://127.0.0.1:8765
         run: |
           place="$RUNNER_TEMP/installed"
           rm -rf "$place" && mkdir -p "$place"
-          ditto -x -k "$ZIP" "$place"
+          unzip -q "$ZIP" -d "$place"
           app="$place/ao3downloader"
           settings="$app/config/settings.ini"
           origin='Origin: http://localhost:4200'
@@ -189,7 +166,7 @@ jobs:
 
           (cd powershell_source/ao3_download_helper \
             && uv run --no-sync python stand_in_release.py "$GITHUB_WORKSPACE/$ZIP" 8765 > "$RUNNER_TEMP/release.log" 2>&1 &)
-          AO3DOWNLOADER_NO_BROWSER=1 bash "$app/Start ao3downloader.command" > "$RUNNER_TEMP/installed.log" 2>&1 &
+          AO3DOWNLOADER_NO_BROWSER=1 "$app/Start ao3downloader.sh" > "$RUNNER_TEMP/installed.log" 2>&1 < /dev/null &
           started=$!
           finish() {
             status=$?
@@ -201,7 +178,6 @@ jobs:
             fi
             pkill -x ao3downloader || true
             pkill -f stand_in_release.py || true
-            osascript -e 'tell application "Terminal" to quit' 2>/dev/null || true
           }
           trap finish EXIT
 
@@ -209,7 +185,7 @@ jobs:
           if [ "$(helper | field 'd["version"]')" != "$APP_VERSION" ]; then echo "the app is not $APP_VERSION"; exit 1; fi
 
           # what someone might have done since installing it
-          sed -i '' 's/^ExtraWaitTime=.*/ExtraWaitTime=42/' "$settings"
+          sed -i 's/^ExtraWaitTime=.*/ExtraWaitTime=42/' "$settings"
           printf '\n# my own note\nRetiredSetting=3\n' >> "$settings"
           echo old > "$app/_internal/from-the-old-version.txt"
 
@@ -241,12 +217,12 @@ jobs:
           grep -q '# DEPRECATED: RetiredSetting' "$settings" || { echo 'RetiredSetting was not marked deprecated'; exit 1; }
           if grep -q '^RetiredSetting=' "$settings"; then echo 'RetiredSetting is still set'; exit 1; fi
           grep -q '^# RetiredSetting=3$' "$settings" || { echo 'RetiredSetting was not kept, commented out'; exit 1; }
-          echo 'updated: new files in place, the app back in a new window, settings.ini kept and brought up to date'
+          echo 'updated: new files in place, the app started again, settings.ini kept and brought up to date'
 
       - name: keep the zip on this run
         uses: actions/upload-artifact@v4
         with:
-          name: ao3downloader-macos-${{ matrix.chip }}
+          name: ao3downloader-linux-x86_64
           path: ${{ env.ZIP }}
           retention-days: 30
 
@@ -257,7 +233,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ inputs.version }}
           VERSION: ${{ inputs.version }}
-        # the Windows build and the other Mac build publish to the same release, at the same
+        # the Windows and Mac builds publish to the same release, at the same
         # time: whichever gets there first makes it, and the others' creates fail harmlessly.
         # keep the notes the same in both workflows, since any of them may write them
         run: |
