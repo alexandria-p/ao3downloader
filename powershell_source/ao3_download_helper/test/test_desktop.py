@@ -78,7 +78,10 @@ def started(tmp_path, monkeypatch, busy=()):
     with patch('builtins.input', held), \
          patch.object(server, 'already_listening', side_effect=lambda host, port: port in busy), \
          patch.object(server, 'serve') as serve, \
-         patch.object(desktop, 'page_server') as page:
+         patch.object(desktop, 'page_server') as page, \
+         patch.object(desktop, 'open_browser_when_ready'):
+        # stubbed: its thread outlives the test, and once the environment above is put back
+        # it would open a real browser on whatever machine runs the tests
         code = desktop.main()
     return code, held, serve, page
 
@@ -152,12 +155,14 @@ def test_the_window_says_where_to_point_a_browser_once_the_helper_answers(monkey
 
 
 def test_the_browser_is_opened_there_too(monkeypatch):
+    # which browser depends on the system and what is installed - the open_page tests below
+    # cover that - so this only asks that the page is opened, once
     monkeypatch.delenv(desktop.ENV_NO_BROWSER, raising=False)
     with patch.object(server, 'already_listening', return_value=True), \
-         patch.object(desktop.webbrowser, 'open') as opened:
+         patch.object(desktop, 'open_page') as opened:
         desktop.open_browser_when_ready(server.DEFAULT_PORT)
 
-    opened.assert_called_once_with('http://localhost:4200/')
+    opened.assert_called_once_with()
 
 
 class Ran:
