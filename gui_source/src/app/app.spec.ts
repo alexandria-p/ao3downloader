@@ -689,6 +689,8 @@ describe('App', () => {
     expect(first?.textContent).toContain('ao3downloader-macos-apple-silicon.zip');
     expect(first?.textContent).toContain('ao3downloader-macos-intel.zip');
     expect(first?.textContent).toContain('Start ao3downloader.command');
+    expect(first?.textContent).toContain('ao3downloader-linux-x86_64.zip');
+    expect(first?.textContent).toContain('Start ao3downloader.sh');
   });
 
   it('has a Report a bug tab next to the FAQ that points at the GitHub issues', async () => {

@@ -35,13 +35,14 @@ powershell_source/
     test_build_artifacts.py       its tests (next to it, not in test/)
     deploy_config.py              writes the hosted settings.ini and app-config.json
     test_deploy_config.py         its tests
-    package_app.py            builds the Windows or Mac app (PyInstaller) into dist/*.zip
+    package_app.py            builds the Windows, Mac or Linux app (PyInstaller) into dist/*.zip
     test_package_app.py       its tests
     Dockerfile, .dockerignore     the hosted helper's image
     pyproject.toml, uv.lock, .venv/
-.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls both app builds
+.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls all three app builds
 .github/workflows/build-windows.yml   builds, tries and publishes the Windows app
 .github/workflows/build-mac.yml       builds, tries and publishes the Mac app
+.github/workflows/build-linux.yml     builds, tries and publishes the Linux app
 HOSTING.md                        how to set the hosted copy up
 wiki/                             the GitHub wiki's source; publish-wiki.yml copies it there
 build/                            generated; config/settings.ini is NOT overwritten
@@ -91,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1616 python passed; 615 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1629 python passed; 615 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -332,14 +333,40 @@ use the right browser.
   the release appearing and a system's zip landing, Update now there fails with "the latest
   release has no ao3downloader-<system>.zip" - clear, and gone on the next try.
 
+### The Linux app is the same app, started by a script too
+
+`build-linux.yml` builds `ao3downloader-linux-x86_64.zip` on `ubuntu-22.04` - the oldest
+runner, because a PyInstaller program needs at least the glibc it was built against - and adds
+it to the same release (`package_app.system`: `linux-<machine>`, x86_64 only for now). The
+program is the same `desktop.py`.
+
+- **`Start ao3downloader.sh` is what people run** (`LINUX_LAUNCHER`). A file manager runs a
+  script with no terminal, so where there is a desktop (`DISPLAY`/`WAYLAND_DISPLAY`) and no
+  terminal it opens one to run itself in, setting `AO3DOWNLOADER_IN_TERMINAL` so the copy in
+  the terminal does not open another. With no desktop it `exec`s the program where it is -
+  which is what CI and ssh get. `test_package_app.py` runs it under bash with a stand-in
+  terminal.
+- **Chromium browsers are looked for by command** (`LINUX_BROWSERS`, through `shutil.which`),
+  for the same reason as on a Mac - the usual default is Firefox. Then `xdg-open`, then
+  `webbrowser`. The window says `open Chrome or Chromium to ...` (`OPEN_THIS_ON_LINUX`).
+- **A system program started from the app gets the system's libraries.** PyInstaller points
+  `LD_LIBRARY_PATH` at the app's `_internal/` (keeping the old value in
+  `LD_LIBRARY_PATH_ORIG`), and a browser or terminal handed that loads the app's copies of
+  libraries and can fail to start. `updater.system_environment` puts it back, for the browser
+  and for the swap script alike.
+- **Update now uses the Mac's bash swap**, told `linux` as its third argument: it starts the
+  app again with `setsid -f` on the launcher, after unsetting `AO3DOWNLOADER_IN_TERMINAL` -
+  the old app's window set it, and left set the launcher would run the new app with no window.
+
 ### The app updates itself
 
 **Update now** (the banner, only when `/api/config` says `app.updatable`) posts
-`/api/update`; `source_code/updater.py` does the rest. Only the packaged app on Windows or a
-Mac with a version and a repository has an `Updater` (`desktop.make_updater`, set on
+`/api/update`; `source_code/updater.py` does the rest. Only the packaged app on Windows, a
+Mac or Linux with a version and a repository has an `Updater` (`desktop.make_updater`, set on
 `Handler.updater`); every other helper answers 404 and its page only links the release.
 `updater.kind_for` says what an update is on each system (`Kind`): which release asset
-(`ao3downloader-windows.zip`, or `ao3downloader-macos-<chip>.zip` by `platform.machine()`),
+(`ao3downloader-windows.zip`, or `ao3downloader-macos-<chip>.zip` / `ao3downloader-linux-x86_64.zip`
+by `platform.machine()`),
 which program must be in the zip, and which swap script, started how.
 
 **On a Mac** the swap is bash (`MAC_SWAP_SCRIPT`, `update/apply-update.sh`), started in a new
@@ -354,8 +381,9 @@ restores each file's mode and makes symlinks as symlinks** (`ZipFile.extract` do
 and the Mac app needs both), and **`check_zip` refuses a symlink that is absolute or climbs out
 of the app**, so a link cannot reach past the folder the zip unpacks into. Files `requests`
 downloads carry no quarantine mark, so an updated app opens without Gatekeeper asking again.
-`test_mac_update.py` runs the real script under bash with stand-in `open` and `mv`: a clean
-swap, and a failed move rolled back.
+`test_mac_update.py` runs the real script under bash with stand-in `open`, `setsid` and `mv`: a
+clean swap, and a failed move rolled back, on each system. **On Linux** the same script runs
+with `linux` as its third argument and starts the launcher with `setsid -f` instead.
 
 
 - **One run or one update, never both.** `start_update` checks for a run and `claim`s the
@@ -390,8 +418,9 @@ swap, and a failed move rolled back.
   the helper not answering is the swap, not a failure; the same version coming back after
   that is. It reloads the page once the helper reports the new version, and gives up after
   `waitMs`. A reported failure is shown once and remembered as seen (`ao3.updateFailureSeen`).
-- **Tested end to end on Windows and both Macs**: `build-windows.yml` (and `build-mac.yml`, the
-  same way, checking the app came back in a new Terminal window) installs the zip, edits its
+- **Tested end to end on Windows, both Macs and Linux**: `build-windows.yml` (and
+  `build-mac.yml` and `build-linux.yml`, the same way - on a Mac checking the app came back in
+  a new Terminal window) installs the zip, edits its
   settings.ini (a changed value, a comment, a key the app does not know), serves the same zip
   as `99.0.0` from `stand_in_release.py`, posts `/api/update`, and checks the files were
   replaced, the edits kept, the unknown key commented out as deprecated, and `update/` cleaned

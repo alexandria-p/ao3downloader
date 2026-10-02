@@ -7,6 +7,7 @@ Get the zip for your computer from the [latest release](https://github.com/alexa
 | Windows | `ao3downloader-windows.zip` | double-clicking `ao3downloader.exe` |
 | Mac, M1 or later | `ao3downloader-macos-apple-silicon.zip` | double-clicking `Start ao3downloader.command` |
 | Intel Mac | `ao3downloader-macos-intel.zip` | double-clicking `Start ao3downloader.command` |
+| Linux (x86_64) | `ao3downloader-linux-x86_64.zip` | running `Start ao3downloader.sh` |
 
 Unzip it somewhere you'll keep it. A window opens, and your browser opens the app at `http://localhost:4200`. **Leave the window open** while you use the app; close it to stop.
 
@@ -14,13 +15,14 @@ The app isn't signed, so the first start is blocked once:
 
 - **Windows:** "Windows protected your PC" - click **More info**, then **Run anyway**.
 - **Mac:** click **Done**, then **System Settings > Privacy & Security > Open Anyway**. The script then clears the warning for the whole folder.
+- **Linux:** your file manager may ask whether to run the script - choose **Run**.
 
 ## 2. Choose where your library lives
 
 Choose **This computer** or **Dropbox** at the top of the page.
 
 - **Dropbox** - works in any browser, on any device. A run can carry on with the page closed ([background runs](Runs#background-runs)).
-- **A folder on this computer** - needs a Chromium browser on a computer: Chrome, Edge, Brave, Opera or Arc. Firefox, Safari and phones can't write to a folder. **Keep the page open for the whole run** - it does the saving, and a large library can take hours.
+- **A folder on this computer** - needs a Chromium browser on a computer: Chrome, Chromium, Edge, Brave, Opera or Arc. Firefox, Safari and phones can't write to a folder. **Keep the page open for the whole run** - it does the saving, and a large library can take hours.
 
 ## 3. Run a Quick Scan
 

@@ -28,9 +28,9 @@ CI (`.github/workflows/test.yml`) runs both on every push.
 | What | Command | Output |
 | --- | --- | --- |
 | Bundle (needs uv to run) | `generate_build_artifacts.ps1` | `build/` - your `build/config/settings.ini` survives rebuilds |
-| Windows/Mac app | `uv sync --group package` then `uv run --no-sync python package_app.py` | `dist/*.zip` - built for the system and chip it runs on |
+| Windows/Mac/Linux app | `uv sync --group package` then `uv run --no-sync python package_app.py` | `dist/*.zip` - built for the system and chip it runs on |
 
-The **build windows app** and **build mac app** workflows build and smoke-test the apps on every pull request that touches them. **deploy hosted app** publishes them as a release.
+The **build windows app**, **build mac app** and **build linux app** workflows build and smoke-test the apps on every pull request that touches them. **deploy hosted app** publishes them as a release.
 
 ## Rules worth knowing
 

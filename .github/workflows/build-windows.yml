@@ -258,6 +258,8 @@ jobs:
 
           Mac: download ao3downloader-macos-apple-silicon.zip for an M1 or later, or ao3downloader-macos-intel.zip for an Intel Mac, open it, and double-click Start ao3downloader.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
 
+          Linux (64-bit Intel or AMD): download ao3downloader-linux-x86_64.zip, unzip it, and run Start ao3downloader.sh. Use Chrome or Chromium - Firefox cannot open a folder for the app.
+
           The README inside each zip says the rest." \
               || echo 'the release was made meanwhile, by another build'
           fi
