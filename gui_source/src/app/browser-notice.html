@@ -10,8 +10,8 @@
     <div class="option">
       <h3>Using Dropbox? You are all set.</h3>
       <p>
-        A library in Dropbox works in any browser, on any device - phones and tablets
-        included.
+        A library in Dropbox works in any browser - Firefox and Safari included, not only
+        Chromium ones - and on any device, phones and tablets too. Nothing below applies to it.
         @if (offersBackground()) {
           A run can carry on without this page, too, if you tick
           <strong>Run as background task</strong> when you start it.
@@ -26,7 +26,7 @@
         <li>
           <strong>A Chromium browser</strong> - Chrome, Edge, Brave, Opera or Arc. Writing to
           a folder you pick needs the File System Access API, which Firefox and Safari do not
-          have.
+          have. (Only for a folder here - Dropbox needs none of this.)
         </li>
         <li>
           <strong>This page kept open for the whole run.</strong> The page does the saving, so
@@ -39,8 +39,9 @@
       <p class="hint">This browser can save to a folder on this device.</p>
     } @else {
       <p class="warning">
-        <strong>This browser cannot save to a folder on this device.</strong> Use Dropbox,
-        or open this page in one of the browsers above on a computer. You can still open a
+        <strong>This browser cannot save to a folder on this device</strong> - but Dropbox works
+        fine in it, so use Dropbox, or open this page in one of the browsers above on a
+        computer. You can still open a
         folder here and browse a library that is already in it.
       </p>
     }

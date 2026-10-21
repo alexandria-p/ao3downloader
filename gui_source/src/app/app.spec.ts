@@ -337,6 +337,8 @@ describe('App', () => {
     expect(notice?.textContent).toContain('Chromium');
     // a Dropbox library needs none of it, and the notice says so first
     expect(notice?.textContent).toContain('Using Dropbox? You are all set.');
+    // and that Dropbox needs no Chromium browser at all
+    expect(notice?.textContent).toContain('Firefox and Safari included');
     expect(notice?.textContent).toContain('This page kept open for the whole run');
     // the bundle and the apps run their helper here, which offers no background runs
     expect(notice?.textContent).not.toContain('background');
