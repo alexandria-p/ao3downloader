@@ -27,6 +27,7 @@ import {
   WorkFailure,
 } from './jobs';
 import { DropboxSession } from './dropbox';
+import { HelperConnection } from './helper-connection';
 import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
@@ -77,6 +78,7 @@ export class DownloadDialog implements OnDestroy {
   private readonly jobs = inject(Jobs);
   private readonly library = inject(Library);
   private readonly dropbox = inject(DropboxSession);
+  private readonly helper = inject(HelperConnection);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly action = input.required<JobAction>();
@@ -705,6 +707,14 @@ export class DownloadDialog implements OnDestroy {
 
   // region running in the background
 
+  /**
+   * Whether this copy of the page offers background runs at all: only the hosted one, whose
+   * helper is on a server and keeps going with every page closed. A helper on this computer -
+   * the bundle, the Windows, Mac or Linux app, a dev build - stops with the app's own window,
+   * so a run "in the background" there would carry on only as long as the page could have
+   * stayed open anyway. Not offered, rather than offered and refused: the choice is not shown.
+   */
+  protected readonly offersBackground = computed(() => !this.helper.isLocal());
   /** ticked: the run carries on in the helper with this page closed */
   protected readonly background = signal(false);
   /** whether the run on screen is a background one - chosen here, or attached to */
@@ -748,6 +758,7 @@ export class DownloadDialog implements OnDestroy {
    * leave the run with nowhere to write.
    */
   protected readonly backgroundBlocked = computed(() => {
+    if (!this.offersBackground()) return 'Only on the hosted copy of this page.';
     if (!(this.library.store() instanceof DropboxLibraryStore)) {
       return 'Only for a library in Dropbox: a folder on this computer can only be reached ' +
         'while this page is open.';

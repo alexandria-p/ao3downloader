@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1629 python passed; 615 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1629 python passed; 618 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -480,6 +480,13 @@ config), what to do with the zip, and this page's version when it has one.
 *Run as background task* (on every workflow's login step) starts a run the helper finishes
 with the page closed. The rules that matter:
 
+- **Only on the hosted copy.** `DownloadDialog.offersBackground` is `!HelperConnection.isLocal()`:
+  a page whose helper is on this computer - the bundle, the Windows, Mac and Linux apps, a dev
+  build - does not render the choice at all (nor does the browser notice or the FAQ mention
+  it), because that helper stops with the app's own window, so there is no background to carry
+  on in. Not shown rather than greyed out. It is decided from the page's own config
+  (`app-config.json`'s `helperUrl`), never by asking the helper. The helper itself does not
+  refuse one - nothing but a hand-made request could ask a local one.
 - **Only for a library in Dropbox.** A run reaches the library through the page
   (`PageStorage` asking the page), and a folder on this computer is open in that tab alone.
   For a background run the page hands over its Dropbox sign-in (`DropboxSession.handover`:

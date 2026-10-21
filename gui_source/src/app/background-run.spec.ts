@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DownloadDialog } from './download-dialog';
 import { DropboxSession } from './dropbox';
+import { HelperConnection } from './helper-connection';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore } from './library-store';
 import {
@@ -94,6 +95,13 @@ let jobs: FakeJobs;
 let fixture: ComponentFixture<DownloadDialog>;
 let element: HTMLElement;
 
+/** the page on GitHub Pages, whose helper is on a server */
+function hosted(): void {
+  TestBed.inject(HelperConnection).settings.update((c) => ({
+    ...c, helperUrl: 'https://ao3-helper.onrender.com', requirePasscode: true,
+  }));
+}
+
 /** a library open in Dropbox, and signed in */
 function inDropbox(): void {
   const session = TestBed.inject(DropboxSession);
@@ -171,9 +179,27 @@ describe('Running in the background', () => {
     jobs = new FakeJobs();
     localStorage.clear();
     TestBed.configureTestingModule({ providers: [{ provide: Jobs, useValue: jobs }] });
+    // background runs are the hosted copy's alone, so these are all on one
+    hosted();
   });
 
   // region the choice
+
+  it('is not offered at all when the helper is on this computer', async () => {
+    // the bundle and the Windows, Mac and Linux apps: their helper stops with the app's own
+    // window, so there is no background for a run to carry on in
+    TestBed.inject(HelperConnection).settings.update((c) => ({ ...c, helperUrl: 'http://127.0.0.1:4400' }));
+    inDropbox();
+    await open();
+    await toCredentials();
+
+    expect(element.querySelector('.background-choice')).toBeNull();
+    expect(checkbox('Run as background task')).toBeUndefined();
+    expect(element.textContent).not.toContain('background');
+    await startIt('Start download');
+    expect(jobs.started[0].background).toBeUndefined();
+    expect(jobs.started[0].dropbox).toBeUndefined();
+  });
 
   it('is not offered for a folder on this computer, and says why', async () => {
     // the helper reaches a local folder only through the page, so the page has to stay

@@ -317,6 +317,39 @@ describe('App', () => {
     // a Dropbox library needs none of it, and the notice says so first
     expect(notice?.textContent).toContain('Using Dropbox? You are all set.');
     expect(notice?.textContent).toContain('This page kept open for the whole run');
+    // the bundle and the apps run their helper here, which offers no background runs
+    expect(notice?.textContent).not.toContain('background');
+  });
+
+  it('mentions background runs only on the hosted copy, which offers them', async () => {
+    TestBed.inject(HelperConnection).settings.update((c) => ({
+      ...c, helperUrl: 'https://ao3-helper.onrender.com',
+    }));
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const notice = (fixture.nativeElement as HTMLElement).querySelector('app-browser-notice');
+    expect(notice?.textContent).toContain('Run as background task');
+  });
+
+  it('says how background runs work in the FAQ on the hosted copy alone', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+    const local = element.querySelector('app-faq')?.textContent ?? '';
+    expect(local).not.toContain('Run as background task');
+    expect(local).not.toContain('Continue in background');
+    expect(local).toContain('Only one run can go at a time');
+
+    TestBed.inject(HelperConnection).settings.update((c) => ({
+      ...c, helperUrl: 'https://ao3-helper.onrender.com',
+    }));
+    const again = TestBed.createComponent(App);
+    await again.whenStable();
+    const againElement = again.nativeElement as HTMLElement;
+    tab(againElement, 'FAQ')!.click();
+    await again.whenStable();
+    expect(againElement.querySelector('app-faq')?.textContent).toContain('Run as background task');
   });
 
   it('does not say it again once it has been dismissed', async () => {

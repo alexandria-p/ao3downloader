@@ -11,8 +11,11 @@
       <h3>Using Dropbox? You are all set.</h3>
       <p>
         A library in Dropbox works in any browser, on any device - phones and tablets
-        included - and a run can carry on without this page, if you tick
-        <strong>Run as background task</strong> when you start it.
+        included.
+        @if (offersBackground()) {
+          A run can carry on without this page, too, if you tick
+          <strong>Run as background task</strong> when you start it.
+        }
       </p>
     </div>
 

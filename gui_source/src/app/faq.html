@@ -63,30 +63,34 @@
     your username is kept, in your browser, and only if you tick the box.
   </p>
 
-  <h3>Leaving a run to finish on its own</h3>
+  @if (offersBackground) {
+    <h3>Leaving a run to finish on its own</h3>
 
-  <p>
-    Tick <strong>Run as background task</strong> on a run's login step and it carries on
-    after you close the page - start it, go away, and come back hours later. It is only
-    offered when your library is in <strong>Dropbox</strong> and you are signed in: a folder
-    on this computer can only be reached while this page is open, so a run there needs the
-    page for as long as it lasts.
-  </p>
+    <p>
+      Tick <strong>Run as background task</strong> on a run's login step and it carries on
+      after you close the page - start it, go away, and come back hours later. It is only
+      offered when your library is in <strong>Dropbox</strong> and you are signed in: a folder
+      on this computer can only be reached while this page is open, so a run there needs the
+      page for as long as it lasts.
+    </p>
 
-  <p>
-    Nobody will be there to answer if the run stops to ask something, so it asks first - what
-    to do about files with no date, about older copies of a work, and on a quick scan, how far
-    back to go. An answer is only used if the question actually comes up.
-  </p>
+    <p>
+      Nobody will be there to answer if the run stops to ask something, so it asks first - what
+      to do about files with no date, about older copies of a work, and on a quick scan, how far
+      back to go. An answer is only used if the question actually comes up.
+    </p>
+  }
 
   <p class="hint">
     Only one run can go at a time. While one is going the page says so at the top, and
     <strong>Go to this run</strong> takes you to it in the History tab, where
-    <strong>View progress</strong> opens it again - pause it, stop it, or press
-    <strong>Continue in background</strong> to leave it be. A background run left paused
-    for 10 minutes is <strong>abandoned</strong> - it ends, keeping what it saved, and can be
-    resumed from History. Restarting the helper ends a background run; what it saved stays saved, and starting it again carries on from what is
-    still missing.
+    <strong>View progress</strong> opens it again - to pause it or stop it.
+    @if (offersBackground) {
+      <strong>Continue in background</strong> leaves a background run be. A background run
+      left paused for 10 minutes is <strong>abandoned</strong> - it ends, keeping what it saved,
+      and can be resumed from History. Restarting the helper ends a background run; what it
+      saved stays saved, and starting it again carries on from what is still missing.
+    }
   </p>
 
   <h3>What the History tab says about a run</h3>
@@ -111,8 +115,13 @@
     <dt>In progress - paused</dt>
     <dd>
       You pressed Pause. The run waits before its next request, never halfway through saving
-      a file, and carries on when you press Resume. A background run left paused for 10
-      minutes is abandoned; any other run stays paused until you resume or stop it.
+      a file, and carries on when you press Resume.
+      @if (offersBackground) {
+        A background run left paused for 10 minutes is abandoned; any other run stays paused
+        until you resume or stop it.
+      } @else {
+        It stays paused until you resume or stop it.
+      }
     </dd>
     <dt>Finished</dt>
     <dd>
@@ -123,11 +132,13 @@
     <dd>
       You pressed Stop. It ended at the next safe point, keeping everything it had saved.
     </dd>
-    <dt>Abandoned</dt>
-    <dd>
-      A background run that was left paused for too long, so the helper ended it rather than
-      keep waiting. It ends just as a stopped run does.
-    </dd>
+    @if (offersBackground) {
+      <dt>Abandoned</dt>
+      <dd>
+        A background run that was left paused for too long, so the helper ended it rather than
+        keep waiting. It ends just as a stopped run does.
+      </dd>
+    }
     <dt>Failed</dt>
     <dd>
       Something ended the run early - AO3 refused the login, the login lapsed partway, or the

@@ -161,7 +161,11 @@ variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TI
 
 ## Running in the background
 
-Every run offers **Run as background task** on its login step, when your library is in
+**Only on the hosted copy** (the page on GitHub Pages, with its helper on a server). The
+bundle and the Windows, Mac and Linux apps run their helper on your own computer, which stops
+when you close its window, so they do not offer it at all.
+
+There, every run offers **Run as background task** on its login step, when your library is in
 Dropbox and you are signed in. The helper then carries on with the page closed: start a run,
 go away, and come back hours later. It is greyed out for a folder on this computer, because
 the helper can only reach that folder through the open page.

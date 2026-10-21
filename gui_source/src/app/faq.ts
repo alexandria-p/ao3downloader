@@ -1,4 +1,5 @@
 import { Component, inject } from '@angular/core';
+import { HelperConnection } from './helper-connection';
 import { UpdateCheck } from './updates';
 
 /**
@@ -21,4 +22,7 @@ export class Faq {
   protected readonly latestUrl = this.updates.latestUrl();
   /** the version this page was built as, when it was built by a deployment */
   protected readonly version = this.updates.version();
+  private readonly helper = inject(HelperConnection);
+  /** only the hosted copy offers background runs, so only its FAQ says how they work */
+  protected readonly offersBackground = !this.helper.isLocal();
 }
