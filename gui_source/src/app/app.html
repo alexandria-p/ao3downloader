@@ -91,7 +91,7 @@
 
 <!--
   a newer release than this page - said until installed, or until told not to again. the
-  Windows or Mac app can install it itself; anywhere else the page can only link it
+  Windows, Mac or Linux app can install it itself; anywhere else the page can only link it
 -->
 @switch (updateProgress().state) {
   @case ('updating') {
@@ -333,7 +333,29 @@
 }
 
 @if (loading()) {
-  <p class="notice">{{ mode() === 'dropbox' ? 'Reading your library from Dropbox...' : 'Reading files...' }}</p>
+  @if (mode() === 'dropbox' && reading(); as reading) {
+    <div class="read-progress">
+      <div
+        class="bar"
+        role="progressbar"
+        aria-label="Reading your library from Dropbox"
+        [attr.aria-valuenow]="reading.percent"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
+        <div
+          class="fill"
+          [class.indeterminate]="reading.percent === null"
+          [style.width.%]="reading.percent ?? 100"
+        ></div>
+      </div>
+      <p class="notice" role="status">
+        {{ reading.caption }}@if (reading.percent !== null) {<span class="percent"> - {{ reading.percent }}%</span>}
+      </p>
+    </div>
+  } @else {
+    <p class="notice">{{ mode() === 'dropbox' ? 'Reading your library from Dropbox...' : 'Reading files...' }}</p>
+  }
 }
 
 @if (mode() === 'dropbox' && !canRun() && (view() === 'bookmarks' || view() === 'collections')) {

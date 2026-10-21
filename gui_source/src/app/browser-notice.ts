@@ -1,4 +1,5 @@
-import { Component, output } from '@angular/core';
+import { Component, computed, inject, output } from '@angular/core';
+import { HelperConnection } from './helper-connection';
 import { safeGet, safeSet } from './storage';
 import { supportsDirectoryPicker } from './folder-store';
 
@@ -13,7 +14,8 @@ export function browserNoticeSeen(): boolean {
  * Said once, on the first visit: where a library can be kept, and what each way needs.
  *
  * A library in Dropbox needs nothing special - the page reaches it over Dropbox's own api,
- * in any browser on any device, and a background run can carry on with the page closed. A
+ * in any browser on any device, and on the hosted copy a background run can carry on with the
+ * page closed (a helper on this computer offers none - see `DownloadDialog.offersBackground`). A
  * folder on this device is the demanding one: the page writes into it itself, which takes the
  * File System Access API (Chromium on a computer - Firefox, Safari and mobile browsers do not
  * have it), and the page has to stay open for the whole run, because it is the page that does
@@ -34,6 +36,9 @@ export class BrowserNotice {
 
   /** whether this browser can save to a folder here, which turns the last line into a warning */
   protected readonly supported = supportsDirectoryPicker();
+  private readonly helper = inject(HelperConnection);
+  /** only the hosted copy offers background runs, so only it mentions them */
+  protected readonly offersBackground = computed(() => !this.helper.isLocal());
 
   protected dismiss(): void {
     safeSet(SEEN_KEY, 'true');

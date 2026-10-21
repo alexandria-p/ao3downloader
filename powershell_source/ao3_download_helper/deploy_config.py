@@ -26,8 +26,8 @@ The result is baked into the helper's image **and** read back by `page-config`, 
 and the helper are built from one settings.ini and cannot disagree about where the helper is
 or whether it wants a passcode.
 
-`local-settings` writes the settings.ini the **Windows and Mac apps** ship (`package_app.py`): the
-same template and the same variables, so it paces and names things exactly as the hosted
+`local-settings` writes the settings.ini the **Windows, Mac and Linux apps** ship
+(`package_app.py`): the same template and the same variables, so it paces and names things exactly as the hosted
 helper does - but the three hosting keys are pinned to a helper on the computer the app is
 started on, and console logging is always on (`LOCAL_APP`), whatever the variables say. It never holds the hosted helper's
 address or the page's origin: the file is checked for both before it is written

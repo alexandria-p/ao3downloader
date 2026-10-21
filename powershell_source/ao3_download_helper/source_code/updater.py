@@ -1,4 +1,4 @@
-"""Updating the Windows or Mac app from inside itself: the page's **Update now**.
+"""Updating the Windows, Mac or Linux app from inside itself: the page's **Update now**.
 
 Only the packaged app can do this (`desktop.py` sets `Handler.updater`) - it is the one copy
 that is a folder of files on someone's computer, installed from a GitHub release. A helper run
@@ -7,14 +7,14 @@ any other way answers the update endpoints 404, and its page never shows the but
 What happens, in order:
 
 1. `latest` asks GitHub for the repository's latest release and finds this app's zip -
-   `ao3downloader-windows.zip`, or on a Mac the one for its chip. It has to be newer than this
+   `ao3downloader-windows.zip`, on a Mac the one for its chip, or on Linux the one for its machine. It has to be newer than this
    app, or nothing happens.
 2. `install` downloads it into `update/` beside the program and checks it: against the SHA-256
    GitHub publishes for the file, and entry by entry - every file has to land inside the
    app's own folder (a symlink too, wherever it points), and the zip has to hold the program
    and its `_internal/`. Anything wrong and nothing is touched.
 3. It unpacks it into `update/new/` - keeping each file's permissions and each symlink, which
-   the Mac app needs - writes the swap script, starts it detached, and closes the app.
+   the Mac and Linux apps need - writes the swap script, starts it detached, and closes the app.
 4. The script waits for the app to be gone, moves each top-level item of the old app into
    `update/previous/` and the new one in its place, and starts the app again. If a move fails
    it puts every old item back first, so the app that starts is always a whole one - the new
@@ -53,6 +53,10 @@ MAC_PROGRAM = 'ao3downloader'
 MAC_LAUNCHER = 'Start ao3downloader.command'
 # which Mac zip is this Mac's: the same names package_app builds them under
 MAC_CHIPS = {'arm64': 'apple-silicon', 'x86_64': 'intel'}
+# what starts the app on Linux, which the swap runs again (package_app.LINUX_LAUNCHER)
+LINUX_LAUNCHER = 'Start ao3downloader.sh'
+# Linux builds, named by machine; anything else has no published build to update from
+LINUX_MACHINES = {'x86_64': 'x86_64', 'amd64': 'x86_64'}
 # left by the Mac swap for the app it starts: a Terminal window opened by `open` gets none of
 # the script's environment, so this says what AO3DOWNLOADER_NO_BROWSER says on Windows - the
 # page is still open, and reloads itself
@@ -114,13 +118,17 @@ class Kind:
     script_name: str
     script: str
     encoding: str
+    # macos or linux for the bash swap, which starts the app again differently on each
+    system: str = ''
 
     def command(self, script: Path, app_dir: Path, pid: int) -> list[str]:
         if self.script_name == SCRIPT_NAME:
             return ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
                     '-WindowStyle', 'Hidden', '-File', str(script),
                     '-AppDir', str(app_dir), '-ProcessId', str(pid)]
-        return ['/bin/bash', str(script), str(app_dir), str(pid)]
+        # the same bash script on a Mac and on Linux, told which, since each restarts the app
+        # its own way
+        return ['/bin/bash', str(script), str(app_dir), str(pid), self.system]
 
 
 def kind_for(platform: str | None = None, machine: str | None = None) -> Kind | None:
@@ -133,7 +141,14 @@ def kind_for(platform: str | None = None, machine: str | None = None) -> Kind | 
         import platform as machines
         chip = MAC_CHIPS.get(machine or machines.machine())
         if not chip: return None
-        return Kind(f'{ZIP_ROOT}-macos-{chip}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8')
+        return Kind(f'{ZIP_ROOT}-macos-{chip}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
+                    'macos')
+    if platform.startswith('linux'):
+        import platform as machines
+        arch = LINUX_MACHINES.get((machine or machines.machine()).lower())
+        if not arch: return None
+        return Kind(f'{ZIP_ROOT}-linux-{arch}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
+                    'linux')
     return None
 
 
@@ -181,7 +196,7 @@ def unpack(archive: zipfile.ZipFile, destination: Path) -> None:
     folder that is the user's - a zip that carried one would otherwise replace it.
 
     Each file keeps the permissions it was zipped with, and a symlink is made as a symlink:
-    `ZipFile.extract` does neither, and the Mac app needs both - its program must stay
+    `ZipFile.extract` does neither, and the Mac and Linux apps need both - its program must stay
     executable, and PyInstaller's Mac build links parts of its folder to each other.
     `check_zip` has already refused a link pointing anywhere else."""
 
@@ -204,14 +219,33 @@ def unpack(archive: zipfile.ZipFile, destination: Path) -> None:
             target.chmod(mode)
 
 
+def system_environment(environment: dict | None = None) -> dict:
+    """The environment for a program of the system's own - a browser, a terminal - started
+    from the frozen app.
+
+    On Linux PyInstaller points LD_LIBRARY_PATH at the app's own libraries, keeping what it was
+    in LD_LIBRARY_PATH_ORIG, and a system program handed that loads the app's copies of
+    libraries in place of its own - a browser or terminal built against newer ones then fails
+    to start. Put back as it was; nothing else is touched."""
+
+    environment = dict(os.environ if environment is None else environment)
+    if not getattr(sys, 'frozen', False) or sys.platform == 'win32': return environment
+    for name in ('LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH'):
+        original = environment.pop(f'{name}_ORIG', None)
+        if original: environment[name] = original
+        else: environment.pop(name, None)
+    return environment
+
+
 def launch_environment() -> dict:
     """What the swap script, and the app it starts again, run with.
 
     A frozen app hands its children PyInstaller's own variables (`_PYI_*`), and PyInstaller
     says to reset them when starting another frozen program - the relaunched exe would
-    otherwise take them as its own. The script sets the flag again before it starts the app."""
+    otherwise take them as its own. The script sets the flag again before it starts the app.
+    The library path is the system's, since the script runs system programs (`system_environment`)."""
 
-    environment = dict(os.environ)
+    environment = system_environment()
     environment[PYINSTALLER_RESET] = '1'
     return environment
 
@@ -501,15 +535,19 @@ finally {
 '''
 
 
-# Written into update/ and run by bash once the app has closed - the Mac's SWAP_SCRIPT, doing
+# Written into update/ and run by bash once the app has closed - the Mac's and Linux's
+# SWAP_SCRIPT, doing
 # the same things in the same order and writing the same log lines, so `last_result` reads
 # either. A rename on the same disk cannot be half-done, so it needs none of the retrying the
 # Windows one does for locked files; it still puts every old item back if any move fails.
 # The app runs in Terminal on a Mac, so it is started again by opening its launcher, in a new
-# window - which gets none of this script's environment, hence the marker file.
+# window - which gets none of this script's environment, hence the marker file. On Linux the
+# launcher itself finds a terminal to open, or runs the app straight where there is no desktop.
 MAC_SWAP_SCRIPT = r'''#!/bin/bash
 APP_DIR="$1"
 APP_PID="$2"
+# macos or linux: each starts the app again its own way
+SYSTEM="${3:-macos}"
 UPDATE="$APP_DIR/update"
 NEW="$UPDATE/new"
 PREVIOUS="$UPDATE/previous"
@@ -520,7 +558,18 @@ say() { printf '%s %s\n' "$(date -u '+%Y-%m-%d %H:%M:%SZ')" "$1" >> "$LOG"; }
 start_again() {
     # the page is still open and reloads itself, so the app must not open a second tab
     touch "$UPDATE/restarted"
-    if open -a Terminal "$APP_DIR/Start ao3downloader.command"; then
+    if [ "$SYSTEM" = linux ]; then
+        # the launcher opens a terminal of its own where there is a desktop, and runs the app
+        # straight where there is none; a session of its own so nothing here takes it along.
+        # the old app's window set AO3DOWNLOADER_IN_TERMINAL, and this script has it - left
+        # set, the launcher would run the app with no window to show it in
+        unset AO3DOWNLOADER_IN_TERMINAL
+        if setsid -f "$APP_DIR/Start ao3downloader.sh" > /dev/null 2>&1 < /dev/null; then
+            say 'started the app again'
+        else
+            say 'could not start the app again - run Start ao3downloader.sh'
+        fi
+    elif open -a Terminal "$APP_DIR/Start ao3downloader.command"; then
         say 'started the app again'
     else
         say 'could not start the app again - double-click Start ao3downloader.command'

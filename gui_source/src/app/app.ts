@@ -18,7 +18,7 @@ import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { ActiveRun, JobAction, Jobs } from './jobs';
 import { HelperConnection } from './helper-connection';
-import { Library } from './library';
+import { Library, describeReadProgress } from './library';
 import { LibrarySetup } from './library-setup';
 import { PasscodeGate } from './passcode-gate';
 import { SetupOverlay } from './setup-overlay';
@@ -63,7 +63,7 @@ export class App {
   protected readonly repositoryName = computed(() => this.helper.settings().releasesRepo);
   protected readonly repositoryUrl = computed(() => `https://github.com/${this.repositoryName()}`);
   protected readonly issuesUrl = computed(() => `${this.repositoryUrl()}/issues`);
-  /** only the Windows or Mac app can install an update itself; anywhere else the banner links it */
+  /** only the Windows, Mac or Linux app can install an update itself; anywhere else the banner links it */
   protected readonly canUpdate = this.updates.canUpdate;
   protected readonly updateProgress = this.updates.updating;
   protected readonly updateTarget = computed(() => {
@@ -166,6 +166,11 @@ export class App {
   protected readonly collections = this.library.collections;
   protected readonly error = this.library.error;
   protected readonly loading = this.library.loading;
+  /** the bar while a Dropbox library is read: what stage, and how far when that is known */
+  protected readonly reading = computed(() => {
+    const progress = this.library.readProgress();
+    return progress ? describeReadProgress(progress) : null;
+  });
   protected readonly sourceName = this.library.sourceName;
   protected readonly folderName = this.library.folderName;
   protected readonly needsReconnect = this.library.needsReconnect;
@@ -234,7 +239,7 @@ export class App {
     void this.jobs.refreshActiveRuns();
     // once per opening, and never for a page that has no version or was told not to
     void this.updates.check();
-    // whether the helper is the Windows or Mac app, which can update itself - and whether its last
+    // whether the helper is the Windows, Mac or Linux app, which can update itself - and whether its last
     // update went through. untracked, or clearing a failure would bring it straight back
     effect(() => {
       const app = this.jobs.config()?.app;
@@ -256,7 +261,7 @@ export class App {
     this.updates.dismiss();
   }
 
-  /** the Windows or Mac app: download the newer release, restart as it, and reload this page */
+  /** the Windows, Mac or Linux app: download the newer release, restart as it, and reload this page */
   protected updateNow(): void {
     void this.updates.updateNow();
   }

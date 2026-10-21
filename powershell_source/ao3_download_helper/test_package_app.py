@@ -1,10 +1,12 @@
-"""The app's packaging, for Windows and macOS - everything but running PyInstaller itself,
-which the `build windows app` and `build mac app` workflows do on their own systems and then
-start the app they built."""
+"""The app's packaging, for Windows, macOS and Linux - everything but running PyInstaller
+itself, which the `build windows app`, `build mac app` and `build linux app` workflows do on
+their own systems and then start the app they built."""
 
 import json
 import os
 import stat
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -87,6 +89,72 @@ def test_the_mac_readme_says_how_to_get_past_the_first_warning_and_which_browser
     assert 'Update now' in readme and 'new Terminal' in readme
 
 
+def test_on_linux_a_script_to_start_it_goes_beside_the_program(tmp_path):
+    app = package_app.assemble(app_folder(tmp_path), 'linux')
+
+    launcher = app / package_app.LINUX_LAUNCHER
+    script = launcher.read_text(encoding='utf-8')
+    assert script.startswith('#!/bin/bash\n')
+    assert 'exec ./ao3downloader' in script
+    assert os.access(launcher, os.X_OK)
+    assert b'\r' not in launcher.read_bytes()
+    assert not (app / package_app.MAC_LAUNCHER).exists()
+
+
+def test_the_linux_readme_says_how_to_start_it_and_which_browser_to_use(tmp_path):
+    readme = (package_app.assemble(app_folder(tmp_path), 'linux') / 'README.txt').read_text(encoding='utf-8')
+
+    assert package_app.LINUX_LAUNCHER in readme
+    assert 'x86_64' in readme
+    assert 'Chrome' in readme and 'Firefox' in readme
+    assert 'Update now' in readme
+    assert b'\r' not in (tmp_path / 'dist' / 'ao3downloader' / 'README.txt').read_bytes()
+
+
+needs_bash = pytest.mark.skipif(sys.platform == 'win32', reason='runs the bash launcher')
+
+
+def run_launcher(tmp_path: Path, environment: dict) -> str:
+    """Run the Linux launcher for real, with a stand-in program and stand-in terminal that
+    each note how they were started."""
+
+    app = package_app.assemble(app_folder(tmp_path), 'linux')
+    said = tmp_path / 'said.txt'
+    program = app / 'ao3downloader'
+    program.write_text(f'#!/bin/bash\necho "program in $(pwd) $AO3DOWNLOADER_IN_TERMINAL" >> "{said}"\n',
+                       encoding='utf-8')
+    program.chmod(0o755)
+    shims = tmp_path / 'shims'
+    shims.mkdir()
+    terminal = shims / 'x-terminal-emulator'
+    terminal.write_text(f'#!/bin/bash\necho "terminal $*" >> "{said}"\n"$2"\n', encoding='utf-8')
+    terminal.chmod(0o755)
+    path = f'{shims}{os.pathsep}/usr/bin{os.pathsep}/bin'
+    subprocess.run(['/bin/bash', str(app / package_app.LINUX_LAUNCHER)], cwd=tmp_path,
+                   env={'PATH': path, **environment}, stdout=subprocess.DEVNULL,
+                   stdin=subprocess.DEVNULL, check=True, timeout=30)
+    return said.read_text(encoding='utf-8')
+
+
+@needs_bash
+def test_the_linux_launcher_runs_the_program_in_its_own_folder_when_there_is_no_desktop(tmp_path):
+    said = run_launcher(tmp_path, {})
+
+    assert 'terminal' not in said
+    assert f'program in {tmp_path / "dist" / "ao3downloader"}' in said
+
+
+@needs_bash
+def test_the_linux_launcher_opens_a_terminal_to_run_in_on_a_desktop_and_only_once(tmp_path):
+    said = run_launcher(tmp_path, {'DISPLAY': ':0'}).splitlines()
+
+    app = tmp_path / 'dist' / 'ao3downloader'
+    assert said[0] == f'terminal -e {app / package_app.LINUX_LAUNCHER}'
+    # the launcher it ran in the terminal ran the program, not a second terminal
+    assert said[1] == f'program in {app} 1'
+    assert len(said) == 2
+
+
 def test_the_zip_unzips_into_one_folder_and_holds_no_settings(tmp_path):
     app = package_app.assemble(app_folder(tmp_path), 'win32')
     (app / '_internal' / 'defaults').mkdir(parents=True)
@@ -111,8 +179,11 @@ def test_the_zip_is_named_for_the_system_it_was_built_on(monkeypatch):
     assert package_app.zip_name() == 'ao3downloader-macos-apple-silicon.zip'
     monkeypatch.setattr(package_app.machines, 'machine', lambda: 'x86_64')
     assert package_app.zip_name() == 'ao3downloader-macos-intel.zip'
+    # the names the updater looks for on each system
     monkeypatch.setattr(package_app.sys, 'platform', 'linux')
-    assert package_app.zip_name() == 'ao3downloader-linux.zip'
+    assert package_app.zip_name() == 'ao3downloader-linux-x86_64.zip'
+    monkeypatch.setattr(package_app.machines, 'machine', lambda: 'aarch64')
+    assert package_app.zip_name() == 'ao3downloader-linux-aarch64.zip'
 
 
 def test_each_mac_readme_says_which_macs_it_is_for_and_where_the_other_one_is(tmp_path):

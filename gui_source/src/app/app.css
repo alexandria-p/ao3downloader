@@ -186,6 +186,48 @@
   color: var(--text-dim);
 }
 
+/* reading a Dropbox library: the same bar as a run's progress window */
+.read-progress {
+  margin: 16px 0;
+  max-width: 640px;
+}
+
+.read-progress .notice {
+  margin: 4px 0 0;
+}
+
+.read-progress .bar {
+  height: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.read-progress .fill {
+  height: 100%;
+  background: #5a8f6a;
+  transition: width 0.3s ease;
+}
+
+/* no total to divide by - a listing, or a zip Dropbox builds as it sends - so show motion
+   rather than a false number */
+.read-progress .fill.indeterminate {
+  background: linear-gradient(90deg, transparent, #5a8f6a, transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: read-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes read-sweep {
+  from { background-position: -40% 0; }
+  to { background-position: 140% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .read-progress .fill.indeterminate { animation: none; opacity: 0.5; }
+}
+
 .empty {
   margin-top: 48px;
   padding: 28px;

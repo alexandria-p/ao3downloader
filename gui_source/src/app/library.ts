@@ -45,6 +45,76 @@ const INDEX_FOLDERS = ['indexing', 'collections'];
 const PARALLEL_DOWNLOADS = 6;
 
 /**
+ * How far reading a Dropbox library has got, for the bar shown while it loads.
+ *
+ * Each stage says only what is known at that point. A listing comes a page at a time with no
+ * total, so it counts what it has found. A folder's zip is built by Dropbox as it sends it, so
+ * its size is usually unknown (`total` null) and the bar can only say how much has arrived;
+ * which folder of how many is known. Entries fetched one at a time (a folder too big for one
+ * zip) and entries read once downloaded both have a real total.
+ */
+export type ReadProgress =
+  | { stage: 'listing'; found: number }
+  | { stage: 'downloading'; folder: number; folders: number; bytes: number; total: number | null }
+  | { stage: 'fetching'; done: number; total: number }
+  | { stage: 'reading'; done: number; total: number };
+
+type NoteProgress = (progress: ReadProgress) => void;
+
+const count = new Intl.NumberFormat('en');
+
+/** a size people can read: bytes, KB or MB */
+export function readableSize(bytes: number): string {
+  if (bytes < 1024) return `${count.format(bytes)} bytes`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
+ * What the bar shows for a stage: a percentage only where there is a real total to divide
+ * by, otherwise null - the bar then moves without claiming a number - and a caption saying
+ * what is happening.
+ */
+export function describeReadProgress(progress: ReadProgress): {
+  percent: number | null;
+  caption: string;
+} {
+  const share = (done: number, total: number) =>
+    total > 0 ? Math.min(100, Math.floor((done / total) * 100)) : 0;
+  switch (progress.stage) {
+    case 'listing':
+      return {
+        percent: null,
+        caption: progress.found
+          ? `Listing your library in Dropbox - ${count.format(progress.found)} files so far`
+          : 'Listing your library in Dropbox...',
+      };
+    case 'downloading': {
+      const folder = progress.folders > 1 ? ` (folder ${progress.folder} of ${progress.folders})` : '';
+      const size = progress.total
+        ? `${readableSize(progress.bytes)} of ${readableSize(progress.total)}`
+        : `${readableSize(progress.bytes)} so far`;
+      return {
+        percent: progress.total ? share(progress.bytes, progress.total) : null,
+        caption: `Downloading the index from Dropbox${folder} - ${size}`,
+      };
+    }
+    case 'fetching':
+      return {
+        percent: share(progress.done, progress.total),
+        caption: `Downloading the index from Dropbox one entry at a time - ` +
+          `${count.format(progress.done)} of ${count.format(progress.total)}`,
+      };
+    case 'reading':
+      return {
+        percent: share(progress.done, progress.total),
+        caption: `Reading the index - ${count.format(progress.done)} of ` +
+          `${count.format(progress.total)} entries`,
+      };
+  }
+}
+
+/**
  * Reads a downloads folder that ao3downloader wrote into - on this computer, or in Dropbox.
  *
  * Every time a library is opened it is set up first (`LibrarySetup`): the folders it should
@@ -84,6 +154,8 @@ export class Library {
   readonly externalsById = signal<Map<string, Bookmark>>(new Map());
   readonly error = signal('');
   readonly loading = signal(false);
+  /** while a Dropbox library is being read, how far it has got; null otherwise */
+  readonly readProgress = signal<ReadProgress | null>(null);
   /** a folder is remembered but the browser wants the permission confirmed again */
   readonly needsReconnect = signal(false);
   /**
@@ -144,11 +216,18 @@ export class Library {
     }
 
     this.loading.set(true);
+    // a switch of library meanwhile must not have this read's progress land on the new one
+    const note: NoteProgress = (progress) => {
+      if (generation === this.generation) this.readProgress.set(progress);
+    };
     try {
       await this.setup.prepare(this.dropboxTarget(), APP_FOLDER_PATH);
       if (generation !== this.generation) return;
       this.store.set(new DropboxLibraryStore(this.dropbox));
-      const files = await this.dropbox.listFiles(folder.path);
+      note({ stage: 'listing', found: 0 });
+      const files = await this.dropbox.listFiles(folder.path, true, (found) =>
+        note({ stage: 'listing', found }),
+      );
       if (generation !== this.generation) return;
 
       const inside = (file: DropboxFile) =>
@@ -173,9 +252,9 @@ export class Library {
         }
       }
 
-      const jsonFiles = await this.readDropboxIndex(folder.path, indexFiles);
+      const jsonFiles = await this.readDropboxIndex(folder.path, indexFiles, note);
       if (generation !== this.generation) return;
-      await this.ingestRecords(jsonFiles, copies, false);
+      await this.ingestRecords(jsonFiles, copies, false, note);
     } catch (error) {
       if (generation !== this.generation) return;
       this.error.set(
@@ -183,7 +262,10 @@ export class Library {
           (error instanceof Error ? error.message : ''),
       );
     } finally {
-      if (generation === this.generation) this.loading.set(false);
+      if (generation === this.generation) {
+        this.loading.set(false);
+        this.readProgress.set(null);
+      }
     }
   }
 
@@ -268,28 +350,38 @@ export class Library {
    * more than 10,000 files, or a zip this page cannot read - is fetched file by file
    * instead, a few at a time.
    */
-  private async readDropboxIndex(root: string, indexFiles: DropboxFile[]): Promise<File[]> {
+  private async readDropboxIndex(
+    root: string,
+    indexFiles: DropboxFile[],
+    note: NoteProgress = () => {},
+  ): Promise<File[]> {
     const read: File[] = [];
-    for (const name of INDEX_FOLDERS) {
+    const folders = INDEX_FOLDERS.map((name) => {
       const prefix = `${root}/${name}/`.toLowerCase();
-      const wanted = indexFiles.filter((f) => f.path.toLowerCase().startsWith(prefix));
-      if (wanted.length === 0) continue;
+      return { name, wanted: indexFiles.filter((f) => f.path.toLowerCase().startsWith(prefix)) };
+    }).filter((f) => f.wanted.length > 0);
+    for (const [at, { name, wanted }] of folders.entries()) {
       try {
-        const entries = await unzip(await this.dropbox.downloadZip(`${root}/${name}`));
+        const zip = await this.dropbox.downloadZip(`${root}/${name}`, (bytes, total) =>
+          note({ stage: 'downloading', folder: at + 1, folders: folders.length, bytes, total }),
+        );
+        const entries = await unzip(zip);
         for (const entry of entries) {
           const file = entry.path.split('/').pop() ?? '';
           if (/\.json$/i.test(file)) read.push(new File([entry.data as BlobPart], file));
         }
       } catch {
-        read.push(...(await this.downloadEach(wanted)));
+        read.push(...(await this.downloadEach(wanted, note)));
       }
     }
     return read;
   }
 
-  private async downloadEach(files: DropboxFile[]): Promise<File[]> {
+  private async downloadEach(files: DropboxFile[], note: NoteProgress = () => {}): Promise<File[]> {
     const read: File[] = [];
     let next = 0;
+    let done = 0;
+    note({ stage: 'fetching', done, total: files.length });
     const worker = async () => {
       while (next < files.length) {
         const file = files[next++];
@@ -298,6 +390,8 @@ export class Library {
         } catch {
           // one unreadable file should not hide the rest of the library
         }
+        // counted either way: the bar is how many have been tried, not how many arrived
+        note({ stage: 'fetching', done: ++done, total: files.length });
       }
     };
     await Promise.all(Array.from({ length: PARALLEL_DOWNLOADS }, worker));
@@ -397,6 +491,7 @@ export class Library {
     jsonFiles: File[],
     copies: Copies,
     strict: boolean,
+    note?: NoteProgress,
   ): Promise<void> {
     this.error.set('');
     this.loading.set(true);
@@ -410,7 +505,7 @@ export class Library {
         return;
       }
 
-      const { works, collections } = await this.readRecords(jsonFiles);
+      const { works, collections } = await this.readRecords(jsonFiles, note);
       if (works.length === 0 && collections.length === 0) {
         if (!strict) return;
         this.error.set(
@@ -473,13 +568,18 @@ export class Library {
    */
   private async readRecords(
     jsonFiles: File[],
+    note?: NoteProgress,
   ): Promise<{ works: Bookmark[]; collections: Collection[] }> {
+    let done = 0;
+    note?.({ stage: 'reading', done, total: jsonFiles.length });
     const parsed = await Promise.all(
       jsonFiles.map(async (file) => {
         try {
           return JSON.parse(await file.text()) as unknown;
         } catch {
           return null; // a folder can hold json that has nothing to do with us
+        } finally {
+          note?.({ stage: 'reading', done: ++done, total: jsonFiles.length });
         }
       }),
     );

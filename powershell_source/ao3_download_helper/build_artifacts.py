@@ -41,7 +41,7 @@ PACKAGE_NAME = 'source_code'
 # they used have been deleted, so the package is exactly what the helper reaches. A name in
 # `left_behind` now means dead code, or a module that lost its last import by accident.
 HELPER_ENTRY = 'server'
-# the Windows and Mac app's own entry point (package_app.py), which starts the helper. Followed
+# the Windows, Mac and Linux app's own entry point (package_app.py), which starts the helper. Followed
 # too when it is there, so it ships and is never reported as left behind - with it, the
 # bundle can be started by `python -m source_code.desktop` as well as by the launcher
 APP_ENTRY = 'desktop'
@@ -401,10 +401,11 @@ folder somewhere else, leave `.venv/` behind and let the first run rebuild it.
 
 ## Running it
 
-On Windows and on a Mac, the **app** does all of this without PowerShell or uv: a zip
-built by `package_app.py` and published by the **build windows app** and **build mac app**
-workflows. On Windows, unzip it and double-click `ao3downloader.exe`; on a Mac,
-double-click `Start ao3downloader.command`, and use Chrome rather than Safari. The rest of
+On Windows, a Mac or Linux, the **app** does all of this without PowerShell or uv: a zip
+built by `package_app.py` and published by the **build windows app**, **build mac app** and
+**build linux app** workflows. On Windows, unzip it and double-click `ao3downloader.exe`; on a
+Mac, double-click `Start ao3downloader.command`, and use Chrome rather than Safari; on Linux,
+run `Start ao3downloader.sh`, and use Chrome or Chromium rather than Firefox. The rest of
 this section is for this folder.
 
 A deployment gives everything it builds one version, and that page checks GitHub for a newer
@@ -926,19 +927,15 @@ One caveat: an ao3 login does not last forever. A run left paused a long time ma
 session gone when you resume, which shows up as works failing to download. Stop it and start
 a new run if that happens.
 
-## Leaving a run to finish on its own
+## One run at a time
 
-Every run offers **Run as background task** on its login step, when the library is in
-Dropbox and signed in. The helper then carries on with the page closed, reaching Dropbox
-itself: start a run, close the page, come back hours later. It is not offered for a folder on
-this computer, which the helper can only reach through the open page.
-
-Anything the run might stop to ask is asked before it starts. Only one run goes at a time;
-while one is going the page says so at the top, and the History tab has it pinned, with
-**View progress** to open it again. A background run left paused for
-`PausedRunTimeoutMinutes` (10 by default) is abandoned: it ends keeping what it saved, and
-can be resumed from History. Closing this window's helper ends a background run -
-what it saved stays saved, and starting it again carries on from what is still missing.
+A run here needs this window and the page open for as long as it lasts: the helper stops when
+this window closes. (Only the hosted copy - the page on GitHub Pages, with its helper on a
+server - offers **Run as background task**; this bundle does not.) Anything the run might stop
+to ask, it asks on screen. Only one run goes at a time; while one is going the page says so at
+the top, and the History tab has it pinned, with **View progress** to open it again. Closing
+this window's helper ends a run - what it saved stays saved, and starting it again carries on
+from what is still missing.
 
 Every run in the History tab has **Download issues** when it reported anything: one text file
 of what failed, what to check by hand, and the bookmarks that are not works. **Download log**
@@ -955,13 +952,14 @@ when it reported anything, **Download issues**.
   by the helper** while the helper has not answered, or **Running on another helper** when
   another copy of the app started it on the same library.
 - **In progress - paused** - you pressed Pause. It waits before its next request, never
-  halfway through saving a file, and carries on when you press Resume. A background run left
-  paused for 10 minutes is abandoned; any other run stays paused until resumed or stopped.
+  halfway through saving a file, and carries on when you press Resume. It stays paused until
+  resumed or stopped.
 - **Finished** - it reached its end. Individual works can still have failed; they are in
   **Download issues**, and a later run tries them again.
 - **Stopped** - you pressed Stop. It ended at the next safe point, keeping what it saved.
-- **Abandoned** - a background run left paused too long, which the helper ended rather than
-  keep waiting. It ends just as a stopped run does.
+- **Abandoned** - a background run on the hosted copy left paused too long, which its helper
+  ended rather than keep waiting. It ends just as a stopped run does. (A Dropbox library shared
+  with the hosted copy can show one.)
 - **Failed** - something ended it early: AO3 refused the login, the login lapsed partway, or
   the library could not be reached. The reason is on its entry.
 - **Interrupted** - it never got to say how it ended: the helper stopped, crashed or

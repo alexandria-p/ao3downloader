@@ -1,4 +1,4 @@
-"""The app, for Windows and macOS: one double-click in place of Start-Application.ps1.
+"""The app, for Windows, macOS and Linux: one double-click in place of Start-Application.ps1.
 
 Built into the `ao3downloader` program by `package_app.py`. It does what the PowerShell
 launcher does in a generated build - starts the local helper, serves the prebuilt page, and
@@ -16,12 +16,14 @@ On a Mac the browser matters more than on Windows. The page opens a folder throu
 System Access API, which Chromium has and Safari and Firefox do not - and Safari is what a Mac
 opens by default. So there the app asks for Chrome, or another Chromium browser, by name
 (`MAC_BROWSERS`), and only falls back to the default browser when none is installed; the page
-then says why it cannot open a folder.
+then says why it cannot open a folder. Linux is the same, with Firefox as the usual default:
+the browsers are looked for by command (`LINUX_BROWSERS`).
 """
 
 import functools
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -44,6 +46,13 @@ OPEN_THIS_ON_A_MAC = (f'open Chrome to http://localhost:{PAGE_PORT} - not Safari
                       'which cannot open a folder to save your fics in')
 # asked for by name on a Mac, first installed wins: each can open a folder for the page
 MAC_BROWSERS = ('Google Chrome', 'Microsoft Edge', 'Brave Browser', 'Arc', 'Opera')
+# on Linux the default is usually Firefox, which cannot either
+OPEN_THIS_ON_LINUX = (f'open Chrome or Chromium to http://localhost:{PAGE_PORT} - not Firefox, '
+                      'which cannot open a folder to save your fics in')
+# looked for by command on Linux, first found wins: each is a Chromium, so can open a folder
+LINUX_BROWSERS = ('google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser',
+                  'microsoft-edge', 'microsoft-edge-stable', 'brave-browser', 'brave',
+                  'vivaldi', 'vivaldi-stable', 'opera')
 
 CONFIG_FOLDER = 'config'
 LOG_FOLDER = 'logs'
@@ -113,7 +122,7 @@ def build_info(web: str) -> tuple[str, str]:
 
 
 def make_updater(root: str, web: str) -> 'updates.Updater | None':
-    """An updater for this app, when it can update itself: the packaged app on Windows or a Mac
+    """An updater for this app, when it can update itself: the packaged app on Windows, a Mac or Linux
     (only a packaged app is a folder to swap), built with a version and a repository to look for
     a newer one in."""
 
@@ -125,8 +134,8 @@ def make_updater(root: str, web: str) -> 'updates.Updater | None':
 
 
 def restarted_by_update(root: str) -> bool:
-    """Whether a Mac update's swap just started this app - it leaves a marker, since a window
-    opened in Terminal gets none of its environment. Read once and removed: the page is still
+    """Whether a Mac or Linux update's swap just started this app - it leaves a marker, since a window
+    opened in a terminal gets none of its environment. Read once and removed: the page is still
     open and reloads itself, so no second tab, this time only."""
 
     marker = os.path.join(root, updates.UPDATE_FOLDER, updates.RESTARTED_MARKER)
@@ -165,14 +174,39 @@ def page_server(folder: str) -> ThreadingHTTPServer:
 def where_to_go(platform: str | None = None) -> str:
     """What the window tells people to open."""
 
-    return OPEN_THIS_ON_A_MAC if (platform or sys.platform) == 'darwin' else OPEN_THIS
+    platform = platform or sys.platform
+    if platform == 'darwin': return OPEN_THIS_ON_A_MAC
+    if platform.startswith('linux'): return OPEN_THIS_ON_LINUX
+    return OPEN_THIS
 
 
-def open_page(platform: str | None = None, run=subprocess.run) -> None:
-    """Point a browser at the page - on a Mac, one that can open a folder for it."""
+def start_browser(command: list[str]) -> bool:
+    """Start a Linux browser on its own, outliving the app's window, with the system's
+    libraries rather than the app's (updater.system_environment)."""
+
+    try:
+        subprocess.Popen(command, env=updates.system_environment(), start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except OSError:
+        return False
+
+
+def open_page(platform: str | None = None, run=subprocess.run, which=shutil.which,
+              start=start_browser) -> None:
+    """Point a browser at the page - on a Mac or Linux, one that can open a folder for it."""
 
     if os.environ.get(ENV_NO_BROWSER): return
-    if (platform or sys.platform) == 'darwin':
+    platform = platform or sys.platform
+    if platform.startswith('linux'):
+        for browser in LINUX_BROWSERS:
+            found = which(browser)
+            if found and start([found, PAGE_URL]): return
+        # the desktop's own default, through the system's libraries - webbrowser, below, would
+        # hand it the app's
+        opener = which('xdg-open')
+        if opener and start([opener, PAGE_URL]): return
+    if platform == 'darwin':
         for browser in MAC_BROWSERS:
             try:
                 # `open -a` fails when there is no such application installed

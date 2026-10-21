@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DropboxFile, DropboxFolder, DropboxSession, DropboxStatus } from './dropbox';
 import { FolderStore } from './folder-store';
-import { DropboxCopy, Library } from './library';
+import { DropboxCopy, Library, ReadProgress, describeReadProgress } from './library';
 import { LibrarySetup } from './library-setup';
 import { unzip } from './unzip';
 
@@ -110,25 +110,34 @@ class FakeDropbox {
   downloads: string[] = [];
   zipFails = false;
 
-  async listFiles(path: string): Promise<DropboxFile[]> {
-    return Object.keys(this.files)
+  async listFiles(path: string, _recursive = true, found?: (n: number) => void): Promise<DropboxFile[]> {
+    const files = Object.keys(this.files)
       .filter((p) => p.toLowerCase().startsWith(path.toLowerCase() + '/'))
       .map((p, i) => ({ name: p.split('/').pop()!, path: p, modified: i }));
+    found?.(files.length);
+    return files;
   }
 
-  async downloadZip(path: string): Promise<ArrayBuffer> {
+  async downloadZip(path: string, received?: (bytes: number, total: number | null) => void): Promise<ArrayBuffer> {
     this.zips.push(path);
     if (this.zipFails) throw new Error('too_many_files');
+    received?.(0, null);
     const inside: Record<string, string> = {};
     const folder = path.split('/').pop()!;
     for (const [p, text] of Object.entries(this.files)) {
       if (p.startsWith(path + '/')) inside[`${folder}/${p.slice(path.length + 1)}`] = text;
     }
-    return zipOf(inside);
+    const zip = await zipOf(inside);
+    // as dropbox does: building the zip as it sends it, so with no size to say
+    received?.(zip.byteLength, null);
+    return zip;
   }
+
+  unreadable = new Set<string>();
 
   async download(path: string): Promise<Blob> {
     this.downloads.push(path);
+    if (this.unreadable.has(path)) throw new Error('gone');
     return new Blob([this.files[path]]);
   }
 
@@ -276,6 +285,75 @@ describe('Library, reading a Dropbox folder', () => {
     expect(library.data()).toBeNull();
     expect(library.loading()).toBe(false);
   });
+
+  // region how far it has got
+
+  /** every progress the library showed while it read, in order */
+  function watchProgress(): (ReadProgress | null)[] {
+    const seen: (ReadProgress | null)[] = [];
+    const set = library.readProgress.set.bind(library.readProgress);
+    library.readProgress.set = (value) => {
+      seen.push(value);
+      set(value);
+    };
+    return seen;
+  }
+
+  it('shows how far it has got: listing, each folder downloading, then reading every entry', async () => {
+    dropbox.files = {
+      '/indexing/222 Two.json': record('222', 2),
+      '/indexing/111 One.json': record('111', 1),
+      '/collections/yuletide.json': collection('yuletide'),
+    };
+    const seen = watchProgress();
+    await library.showDropbox();
+
+    const stages = seen.filter((p) => p).map((p) => p!.stage);
+    expect([...new Set(stages)]).toEqual(['listing', 'downloading', 'reading']);
+    expect(seen).toContainEqual({ stage: 'listing', found: 3 });
+    // which folder of how many is known; the zip's size is not
+    expect(seen).toContainEqual(expect.objectContaining({ stage: 'downloading', folder: 1, folders: 2, total: null }));
+    expect(seen).toContainEqual(expect.objectContaining({ stage: 'downloading', folder: 2, folders: 2 }));
+    expect(seen).toContainEqual({ stage: 'reading', done: 3, total: 3 });
+    // and gone once the library is on screen
+    expect(library.readProgress()).toBeNull();
+  });
+
+  it('counts every entry when a folder has to come one entry at a time, unreadable ones too', async () => {
+    dropbox.files = {
+      '/indexing/111 One.json': record('111', 1),
+      '/indexing/222 Two.json': record('222', 2),
+    };
+    dropbox.zipFails = true;
+    dropbox.unreadable.add('/indexing/222 Two.json');
+    const seen = watchProgress();
+    await library.showDropbox();
+
+    expect(seen).toContainEqual({ stage: 'fetching', done: 0, total: 2 });
+    expect(seen).toContainEqual({ stage: 'fetching', done: 2, total: 2 });
+    expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
+  });
+
+  it('puts no number on what it cannot know, and a true one on what it can', () => {
+    expect(describeReadProgress({ stage: 'listing', found: 0 })).toEqual({
+      percent: null, caption: 'Listing your library in Dropbox...',
+    });
+    expect(describeReadProgress({ stage: 'listing', found: 2400 }).caption).toContain('2,400 files so far');
+
+    const unsized = describeReadProgress({ stage: 'downloading', folder: 1, folders: 2, bytes: 3 * 1024 * 1024, total: null });
+    expect(unsized.percent).toBeNull();
+    expect(unsized.caption).toBe('Downloading the index from Dropbox (folder 1 of 2) - 3.0 MB so far');
+
+    const sized = describeReadProgress({ stage: 'downloading', folder: 1, folders: 1, bytes: 512, total: 2048 });
+    expect(sized).toEqual({ percent: 25, caption: 'Downloading the index from Dropbox - 512 bytes of 2 KB' });
+
+    expect(describeReadProgress({ stage: 'reading', done: 1200, total: 3400 })).toEqual({
+      percent: 35, caption: 'Reading the index - 1,200 of 3,400 entries',
+    });
+    expect(describeReadProgress({ stage: 'fetching', done: 3, total: 3 }).percent).toBe(100);
+  });
+
+  // endregion
 
   it('reads nothing without a session', async () => {
     dropbox.status.set('signed-out');

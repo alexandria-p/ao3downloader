@@ -148,8 +148,8 @@ and run anywhere, rather than a site to host publicly.
 ================================================================================
 
 Every deployment ("deploy hosted app" in the Actions tab) is one version, and
-everything it builds carries it: the page on GitHub Pages, the Windows app and
-the Mac app.
+everything it builds carries it: the page on GitHub Pages and the Windows, Mac
+and Linux apps.
 The page shows it in the footer on every tab.
 
 The VERSION file in the project root decides it, compared with the latest
@@ -171,9 +171,10 @@ The deployment never writes VERSION back; the release tags (v1.8.3 and so on)
 are the record of what went out. A VERSION that is not three numbers stops the
 deployment before anything is built.
 
-Each deployment tags the commit with its version, and publishes the Windows app
-and the Mac app as that version's GitHub release, marked latest - one zip each,
-built side by side by the "build windows app" and "build mac app" workflows. Every copy of the page checks
+Each deployment tags the commit with its version, and publishes the Windows,
+Mac and Linux apps as that version's GitHub release, marked latest - one zip
+each, built side by side by the "build windows app", "build mac app" and
+"build linux app" workflows. Every copy of the page checks
 for a newer release each time it opens and says so at the top, with a link to
 download it and a "Dismiss and do not ask me again" button that the browser
 remembers. Dismissing hides that banner only: the footer on every tab always
@@ -244,3 +245,29 @@ Chrome by name for that reason, rather than the default browser.
 closes, swaps its files with a bash script (update/apply-update.sh) and opens
 again in a new Terminal window. Or copy a new zip's contents over the folder by
 hand. settings.ini is kept and only added to, exactly as on Windows.
+
+
+================================================================================
+ THE LINUX APP
+================================================================================
+
+The same app again, for Linux on 64-bit Intel or AMD:
+
+    ao3downloader-linux-x86_64.zip
+
+Built by the "build linux app" workflow on Ubuntu 22.04 - the oldest runner, so
+it starts on as many systems as it can - and published in the same release.
+
+  1. unzip it somewhere to keep it
+  2. run "Start ao3downloader.sh" - double-click it, or from a terminal:
+     ./"Start ao3downloader.sh". On a desktop it opens a terminal window to run
+     in; with no desktop (ssh, a server) it runs where it is
+  3. Chrome or Chromium opens the app on http://localhost:4200
+
+Use Chrome, Chromium, Edge, Brave, Vivaldi or Opera. Firefox, the usual
+default, cannot open a folder for a web page; the app looks for a Chromium
+browser first for that reason, and falls back to the desktop's default.
+
+"Update now" works here too, with the Mac's bash script: it swaps the files and
+starts the app again through Start ao3downloader.sh, in a new window.
+settings.ini is kept and only added to, exactly as on Windows.

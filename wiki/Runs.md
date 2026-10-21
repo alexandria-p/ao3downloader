@@ -55,6 +55,7 @@ Closing the page or stopping takes the answer that changes nothing.
 
 Tick **Run as background task** on the login step to let the helper finish with the page closed.
 
+- Only on the [[hosted copy|Hosting your own copy]] - the bundle and the Windows, Mac and Linux apps don't offer it, since their helper stops when you close its window.
 - Dropbox libraries only - the helper can't reach a folder on your computer without the page.
 - Questions are answered up front, since nobody will be there.
 - One run at a time. A banner says when one is going, and **Go to this run** opens it in History.
