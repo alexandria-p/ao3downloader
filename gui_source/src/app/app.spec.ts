@@ -8,6 +8,7 @@ import { Bookmark, BookmarksExport } from './bookmarks';
 import { Collection } from './collections';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
+import { StorageChoice } from './storage-choice';
 
 function work(id: number): Bookmark {
   return {
@@ -304,6 +305,26 @@ describe('App', () => {
 
     const gate = (fixture.nativeElement as HTMLElement).querySelector('app-passcode-gate');
     expect(gate?.textContent).toContain('passcode protected');
+  });
+
+  it('shows a bar while a Dropbox library is read, with a number only once there is one', async () => {
+    TestBed.inject(StorageChoice).mode.set('dropbox');
+    const library = TestBed.inject(Library);
+    library.loading.set(true);
+    library.readProgress.set({ stage: 'listing', found: 0 });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const bar = () => element.querySelector('.read-progress [role="progressbar"]');
+    expect(bar()?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(element.querySelector('.read-progress .fill')?.classList).toContain('indeterminate');
+    expect(element.querySelector('.read-progress')?.textContent).toContain('Listing your library in Dropbox');
+
+    library.readProgress.set({ stage: 'reading', done: 50, total: 200 });
+    await fixture.whenStable();
+    expect(bar()?.getAttribute('aria-valuenow')).toBe('25');
+    expect(element.querySelector('.read-progress')?.textContent).toContain('50 of 200 entries');
   });
 
   it('says once that this needs a Chromium browser', async () => {

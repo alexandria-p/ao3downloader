@@ -388,7 +388,15 @@ export class DropboxSession {
    * than a call per folder - or only those directly in it. A folder that is not there is
    * an empty library, not an error.
    */
-  async listFiles(path: string, recursive = true): Promise<DropboxFile[]> {
+  /**
+   * Every file under `path`. `found` hears the running count after each page of the listing
+   * - a large library is several pages, and nothing says up front how many.
+   */
+  async listFiles(
+    path: string,
+    recursive = true,
+    found?: (count: number) => void,
+  ): Promise<DropboxFile[]> {
     type Entry = {
       '.tag': string;
       name: string;
@@ -414,6 +422,7 @@ export class DropboxSession {
           modified: Date.parse(entry.server_modified ?? '') || 0,
         });
       }
+      found?.(files.length);
       if (!page.has_more) break;
       page = await this.call<Page>('files/list_folder/continue', { cursor: page.cursor });
     }
@@ -550,9 +559,35 @@ export class DropboxSession {
    * A whole folder as one zip - how the index is read, since it is a file per fic and a
    * request each would be thousands of them. Dropbox refuses a folder of more than 10,000
    * entries or 20 GB; the caller falls back to reading files one at a time.
+   *
+   * `received` hears the bytes so far as they arrive, and the whole size when Dropbox says it
+   * - it builds the zip as it sends it, so usually it does not, and `total` is null.
    */
-  async downloadZip(path: string): Promise<ArrayBuffer> {
-    return (await this.content('files/download_zip', { path })).arrayBuffer();
+  async downloadZip(
+    path: string,
+    received?: (bytes: number, total: number | null) => void,
+  ): Promise<ArrayBuffer> {
+    const response = await this.content('files/download_zip', { path });
+    if (!received || !response.body) return response.arrayBuffer();
+    const total = Number(response.headers.get('Content-Length')) || null;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    received(0, total);
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      bytes += value.length;
+      received(bytes, total);
+    }
+    const zip = new Uint8Array(bytes);
+    let at = 0;
+    for (const chunk of chunks) {
+      zip.set(chunk, at);
+      at += chunk.length;
+    }
+    return zip.buffer;
   }
 
   // endregion

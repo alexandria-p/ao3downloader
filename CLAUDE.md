@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1629 python passed; 618 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1629 python passed; 624 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1763,6 +1763,21 @@ existed. Don't reintroduce a create-on-read, and don't let a no-op removal write
 the work number and an ao3 link; `work-list.html` renders them as a stub row. A collection
 records what it holds by work number alone and can hold works you never bookmarked, so
 dropping them would show fewer works than the collection's own count promises.
+
+### Reading a Dropbox library shows how far it has got
+
+`Library.showDropbox` lists the folder, downloads the index as one zip per folder
+(`INDEX_FOLDERS`, falling back to a file at a time when Dropbox refuses the zip), then parses
+every entry. It publishes each stage as `Library.readProgress` (`ReadProgress`), and
+`describeReadProgress` turns that into the bar and caption above the listing. **A percentage
+only where there is a real total**: a listing comes a page at a time with no total, and
+Dropbox builds a folder's zip as it sends it, so it usually gives no `Content-Length` - those
+stages count what has arrived (files found, bytes so far, folder N of M) with an
+indeterminate bar, the same rule a run's progress bar follows. Entries fetched one at a time
+and entries parsed have a real total and fill the bar. Progress is set through the read's
+own generation check, so switching library mid-read never leaves the old read's bar up, and
+it is cleared once the library is on screen. A local folder is read in the page itself,
+fast enough to need only the plain notice.
 
 ### Bookmarks vs collections are told apart by shape
 

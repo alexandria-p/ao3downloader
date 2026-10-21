@@ -462,6 +462,46 @@ describe('DropboxSession', () => {
     expect(JSON.parse(header)).toEqual({ path: '/Café ☕' });
   });
 
+  it('says how much of a zip has arrived as it arrives, and its size when dropbox gives one', async () => {
+    remembered();
+    const body = new Uint8Array(3000).fill(7);
+    browser.handlers.push(
+      on('oauth2/token', () => tokens()),
+      on('files/download_zip', () =>
+        new Response(body, { headers: { 'Content-Length': String(body.length) } })),
+    );
+    const dropbox = session();
+    await dropbox.restore();
+    const heard: [number, number | null][] = [];
+    const zip = await dropbox.downloadZip('/indexing', (bytes, total) => heard.push([bytes, total]));
+
+    expect(new Uint8Array(zip)).toEqual(body);
+    expect(heard[0]).toEqual([0, 3000]);
+    expect(heard.at(-1)).toEqual([3000, 3000]);
+  });
+
+  it('counts the files a listing has found after every page of it', async () => {
+    remembered();
+    let page = 0;
+    browser.handlers.push(
+      on('oauth2/token', () => tokens()),
+      on('files/list_folder', () => json({
+        entries: [{ '.tag': 'file', name: 'a.json', path_display: '/indexing/a.json' }],
+        cursor: 'c', has_more: true,
+      })),
+      on('files/list_folder/continue', () => json({
+        entries: [{ '.tag': 'file', name: `b${++page}.json`, path_display: `/indexing/b${page}.json` }],
+        cursor: 'c', has_more: page < 2,
+      })),
+    );
+    const dropbox = session();
+    await dropbox.restore();
+    const found: number[] = [];
+    await dropbox.listFiles('', true, (n) => found.push(n));
+
+    expect(found).toEqual([1, 2, 3]);
+  });
+
   // endregion
 });
 

@@ -18,7 +18,7 @@ import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { ActiveRun, JobAction, Jobs } from './jobs';
 import { HelperConnection } from './helper-connection';
-import { Library } from './library';
+import { Library, describeReadProgress } from './library';
 import { LibrarySetup } from './library-setup';
 import { PasscodeGate } from './passcode-gate';
 import { SetupOverlay } from './setup-overlay';
@@ -166,6 +166,11 @@ export class App {
   protected readonly collections = this.library.collections;
   protected readonly error = this.library.error;
   protected readonly loading = this.library.loading;
+  /** the bar while a Dropbox library is read: what stage, and how far when that is known */
+  protected readonly reading = computed(() => {
+    const progress = this.library.readProgress();
+    return progress ? describeReadProgress(progress) : null;
+  });
   protected readonly sourceName = this.library.sourceName;
   protected readonly folderName = this.library.folderName;
   protected readonly needsReconnect = this.library.needsReconnect;
