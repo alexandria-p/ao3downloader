@@ -200,7 +200,8 @@ the helper can only reach that folder through the open page.
 
 Every run is written down in History the moment it starts and kept up to date as it goes.
 Whatever it says, what the run saved stays saved, and its entry offers **Download log** and,
-when it reported anything, **Download issues**.
+when it reported anything, **Download issues**. Each entry also names the **AO3 account** the
+run logged in as - the username only; the password is never written down anywhere.
 
 | Status | What it means |
 | --- | --- |

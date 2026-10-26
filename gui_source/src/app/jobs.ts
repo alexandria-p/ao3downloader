@@ -223,6 +223,8 @@ export interface RunHistory {
   options: Record<string, unknown>;
   /** the link the run was pointed at - a collection, or a fic - absent on older runs */
   url?: string;
+  /** the ao3 account it logged in as - never the password; absent on older runs */
+  username?: string;
   reindexed: string[];
   downloaded: string[];
   updated: string[];

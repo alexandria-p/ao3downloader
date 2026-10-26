@@ -60,7 +60,7 @@ the same thing in conversation.
 - **Marked for walkthrough** - a series queued, during indexing, to be walked once indexing is over.
 - **Crawl** [the long way round] - the old download path that re-reads the listing and opens each work's page; now only a fallback.
 - **Rate limit** - AO3's limit on how fast requests may arrive; why runs avoid extra requests.
-- **Run history** [run record, history file] - one JSON file per run in `runs/`, saying what it did.
+- **Run history** [run record, history file] - one JSON file per run in `runs/`, saying what it did - including the AO3 account it logged in as (`username`, never the password), which History shows as *AO3 account*.
 
 ## Saved works
 
@@ -78,7 +78,7 @@ the same thing in conversation.
 - **Dropbox app folder** - `/Apps/ao3-downloader` in Dropbox; the only Dropbox folder the app can see.
 - **Library folders** - `indexing`, `collections`, `images`, `runs` and `works`, created when a library is opened.
 - **Index** - the `indexing` folder: one JSON file per work, plus `series/` and `external/` subfolders.
-- **Run history** [run record, history file] - one JSON file per run in `runs/`, saying what it did.
+- **Run history** [run record, history file] - one JSON file per run in `runs/`, saying what it did - including the AO3 account it logged in as (`username`, never the password), which History shows as *AO3 account*.
 
 
 ## The app

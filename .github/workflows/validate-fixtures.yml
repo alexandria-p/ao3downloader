@@ -17,6 +17,11 @@ jobs:
     name: validate fixtures against live ao3
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    defaults:
+      run:
+        # the python project, its tests and their fixtures live here, not at the repository
+        # root - every path below (test/, dev/) is relative to this folder
+        working-directory: powershell_source/ao3_download_helper
 
     steps:
       - name: checkout
@@ -25,11 +30,16 @@ jobs:
       - name: setup
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
 
+      - name: install the helper's dependencies
+        run: uv sync --frozen
+
       - name: refresh fixtures
+        # AO3_USERNAME / AO3_PASSWORD are a test account's, as repository secrets - see the
+        # top of dev/refresh_fixtures.py for how that account has to be set up
         env:
           AO3_USERNAME: ${{ secrets.AO3_USERNAME }}
           AO3_PASSWORD: ${{ secrets.AO3_PASSWORD }}
-        run: uv run python dev/refresh_fixtures.py --require-login
+        run: uv run --no-sync python dev/refresh_fixtures.py --require-login
 
       - name: check for changes
         id: changes
@@ -51,12 +61,12 @@ jobs:
         continue-on-error: true
         env:
           AO3_FIXTURE_MODE: current_only
-        run: uv run python -m pytest test/ -v
+        run: uv run --no-sync python -m pytest test/ -v
 
       - name: update snapshots
         if: steps.pass1.outcome == 'failure'
         continue-on-error: true
-        run: uv run python -m pytest test/ --snapshot-update
+        run: uv run --no-sync python -m pytest test/ --snapshot-update
 
       - name: pass 1 — retry after snapshot update
         if: steps.pass1.outcome == 'failure'
@@ -64,7 +74,7 @@ jobs:
         continue-on-error: true
         env:
           AO3_FIXTURE_MODE: current_only
-        run: uv run python -m pytest test/ -v
+        run: uv run --no-sync python -m pytest test/ -v
 
       # endregion
 
@@ -82,17 +92,17 @@ jobs:
         continue-on-error: true
         env:
           AO3_FIXTURE_MODE: current_only
-        run: uv run python -m pytest test/ -v -m ebook
+        run: uv run --no-sync python -m pytest test/ -v -m ebook
 
       - name: archive pre-refresh ebook fixtures
         if: steps.ebook-tests.outcome == 'failure'
-        run: uv run python dev/archive_old_fixtures.py
+        run: uv run --no-sync python dev/archive_old_fixtures.py
 
       - name: pass 2 — full suite (current + archive)
         if: steps.ebook-tests.outcome == 'failure'
         id: pass2
         continue-on-error: true
-        run: uv run python -m pytest test/ -v
+        run: uv run --no-sync python -m pytest test/ -v
 
       # endregion
 
@@ -158,7 +168,7 @@ jobs:
           - Weekly fixture refresh detected changes in AO3's HTML
           - **Tests are failing** even after snapshot update — parser likely needs to be fixed
           - If the ebook parsing tests failed, pre-refresh ebook versions have been preserved
-            under `test/fixtures/ebook/*/archive/` so the fix can be regression-tested against them
+            under `powershell_source/ao3_download_helper/test/fixtures/ebook/*/archive/` so the fix can be regression-tested against them
           - See the workflow run for details
 
           *Automated by validate-fixtures workflow*
@@ -173,7 +183,7 @@ jobs:
           - Weekly fixture refresh detected changes in AO3's HTML
           - **Tests are failing** even after snapshot update — parser likely needs to be fixed
           - If the ebook parsing tests failed, pre-refresh ebook versions have been preserved
-            under `test/fixtures/ebook/*/archive/` so the fix can be regression-tested against them
+            under `powershell_source/ao3_download_helper/test/fixtures/ebook/*/archive/` so the fix can be regression-tested against them
           - See the workflow run for details
 
           *Automated by validate-fixtures workflow*
@@ -195,7 +205,7 @@ jobs:
           the structure of HTML pages or ebook format output that the parsers depend on.
 
           If the failing test is an ebook structural test, the prior (working) version of each
-          affected ebook fixture has been copied to `test/fixtures/ebook/<work_id>/archive/`
+          affected ebook fixture has been copied to `powershell_source/ao3_download_helper/test/fixtures/ebook/<work_id>/archive/`
           with a content-hash filename. The archived version should continue to pass after the
           parser is updated — this guards against regressions on users' older downloads.
 

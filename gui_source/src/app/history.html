@@ -164,6 +164,10 @@
         }
 
         <dl class="run-settings">
+          @if (run.username) {
+            <dt>AO3 account</dt>
+            <dd class="run-account">{{ run.username }}</dd>
+          }
           <dt>File types</dt>
           <dd>{{ run.filetypes.join(', ') || 'none' }}</dd>
           @if (settingsOf(run).length) {

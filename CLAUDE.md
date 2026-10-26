@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1629 python passed; 624 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1638 python passed; 625 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -100,6 +100,18 @@ tests nothing there. `test_the_same_file_reached_by_a_different_path_is_still_no
 failed on Linux for exactly that reason until it was rewritten.
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
+
+**The weekly `validate ao3 fixtures` workflow** downloads every fixture from live ao3 again
+(`dev/refresh_fixtures.py`, in the helper's folder), runs the tests against them, and opens a
+pull request when ao3's pages changed - an issue too when the parsers no longer cope, with the
+old ebooks kept under `ebook/<id>/archive/` (`dev/archive_old_fixtures.py`). It runs in
+`powershell_source/ao3_download_helper` (`defaults.run.working-directory`), and every path in
+it and in both scripts is relative to that folder - the move there from the repository root is
+what left it calling a `dev/` that no longer existed, failing every week unnoticed.
+`test_fixture_scripts.py` holds the list to the fixtures the tests read, and the archive to
+that folder. It needs **`AO3_USERNAME` / `AO3_PASSWORD` repository secrets**, a test account's:
+with "Show adult content without checking" on, and works 66326125 and 334557 marked for
+later - `markedForLaterList.html` is that account's own list, since no other can be read.
 
 ## Architecture, and why
 
@@ -895,6 +907,12 @@ and fic lists as of its last save, rather than the empty lists it had when only
 the end, with `logTrimmed` counting what went. The page's `readRunHistory` drops `log` from the
 listing and keeps `logLines`, and History's **Download log** reads the one file again when
 asked - a hundred records of thousands of lines would be a lot to read to draw a list.
+
+**The AO3 account goes in too** (`username`): `run_job` hands `job.username` to the
+`RunRecord` it builds just before the login, so even a refused login names the account it
+tried, and History shows it as *AO3 account*. Only the username - the password is passed to
+`repo.login` and never to the record, and `test_every_run_records_its_username_and_never_its_password`
+reads every write a run makes to hold that.
 
 **settings.ini goes in beside the run's own choices** (`settings`). `filetypes` and
 `options` are what the user picked in the dialog; this is what the run inherited - pacing,

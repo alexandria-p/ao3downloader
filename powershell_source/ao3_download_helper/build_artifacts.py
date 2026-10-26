@@ -945,7 +945,8 @@ checkpoint, and when it prints a line at least two minutes after the last save -
 ## What the History tab says about a run
 
 Whatever a run's entry says, what it saved stays saved, and it offers **Download log** and,
-when it reported anything, **Download issues**.
+when it reported anything, **Download issues**. It also names the **AO3 account** the run
+logged in as - the username only; the password is never written down anywhere.
 
 - **In progress - running** - the helper is working on it now; pinned at the top, and nothing
   else can start until it ends. Its own entry says **Running**, or **Running - not confirmed
