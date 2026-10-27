@@ -21,7 +21,7 @@ cd powershell_source/ao3_download_helper && uv run --no-sync pytest -q
 cd gui_source && npm test        # not npx vitest
 ```
 
-CI (`.github/workflows/test.yml`) runs both on every push.
+CI (`.github/workflows/test.yml`) runs both on every pull request, and the deploy runs them first on every push to `main` - a failing test stops it before anything is released or deployed.
 
 ## Build it
 

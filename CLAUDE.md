@@ -467,6 +467,13 @@ release identical to the last would only tell every app to update to it. A docs 
 should go out with code goes out with that code's push. The version job's tag push cannot set
 it off again: tags are not branches, and pushes made with `GITHUB_TOKEN` start no workflow.
 
+**The tests run first, and gate everything.** The deploy's `tests` job calls `test.yml`
+(`workflow_call`), and `version` `needs: tests` - every other job waits on `version` - so a
+failing test ends the run before a version is tagged, a release made or anything deployed.
+`test.yml` has no `push` trigger of its own for that reason: on `main` the deploy is what runs
+it, and running it beside the deploy too would only test the same commit twice. Pull requests
+still run it directly.
+
 **The version comes from `VERSION` and the tags.** `deploy-hosted.yml`'s first job, `version`,
 runs `deploy_config.py next-version` with the repository's `v*` tags and the root `VERSION`
 file: the file's version when it is **higher** than every release, and otherwise the highest
@@ -1877,7 +1884,7 @@ Three rules worth keeping:
 - **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `README.md` tie hardcoded strings
   to `strings.py` constants, and must not contain `{}`. `dev/readme.py` checks every one (a constant that is gone, or a
   value it no longer contains), and `test_readme_markers.py` runs it in the ordinary suite, so
-  CI checks it on every pull request and push to `main`. Upstream's `validate readme` workflow, which called it from the
+  CI checks it on every pull request and before every deploy. Upstream's `validate readme` workflow, which called it from the
   repository root inside an `echo` and so checked nothing after the move, was removed.
 
 ## Conventions
