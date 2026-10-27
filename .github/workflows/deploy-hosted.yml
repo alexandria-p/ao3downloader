@@ -307,3 +307,75 @@ jobs:
       version: ${{ needs.version.outputs.version }}
     permissions:
       contents: write
+
+  feedback:
+    name: deploy the feedback service to cloudflare
+    # the feedback tab's Worker (feedback_worker/, FEEDBACK.md). it opens a GitHub issue for
+    # each submission, so people never leave the page - and it is not the Render helper, which
+    # answers its owner alone. needs only the tests: nothing it does depends on the version.
+    # skipped, with a notice, until the cloudflare secrets are set - feedback is optional
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # to make the labels the Worker puts on its issues
+      issues: write
+
+    steps:
+      - name: check the cloudflare secrets are there
+        id: ready
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          FEEDBACK_GITHUB_TOKEN: ${{ secrets.FEEDBACK_GITHUB_TOKEN }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+        run: |
+          missing=""
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID FEEDBACK_GITHUB_TOKEN TURNSTILE_SECRET_KEY; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice::the feedback service is not deployed - set${missing} (FEEDBACK.md)"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: checkout
+        if: steps.ready.outputs.ready == 'true'
+        uses: actions/checkout@v6
+
+      - name: make the labels
+        # the Worker's token may only write issues, and GitHub drops a label that does not
+        # exist rather than making it - so they are made here. --force leaves one that is there
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create feedback --force --color 0e8a16 --description "Sent from the app's feedback tab"
+          gh label create positive --force --color 2ea44f --description "Feedback: positive"
+          gh label create negative --force --color d73a4a --description "Feedback: negative"
+
+      - name: setup node
+        if: steps.ready.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: deploy the worker, then hand it its secrets
+        # the secrets go straight from github's to the Worker's, through stdin - never a file,
+        # never the page. the Worker's address is FEEDBACK_URL, set as a repository variable
+        if: steps.ready.outputs.ready == 'true'
+        working-directory: feedback_worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          FEEDBACK_GITHUB_TOKEN: ${{ secrets.FEEDBACK_GITHUB_TOKEN }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+        run: |
+          # which repository the issues go in, and which pages may send them, are in
+          # wrangler.toml - a fork changes them there
+          npx --yes wrangler@4 deploy
+          printf '%s' "$FEEDBACK_GITHUB_TOKEN" | npx --yes wrangler@4 secret put GITHUB_TOKEN
+          printf '%s' "$TURNSTILE_SECRET_KEY" | npx --yes wrangler@4 secret put TURNSTILE_SECRET

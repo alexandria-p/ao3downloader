@@ -1,6 +1,6 @@
 name: tests
 
-# Both test suites. Run on every pull request, and by the deploy (deploy-hosted.yml) before it
+# The test suites - the helper's, the page's and the feedback Worker's. Run on every pull request, and by the deploy (deploy-hosted.yml) before it
 # tags or publishes anything - which is how main is tested: a push there runs the deploy, and the
 # deploy runs these first, so they are not started a second time beside it.
 
@@ -63,3 +63,24 @@ jobs:
       - name: run tests
         # npm test, not npx vitest: the angular builder does the test setup
         run: npm test -- --watch=false
+
+  feedback:
+    name: feedback worker tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: feedback_worker
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: run tests
+        # no dependencies to install: node's own test runner, with Cloudflare and GitHub stood in for
+        run: npm test

@@ -1,0 +1,13 @@
+# The feedback form's Worker - see FEEDBACK.md at the repository root. Deployed by the
+# "build & deploy hosted app and github releases" workflow; nothing here is secret. The two
+# secrets (GITHUB_TOKEN, TURNSTILE_SECRET) are set on the Worker by that workflow, from the
+# repository's own secrets, and never written to a file.
+name = "ao3downloader-feedback"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[vars]
+GITHUB_REPO = "alexandria-p/ao3downloader"
+# the hosted page, and the page the apps and the bundle serve on this computer
+ALLOWED_ORIGINS = "https://alexandria-p.github.io,http://localhost:4200"

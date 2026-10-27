@@ -64,6 +64,7 @@ from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives import serialization
 
+from build_artifacts import feedback_config
 from source_code.settings_file import LEFT_OUT as NEVER_WRITTEN, strip_setting
 
 HERE = Path(__file__).resolve().parent
@@ -370,6 +371,11 @@ def page_config(settings_text: str, environ: dict, version: str = '', repository
     if hosted and not private.strip():
         raise DeployError(f'a hosted helper only takes the login encrypted, so the page needs '
                           f'the public key - set the {ENV_PRIVATE_KEY} secret')
+    try:
+        # the feedback form's address and bot-check key, from the variables - public, both
+        feedback = feedback_config(deploy_variables(environ))
+    except ValueError as e:
+        raise DeployError(str(e)) from e
     return {
         'helperUrl': config[HELPER_URL],
         'requirePasscode': config[REQUIRE_PASSCODE],
@@ -377,6 +383,7 @@ def page_config(settings_text: str, environ: dict, version: str = '', repository
         # what this page is, and where to look for a newer one
         'version': version,
         'releasesRepo': repository,
+        **feedback,
     }
 
 
@@ -427,7 +434,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {args.out}: helperUrl={config['helperUrl']}, "
                   f"requirePasscode={config['requirePasscode']}, "
                   f"publicKey={'set' if config['publicKey'] else 'none'}, "
-                  f"version={config['version'] or 'none'}")
+                  f"version={config['version'] or 'none'}, "
+                  f"feedback={config['feedbackUrl'] or 'none'}")
     except DeployError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1

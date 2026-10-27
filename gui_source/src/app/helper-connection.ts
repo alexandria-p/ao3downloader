@@ -24,6 +24,13 @@ export interface PageConfig {
   version: string;
   /** owner/name of the GitHub repository its releases are published on */
   releasesRepo: string;
+  /**
+   * the feedback Worker's https address (FEEDBACK.md), or '' for no feedback tab. It is not the
+   * helper: feedback goes to Cloudflare, which opens a GitHub issue, and never to Render
+   */
+  feedbackUrl: string;
+  /** the Turnstile widget's site key - public by design, the secret half is the Worker's */
+  turnstileSiteKey: string;
 }
 
 export const DEFAULT_PAGE_CONFIG: PageConfig = {
@@ -34,6 +41,8 @@ export const DEFAULT_PAGE_CONFIG: PageConfig = {
   // where the Windows app is published. a deployment writes its own repository here; this is
   // what a page built on this computer points people at to download the app
   releasesRepo: 'alexandria-p/ao3downloader',
+  feedbackUrl: '',
+  turnstileSiteKey: '',
 };
 
 export const PAGE_CONFIG_FILE = 'app-config.json';
@@ -268,7 +277,18 @@ export function readPageConfig(raw: unknown): PageConfig {
       /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(given['releasesRepo'].trim())
         ? given['releasesRepo'].trim()
         : DEFAULT_PAGE_CONFIG.releasesRepo,
+    ...readFeedbackConfig(given),
   };
+}
+
+/** both or neither: a form with no bot check key could never be sent, so it is not offered */
+function readFeedbackConfig(given: Record<string, unknown>) {
+  const url =
+    typeof given['feedbackUrl'] === 'string' ? given['feedbackUrl'].trim().replace(/\/+$/, '') : '';
+  const key = typeof given['turnstileSiteKey'] === 'string' ? given['turnstileSiteKey'].trim() : '';
+  return url.startsWith('https://') && key
+    ? { feedbackUrl: url, turnstileSiteKey: key }
+    : { feedbackUrl: '', turnstileSiteKey: '' };
 }
 
 /**

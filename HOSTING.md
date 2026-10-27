@@ -93,6 +93,12 @@ the workflow.
 
 The three `RENDER_` secrets can wait until step 5.
 
+The **Feedback** tab has its own two variables (`FEEDBACK_URL`, `TURNSTILE_SITE_KEY`) and four
+secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `TURNSTILE_SECRET_KEY`,
+`FEEDBACK_GITHUB_TOKEN`), all optional. They are for a Cloudflare Worker, not for Render.
+[FEEDBACK.md](FEEDBACK.md) is that setup. Without them there is no tab and the rest deploys
+as before.
+
 ### 4. Turn on GitHub Pages, and publish the image once
 
 1. **Settings → Pages → Build and deployment → Source: GitHub Actions.**

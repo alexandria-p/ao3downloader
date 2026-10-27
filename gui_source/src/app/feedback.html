@@ -1,0 +1,111 @@
+@if (offered()) {
+  <!-- pinned to the right edge of every page; it slides out on hover, and back on leaving -->
+  <button type="button" class="feedback-tab" (click)="show()" aria-haspopup="dialog">Feedback</button>
+
+  @if (open()) {
+    <div class="modal">
+      <div class="backdrop" (click)="escape()"></div>
+
+      <form class="dialog" role="dialog" aria-modal="true" aria-labelledby="feedback-title" (submit)="send($event)">
+        <header>
+          <h2 id="feedback-title">{{ stage() === 'sent' ? 'Thank you!' : 'Send feedback' }}</h2>
+          <button type="button" class="close" aria-label="Close" [disabled]="stage() === 'sending'" (click)="close()">
+            &times;
+          </button>
+        </header>
+
+        @if (stage() === 'sent' && sent(); as issue) {
+          <section class="body sent" role="status">
+            <p>
+              Your feedback is on GitHub now, as
+              <a [href]="issue.url" target="_blank" rel="noopener">issue #{{ issue.number }}</a>.
+            </p>
+            <p>
+              It shows up in the
+              <a [href]="feedbackList()" target="_blank" rel="noopener">list of feedback</a>
+              within a minute - GitHub's list can take that long to catch up. Nobody needs an
+              account to read it, and any reply is posted there.
+            </p>
+          </section>
+          <footer>
+            <button type="button" class="button primary" (click)="close()">Close</button>
+          </footer>
+        } @else {
+          <section class="body">
+            <fieldset class="sentiment">
+              <legend>How is it going?</legend>
+              <label [class.chosen]="sentiment() === 'positive'">
+                <input type="radio" name="sentiment" value="positive" [checked]="sentiment() === 'positive'"
+                  (change)="sentiment.set('positive')" />
+                Positive
+              </label>
+              <label [class.chosen]="sentiment() === 'negative'">
+                <input type="radio" name="sentiment" value="negative" [checked]="sentiment() === 'negative'"
+                  (change)="sentiment.set('negative')" />
+                Negative
+              </label>
+            </fieldset>
+
+            <label class="field">
+              <span>Your feedback</span>
+              <textarea name="message" rows="6" [maxLength]="messageLimit" [value]="message()"
+                (input)="message.set($any($event.target).value)"></textarea>
+            </label>
+
+            <label class="field">
+              <span>Your name <em>(optional)</em></span>
+              <input name="name" type="text" autocomplete="nickname" [maxLength]="nameLimit" [value]="name()"
+                (input)="name.set($any($event.target).value)" />
+            </label>
+
+            <label class="check" [class.unavailable]="!canAttach()">
+              <input type="checkbox" name="attachLog" [checked]="attachLog()" [disabled]="!canAttach()"
+                (change)="toggleLog($any($event.target).checked)" />
+              Attach the log of my latest run <em>(optional)</em>
+            </label>
+            @if (!canAttach()) {
+              <p class="hint">Open your library to attach a run's log - the logs are kept in it.</p>
+            }
+            @if (attachLog()) {
+              @if (logPreview()) {
+                <details class="log">
+                  <summary>See exactly what will be sent</summary>
+                  <pre>{{ logPreview() }}</pre>
+                </details>
+                <p class="hint">Your AO3 username is taken out of it. It never holds your password.</p>
+              } @else if (logNote()) {
+                <p class="hint">{{ logNote() }}</p>
+              } @else {
+                <p class="hint">Reading the log...</p>
+              }
+            }
+
+            <div class="check-widget" #check></div>
+            @if (checkProblem()) {
+              <p class="problem" role="alert">{{ checkProblem() }}</p>
+            }
+
+            @if (problem()) {
+              <p class="problem" role="alert">
+                It was not sent: {{ problem() }}. Try again, or
+                <a [href]="newIssue()" target="_blank" rel="noopener">open an issue on GitHub</a>.
+              </p>
+            }
+
+            <p class="hint">
+              This becomes a public issue on GitHub, labelled feedback - anyone can read it, so
+              leave out anything private. No account is needed to send it.
+            </p>
+          </section>
+
+          <footer>
+            <button type="button" class="button" [disabled]="stage() === 'sending'" (click)="close()">Cancel</button>
+            <button type="submit" class="button primary" [disabled]="!canSend()">
+              {{ stage() === 'sending' ? 'Sending...' : 'Send feedback' }}
+            </button>
+          </footer>
+        }
+      </form>
+    </div>
+  }
+}

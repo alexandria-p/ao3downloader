@@ -14,6 +14,7 @@ import { BrowserNotice, browserNoticeSeen } from './browser-notice';
 import { CollectionsView } from './collections-view';
 import { DownloadDialog } from './download-dialog';
 import { Faq } from './faq';
+import { Feedback } from './feedback';
 import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { ActiveRun, JobAction, Jobs } from './jobs';
@@ -37,7 +38,7 @@ export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug';
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
-    CollectionsView, PasscodeGate, SetupOverlay],
+    CollectionsView, Feedback, PasscodeGate, SetupOverlay],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })
@@ -63,6 +64,8 @@ export class App {
   protected readonly repositoryName = computed(() => this.helper.settings().releasesRepo);
   protected readonly repositoryUrl = computed(() => `https://github.com/${this.repositoryName()}`);
   protected readonly issuesUrl = computed(() => `${this.repositoryUrl()}/issues`);
+  /** whether the feedback tab is there to point at - only on a copy built with its Worker */
+  protected readonly feedbackOffered = computed(() => !!this.helper.settings().feedbackUrl);
   /** only the Windows, Mac or Linux app can install an update itself; anywhere else the banner links it */
   protected readonly canUpdate = this.updates.canUpdate;
   protected readonly updateProgress = this.updates.updating;

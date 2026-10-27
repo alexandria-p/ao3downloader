@@ -18,6 +18,8 @@ Upstream ao3downloader is a console program. This fork adds:
 5. **A bundler** (`generate_build_artifacts.ps1`) producing a self-contained `build/`.
 6. **A hosted copy for one person** (`HOSTING.md`) - the page on GitHub Pages, the helper
    on Render, behind a passcode and taking the ao3 login only encrypted.
+7. **A feedback tab** (`FEEDBACK.md`) - a form on every deployed copy that opens a GitHub
+   issue through a Cloudflare Worker (`feedback_worker/`), never through the helper.
 
 ## Layout
 
@@ -44,6 +46,8 @@ powershell_source/
 .github/workflows/build-mac.yml       builds, tries and publishes the Mac app
 .github/workflows/build-linux.yml     builds, tries and publishes the Linux app
 HOSTING.md                        how to set the hosted copy up
+FEEDBACK.md                       the feedback tab, and its Cloudflare setup
+feedback_worker/                  the Cloudflare Worker that opens feedback issues; node --test
 wiki/                             the GitHub wiki's source; publish-wiki.yml copies it there
 build/                            generated; config/settings.ini is NOT overwritten
 ```
@@ -92,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1643 python passed; 635 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1647 python passed; 650 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -458,6 +462,44 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   publishes the zip as that version's release (`vX.Y.Z`, marked latest); a re-run replaces the
   zip on the same release. The app is not signed; Windows warns on first start, and the README
   in the zip says what to click.
+
+### Feedback goes to Cloudflare, never to the helper
+
+`FEEDBACK.md` is the setup and the full account; this is what not to break.
+
+- **It is not the helper.** A submission goes from the page (`feedback.ts`) to the feedback
+  Worker (`feedback_worker/worker.js`), which opens the issue with a fine-grained GitHub token
+  (Issues read and write, this repository only) held as a Worker secret. The Render helper
+  holds an ao3 login and answers its owner alone. Asking it to file feedback for anyone would
+  break **A hosted copy is one person's**, and it was asked for explicitly ("i dont want
+  people hitting my render helper").
+- **Turnstile is the gate; the origin is not.** The Worker refuses an origin outside
+  `ALLOWED_ORIGINS`, but anything outside a browser can fake one. So no issue is opened
+  without a Turnstile token that Cloudflare confirms with the secret. A token works once, so
+  the page resets the widget after any failed send. The widget's hostnames include
+  `localhost`, because the apps serve the page on `localhost:4200`.
+- **The tab shows only with both `feedbackUrl` and `turnstileSiteKey`** in `app-config.json`.
+  `build_artifacts.feedback_config` writes them from `FEEDBACK_URL` / `TURNSTILE_SITE_KEY`:
+  both or neither, https only, and a build fails otherwise. `page-config` reads them through
+  `DEPLOY_VARIABLES`; `package_app.py` reads them from its environment, which each build
+  workflow sets from `vars`. `readPageConfig` drops a half-set pair too. They are not
+  settings.ini keys, because that file is the user's own and only ever added to. A bundle
+  built here has neither, and so no tab.
+- **No email field, and the log loses the AO3 username before it is shown.** The issue is
+  public. `redactLog` replaces every username the page knows, case-insensitively: the newest
+  record's `username`, `Jobs.config().username`, and `ao3.username` in localStorage. It also
+  takes out `password=`-shaped text. The Worker's `scrubPasswords` does that again, as a
+  backstop; it cannot know the username. **See exactly what will be sent** shows the redacted
+  text, and the same text is what is sent.
+- **The deploy makes the labels** (`gh label create --force` with `GITHUB_TOKEN`). The
+  Worker's token only writes issues, and GitHub drops an unknown label rather than creating
+  it. The Worker is deployed by the `feedback` job, which needs only `tests`, and skips with
+  a notice until its four secrets exist. Its two secrets go through stdin to
+  `wrangler secret put`, never into a file.
+- **Its window is z-index 200**, above a run window and the passcode gate (100). The tab is
+  110, so it can still be clicked while the gate is up.
+- **Turnstile is behind an injectable seam** (`Turnstile`), like `FolderStore`, because there
+  is no Cloudflare in jsdom.
 
 ### Every deployment is one version, and every copy of the page checks for a newer one
 

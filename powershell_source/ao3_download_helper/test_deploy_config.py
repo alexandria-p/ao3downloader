@@ -187,7 +187,22 @@ def test_the_page_for_this_computer_needs_no_key():
     settings = deploy_config.write_settings({'REQUIRE_PASSCODE': 'false'}, template())
     config = deploy_config.page_config(settings, {})
     assert config == {'helperUrl': 'http://127.0.0.1:4400', 'requirePasscode': False,
-                      'publicKey': '', 'version': '', 'releasesRepo': ''}
+                      'publicKey': '', 'version': '', 'releasesRepo': '',
+                      'feedbackUrl': '', 'turnstileSiteKey': ''}
+
+
+def test_the_page_is_given_the_feedback_form_from_the_deployment_variables():
+    settings = deploy_config.write_settings({'REQUIRE_PASSCODE': 'false'}, template())
+    config = deploy_config.page_config(settings, {'DEPLOY_VARIABLES': json.dumps(
+        {'FEEDBACK_URL': 'https://feedback.example.workers.dev/', 'TURNSTILE_SITE_KEY': '0x4AAA'})})
+    assert config['feedbackUrl'] == 'https://feedback.example.workers.dev'
+    assert config['turnstileSiteKey'] == '0x4AAA'
+
+
+def test_a_feedback_address_without_its_bot_check_key_fails_the_deploy():
+    settings = deploy_config.write_settings({'REQUIRE_PASSCODE': 'false'}, template())
+    with pytest.raises(DeployError, match='TURNSTILE_SITE_KEY'):
+        deploy_config.page_config(settings, {'FEEDBACK_URL': 'https://feedback.example.workers.dev'})
 
 
 def test_the_command_line_writes_both_files(tmp_path, monkeypatch, private_pem, capsys):

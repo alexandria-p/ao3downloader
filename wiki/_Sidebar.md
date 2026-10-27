@@ -11,6 +11,7 @@
 
 **Running your own**
 - [[Hosting your own copy]]
+- [[Feedback]]
 - [[Developing]]
 - [[Glossary]]
 
