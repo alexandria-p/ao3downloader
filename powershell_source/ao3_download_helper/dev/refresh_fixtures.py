@@ -1,11 +1,13 @@
 """Download fresh test fixtures from live AO3.
 
-Used by the validate-fixtures GitHub Actions workflow to detect
-when AO3's HTML structure changes in ways that affect parsing.
+Run by hand to check whether AO3's HTML has changed in ways that affect parsing: refresh, then
+run the tests (CLAUDE.md, "Refreshing the fixtures from live ao3", has the steps). There is no
+workflow for it any more - the weekly one was removed rather than kept waiting on a test
+account's secrets.
 
 Fixtures tagged "login": True are fetched in a second pass using an
 authenticated session (credentials from the AO3_USERNAME / AO3_PASSWORD
-environment variables, supplied as GitHub secrets for the CI test account).
+environment variables - a test account's, not your own).
 Logged-out fixtures still refresh with no credentials, so the script remains
 usable for a logged-out-only refresh when no credentials are provided.
 
@@ -168,8 +170,8 @@ def login(session, username, password):
     payload = get_payload(username, password, token)
     response = make_request(session, strings.AO3_LOGIN_URL, method="POST", data=payload)
     if not parse_soup.is_logged_in(BeautifulSoup(response.text, "html.parser")):
-        raise Exception("AO3 login failed - check the AO3_USERNAME / AO3_PASSWORD secrets "
-                        "and that the CI account credentials are valid")
+        raise Exception("AO3 login failed - check AO3_USERNAME / AO3_PASSWORD "
+                        "and that the account's credentials are valid")
 
 
 def fetch_work_page(session, url_path: str, cache: dict[str, requests.Response]) -> requests.Response:

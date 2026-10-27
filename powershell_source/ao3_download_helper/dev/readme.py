@@ -6,7 +6,8 @@ something the code has renamed or dropped. A marker is wrong when its constant n
 or when its value is not part of the constant's (braces aside - a constant can be a format
 string, and the README quotes the words around the `{}`).
 
-Run from the helper's folder, as the `validate readme` workflow does:
+`test/test_readme_markers.py` runs it over the real README in the ordinary test suite, so CI
+checks it on every pull request and push to main. To check by hand, from the helper's folder:
 
     uv run --no-sync python dev/readme.py [path/to/README.md]
 

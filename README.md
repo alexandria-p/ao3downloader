@@ -23,8 +23,8 @@ EnableDebugTools=true can be set in settings.ini
 
 (after editing this README, check its CHECK markers - the hidden comments that tie a quoted
 string to the code - still match it: from
-`powershell_source/ao3_download_helper`, run `uv run python dev/readme.py`. The **validate
-readme** workflow does the same on every push that touches it.)
+`powershell_source/ao3_download_helper`, run `uv run python dev/readme.py`. The test suite runs
+the same check, so CI catches a wrong one on every pull request.)
 
 Open powershell in the root directory:
 powershell.exe -ExecutionPolicy Bypass -File .\generate_build_artifacts.ps1

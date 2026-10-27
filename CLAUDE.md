@@ -101,17 +101,23 @@ failed on Linux for exactly that reason until it was rewritten.
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
 
-**The weekly `validate ao3 fixtures` workflow** downloads every fixture from live ao3 again
-(`dev/refresh_fixtures.py`, in the helper's folder), runs the tests against them, and opens a
-pull request when ao3's pages changed - an issue too when the parsers no longer cope, with the
-old ebooks kept under `ebook/<id>/archive/` (`dev/archive_old_fixtures.py`). It runs in
-`powershell_source/ao3_download_helper` (`defaults.run.working-directory`), and every path in
-it and in both scripts is relative to that folder - the move there from the repository root is
-what left it calling a `dev/` that no longer existed, failing every week unnoticed.
-`test_fixture_scripts.py` holds the list to the fixtures the tests read, and the archive to
-that folder. It needs **`AO3_USERNAME` / `AO3_PASSWORD` repository secrets**, a test account's:
-with "Show adult content without checking" on, and works 66326125 and 334557 marked for
-later - `markedForLaterList.html` is that account's own list, since no other can be read.
+**Refreshing the fixtures from live ao3 is done by hand.** Upstream's weekly
+`validate ao3 fixtures` workflow did it, and was removed rather than kept failing for want of a
+test account's secrets. From `powershell_source/ao3_download_helper`, with a test account (not
+your own) in `AO3_USERNAME` / `AO3_PASSWORD`:
+
+```bash
+uv run --no-sync python dev/refresh_fixtures.py --require-login
+uv run --no-sync python -m pytest test/ -q        # --snapshot-update if only snapshots drifted
+# ebook tests failing on the new files? keep the old ones for regression first:
+AO3_FIXTURE_MODE=current_only uv run --no-sync python -m pytest test/ -q -m ebook
+uv run --no-sync python dev/archive_old_fixtures.py
+```
+
+Every path in both scripts is relative to that folder. The account needs "Show adult content
+without checking" on and works 66326125 and 334557 marked for later - `markedForLaterList.html`
+is that account's own list, since no other can be read. `test_fixture_scripts.py` holds the
+list to the fixtures the tests read, and the archive to that folder.
 
 ## Architecture, and why
 
@@ -1860,9 +1866,9 @@ Three rules worth keeping:
   (`FolderStore`) are how the tests stand in for browser APIs, which don't exist in jsdom.
 - **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `README.md` tie hardcoded strings
   to `strings.py` constants, and must not contain `{}`. `dev/readme.py` checks every one (a constant that is gone, or a
-  value it no longer contains), run by the `validate readme` workflow and by
-  `test_readme_markers.py` in the ordinary suite. It used to be called from the repository root
-  inside an `echo`, so after the move it checked nothing and stayed green.
+  value it no longer contains), and `test_readme_markers.py` runs it in the ordinary suite, so
+  CI checks it on every pull request and push to `main`. Upstream's `validate readme` workflow, which called it from the
+  repository root inside an `echo` and so checked nothing after the move, was removed.
 
 ## Conventions
 

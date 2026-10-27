@@ -32,7 +32,7 @@ CI (`.github/workflows/test.yml`) runs both on every push.
 
 The **build windows app**, **build mac app** and **build linux app** workflows build and smoke-test the apps on every pull request that touches them. **deploy hosted app** publishes them as a release.
 
-**validate ao3 fixtures** runs weekly: it downloads the test fixtures from live AO3 again and opens a pull request if AO3's pages changed. It needs `AO3_USERNAME` / `AO3_PASSWORD` repository secrets for a test account with *Show adult content without checking* on and works 66326125 and 334557 marked for later.
+To check the parsers against today's AO3, refresh the test fixtures by hand: `dev/refresh_fixtures.py` in the helper's folder, with a test account in `AO3_USERNAME` / `AO3_PASSWORD`, then run the tests. `CLAUDE.md` has the steps.
 
 ## Rules worth knowing
 

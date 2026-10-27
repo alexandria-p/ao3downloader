@@ -1,12 +1,12 @@
 """Archive pre-refresh ebook fixtures after a format-breaking refresh.
 
-Called from the validate-fixtures CI workflow when the ebook-marked tests fail
-against a fresh refresh (with AO3_FIXTURE_MODE=current_only): this means the
+Run by hand after `dev/refresh_fixtures.py`, when the ebook-marked tests
+(`pytest test/ -m ebook`) fail against a fresh refresh (with AO3_FIXTURE_MODE=current_only): this means the
 newly-downloaded ebook in test/fixtures/ebook/<work_id>/current/ is no longer
 parseable by the parsers (parse_soup), so we preserve the previous (working) version under
 the sibling archive/ folder for regression testing against future parser fixes.
 
-Run from the helper's folder (powershell_source/ao3_download_helper), as the workflow does.
+Run from the helper's folder (powershell_source/ao3_download_helper).
 Every path here is relative to that folder, not to the repository root: git is asked for
 paths `--relative` to it, and `HEAD:./<path>` reads them back from there.
 

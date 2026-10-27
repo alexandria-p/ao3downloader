@@ -1,6 +1,8 @@
 """The README's `<!--CHECK-->` markers, checked against strings.py by `dev/readme.py` - here
 over the real README, so a rename that leaves it quoting a string the code no longer has fails
-the ordinary test run, not only the `validate readme` workflow."""
+the ordinary test run - which CI runs on every pull request and
+push to main. This is the whole check now: the
+`validate readme` workflow that ran the script on its own was removed as a repeat of it."""
 
 import importlib.util
 from pathlib import Path

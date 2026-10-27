@@ -1,4 +1,4 @@
-"""The scripts the weekly `validate ao3 fixtures` workflow runs: `dev/refresh_fixtures.py`,
+"""The scripts for refreshing the fixtures from live ao3 by hand: `dev/refresh_fixtures.py`,
 which downloads every fixture from live ao3 again, and `dev/archive_old_fixtures.py`, which
 keeps the old copy of an ebook a new one broke.
 
