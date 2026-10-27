@@ -32,8 +32,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  tests:
+    name: run the tests
+    # both suites, before anything else: every job below waits on the version, and the version
+    # waits on these, so a failing test ends the run with nothing tagged, released or deployed
+    uses: ./.github/workflows/test.yml
+
   version:
     name: decide this deployment's version and tag it
+    needs: tests
     # one version for everything this run builds - the page on github pages and the windows,
     # mac and linux apps. the VERSION file when it is higher than every release (a bigger step, like 2.0.0),
     # and otherwise the latest release with its last number raised

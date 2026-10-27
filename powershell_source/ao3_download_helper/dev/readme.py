@@ -7,7 +7,7 @@ or when its value is not part of the constant's (braces aside - a constant can b
 string, and the README quotes the words around the `{}`).
 
 `test/test_readme_markers.py` runs it over the real README in the ordinary test suite, so CI
-checks it on every pull request and push to main. To check by hand, from the helper's folder:
+checks it on every pull request and before every deploy. To check by hand, from the helper's folder:
 
     uv run --no-sync python dev/readme.py [path/to/README.md]
 

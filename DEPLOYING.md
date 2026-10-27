@@ -187,8 +187,9 @@ This is the same limit the local build already has, apart from Safari.
 
 ## Other workflows in `.github/workflows`
 
-Of upstream's workflows only `test.yml` is left: it runs both test suites on every pull request and
-push to `main`, from `powershell_source/ao3_download_helper` - including the README's CHECK
+Of upstream's workflows only `test.yml` is left: it runs both test suites on every pull request, and
+**build & deploy hosted app and github releases** runs it first on every push to `main` (a
+failing test stops the deploy before it tags anything), from `powershell_source/ao3_download_helper` - including the README's CHECK
 markers against `strings.py` (`test_readme_markers.py`). The rest were removed:
 
 - `publish.yml` published upstream's `ao3downloader` package to PyPI and tagged a

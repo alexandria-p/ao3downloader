@@ -1,9 +1,12 @@
 name: tests
 
+# Both test suites. Run on every pull request, and by the deploy (deploy-hosted.yml) before it
+# tags or publishes anything - which is how main is tested: a push there runs the deploy, and the
+# deploy runs these first, so they are not started a second time beside it.
+
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
