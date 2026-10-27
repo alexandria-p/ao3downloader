@@ -100,12 +100,19 @@ export async function answerStorage(
 
 /** how many runs the history page shows */
 const HISTORY_LIMIT = 100;
+/**
+ * How many run records are read at once. In Dropbox every record is a download of its own, up
+ * to hundreds of KB with its log, and one after another a long history took the better part of
+ * a minute before a run window opened. The same as the library's index reads.
+ */
+const PARALLEL_READS = 6;
 
 /**
  * Every run on record in the library, newest first - what the helper's `read_runs` did,
  * done here now that the page holds the library.
  *
- * A record that cannot be read is skipped rather than ending the listing.
+ * A record that cannot be read is skipped rather than ending the listing - and the next one
+ * read in its place, so the history still holds HISTORY_LIMIT runs when there are that many.
  */
 export async function readRunHistory(store: LibraryStore): Promise<RunHistory[]> {
   // named for when they started, so newest first is simply by name
@@ -115,24 +122,46 @@ export async function readRunHistory(store: LibraryStore): Promise<RunHistory[]>
     .reverse();
 
   const found: RunHistory[] = [];
-  for (const path of files) {
-    if (found.length >= HISTORY_LIMIT) break;
-    try {
-      const record = JSON.parse((await store.read(path)) ?? '') as RunHistory & { log?: string[] };
-      if (!record || typeof record !== 'object') continue;
-      // the console log is not shown here, and can run to thousands of lines - only how many,
-      // so the history can offer it to download. it is read again, on its own, if asked for
-      const { log, ...rest } = record;
-      found.push({
-        ...rest,
-        logLines: Array.isArray(log) ? log.length : 0,
-        file: path.split('/').pop() ?? path,
-      });
-    } catch {
-      continue;
-    }
+  let next = 0;
+  while (found.length < HISTORY_LIMIT && next < files.length) {
+    // only as many as could still be wanted, read together, kept in the order they were named
+    const batch = files.slice(next, next + HISTORY_LIMIT - found.length);
+    next += batch.length;
+    const read = await readEach(batch, (path) => readRunRecord(store, path));
+    for (const record of read) if (record) found.push(record);
   }
   return found;
+}
+
+async function readRunRecord(store: LibraryStore, path: string): Promise<RunHistory | null> {
+  try {
+    const record = JSON.parse((await store.read(path)) ?? '') as RunHistory & { log?: string[] };
+    if (!record || typeof record !== 'object') return null;
+    // the console log is not shown here, and can run to thousands of lines - only how many,
+    // so the history can offer it to download. it is read again, on its own, if asked for
+    const { log, ...rest } = record;
+    return {
+      ...rest,
+      logLines: Array.isArray(log) ? log.length : 0,
+      file: path.split('/').pop() ?? path,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** `read` over every item, PARALLEL_READS at a time, with the results in the items' order */
+async function readEach<T, R>(items: T[], read: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let at = 0;
+  const worker = async () => {
+    while (at < items.length) {
+      const index = at++;
+      results[index] = await read(items[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL_READS, items.length) }, worker));
+  return results;
 }
 
 function split(path: string): { folders: string[]; name: string } {

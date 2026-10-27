@@ -40,6 +40,14 @@
   } @else if (available() === null) {
     <section class="body"><p class="hint">Looking for the local helper...</p></section>
   } @else {
+    <!-- until init has worked out which step this run opens on - see Step's 'preparing' -->
+    @if (step() === 'preparing') {
+      <section class="body preparing" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Getting this run ready...</span>
+      </section>
+    }
+
     <!-- step 1a: which collection, when it is not one of yours -->
     @if (step() === 'link') {
       <form class="body" (submit)="$event.preventDefault(); fromLink()">

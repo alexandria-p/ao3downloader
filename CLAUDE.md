@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1643 python passed; 625 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1643 python passed; 635 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -752,6 +752,12 @@ reconciles that with `selected` before anything is sent, and `resolve_filetypes`
 `force` flag so the helper does not add json back to a run that will never write it. A
 reported file type the run does not produce is worse than not offering it.
 
+**The window opens on `preparing`, a spinner, not on a step.** Which step a run opens on is
+worked out in `init`, after the helper's config is asked for again; starting on `filetypes`
+showed that page for a moment before jumping to the options or an acknowledgement. A helper
+that does not answer is `available() === false`, which shows its own message, so the spinner
+cannot be left up.
+
 The steps are therefore **not in a fixed order**, which is why the dialog carries
 `data-step` and `advanceTo` in the spec walks by where it is rather than counting clicks.
 Counting clicks made every test quietly depend on which runs have an acknowledgement.
@@ -936,6 +942,10 @@ and fic lists as of its last save, rather than the empty lists it had when only
 the end, with `logTrimmed` counting what went. The page's `readRunHistory` drops `log` from the
 listing and keeps `logLines`, and History's **Download log** reads the one file again when
 asked - a hundred records of thousands of lines would be a lot to read to draw a list.
+**Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
+history before every run window opens, and in Dropbox each record is a download of its own, so
+one after another a long history held the window for most of a minute. A record that will not
+read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many.
 
 **The AO3 account goes in too** (`username`): `run_job` hands `job.username` to the
 `RunRecord` it builds just before the login, so even a refused login names the account it
