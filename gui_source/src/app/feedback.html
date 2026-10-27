@@ -81,15 +81,19 @@
             }
 
             <div class="check-widget" #check></div>
-            @if (checkProblem()) {
-              <p class="problem" role="alert">{{ checkProblem() }}</p>
-            }
-
-            @if (problem()) {
-              <p class="problem" role="alert">
-                It was not sent: {{ problem() }}. Try again, or
-                <a [href]="newIssue()" target="_blank" rel="noopener">open an issue on GitHub</a>.
-              </p>
+            @if (failed()) {
+              <div class="problem failed" role="alert">
+                <p><strong>Uh oh - we couldn't submit your feedback.</strong></p>
+                <p class="reason">{{ problem() ? 'Why: ' + problem() + '.' : checkProblem() }}</p>
+                <p>
+                  So you don't lose what you wrote, download it as a text file. You can send it
+                  yourself as a GitHub issue instead (needs a GitHub account), or try again here.
+                </p>
+                <div class="failed-actions">
+                  <button type="button" class="button" (click)="downloadAttempt()">Download what I wrote</button>
+                  <a class="button" [href]="newIssueFilled()" target="_blank" rel="noopener">Submit it on GitHub instead</a>
+                </div>
+              </div>
             }
 
             <p class="hint">

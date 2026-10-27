@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Feedback, Turnstile, USERNAME_REMOVED, readLatestLog, redactLog } from './feedback';
+import { Feedback, Turnstile, USERNAME_REMOVED, failureReason, readLatestLog, redactLog } from './feedback';
 import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
 import { Library } from './library';
 import { LibraryStore } from './library-store';
@@ -13,10 +13,13 @@ class FakeTurnstile extends Turnstile {
   resets = 0;
   removed: string[] = [];
   pass = true;
+  /** set to stand for a widget that will not load - offline, or blocked */
+  broken = false;
   private give: (token: string) => void = () => {};
 
   override async render(_element: HTMLElement, _siteKey: string, token: (value: string) => void): Promise<string> {
     this.rendered++;
+    if (this.broken) throw new Error('could not load the bot check');
     this.give = token;
     if (this.pass) token(`token-${this.rendered}`);
     return `widget-${this.rendered}`;
@@ -187,7 +190,7 @@ describe('Feedback', () => {
     expect(element.querySelector('a[href*="label%3Afeedback"]')).not.toBeNull();
   });
 
-  it('says why it was not sent, keeps what was typed, and gets a fresh bot check', async () => {
+  it('says so when Cloudflare refuses it, keeps what was typed, and gets a fresh bot check', async () => {
     answering(403, { error: 'the bot check did not pass - try again' });
     await make();
     await openForm();
@@ -195,10 +198,91 @@ describe('Feedback', () => {
 
     await send();
 
+    expect(element.textContent).toContain("Uh oh - we couldn't submit your feedback");
     expect(element.textContent).toContain('the bot check did not pass');
     expect((element.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Nice');
     expect(turnstile.resets).toBe(1);
-    expect(element.querySelector('a[href$="/issues/new"]')).not.toBeNull();
+  });
+
+  it('says so when the service cannot be reached at all', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    }));
+    await make();
+    await openForm();
+    await fill('negative', 'Broken');
+
+    await send();
+
+    expect(element.textContent).toContain("Uh oh - we couldn't submit your feedback");
+    expect(element.textContent).toContain('could not be reached');
+    expect(sendButton().textContent).toContain('Send feedback');
+  });
+
+  it('does not try at all while offline', async () => {
+    const fetching = answering(201, { ok: true, number: 1, url: 'https://github.com/o/r/issues/1' });
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    await make();
+    await openForm();
+    await fill('negative', 'Broken');
+
+    await send();
+
+    expect(fetching).not.toHaveBeenCalled();
+    expect(element.textContent).toContain('offline');
+    vi.restoreAllMocks();
+  });
+
+  it('links GitHub in a new tab with what was written filled in', async () => {
+    answering(500, {});
+    await make();
+    await openForm();
+    await fill('negative', 'The scan stopped\nat page 4');
+
+    await send();
+
+    const link = element.querySelector('a[href*="/issues/new?"]') as HTMLAnchorElement;
+    expect(link.target).toBe('_blank');
+    const query = new URL(link.href).searchParams;
+    expect(query.get('title')).toBe('Feedback (negative): The scan stopped');
+    expect(query.get('body')).toBe('The scan stopped\nat page 4');
+  });
+
+  it('offers what was written as a text file, so nothing is lost', async () => {
+    answering(502, { error: 'GitHub did not take it - try again in a minute' });
+    let saved: Blob | null = null;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      saved = blob as Blob;
+      return 'blob:feedback';
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    await make();
+    await openForm();
+    await fill('positive', 'Lovely app', 'Sam');
+    await send();
+
+    const download = [...element.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Download what I wrote'),
+    )!;
+    download.click();
+
+    const text = await (saved as unknown as Blob).text();
+    expect(text).toContain('Sentiment: positive');
+    expect(text).toContain('Name: Sam');
+    expect(text).toContain('Lovely app');
+    vi.restoreAllMocks();
+  });
+
+  it('offers the same way out when the bot check will not load', async () => {
+    turnstile.broken = true;
+    await make();
+    await openForm();
+    await fill('positive', 'Hi');
+
+    expect(element.textContent).toContain("Uh oh - we couldn't submit your feedback");
+    expect(element.textContent).toContain('bot check would not load');
+    expect(sendButton().disabled).toBe(true);
+    expect(element.querySelector('a[href*="/issues/new?"]')).not.toBeNull();
   });
 
   it('closes on escape, taking the bot check down with it', async () => {
@@ -257,6 +341,14 @@ describe('Feedback', () => {
 
     expect(element.textContent).toContain('no run log in this library');
     expect(sendButton().disabled).toBe(true);
+  });
+});
+
+describe('failureReason', () => {
+  it('names a timeout, an unreachable service, and passes the service\'s own words on', () => {
+    expect(failureReason(new DOMException('t', 'TimeoutError'))).toContain('took too long');
+    expect(failureReason(new TypeError('Failed to fetch'))).toContain('could not be reached');
+    expect(failureReason(new Error('the message is empty'))).toBe('the message is empty');
   });
 });
 

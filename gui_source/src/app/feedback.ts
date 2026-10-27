@@ -13,6 +13,7 @@ import {
 import { HelperConnection } from './helper-connection';
 import { Jobs } from './jobs';
 import { Library } from './library';
+import { saveText } from './issues';
 import { LibraryStore } from './library-store';
 import { safeGet } from './storage';
 
@@ -41,6 +42,10 @@ const USERNAME_KEY = 'ao3.username';
 /** the Worker's own limits - anything longer it refuses (message, name) or trims (the log) */
 export const MESSAGE_LIMIT = 5000;
 export const NAME_LIMIT = 100;
+/** how long a send may take before it counts as failed, rather than 'Sending...' for ever */
+export const SEND_TIMEOUT_MS = 30_000;
+/** GitHub's new-issue page takes the text in its address, which browsers cap; the log never goes */
+const PREFILL_LIMIT = 4000;
 
 /**
  * Cloudflare's widget, behind a seam: the tests stand in for it, since there is no Cloudflare
@@ -187,6 +192,16 @@ export class Feedback implements OnDestroy {
   protected readonly feedbackList = computed(() => `${this.repository()}/issues?q=label%3Afeedback`);
   /** where to go when the form cannot be sent - it needs a GitHub account, so it is the fallback */
   protected readonly newIssue = computed(() => `${this.repository()}/issues/new`);
+  /** the same, with what was written filled in - so sending it by hand loses nothing either */
+  protected readonly newIssueFilled = computed(() => {
+    const message = this.message().trim();
+    const title = `Feedback (${this.sentiment() || 'feedback'}): ${message.split('\n')[0].slice(0, 60)}`;
+    const body = message.length > PREFILL_LIMIT ? `${message.slice(0, PREFILL_LIMIT)}...` : message;
+    const query = new URLSearchParams({ title, body });
+    return `${this.newIssue()}?${query}`;
+  });
+  /** the form could not be sent, either way - the window then offers the text and GitHub */
+  protected readonly failed = computed(() => !!this.problem() || !!this.checkProblem());
   protected readonly canSend = computed(
     () =>
       this.stage() === 'form' &&
@@ -252,8 +267,11 @@ export class Feedback implements OnDestroy {
     this.stage.set('sending');
     this.problem.set('');
     try {
+      // offline is a failure like any other, said at once rather than after a timeout
+      if (navigator.onLine === false) throw new Error('this computer is offline');
       const response = await fetch(this.helper.settings().feedbackUrl, {
         method: 'POST',
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sentiment: this.sentiment(),
@@ -278,13 +296,32 @@ export class Feedback implements OnDestroy {
       this.stage.set('sent');
       this.unmountCheck();
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      this.problem.set(reason === 'Failed to fetch' ? 'the feedback service could not be reached' : reason);
+      this.problem.set(failureReason(error));
       this.stage.set('form');
       // a token works once: whatever happened to this one, the next try needs another
       this.token.set('');
       if (this.widgetId) this.turnstile.reset(this.widgetId);
     }
+  }
+
+  /** everything that was written, as a file, so a failed send never loses it */
+  protected downloadAttempt(): void {
+    const lines = [
+      '# ao3downloader feedback - not sent',
+      '',
+      `Sentiment: ${this.sentiment() || '(not chosen)'}`,
+      `Name: ${this.name().trim() || '(none given)'}`,
+      `Version: ${this.helper.settings().version || '(built on this computer)'}`,
+      `Written: ${new Date().toISOString()}`,
+      '',
+      '## Feedback',
+      '',
+      this.message().trim(),
+    ];
+    if (this.attachLog() && this.logPreview()) {
+      lines.push('', '## Latest run log (AO3 username removed)', '', this.logPreview());
+    }
+    saveText(lines.join('\n') + '\n', `ao3downloader-feedback-${new Date().toISOString().slice(0, 10)}`);
   }
 
   private reset(): void {
@@ -315,8 +352,8 @@ export class Feedback implements OnDestroy {
       this.widgetId = id;
     } catch {
       this.checkProblem.set(
-        'The bot check would not load - a blocker or this network may be stopping it. ' +
-          'You can open an issue on GitHub instead.',
+        'The bot check would not load - this computer may be offline, or a blocker or this ' +
+          'network may be stopping it.',
       );
     }
   }
@@ -326,4 +363,15 @@ export class Feedback implements OnDestroy {
     this.widgetId = '';
     this.token.set('');
   }
+}
+
+/** why a send failed, in words for the failure panel */
+export function failureReason(error: unknown): string {
+  if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+    return 'the feedback service took too long to answer';
+  }
+  const reason = error instanceof Error ? error.message : String(error);
+  // what a browser says when it never got an answer at all: offline, blocked, or the service down
+  if (error instanceof TypeError) return 'the feedback service could not be reached';
+  return reason || 'something went wrong';
 }

@@ -245,6 +245,27 @@ em {
   background: #2f1e1e;
 }
 
+.failed p {
+  margin: 0 0 8px;
+}
+
+.failed .reason {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.failed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+a.button {
+  display: inline-block;
+  color: var(--text-strong);
+  text-decoration: none;
+}
+
 .button {
   padding: 7px 14px;
   border: 1px solid var(--border-strong);

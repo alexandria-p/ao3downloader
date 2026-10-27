@@ -16,6 +16,10 @@ need a GitHub account. The form links your issue straight away. It appears in th
 [list of feedback](https://github.com/alexandria-p/ao3downloader/issues?q=label%3Afeedback) within
 a minute, and replies are posted there.
 
+If it can't be sent (offline, say), the form says *Uh oh - we couldn't submit your feedback*. It
+offers **Download what I wrote** as a text file, and **Submit it on GitHub instead**, which opens
+GitHub's own form in a new tab with your message filled in.
+
 A bundle you built yourself has no Feedback tab. Use [GitHub issues](https://github.com/alexandria-p/ao3downloader/issues) instead.
 
 ## How it works

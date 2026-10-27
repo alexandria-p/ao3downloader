@@ -51,8 +51,15 @@ the page  --POST-->  feedback Worker (Cloudflare)  --checks-->  Turnstile
    - a link to the new issue, which exists the moment the page is told;
    - a link to the [list of feedback](https://github.com/alexandria-p/ao3downloader/issues?q=label%3Afeedback).
      GitHub's list can take up to a minute to show a new issue, and the page says so.
-   - If anything fails, the page says why. It keeps what was typed, gets a fresh bot check,
-     and links GitHub's own new-issue page as a fallback.
+   - **If anything fails**, the page says *Uh oh - we couldn't submit your feedback* and why.
+     Failures include Cloudflare refusing the request, GitHub refusing the issue, being
+     offline, no answer within 30 seconds, or the bot check not loading. The page then:
+     - keeps what was typed, and gets a fresh bot check for another try;
+     - offers **Download what I wrote**, a text file with the message, name, version and any
+       attached log, so nothing is lost;
+     - links **Submit it on GitHub instead**, which opens GitHub's new-issue page in a new tab
+       with the title and message filled in. That way needs a GitHub account. The log is not
+       filled in, because browsers cap how long an address can be.
 
 The issue's title is `Feedback (positive|negative): <first line of the message>`. Its body
 holds:

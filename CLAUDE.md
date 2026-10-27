@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1647 python passed; 650 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1647 python passed; 656 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -496,6 +496,13 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   it. The Worker is deployed by the `feedback` job, which needs only `tests`, and skips with
   a notice until its four secrets exist. Its two secrets go through stdin to
   `wrangler secret put`, never into a file.
+- **A failed send never loses what was written.** Every failure shows the same panel, *Uh
+  oh - we couldn't submit your feedback* (`failed`). That covers a refusal from the Worker,
+  Cloudflare or GitHub, no network, `navigator.onLine` false (checked before trying),
+  `SEND_TIMEOUT_MS`, and a bot check that will not load. The panel offers **Download what I
+  wrote** (`downloadAttempt`, through `issues.saveText`) and GitHub's new-issue page in a new
+  tab, pre-filled with the title and message (`newIssueFilled`). The message is capped and the
+  log left out, because the address carries it.
 - **Its window is z-index 200**, above a run window and the passcode gate (100). The tab is
   110, so it can still be clicked while the gate is up.
 - **Turnstile is behind an injectable seam** (`Turnstile`), like `FolderStore`, because there
