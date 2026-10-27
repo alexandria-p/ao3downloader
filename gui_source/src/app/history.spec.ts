@@ -182,6 +182,16 @@ describe('History', () => {
     expect(said).not.toContain('save images');
   });
 
+  it('names the AO3 account each run logged in as', async () => {
+    await show([aRun({ username: 'Someone' }), aRun({ file: 'older.json', id: 'older' })]);
+
+    const entries = element.querySelectorAll('.run-settings');
+    expect(entries[0].textContent).toContain('AO3 account');
+    expect(entries[0].querySelector('.run-account')?.textContent).toBe('Someone');
+    // a run recorded before accounts were kept says nothing rather than a blank
+    expect(entries[1].textContent).not.toContain('AO3 account');
+  });
+
   it('collapses the fic lists and says how many are in each', async () => {
     // a run that touched a thousand works would otherwise bury the next one
     await show([

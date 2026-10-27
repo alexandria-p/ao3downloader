@@ -62,8 +62,9 @@ def ebook_fixtures(work_id: str, ext: str) -> list[str]:
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Mark every test parametrized over an ebook fixture file with 'ebook'.
 
-    The validate-fixtures workflow reruns only these tests after a failed
-    refresh to decide whether the pre-refresh ebooks need to be archived.
+    After a refresh from live ao3 (dev/refresh_fixtures.py), `pytest -m ebook` reruns only
+    these, to decide whether the pre-refresh ebooks need archiving
+    (dev/archive_old_fixtures.py).
     """
     for item in items:
         callspec = getattr(item, 'callspec', None)

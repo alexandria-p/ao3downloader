@@ -123,7 +123,6 @@ previous version stays up.
 | Dropbox app key | **public**, not a secret | `gui_source/src/app/dropbox-config.ts` | edit the file and push; PKCE means there is no client secret. Never put the Dropbox app *secret* anywhere in this repo |
 | Dropbox redirect URI | Dropbox app setting | Dropbox App Console -> your app -> Settings -> OAuth 2 -> Redirect URIs | add `https://alexandria-p.github.io/ao3downloader/` (trailing slash included). Keep `http://localhost:4200/` for local use |
 | Allowed origin for the helper | local setting | `AllowedOrigins` in the `settings.ini` your helper reads (`build/config/settings.ini` for a build) | edit the file, restart the helper |
-| `AO3_USERNAME` / `AO3_PASSWORD` | Actions secrets | Settings -> Secrets and variables -> Actions | only used by upstream's `validate-fixtures.yml`, **not** by the deploy. Never needed for Pages |
 
 Your ao3 password never goes near GitHub: it is typed into the page and sent only to the
 helper on your own machine.
@@ -188,13 +187,14 @@ This is the same limit the local build already has, apart from Safari.
 
 ## Other workflows in `.github/workflows`
 
-These came from upstream and assume its layout (`test/` and `dev/` at the repo root), which
-this fork does not have:
+Of upstream's workflows only `test.yml` is left: it runs both test suites on every pull request and
+push to `main`, from `powershell_source/ao3_download_helper` - including the README's CHECK
+markers against `strings.py` (`test_readme_markers.py`). The rest were removed:
 
-- `readme.yml` runs on **every push** and calls `dev/readme.py` - it will fail every time.
-- `test.yml` runs `pytest test/` from the root; the tests live in
-  `powershell_source/ao3_download_helper/test/`.
-- `publish.yml`, `validate-fixtures.yml` call `dev/*` scripts that do not exist here.
-
-None of them block a Pages deploy, but they will show red crosses on every commit. Worth
-fixing or deleting separately.
+- `publish.yml` published upstream's `ao3downloader` package to PyPI and tagged a
+  `v<year>.<month>.<n>` release, which would have taken over this fork's own version numbers.
+  Releases here come from **build & deploy hosted app and github releases**.
+- `readme.yml` only repeated the README check the test suite now runs.
+- `validate-fixtures.yml` refreshed the test fixtures from live AO3 weekly, and needed a test
+  account's login as secrets. The same scripts are run by hand now - see `CLAUDE.md`,
+  "Refreshing the fixtures from live ao3".

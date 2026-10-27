@@ -870,127 +870,129 @@
           it filled in next time.
         </p>
 
-        <div class="background-choice" [class.blocked]="backgroundBlocked()">
-          <label class="check">
-            <input
-              type="checkbox"
-              name="background"
-              [checked]="background()"
-              [disabled]="!!backgroundBlocked()"
-              (change)="setBackground($any($event.target).checked)"
-            />
-            <span>Run as background task</span>
-          </label>
-          @if (backgroundBlocked()) {
-            <p class="hint">{{ backgroundBlocked() }}</p>
-          } @else {
-            <p class="hint">
-              The run carries on in the helper after you close this page - start it, go away,
-              and come back hours later to see how it went, from the <strong>History</strong>
-              tab.
-            </p>
-          }
-
-          @if (background()) {
-            <div class="warning background-warning">
-              <p><strong>Before you start a background run:</strong></p>
-              <ul>
-                <li>
-                  <strong>No other run can start until it has finished.</strong> The page will
-                  say so at the top while it is going.
-                </li>
-                <li>
-                  The helper holds your AO3 login and your Dropbox access for as long as the
-                  run lasts, in memory only, and lets go of both when it ends.
-                </li>
-                <li>
-                  <strong>Restarting the helper ends the run</strong> - closing its window, or
-                  on a hosted helper, deploying a new version. What it had already saved stays
-                  saved; start it again and it carries on from what is still missing.
-                </li>
-                <li>
-                  Nobody will be there to answer if it stops to ask something, so answer below
-                  now. It only uses an answer if the question actually comes up.
-                </li>
-              </ul>
-            </div>
-
-            @if (backgroundQuestions().length) {
-              <fieldset class="background-answers">
-                <legend>If this run needs to ask...</legend>
-
-                @if (backgroundQuestions().includes('quick-floor')) {
-                  <div class="answer" data-question="quick-floor">
-                    <p>
-                      <strong>No earlier scan to measure back to, but files already indexed</strong>
-                      - how far back should it read?
-                    </p>
-                    <label class="check">
-                      <input type="radio" name="bg-quick" [checked]="quickFloorAnswer() === 'full'"
-                             (change)="quickFloorAnswer.set('full')" />
-                      <span>Read the whole listing (safest - nothing can be missed)</span>
-                    </label>
-                    <label class="check">
-                      <input type="radio" name="bg-quick" [checked]="quickFloorAnswer() === 'since'"
-                             (change)="quickFloorAnswer.set('since')" />
-                      <span>Only back to when the index was last written</span>
-                    </label>
-                  </div>
-                }
-
-                @if (backgroundQuestions().includes('undated')) {
-                  <div class="answer" data-question="undated">
-                    <p>
-                      <strong>Downloaded files with no date in their name</strong> - their
-                      version cannot be told from the name. What should happen to them?
-                    </p>
-                    <label class="check">
-                      <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'skip'"
-                             (change)="undatedAnswer.set('skip')" />
-                      <span>Leave them as they are (changes nothing)</span>
-                    </label>
-                    <label class="check">
-                      <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'stamp'"
-                             (change)="undatedAnswer.set('stamp')" />
-                      <span>Give them a date, without downloading anything</span>
-                    </label>
-                    @if (undatedAnswer() === 'stamp') {
-                      <label class="field indented">
-                        <span>The date to give them - the version you believe they hold</span>
-                        <input type="date" name="bg-undated-date" [value]="undatedDate()"
-                               (input)="undatedDate.set($any($event.target).value)" />
-                      </label>
-                    }
-                    <label class="check">
-                      <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'refresh'"
-                             (change)="undatedAnswer.set('refresh')" />
-                      <span>Download them all again (a request per work per format)</span>
-                    </label>
-                  </div>
-                }
-
-                @if (backgroundQuestions().includes('duplicates')) {
-                  <div class="answer" data-question="duplicates">
-                    <p>
-                      <strong>Older copies of a work beside its newest one</strong> - what
-                      should happen to them?
-                    </p>
-                    <label class="check">
-                      <input type="radio" name="bg-duplicates" [checked]="duplicatesAnswer() === 'leave'"
-                             (change)="duplicatesAnswer.set('leave')" />
-                      <span>Leave every copy where it is (changes nothing)</span>
-                    </label>
-                    <label class="check">
-                      <input type="radio" name="bg-duplicates" [checked]="duplicatesAnswer() === 'newest'"
-                             (change)="duplicatesAnswer.set('newest')" />
-                      <span>Keep the newest and remove the older ones (they go to the Dropbox trash)</span>
-                    </label>
-                  </div>
-                }
-              </fieldset>
+        @if (offersBackground()) {
+          <div class="background-choice" [class.blocked]="backgroundBlocked()">
+            <label class="check">
+              <input
+                type="checkbox"
+                name="background"
+                [checked]="background()"
+                [disabled]="!!backgroundBlocked()"
+                (change)="setBackground($any($event.target).checked)"
+              />
+              <span>Run as background task</span>
+            </label>
+            @if (backgroundBlocked()) {
+              <p class="hint">{{ backgroundBlocked() }}</p>
+            } @else {
+              <p class="hint">
+                The run carries on in the helper after you close this page - start it, go away,
+                and come back hours later to see how it went, from the <strong>History</strong>
+                tab.
+              </p>
             }
-          }
-        </div>
+
+            @if (background()) {
+              <div class="warning background-warning">
+                <p><strong>Before you start a background run:</strong></p>
+                <ul>
+                  <li>
+                    <strong>No other run can start until it has finished.</strong> The page will
+                    say so at the top while it is going.
+                  </li>
+                  <li>
+                    The helper holds your AO3 login and your Dropbox access for as long as the
+                    run lasts, in memory only, and lets go of both when it ends.
+                  </li>
+                  <li>
+                    <strong>Restarting the helper ends the run</strong> - closing its window, or
+                    on a hosted helper, deploying a new version. What it had already saved stays
+                    saved; start it again and it carries on from what is still missing.
+                  </li>
+                  <li>
+                    Nobody will be there to answer if it stops to ask something, so answer below
+                    now. It only uses an answer if the question actually comes up.
+                  </li>
+                </ul>
+              </div>
+
+              @if (backgroundQuestions().length) {
+                <fieldset class="background-answers">
+                  <legend>If this run needs to ask...</legend>
+
+                  @if (backgroundQuestions().includes('quick-floor')) {
+                    <div class="answer" data-question="quick-floor">
+                      <p>
+                        <strong>No earlier scan to measure back to, but files already indexed</strong>
+                        - how far back should it read?
+                      </p>
+                      <label class="check">
+                        <input type="radio" name="bg-quick" [checked]="quickFloorAnswer() === 'full'"
+                               (change)="quickFloorAnswer.set('full')" />
+                        <span>Read the whole listing (safest - nothing can be missed)</span>
+                      </label>
+                      <label class="check">
+                        <input type="radio" name="bg-quick" [checked]="quickFloorAnswer() === 'since'"
+                               (change)="quickFloorAnswer.set('since')" />
+                        <span>Only back to when the index was last written</span>
+                      </label>
+                    </div>
+                  }
+
+                  @if (backgroundQuestions().includes('undated')) {
+                    <div class="answer" data-question="undated">
+                      <p>
+                        <strong>Downloaded files with no date in their name</strong> - their
+                        version cannot be told from the name. What should happen to them?
+                      </p>
+                      <label class="check">
+                        <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'skip'"
+                               (change)="undatedAnswer.set('skip')" />
+                        <span>Leave them as they are (changes nothing)</span>
+                      </label>
+                      <label class="check">
+                        <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'stamp'"
+                               (change)="undatedAnswer.set('stamp')" />
+                        <span>Give them a date, without downloading anything</span>
+                      </label>
+                      @if (undatedAnswer() === 'stamp') {
+                        <label class="field indented">
+                          <span>The date to give them - the version you believe they hold</span>
+                          <input type="date" name="bg-undated-date" [value]="undatedDate()"
+                                 (input)="undatedDate.set($any($event.target).value)" />
+                        </label>
+                      }
+                      <label class="check">
+                        <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'refresh'"
+                               (change)="undatedAnswer.set('refresh')" />
+                        <span>Download them all again (a request per work per format)</span>
+                      </label>
+                    </div>
+                  }
+
+                  @if (backgroundQuestions().includes('duplicates')) {
+                    <div class="answer" data-question="duplicates">
+                      <p>
+                        <strong>Older copies of a work beside its newest one</strong> - what
+                        should happen to them?
+                      </p>
+                      <label class="check">
+                        <input type="radio" name="bg-duplicates" [checked]="duplicatesAnswer() === 'leave'"
+                               (change)="duplicatesAnswer.set('leave')" />
+                        <span>Leave every copy where it is (changes nothing)</span>
+                      </label>
+                      <label class="check">
+                        <input type="radio" name="bg-duplicates" [checked]="duplicatesAnswer() === 'newest'"
+                               (change)="duplicatesAnswer.set('newest')" />
+                        <span>Keep the newest and remove the older ones (they go to the Dropbox trash)</span>
+                      </label>
+                    </div>
+                  }
+                </fieldset>
+              }
+            }
+          </div>
+        }
       </form>
       <footer>
         <!-- indexing your own collections has no earlier step, so this reads Cancel there -->

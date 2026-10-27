@@ -8,6 +8,7 @@ import { Bookmark, BookmarksExport } from './bookmarks';
 import { Collection } from './collections';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
+import { StorageChoice } from './storage-choice';
 
 function work(id: number): Bookmark {
   return {
@@ -306,6 +307,26 @@ describe('App', () => {
     expect(gate?.textContent).toContain('passcode protected');
   });
 
+  it('shows a bar while a Dropbox library is read, with a number only once there is one', async () => {
+    TestBed.inject(StorageChoice).mode.set('dropbox');
+    const library = TestBed.inject(Library);
+    library.loading.set(true);
+    library.readProgress.set({ stage: 'listing', found: 0 });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const bar = () => element.querySelector('.read-progress [role="progressbar"]');
+    expect(bar()?.hasAttribute('aria-valuenow')).toBe(false);
+    expect(element.querySelector('.read-progress .fill')?.classList).toContain('indeterminate');
+    expect(element.querySelector('.read-progress')?.textContent).toContain('Listing your library in Dropbox');
+
+    library.readProgress.set({ stage: 'reading', done: 50, total: 200 });
+    await fixture.whenStable();
+    expect(bar()?.getAttribute('aria-valuenow')).toBe('25');
+    expect(element.querySelector('.read-progress')?.textContent).toContain('50 of 200 entries');
+  });
+
   it('says once that this needs a Chromium browser', async () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
@@ -316,7 +337,42 @@ describe('App', () => {
     expect(notice?.textContent).toContain('Chromium');
     // a Dropbox library needs none of it, and the notice says so first
     expect(notice?.textContent).toContain('Using Dropbox? You are all set.');
+    // and that Dropbox needs no Chromium browser at all
+    expect(notice?.textContent).toContain('Firefox and Safari included');
     expect(notice?.textContent).toContain('This page kept open for the whole run');
+    // the bundle and the apps run their helper here, which offers no background runs
+    expect(notice?.textContent).not.toContain('background');
+  });
+
+  it('mentions background runs only on the hosted copy, which offers them', async () => {
+    TestBed.inject(HelperConnection).settings.update((c) => ({
+      ...c, helperUrl: 'https://ao3-helper.onrender.com',
+    }));
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+
+    const notice = (fixture.nativeElement as HTMLElement).querySelector('app-browser-notice');
+    expect(notice?.textContent).toContain('Run as background task');
+  });
+
+  it('says how background runs work in the FAQ on the hosted copy alone', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+    const local = element.querySelector('app-faq')?.textContent ?? '';
+    expect(local).not.toContain('Run as background task');
+    expect(local).not.toContain('Continue in background');
+    expect(local).toContain('Only one run can go at a time');
+
+    TestBed.inject(HelperConnection).settings.update((c) => ({
+      ...c, helperUrl: 'https://ao3-helper.onrender.com',
+    }));
+    const again = TestBed.createComponent(App);
+    await again.whenStable();
+    const againElement = again.nativeElement as HTMLElement;
+    tab(againElement, 'FAQ')!.click();
+    await again.whenStable();
+    expect(againElement.querySelector('app-faq')?.textContent).toContain('Run as background task');
   });
 
   it('does not say it again once it has been dismissed', async () => {
@@ -689,6 +745,8 @@ describe('App', () => {
     expect(first?.textContent).toContain('ao3downloader-macos-apple-silicon.zip');
     expect(first?.textContent).toContain('ao3downloader-macos-intel.zip');
     expect(first?.textContent).toContain('Start ao3downloader.command');
+    expect(first?.textContent).toContain('ao3downloader-linux-x86_64.zip');
+    expect(first?.textContent).toContain('Start ao3downloader.sh');
   });
 
   it('has a Report a bug tab next to the FAQ that points at the GitHub issues', async () => {

@@ -62,7 +62,7 @@ export interface ServerConfig {
   /** ticked when the dialog opens, but free to untick */
   defaults: string[];
   settings?: ServerSettings;
-  /** only the Windows or Mac app: its version, and whether it can update itself */
+  /** only the Windows, Mac or Linux app: its version, and whether it can update itself */
   app?: AppStatus;
 }
 
@@ -223,6 +223,8 @@ export interface RunHistory {
   options: Record<string, unknown>;
   /** the link the run was pointed at - a collection, or a fic - absent on older runs */
   url?: string;
+  /** the ao3 account it logged in as - never the password; absent on older runs */
+  username?: string;
   reindexed: string[];
   downloaded: string[];
   updated: string[];

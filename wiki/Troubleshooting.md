@@ -16,15 +16,16 @@ Indexing reads 20 works per request; each downloaded format is one request per w
 
 Your AO3 login probably lapsed - a restricted work then comes back as a page, not a file. The run checks once, and ends with *login lapsed* if so. Start it again; it skips what's already done.
 
-## The Windows app or Mac app won't open
+## The app won't open
 
 - **Windows:** "Windows protected your PC" → **More info** → **Run anyway**.
 - **Mac:** **System Settings > Privacy & Security > Open Anyway**. From Terminal, `xattr -dr com.apple.quarantine <the folder>` does the same.
+- **Linux:** run `./"Start ao3downloader.sh"` from a terminal to see why. It needs a glibc at least as new as Ubuntu 22.04's.
 - **"Seems to be running already":** close every ao3downloader window and start it again.
 
 ## I can't choose a folder
 
-Saving to a folder needs Chrome, Edge, Brave, Opera or Arc on a computer. Firefox, Safari and phones can't. Use Dropbox instead, or switch browsers.
+Saving to a folder needs Chrome, Chromium, Edge, Brave, Opera or Arc on a computer. Firefox, Safari and phones can't. Use Dropbox instead, or switch browsers.
 
 ## New features half-work, or a button says "unknown action"
 

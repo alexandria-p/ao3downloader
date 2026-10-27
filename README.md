@@ -21,7 +21,10 @@ EnableDebugTools=true can be set in settings.ini
 
 ### Build - How to bundle it
 
-(it's worth running uv run python dev/readme.py after a rewrite.(?))
+(after editing this README, check its CHECK markers - the hidden comments that tie a quoted
+string to the code - still match it: from
+`powershell_source/ao3_download_helper`, run `uv run python dev/readme.py`. The test suite runs
+the same check, so CI catches a wrong one on every pull request.)
 
 Open powershell in the root directory:
 powershell.exe -ExecutionPolicy Bypass -File .\generate_build_artifacts.ps1
@@ -40,7 +43,7 @@ Leave the window open and go to http://localhost:4200.
 
 `ao3downloader-windows.zip` holds `ao3downloader.exe` with Python and every dependency packed beside it. Unzip it anywhere, double-click `ao3downloader.exe`, and it does what `Start-Application.ps1` does: starts the helper on port 4400, serves the web UI on http://localhost:4200, and opens your browser there. The window also says `open any web browser to http://localhost:4200`, for when the browser does not open by itself. Leave the window open while you use the app; close it to stop.
 
-- **Where to get it:** every deployment publishes it as that version's release, marked latest, so the newest is always at `https://github.com/<owner>/<repo>/releases/latest` (the zip itself: `.../releases/latest/download/ao3downloader-windows.zip`). The FAQ in the app links there, pinned at the top. The **build windows app** workflow does the building on a Windows runner; **deploy hosted app** runs it alongside the hosted deploy. Run on its own from the Actions tab, it builds and tries the app, and publishes it only if given a version; every run keeps the zip on the run for 30 days.
+- **Where to get it:** every deployment publishes it as that version's release, marked latest, so the newest is always at `https://github.com/<owner>/<repo>/releases/latest` (the zip itself: `.../releases/latest/download/ao3downloader-windows.zip`). The FAQ in the app links there, pinned at the top. The **build windows app** workflow does the building on a Windows runner, and **build & deploy hosted app and github releases** runs it alongside the hosted deploy - the only run that publishes it. A pull request that changes how the app is built builds and tries it the same way, publishing nothing; every run also keeps the zip on the run for 30 days.
 - **Its `settings.ini` is written from the same GitHub deployment variables as the hosted copy** (`EXTRA_WAIT_TIME`, `FILE_NAME_LENGTH` and the rest), except that it always points at the helper the exe starts on your own computer (`HelperUrl=http://127.0.0.1:4400`, no passcode, no `PageOrigin`), and always has `EnableConsoleLogging=true`, so every request and every line a run says appears in the app's window. It never names your hosted helper or its page - the build fails if it would.
 - **Settings and logs** go beside the exe, in `config\settings.ini` and `logs\`. Your fics go wherever you open a library in the app, as always.
 - **Windows will warn that the app is not signed** the first time: choose **More info**, then **Run anyway**.
@@ -63,7 +66,17 @@ The same app, for a Mac: `ao3downloader-macos-apple-silicon.zip` for a Mac with 
 - **Updating: click Update now**, as on Windows. The app downloads the zip for its own chip from your latest release, checks its SHA-256, closes, swaps its files with a bash script (`update/apply-update.sh`), and opens again in a new Terminal window; the page reloads itself. The old window can then be closed. If a file will not move, every old file is put back and the old version opens again, saying why (`update/update.log`). Or copy a new zip's contents over the folder by hand - it has no `config/`, so your `settings.ini` stays as it is either way.
 - **Two zips, not one.** PyInstaller builds for the chip it runs on, so each is built on its own runner (`macos-latest` for Apple silicon, `macos-15-intel` for Intel). A single universal build would need a universal Python and universal copies of every compiled library, which the Python uv installs is not. The Intel zip would also run on Apple silicon through Rosetta, but more slowly, and Apple is winding Rosetta down - so each Mac gets its own, and each zip's README points at the other.
 
-To build either app yourself (on the system it is for, since PyInstaller builds for the system it runs on):
+### The Linux app - for 64-bit Intel and AMD
+
+The same app again: `ao3downloader-linux-x86_64.zip`, published in the same release by the **build linux app** workflow, built on the oldest Ubuntu runner (`ubuntu-22.04`) so it starts on as many systems as it can - the program needs at least the glibc it was built against. Unzip it somewhere to keep it and run **`Start ao3downloader.sh`** - double-click it, or `./"Start ao3downloader.sh"` from a terminal. The app starts the helper, serves the web UI on http://localhost:4200, and opens **Chrome or Chromium** there. Leave its window open while you use the app; close it to stop.
+
+- **Use Chrome or Chromium** - or Edge, Brave, Vivaldi or Opera. Firefox, the usual default, cannot open a folder for the page, so the app looks for a Chromium browser by command first, and only falls back to the desktop's default (`xdg-open`) if there is none. The window says `open Chrome or Chromium to http://localhost:4200`.
+- **The launcher finds its own window.** A file manager runs a script with no terminal, so on a desktop the launcher opens one to run in (`x-terminal-emulator`, GNOME Terminal, Konsole, Xfce Terminal, MATE Terminal, kitty, Alacritty or xterm, whichever is there first). With no desktop - over ssh, on a server - it runs the app right where it is.
+- **Settings, logs and deployment variables** work exactly as in the Windows and Mac apps.
+- **Updating: click Update now.** The same bash swap the Mac uses (`update/apply-update.sh`); it starts the app again through `Start ao3downloader.sh`, in a new window. The old window can then be closed. Or unzip the new zip over the folder by hand.
+- **x86_64 only, for now.** An ARM build would need an ARM runner of its own.
+
+To build any of the apps yourself (on the system it is for, since PyInstaller builds for the system it runs on):
 
 ```
 cd powershell_source/ao3_download_helper
@@ -75,16 +88,18 @@ The zip lands in `dist/` at the repository root.
 
 ## Deploy
 
-Open Github repo,
-Actions -> deploy hosted app (under All workflows) -> click Run Workflow event trigger
+**Every push to `main` deploys** - merging a pull request is enough. A push that only changes
+documentation (`*.md`, `wiki/`, `INSTRUCTIONS.txt`) does not, since nothing built reads it. To
+deploy without a change, open the GitHub repo: Actions -> build & deploy hosted app and github releases (under All
+workflows) -> Run workflow.
 
 It writes settings.ini and page config, build the helper as a dockerfile and pushes it to github container registry (Github Profile -> Packages). Then deploys to 'render' as a web service.
 
-Alongside that it builds the Windows app and the Mac app and publishes both zips as one release (see **The Windows app** and **The Mac app** above). Neither job holds up the hosted deploy, and an app build that fails does not stop it.
+Alongside that it builds the Windows, Mac and Linux apps and publishes their zips as one release (see **The Windows app**, **The Mac app** and **The Linux app** above). None of those jobs holds up the hosted deploy, and an app build that fails does not stop it.
 
 ### Versions
 
-Every deployment is one version, and everything it builds - the page on GitHub Pages, the Windows app and the Mac app - carries it.
+Every deployment is one version, and everything it builds - the page on GitHub Pages and the Windows, Mac and Linux apps - carries it.
 
 The `VERSION` file in the repository root decides it, compared with the latest release on GitHub (its `vX.Y.Z` tag) as the deployment starts:
 
@@ -96,13 +111,13 @@ The `VERSION` file in the repository root decides it, compared with the latest r
 | `1.0.0` | none yet | `1.0.0` |
 
 - **Routine deploys: leave `VERSION` alone.** Once it has been released it is the same as or lower than the latest, so every deployment goes up by one on its own (`1.8.2` -> `1.8.3`).
-- **A bigger step: raise `VERSION` and commit it** (`2.0.0`, or `1.9.0`), then deploy. Only a version higher than every release is used as it is, so two builds can never share a version.
+- **A bigger step: raise `VERSION` and commit it** (`2.0.0`, or `1.9.0`) - in the push to `main` that should be that version, since every push there deploys. Only a version higher than every release is used as it is, so two builds can never share a version.
 - The deployment never writes `VERSION` back - the release tags are the record of what went out. `VERSION` is a floor you raise when you want to.
 - `VERSION` has to be three numbers (`2.0.0`); anything else stops the deployment before it builds.
-- The commit is tagged `vX.Y.Z` as the deployment starts, and the Windows and Mac zips are published as that version's release, marked latest.
+- The commit is tagged `vX.Y.Z` as the deployment starts, and the Windows, Mac and Linux zips are published as that version's release, marked latest.
 - **Every page shows its version** in a footer pinned to the bottom of the window, on every tab, with a link to the repository on GitHub.
 - **Every copy of the page checks for a newer release** each time it opens, and says so at the top with a link to download it - with **Dismiss and do not ask me again**, which that browser remembers. A page built on your own computer with `generate_build_artifacts.ps1` has no version, and never checks.
-- **The footer always says it too**, next to the version, as underlined text rather than a button: `up to date with latest`, or `update to latest (1.8.3)` - which in the Windows app starts the update, and elsewhere opens the release. So someone who dismissed the banner can still see a newer version is out. Dismissing hides the banner only; the check still runs. The footer says neither until GitHub has answered, so it never claims up to date on a guess.
+- **The footer always says it too**, next to the version, as underlined text rather than a button: `up to date with latest`, or `update to latest (1.8.3)` - which in the Windows, Mac or Linux app starts the update, and elsewhere opens the release. So someone who dismissed the banner can still see a newer version is out. Dismissing hides the banner only; the check still runs. The footer says neither until GitHub has answered, so it never claims up to date on a guess.
 - The version lives in the build (the page's `app-config.json`), not in `settings.ini`: settings.ini is only ever added to, so a version kept there would still say the old one after an upgrade.
 
 
@@ -151,7 +166,11 @@ variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TI
 
 ## Running in the background
 
-Every run offers **Run as background task** on its login step, when your library is in
+**Only on the hosted copy** (the page on GitHub Pages, with its helper on a server). The
+bundle and the Windows, Mac and Linux apps run their helper on your own computer, which stops
+when you close its window, so they do not offer it at all.
+
+There, every run offers **Run as background task** on its login step, when your library is in
 Dropbox and you are signed in. The helper then carries on with the page closed: start a run,
 go away, and come back hours later. It is greyed out for a folder on this computer, because
 the helper can only reach that folder through the open page.
@@ -186,7 +205,8 @@ the helper can only reach that folder through the open page.
 
 Every run is written down in History the moment it starts and kept up to date as it goes.
 Whatever it says, what the run saved stays saved, and its entry offers **Download log** and,
-when it reported anything, **Download issues**.
+when it reported anything, **Download issues**. Each entry also names the **AO3 account** the
+run logged in as - the username only; the password is never written down anywhere.
 
 | Status | What it means |
 | --- | --- |
@@ -651,7 +671,7 @@ The 'look up publication dates' option costs one request per work and is not off
   - Whether the script should save your password - if set to 'false', you will need to re-enter your password every time you log in via the script. (Defaults to false.)
   - How many seconds to pause between requests to Ao3 - the default is 0 seconds, which means that pauses will only be initiated when Ao3 requests them. Normally you should not need to adjust this, but it can be useful if you are running into odd behavior related to the rate limit.
   - The maximum length of a generated file name. The naming *pattern* itself is no longer a setting - see [how files are named](#how-files-are-named).
-  - Where downloads are saved. By default this is a folder called '<!--CHECK-->downloads<!--DOWNLOAD_FOLDER_NAME-->' inside the folder you started the script from, but you can change it to any folder on your computer using a relative (to the folder you started the script from) or absolute path.
+  - Where downloads are saved is no longer one of them: fics go into whichever library you open in the app - a folder on your computer, or Dropbox - into its '<!--CHECK-->works<!--WORKS_FOLDER_NAME-->' folder.
 - **The purpose of entering your ao3 login information** is to download archive-locked works or anything else that is not visible when you are not logged in. If you don't care about that, there is no need to enter your login information.
 - **Ao3 limits the number of requests** a single user can make to the site in a given time period. When this limit is reached, the script will pause for the amount of time (usually a few minutes) that Ao3 requests. When this happens, the start time, end time, and length of the pause in seconds will be printed to the console. If you try to access Ao3 from your browser during this period, you will see a "Retry later" message. Don't be alarmed by this - it's normal, and you aren't in trouble. Simply wait for the specified amount of time and then refresh the page. Other than during these required pauses, you can use Ao3 as normal while the script is running.
 - **If you choose to '<!--CHECK-->get works from all encountered series links<!--AO3_PROMPT_SERIES-->'** then if the script encounters a work that is part of a series, it will also download the entire series that the work is a part of. This can _dramatically_ extend the amount of time the script takes to run. If you don't want this, choose 'n' when you get this prompt. (Series that you have bookmarked directly will always be fully downloaded, regardless of what you choose here.)

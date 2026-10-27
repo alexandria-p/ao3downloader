@@ -861,7 +861,7 @@ def run_job(job: Job, password: str) -> None:
                                             settings=settings_for_record(fileops),
                                             background=job.background,
                                             printed=before_record, helper=job.helper,
-                                            url=job.url)
+                                            url=job.url, username=job.username)
                 # the issues and fic lists go into every save, not only the last one
                 job.record.source = lambda: job.ao3
                 repo.login(job.username, password)

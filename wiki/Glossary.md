@@ -22,5 +22,5 @@ The words this project uses. `TERMINOLOGY.md` in the repository has the full lis
 | **The page** | The web app, in your browser. |
 | **Helper** | The program that talks to AO3, on `127.0.0.1:4400` or Render. |
 | **Bundle** | The page and helper built into `build/`, run with PowerShell and uv. |
-| **Windows / Mac app** | The bundle with Python packed in, as a zip. |
+| **Windows / Mac / Linux app** | The bundle with Python packed in, as a zip. |
 | **Hosted copy** | The page on GitHub Pages and the helper on Render, for one person. |

@@ -415,3 +415,44 @@ def test_old_copies_that_would_not_go_are_kept_with_the_run(tmp_path):
     record.finish(runs.STATUS_SUCCESS)
 
     assert written(tmp_path)[0]['keptCopies'][0]['file'] == 'new.html'
+
+
+# region whose account a run used
+
+def test_a_run_record_names_the_ao3_account_it_logged_in_as(tmp_path):
+    fileops = MagicMock()
+    fileops.runsfolder = str(tmp_path)
+    saved = {}
+    fileops.write_text.side_effect = lambda path, text: saved.update(json.loads(text))
+
+    runs.RunRecord(fileops, 'abcdef123', 'quick', 'Quick Scan', ['JSON'], {}, username='Someone')
+
+    assert saved['username'] == 'Someone'
+
+
+def test_every_run_records_its_username_and_never_its_password(tmp_path):
+    # through run_job, as a real run starts - and for a run whose login is refused too,
+    # since its record is written before the attempt
+    from unittest.mock import patch
+    from source_code import server
+
+    for refused in (False, True):
+        written: list[str] = []
+        fileops = MagicMock()
+        fileops.runsfolder = str(tmp_path)
+        fileops.write_text.side_effect = lambda path, text: written.append(text)
+        job = server.Job(server.ACTION_QUICK, ['JSON'], 'Someone', server.resolve_options({}))
+        with patch.object(server, 'FileOps', return_value=fileops), \
+             patch.object(server, 'Repository') as repository, \
+             patch.object(server, 'settings_for_record', return_value={}), \
+             patch.object(server, 'begin_record'), \
+             patch.object(server, 'runners', return_value={job.action: lambda *a: None}):
+            if refused:
+                repository.return_value.login.side_effect = Exception('login refused')
+            server.run_job(job, 'a-secret-password')
+
+        assert written, 'the run wrote no record'
+        assert all(json.loads(text)['username'] == 'Someone' for text in written)
+        assert not any('a-secret-password' in text for text in written)
+
+# endregion

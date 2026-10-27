@@ -67,7 +67,7 @@ class RunRecord:
                  filetypes: list[str], options: dict,
                  printed: list[str] | None = None,
                  settings: dict | None = None, background: bool = False,
-                 helper: str = '', url: str = '') -> None:
+                 helper: str = '', url: str = '', username: str = '') -> None:
         self.fileops = fileops
         # where the run keeps its issues and fic lists as it goes - the downloader, handed
         # over once the run has one (`run_job`). read on every save, so an interrupted run's
@@ -91,6 +91,10 @@ class RunRecord:
             # the same run again without it being typed in. empty for the runs that work
             # their link out from the username
             'url': url or '',
+            # the ao3 account the run logged in as - which library was read, whose bookmarks,
+            # and whose session lapsed when one did. the username alone: the password is never
+            # handed to the record, so it cannot end up in a history file
+            'username': username or '',
             # a run the helper carried on with after the page closed, reaching Dropbox itself
             'background': bool(background),
             # the helper the page started it on, as the page names it (its address). a page

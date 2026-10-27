@@ -35,13 +35,14 @@ powershell_source/
     test_build_artifacts.py       its tests (next to it, not in test/)
     deploy_config.py              writes the hosted settings.ini and app-config.json
     test_deploy_config.py         its tests
-    package_app.py            builds the Windows or Mac app (PyInstaller) into dist/*.zip
+    package_app.py            builds the Windows, Mac or Linux app (PyInstaller) into dist/*.zip
     test_package_app.py       its tests
     Dockerfile, .dockerignore     the hosted helper's image
     pyproject.toml, uv.lock, .venv/
-.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls both app builds
+.github/workflows/deploy-hosted.yml   builds and deploys the hosted copy, and calls all three app builds
 .github/workflows/build-windows.yml   builds, tries and publishes the Windows app
 .github/workflows/build-mac.yml       builds, tries and publishes the Mac app
+.github/workflows/build-linux.yml     builds, tries and publishes the Linux app
 HOSTING.md                        how to set the hosted copy up
 wiki/                             the GitHub wiki's source; publish-wiki.yml copies it there
 build/                            generated; config/settings.ini is NOT overwritten
@@ -91,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1616 python passed; 615 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1643 python passed; 625 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -99,6 +100,24 @@ tests nothing there. `test_the_same_file_reached_by_a_different_path_is_still_no
 failed on Linux for exactly that reason until it was rewritten.
 
 On a corporate network that intercepts TLS, add `--system-certs` to `uv sync`.
+
+**Refreshing the fixtures from live ao3 is done by hand.** Upstream's weekly
+`validate ao3 fixtures` workflow did it, and was removed rather than kept failing for want of a
+test account's secrets. From `powershell_source/ao3_download_helper`, with a test account (not
+your own) in `AO3_USERNAME` / `AO3_PASSWORD`:
+
+```bash
+uv run --no-sync python dev/refresh_fixtures.py --require-login
+uv run --no-sync python -m pytest test/ -q        # --snapshot-update if only snapshots drifted
+# ebook tests failing on the new files? keep the old ones for regression first:
+AO3_FIXTURE_MODE=current_only uv run --no-sync python -m pytest test/ -q -m ebook
+uv run --no-sync python dev/archive_old_fixtures.py
+```
+
+Every path in both scripts is relative to that folder. The account needs "Show adult content
+without checking" on and works 66326125 and 334557 marked for later - `markedForLaterList.html`
+is that account's own list, since no other can be read. `test_fixture_scripts.py` holds the
+list to the fixtures the tests read, and the archive to that folder.
 
 ## Architecture, and why
 
@@ -332,14 +351,40 @@ use the right browser.
   the release appearing and a system's zip landing, Update now there fails with "the latest
   release has no ao3downloader-<system>.zip" - clear, and gone on the next try.
 
+### The Linux app is the same app, started by a script too
+
+`build-linux.yml` builds `ao3downloader-linux-x86_64.zip` on `ubuntu-22.04` - the oldest
+runner, because a PyInstaller program needs at least the glibc it was built against - and adds
+it to the same release (`package_app.system`: `linux-<machine>`, x86_64 only for now). The
+program is the same `desktop.py`.
+
+- **`Start ao3downloader.sh` is what people run** (`LINUX_LAUNCHER`). A file manager runs a
+  script with no terminal, so where there is a desktop (`DISPLAY`/`WAYLAND_DISPLAY`) and no
+  terminal it opens one to run itself in, setting `AO3DOWNLOADER_IN_TERMINAL` so the copy in
+  the terminal does not open another. With no desktop it `exec`s the program where it is -
+  which is what CI and ssh get. `test_package_app.py` runs it under bash with a stand-in
+  terminal.
+- **Chromium browsers are looked for by command** (`LINUX_BROWSERS`, through `shutil.which`),
+  for the same reason as on a Mac - the usual default is Firefox. Then `xdg-open`, then
+  `webbrowser`. The window says `open Chrome or Chromium to ...` (`OPEN_THIS_ON_LINUX`).
+- **A system program started from the app gets the system's libraries.** PyInstaller points
+  `LD_LIBRARY_PATH` at the app's `_internal/` (keeping the old value in
+  `LD_LIBRARY_PATH_ORIG`), and a browser or terminal handed that loads the app's copies of
+  libraries and can fail to start. `updater.system_environment` puts it back, for the browser
+  and for the swap script alike.
+- **Update now uses the Mac's bash swap**, told `linux` as its third argument: it starts the
+  app again with `setsid -f` on the launcher, after unsetting `AO3DOWNLOADER_IN_TERMINAL` -
+  the old app's window set it, and left set the launcher would run the new app with no window.
+
 ### The app updates itself
 
 **Update now** (the banner, only when `/api/config` says `app.updatable`) posts
-`/api/update`; `source_code/updater.py` does the rest. Only the packaged app on Windows or a
-Mac with a version and a repository has an `Updater` (`desktop.make_updater`, set on
+`/api/update`; `source_code/updater.py` does the rest. Only the packaged app on Windows, a
+Mac or Linux with a version and a repository has an `Updater` (`desktop.make_updater`, set on
 `Handler.updater`); every other helper answers 404 and its page only links the release.
 `updater.kind_for` says what an update is on each system (`Kind`): which release asset
-(`ao3downloader-windows.zip`, or `ao3downloader-macos-<chip>.zip` by `platform.machine()`),
+(`ao3downloader-windows.zip`, or `ao3downloader-macos-<chip>.zip` / `ao3downloader-linux-x86_64.zip`
+by `platform.machine()`),
 which program must be in the zip, and which swap script, started how.
 
 **On a Mac** the swap is bash (`MAC_SWAP_SCRIPT`, `update/apply-update.sh`), started in a new
@@ -354,8 +399,9 @@ restores each file's mode and makes symlinks as symlinks** (`ZipFile.extract` do
 and the Mac app needs both), and **`check_zip` refuses a symlink that is absolute or climbs out
 of the app**, so a link cannot reach past the folder the zip unpacks into. Files `requests`
 downloads carry no quarantine mark, so an updated app opens without Gatekeeper asking again.
-`test_mac_update.py` runs the real script under bash with stand-in `open` and `mv`: a clean
-swap, and a failed move rolled back.
+`test_mac_update.py` runs the real script under bash with stand-in `open`, `setsid` and `mv`: a
+clean swap, and a failed move rolled back, on each system. **On Linux** the same script runs
+with `linux` as its third argument and starts the launcher with `setsid -f` instead.
 
 
 - **One run or one update, never both.** `start_update` checks for a run and `claim`s the
@@ -390,12 +436,23 @@ swap, and a failed move rolled back.
   the helper not answering is the swap, not a failure; the same version coming back after
   that is. It reloads the page once the helper reports the new version, and gives up after
   `waitMs`. A reported failure is shown once and remembered as seen (`ao3.updateFailureSeen`).
-- **Tested end to end on Windows and both Macs**: `build-windows.yml` (and `build-mac.yml`, the
-  same way, checking the app came back in a new Terminal window) installs the zip, edits its
+- **Tested end to end on Windows, both Macs and Linux**: `build-windows.yml` (and
+  `build-mac.yml` and `build-linux.yml`, the same way - on a Mac checking the app came back in
+  a new Terminal window) installs the zip, edits its
   settings.ini (a changed value, a comment, a key the app does not know), serves the same zip
   as `99.0.0` from `stand_in_release.py`, posts `/api/update`, and checks the files were
   replaced, the edits kept, the unknown key commented out as deprecated, and `update/` cleaned
-  up. Unpublished builds are version `0.0.1` (`APP_VERSION`) so they have one to update from.
+  up. A pull request's build has no version, so it is `0.0.1` (`APP_VERSION`) - older than the
+  99.0.0 stand-in, so it has one to update from.
+- **Only the deploy publishes a build** (`deploy-hosted.yml`, the *build & deploy hosted app and
+  github releases* workflow, through `workflow_call` with its version). The three build
+  workflows also run on a **pull request that touches the app build** (`pull_request` with
+  `paths`: the packaging script, `desktop.py`, `updater.py`, `settings_file.py`,
+  `build_artifacts.py`, `stand_in_release.py`, the lockfile and the workflow itself) - built,
+  smoke-tested and updated the same way, but the publish step is `if: github.event_name !=
+  'pull_request' && inputs.version != ''`, so nothing reaches Releases, no tag is made, and the
+  zip is only kept on the run. That is what caught the Windows swap and the Intel Mac
+  `cryptography` crash before a release. There is no Actions-tab button for them.
 - **`deploy-hosted.yml` calls it as a job of its own** (`workflow_call`), needing only the
   `version` job, so a Windows build that fails never holds up the helper or the page. It
   publishes the zip as that version's release (`vX.Y.Z`, marked latest); a re-run replaces the
@@ -403,6 +460,12 @@ swap, and a failed move rolled back.
   in the zip says what to click.
 
 ### Every deployment is one version, and every copy of the page checks for a newer one
+
+**Every push to `main` deploys** (`deploy-hosted.yml`'s `push` trigger), except one that only
+changes what nothing built reads (`paths-ignore`: `**.md`, `wiki/**`, `INSTRUCTIONS.txt`) - a
+release identical to the last would only tell every app to update to it. A docs change that
+should go out with code goes out with that code's push. The version job's tag push cannot set
+it off again: tags are not branches, and pushes made with `GITHUB_TOKEN` start no workflow.
 
 **The version comes from `VERSION` and the tags.** `deploy-hosted.yml`'s first job, `version`,
 runs `deploy_config.py next-version` with the repository's `v*` tags and the root `VERSION`
@@ -451,6 +514,13 @@ config), what to do with the zip, and this page's version when it has one.
 *Run as background task* (on every workflow's login step) starts a run the helper finishes
 with the page closed. The rules that matter:
 
+- **Only on the hosted copy.** `DownloadDialog.offersBackground` is `!HelperConnection.isLocal()`:
+  a page whose helper is on this computer - the bundle, the Windows, Mac and Linux apps, a dev
+  build - does not render the choice at all (nor does the browser notice or the FAQ mention
+  it), because that helper stops with the app's own window, so there is no background to carry
+  on in. Not shown rather than greyed out. It is decided from the page's own config
+  (`app-config.json`'s `helperUrl`), never by asking the helper. The helper itself does not
+  refuse one - nothing but a hand-made request could ask a local one.
 - **Only for a library in Dropbox.** A run reaches the library through the page
   (`PageStorage` asking the page), and a folder on this computer is open in that tab alone.
   For a background run the page hands over its Dropbox sign-in (`DropboxSession.handover`:
@@ -859,6 +929,12 @@ and fic lists as of its last save, rather than the empty lists it had when only
 the end, with `logTrimmed` counting what went. The page's `readRunHistory` drops `log` from the
 listing and keeps `logLines`, and History's **Download log** reads the one file again when
 asked - a hundred records of thousands of lines would be a lot to read to draw a list.
+
+**The AO3 account goes in too** (`username`): `run_job` hands `job.username` to the
+`RunRecord` it builds just before the login, so even a refused login names the account it
+tried, and History shows it as *AO3 account*. Only the username - the password is passed to
+`repo.login` and never to the record, and `test_every_run_records_its_username_and_never_its_password`
+reads every write a run makes to hold that.
 
 **settings.ini goes in beside the run's own choices** (`settings`). `filetypes` and
 `options` are what the user picked in the dialog; this is what the run inherited - pacing,
@@ -1728,6 +1804,21 @@ the work number and an ao3 link; `work-list.html` renders them as a stub row. A 
 records what it holds by work number alone and can hold works you never bookmarked, so
 dropping them would show fewer works than the collection's own count promises.
 
+### Reading a Dropbox library shows how far it has got
+
+`Library.showDropbox` lists the folder, downloads the index as one zip per folder
+(`INDEX_FOLDERS`, falling back to a file at a time when Dropbox refuses the zip), then parses
+every entry. It publishes each stage as `Library.readProgress` (`ReadProgress`), and
+`describeReadProgress` turns that into the bar and caption above the listing. **A percentage
+only where there is a real total**: a listing comes a page at a time with no total, and
+Dropbox builds a folder's zip as it sends it, so it usually gives no `Content-Length` - those
+stages count what has arrived (files found, bytes so far, folder N of M) with an
+indeterminate bar, the same rule a run's progress bar follows. Entries fetched one at a time
+and entries parsed have a real total and fill the bar. Progress is set through the read's
+own generation check, so switching library mid-read never leaves the old read's bar up, and
+it is cleared once the library is on screen. A local folder is read in the page itself,
+fast enough to need only the plain notice.
+
 ### Bookmarks vs collections are told apart by shape
 
 `Library.readRecords` routes json by `isCollectionRecord`, not by folder. A folder read
@@ -1784,8 +1875,10 @@ Three rules worth keeping:
 - **Angular's test runner rejects `vi.mock` on relative imports.** Injectable seams
   (`FolderStore`) are how the tests stand in for browser APIs, which don't exist in jsdom.
 - **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `README.md` tie hardcoded strings
-  to `strings.py` constants. Nothing validates them any more; keep them accurate by hand.
-  They must not contain `{}`.
+  to `strings.py` constants, and must not contain `{}`. `dev/readme.py` checks every one (a constant that is gone, or a
+  value it no longer contains), and `test_readme_markers.py` runs it in the ordinary suite, so
+  CI checks it on every pull request and push to `main`. Upstream's `validate readme` workflow, which called it from the
+  repository root inside an `echo` and so checked nothing after the move, was removed.
 
 ## Conventions
 
@@ -1804,7 +1897,7 @@ Three rules worth keeping:
   them, and index writes that find an entry by the name it would have now. Read it before
   working near either, and add to it when you leave something fragile behind.
 - **`wiki/` is the GitHub wiki, short.** `publish-wiki.yml` replaces the wiki with it on every
-  change on `main`, so edit it there, never on the wiki. It is the brief version for people
+  push to `main`, so edit it there, never on the wiki. It is the brief version for people
   using the app; the root documents stay the full record. When a change alters what a user
   sees or does - a run, an option, a setting, a file name - update the page it belongs on.
 - **Keep `TERMINOLOGY.md` (project root) up to date with every change to the codebase.** It

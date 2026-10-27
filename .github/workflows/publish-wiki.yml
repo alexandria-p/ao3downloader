@@ -9,11 +9,10 @@ name: publish wiki
 # replaces it.
 
 on:
+  # every push to main, so the wiki is always what main's wiki/ says - even if it was edited on
+  # GitHub in between, or a run was missed
   push:
     branches: [main]
-    paths:
-      - 'wiki/**'
-      - '.github/workflows/publish-wiki.yml'
   workflow_dispatch:
 
 permissions:
