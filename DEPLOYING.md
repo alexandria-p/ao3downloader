@@ -193,7 +193,7 @@ markers against `strings.py` (`test_readme_markers.py`). The rest were removed:
 
 - `publish.yml` published upstream's `ao3downloader` package to PyPI and tagged a
   `v<year>.<month>.<n>` release, which would have taken over this fork's own version numbers.
-  Releases here come from **deploy hosted app**.
+  Releases here come from **build & deploy hosted app and github releases**.
 - `readme.yml` only repeated the README check the test suite now runs.
 - `validate-fixtures.yml` refreshed the test fixtures from live AO3 weekly, and needed a test
   account's login as secrets. The same scripts are run by hand now - see `CLAUDE.md`,

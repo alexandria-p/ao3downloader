@@ -43,7 +43,7 @@ Leave the window open and go to http://localhost:4200.
 
 `ao3downloader-windows.zip` holds `ao3downloader.exe` with Python and every dependency packed beside it. Unzip it anywhere, double-click `ao3downloader.exe`, and it does what `Start-Application.ps1` does: starts the helper on port 4400, serves the web UI on http://localhost:4200, and opens your browser there. The window also says `open any web browser to http://localhost:4200`, for when the browser does not open by itself. Leave the window open while you use the app; close it to stop.
 
-- **Where to get it:** every deployment publishes it as that version's release, marked latest, so the newest is always at `https://github.com/<owner>/<repo>/releases/latest` (the zip itself: `.../releases/latest/download/ao3downloader-windows.zip`). The FAQ in the app links there, pinned at the top. The **build windows app** workflow does the building on a Windows runner, and only **deploy hosted app** starts it, alongside the hosted deploy; every run also keeps the zip on the run for 30 days.
+- **Where to get it:** every deployment publishes it as that version's release, marked latest, so the newest is always at `https://github.com/<owner>/<repo>/releases/latest` (the zip itself: `.../releases/latest/download/ao3downloader-windows.zip`). The FAQ in the app links there, pinned at the top. The **build windows app** workflow does the building on a Windows runner, and **build & deploy hosted app and github releases** runs it alongside the hosted deploy - the only run that publishes it. A pull request that changes how the app is built builds and tries it the same way, publishing nothing; every run also keeps the zip on the run for 30 days.
 - **Its `settings.ini` is written from the same GitHub deployment variables as the hosted copy** (`EXTRA_WAIT_TIME`, `FILE_NAME_LENGTH` and the rest), except that it always points at the helper the exe starts on your own computer (`HelperUrl=http://127.0.0.1:4400`, no passcode, no `PageOrigin`), and always has `EnableConsoleLogging=true`, so every request and every line a run says appears in the app's window. It never names your hosted helper or its page - the build fails if it would.
 - **Settings and logs** go beside the exe, in `config\settings.ini` and `logs\`. Your fics go wherever you open a library in the app, as always.
 - **Windows will warn that the app is not signed** the first time: choose **More info**, then **Run anyway**.
@@ -90,7 +90,7 @@ The zip lands in `dist/` at the repository root.
 
 **Every push to `main` deploys** - merging a pull request is enough. A push that only changes
 documentation (`*.md`, `wiki/`, `INSTRUCTIONS.txt`) does not, since nothing built reads it. To
-deploy without a change, open the GitHub repo: Actions -> deploy hosted app (under All
+deploy without a change, open the GitHub repo: Actions -> build & deploy hosted app and github releases (under All
 workflows) -> Run workflow.
 
 It writes settings.ini and page config, build the helper as a dockerfile and pushes it to github container registry (Github Profile -> Packages). Then deploys to 'render' as a web service.

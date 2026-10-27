@@ -19,14 +19,14 @@ Neither secret is ever published: both live in GitHub secrets and Render's envir
    - `AO3DOWNLOADER_PRIVATE_KEY` - the whole `.pem`, including the BEGIN/END lines
    - `RENDER_API_KEY`, `RENDER_SERVICE_ID`, `RENDER_DEPLOY_HOOK` - from step 6
 4. **Add GitHub variables.** `HELPER_URL` is required: the Render address. Every other [[setting|Settings]] has a variable in upper snake case (`EXTRA_WAIT_TIME`...), and unset ones keep their defaults.
-5. **Turn on Pages** (Settings > Pages > Source: GitHub Actions), then run **Actions > deploy hosted app**. The first run publishes the helper image and stops on purpose. Make the image public: your profile > Packages > `ao3downloader-helper` > Change visibility.
+5. **Turn on Pages** (Settings > Pages > Source: GitHub Actions), then run **Actions > build & deploy hosted app and github releases**. The first run publishes the helper image and stops on purpose. Make the image public: your profile > Packages > `ao3downloader-helper` > Change visibility.
 6. **Create the Render service:** New > Web Service > Existing image > `ghcr.io/<you>/ao3downloader-helper:latest`, Free. Its first start fails for lack of a passcode - expected. Copy the service id (`srv-...`), the deploy hook and an API key into the secrets.
-7. **Run deploy hosted app again.** Open `https://<you>.github.io/<repo>/app/` and type the passcode.
+7. **Run build & deploy hosted app and github releases again.** Open `https://<you>.github.io/<repo>/app/` and type the passcode.
 8. **Dropbox:** add the page's exact address to your Dropbox app's Redirect URIs.
 
 ## Deploying changes
 
-Push to `main` (merging a pull request is enough) and **deploy hosted app** runs by itself - except for a change to documentation only. It deploys the helper before the page, and builds the Windows, Mac and Linux apps alongside. Each run is a new [[version|Updating and versions]].
+Push to `main` (merging a pull request is enough) and **build & deploy hosted app and github releases** runs by itself - except for a change to documentation only. It deploys the helper before the page, and builds the Windows, Mac and Linux apps alongside. Each run is a new [[version|Updating and versions]].
 
 ## Things to know
 

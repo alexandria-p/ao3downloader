@@ -96,7 +96,7 @@ The three `RENDER_` secrets can wait until step 5.
 ### 4. Turn on GitHub Pages, and publish the image once
 
 1. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-2. **Actions → deploy hosted app → Run workflow.**
+2. **Actions → build & deploy hosted app and github releases → Run workflow.**
 
 This first run builds the image and pushes it to `ghcr.io/<you>/ao3downloader-helper`. It
 then **stops on purpose** at "check the render secrets are there", because Render can't be
@@ -134,7 +134,7 @@ runs one.
 
 ### 6. Run the workflow again
 
-**Actions → deploy hosted app → Run workflow.** This time it:
+**Actions → build & deploy hosted app and github releases → Run workflow.** This time it:
 
 1. writes settings.ini and the page's `app-config.json` from your variables, refusing anything
    that could not work (a plain `http://` helper, no passcode, no key)
@@ -155,7 +155,7 @@ Redirect URIs**, e.g. `https://alexandria-p.github.io/ao3downloader/app/`.
 
 ## Deploying changes
 
-Push to `main` - merging a pull request is enough - and **deploy hosted app** runs by itself;
+Push to `main` - merging a pull request is enough - and **build & deploy hosted app and github releases** runs by itself;
 a push that only changes documentation does not deploy. Run it by hand from the Actions tab to
 deploy without a change. The helper is always deployed before the page, so a new page never
 goes out ahead of the helper it expects.
@@ -189,7 +189,7 @@ rather than ship a file naming your hosted one.
   then shows as interrupted, still resumable).
 - **Deploying ends a background run.** The helper holds runs in memory, so a new version
   starting means the old run is gone. Wait for a background run to finish before running
-  **deploy hosted app**; if you don't, it shows in History as interrupted, and starting it
+  **build & deploy hosted app and github releases**; if you don't, it shows in History as interrupted, and starting it
   again carries on from what is still missing.
 
 - **A free Render service sleeps** after about 15 minutes without requests, and takes up to a

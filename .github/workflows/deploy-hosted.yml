@@ -1,4 +1,4 @@
-name: deploy hosted app
+name: "build & deploy hosted app and github releases"
 
 # One person's own hosted copy: the helper on Render, the page on GitHub Pages under /app/.
 # HOSTING.md is the full setup - what to create on Render, and every variable and secret

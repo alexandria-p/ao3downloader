@@ -442,13 +442,17 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   settings.ini (a changed value, a comment, a key the app does not know), serves the same zip
   as `99.0.0` from `stand_in_release.py`, posts `/api/update`, and checks the files were
   replaced, the edits kept, the unknown key commented out as deprecated, and `update/` cleaned
-  up. The app is built as the deployment's own version (`APP_VERSION`), which the 99.0.0
-  stand-in is newer than.
-- **The three build workflows run only when `deploy-hosted.yml` calls them** (`workflow_call`,
-  `version` required) - no pull request trigger, no Actions-tab button. So a change that breaks
-  a build, or its smoke or update test, shows first on the deploy after it is merged, as a red
-  app job; the release then lacks that system's zip until the fix is merged, while the hosted
-  copy and the other systems still go out.
+  up. A pull request's build has no version, so it is `0.0.1` (`APP_VERSION`) - older than the
+  99.0.0 stand-in, so it has one to update from.
+- **Only the deploy publishes a build** (`deploy-hosted.yml`, the *build & deploy hosted app and
+  github releases* workflow, through `workflow_call` with its version). The three build
+  workflows also run on a **pull request that touches the app build** (`pull_request` with
+  `paths`: the packaging script, `desktop.py`, `updater.py`, `settings_file.py`,
+  `build_artifacts.py`, `stand_in_release.py`, the lockfile and the workflow itself) - built,
+  smoke-tested and updated the same way, but the publish step is `if: github.event_name !=
+  'pull_request' && inputs.version != ''`, so nothing reaches Releases, no tag is made, and the
+  zip is only kept on the run. That is what caught the Windows swap and the Intel Mac
+  `cryptography` crash before a release. There is no Actions-tab button for them.
 - **`deploy-hosted.yml` calls it as a job of its own** (`workflow_call`), needing only the
   `version` job, so a Windows build that fails never holds up the helper or the page. It
   publishes the zip as that version's release (`vX.Y.Z`, marked latest); a re-run replaces the
