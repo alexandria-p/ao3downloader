@@ -21,7 +21,10 @@ EnableDebugTools=true can be set in settings.ini
 
 ### Build - How to bundle it
 
-(it's worth running uv run python dev/readme.py after a rewrite.(?))
+(after editing this README, check its CHECK markers - the hidden comments that tie a quoted
+string to the code - still match it: from
+`powershell_source/ao3_download_helper`, run `uv run python dev/readme.py`. The **validate
+readme** workflow does the same on every push that touches it.)
 
 Open powershell in the root directory:
 powershell.exe -ExecutionPolicy Bypass -File .\generate_build_artifacts.ps1
@@ -666,7 +669,7 @@ The 'look up publication dates' option costs one request per work and is not off
   - Whether the script should save your password - if set to 'false', you will need to re-enter your password every time you log in via the script. (Defaults to false.)
   - How many seconds to pause between requests to Ao3 - the default is 0 seconds, which means that pauses will only be initiated when Ao3 requests them. Normally you should not need to adjust this, but it can be useful if you are running into odd behavior related to the rate limit.
   - The maximum length of a generated file name. The naming *pattern* itself is no longer a setting - see [how files are named](#how-files-are-named).
-  - Where downloads are saved. By default this is a folder called '<!--CHECK-->downloads<!--DOWNLOAD_FOLDER_NAME-->' inside the folder you started the script from, but you can change it to any folder on your computer using a relative (to the folder you started the script from) or absolute path.
+  - Where downloads are saved is no longer one of them: fics go into whichever library you open in the app - a folder on your computer, or Dropbox - into its '<!--CHECK-->works<!--WORKS_FOLDER_NAME-->' folder.
 - **The purpose of entering your ao3 login information** is to download archive-locked works or anything else that is not visible when you are not logged in. If you don't care about that, there is no need to enter your login information.
 - **Ao3 limits the number of requests** a single user can make to the site in a given time period. When this limit is reached, the script will pause for the amount of time (usually a few minutes) that Ao3 requests. When this happens, the start time, end time, and length of the pause in seconds will be printed to the console. If you try to access Ao3 from your browser during this period, you will see a "Retry later" message. Don't be alarmed by this - it's normal, and you aren't in trouble. Simply wait for the specified amount of time and then refresh the page. Other than during these required pauses, you can use Ao3 as normal while the script is running.
 - **If you choose to '<!--CHECK-->get works from all encountered series links<!--AO3_PROMPT_SERIES-->'** then if the script encounters a work that is part of a series, it will also download the entire series that the work is a part of. This can _dramatically_ extend the amount of time the script takes to run. If you don't want this, choose 'n' when you get this prompt. (Series that you have bookmarked directly will always be fully downloaded, regardless of what you choose here.)

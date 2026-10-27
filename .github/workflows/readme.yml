@@ -1,31 +1,42 @@
 name: validate readme
 
-on: push
+# Every `<!--CHECK-->value<!--CONSTANT_NAME-->` marker in README.md must still match the constant
+# in source_code/strings.py it names (dev/readme.py says how). It used to call a dev/readme.py at
+# the repository root, which the move into powershell_source/ao3_download_helper deleted - and
+# since it ran inside an `echo`, the missing script never failed the job, so it checked nothing.
+
+on:
+  push:
+    paths:
+      - 'README.md'
+      - 'powershell_source/ao3_download_helper/source_code/strings.py'
+      - 'powershell_source/ao3_download_helper/dev/readme.py'
+      - '.github/workflows/readme.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   validate:
     name: validate
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
+    timeout-minutes: 10
+    defaults:
+      run:
+        # the python project lives here, not at the repository root
+        working-directory: powershell_source/ao3_download_helper
 
     steps:
       - name: checkout
         uses: actions/checkout@v6
 
-      - name: setup python
-        uses: actions/setup-python@v6
-        with: 
-          python-version: '3.12'
+      - name: setup uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
 
-      - name: run script
-        id: script
-        run:  echo "::set-output name=bad-values::$(python dev/readme.py)"
+      - name: install the helper
+        run: uv sync --frozen
 
-      - name: check output
-        if: ${{steps.script.outputs.bad-values != 0}}
-        uses: actions/github-script@v6
-        with:
-          script:
-            core.setFailed("${{steps.script.outputs.bad-values}}")
+      - name: check the readme's markers
+        # exits 1, naming each wrong marker, when any no longer matches
+        run: uv run --no-sync python dev/readme.py

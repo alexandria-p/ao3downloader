@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1638 python passed; 625 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1643 python passed; 625 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1853,8 +1853,10 @@ Three rules worth keeping:
 - **Angular's test runner rejects `vi.mock` on relative imports.** Injectable seams
   (`FolderStore`) are how the tests stand in for browser APIs, which don't exist in jsdom.
 - **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `README.md` tie hardcoded strings
-  to `strings.py` constants. Nothing validates them any more; keep them accurate by hand.
-  They must not contain `{}`.
+  to `strings.py` constants, and must not contain `{}`. `dev/readme.py` checks every one (a constant that is gone, or a
+  value it no longer contains), run by the `validate readme` workflow and by
+  `test_readme_markers.py` in the ordinary suite. It used to be called from the repository root
+  inside an `echo`, so after the move it checked nothing and stayed green.
 
 ## Conventions
 

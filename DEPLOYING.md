@@ -188,13 +188,16 @@ This is the same limit the local build already has, apart from Safari.
 
 ## Other workflows in `.github/workflows`
 
-These came from upstream and assume its layout (`test/` and `dev/` at the repo root), which
-this fork does not have:
+Three came from upstream, which kept `test/` and `dev/` at the repository root. All of them now
+run from `powershell_source/ao3_download_helper`, and the `dev/` scripts live there:
 
-- `readme.yml` runs on **every push** and calls `dev/readme.py` - it will fail every time.
-- `test.yml` runs `pytest test/` from the root; the tests live in
-  `powershell_source/ao3_download_helper/test/`.
-- `publish.yml`, `validate-fixtures.yml` call `dev/*` scripts that do not exist here.
+- `test.yml` runs both test suites on every push and pull request.
+- `readme.yml` checks the README's `<!--CHECK-->` markers against `strings.py`
+  (`dev/readme.py`) when either changes.
+- `validate-fixtures.yml` refreshes the test fixtures from live AO3 every Friday
+  (`dev/refresh_fixtures.py`), and needs `AO3_USERNAME` / `AO3_PASSWORD` secrets - see
+  `CLAUDE.md`.
 
-None of them block a Pages deploy, but they will show red crosses on every commit. Worth
-fixing or deleting separately.
+Upstream's `publish.yml` was removed: it published upstream's `ao3downloader` package to PyPI
+and tagged a `v<year>.<month>.<n>` release, which would have taken over this fork's own version
+numbers. Releases here come from **deploy hosted app**.
