@@ -2,7 +2,8 @@ name: deploy hosted app
 
 # One person's own hosted copy: the helper on Render, the page on GitHub Pages under /app/.
 # HOSTING.md is the full setup - what to create on Render, and every variable and secret
-# below. Run by hand from the Actions tab.
+# below. It also builds the Windows, Mac and Linux apps and publishes them as one GitHub
+# release. Runs on every push to main, and by hand from the Actions tab.
 #
 # Nothing secret is written into anything this builds. settings.ini (baked into a public
 # image) and app-config.json (published on a public website) carry only the helper's
@@ -10,6 +11,17 @@ name: deploy hosted app
 # straight from GitHub secrets to Render's environment variables.
 
 on:
+  # every change to main is released: a new version, the apps on GitHub, the helper on Render
+  # and the page on Pages
+  push:
+    branches: [main]
+    # nothing built reads these, so a change to them alone would only make a release that is
+    # the same as the last - and tell everyone with the app to update to it
+    paths-ignore:
+      - '**.md'
+      - 'wiki/**'
+      - 'INSTRUCTIONS.txt'
+      - 'LICENSE*'
   workflow_dispatch:
 
 permissions:

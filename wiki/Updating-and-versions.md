@@ -19,7 +19,9 @@ The `VERSION` file in the repository decides it:
 | `1.8.2` (same or lower) | `1.8.2` | `1.8.3` |
 | anything | none yet | `VERSION` |
 
+Every push to `main` deploys, except one that only changes documentation.
+
 - **Routine deploy:** change nothing - it goes up by one.
-- **Bigger step:** raise `VERSION` (three numbers, e.g. `2.0.0`), commit, then deploy.
+- **Bigger step:** raise `VERSION` (three numbers, e.g. `2.0.0`) in the same push.
 
 Each deploy tags the commit `vX.Y.Z` and publishes the Windows, Mac and Linux zips as that release, marked latest. A bundle built on your own computer has no version and never checks for updates.

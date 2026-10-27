@@ -88,8 +88,10 @@ The zip lands in `dist/` at the repository root.
 
 ## Deploy
 
-Open Github repo,
-Actions -> deploy hosted app (under All workflows) -> click Run Workflow event trigger
+**Every push to `main` deploys** - merging a pull request is enough. A push that only changes
+documentation (`*.md`, `wiki/`, `INSTRUCTIONS.txt`) does not, since nothing built reads it. To
+deploy without a change, open the GitHub repo: Actions -> deploy hosted app (under All
+workflows) -> Run workflow.
 
 It writes settings.ini and page config, build the helper as a dockerfile and pushes it to github container registry (Github Profile -> Packages). Then deploys to 'render' as a web service.
 
@@ -109,7 +111,7 @@ The `VERSION` file in the repository root decides it, compared with the latest r
 | `1.0.0` | none yet | `1.0.0` |
 
 - **Routine deploys: leave `VERSION` alone.** Once it has been released it is the same as or lower than the latest, so every deployment goes up by one on its own (`1.8.2` -> `1.8.3`).
-- **A bigger step: raise `VERSION` and commit it** (`2.0.0`, or `1.9.0`), then deploy. Only a version higher than every release is used as it is, so two builds can never share a version.
+- **A bigger step: raise `VERSION` and commit it** (`2.0.0`, or `1.9.0`) - in the push to `main` that should be that version, since every push there deploys. Only a version higher than every release is used as it is, so two builds can never share a version.
 - The deployment never writes `VERSION` back - the release tags are the record of what went out. `VERSION` is a floor you raise when you want to.
 - `VERSION` has to be three numbers (`2.0.0`); anything else stops the deployment before it builds.
 - The commit is tagged `vX.Y.Z` as the deployment starts, and the Windows, Mac and Linux zips are published as that version's release, marked latest.

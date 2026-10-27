@@ -155,8 +155,10 @@ Redirect URIs**, e.g. `https://alexandria-p.github.io/ao3downloader/app/`.
 
 ## Deploying changes
 
-Run **deploy hosted app** again. The helper is always deployed before the page, so a new page
-never goes out ahead of the helper it expects.
+Push to `main` - merging a pull request is enough - and **deploy hosted app** runs by itself;
+a push that only changes documentation does not deploy. Run it by hand from the Actions tab to
+deploy without a change. The helper is always deployed before the page, so a new page never
+goes out ahead of the helper it expects.
 
 Each run is a new **version**: the `VERSION` file in the repository root when it is higher
 than every release (raise it and commit it for a bigger step, like `2.0.0`), and otherwise

@@ -147,7 +147,8 @@ and run anywhere, rather than a site to host publicly.
  VERSIONS
 ================================================================================
 
-Every deployment ("deploy hosted app" in the Actions tab) is one version, and
+Every deployment ("deploy hosted app", which runs on every push to main that
+changes more than documentation, or by hand from the Actions tab) is one version, and
 everything it builds carries it: the page on GitHub Pages and the Windows, Mac
 and Linux apps.
 The page shows it in the footer on every tab.

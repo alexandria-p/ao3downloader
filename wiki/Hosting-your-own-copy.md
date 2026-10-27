@@ -26,7 +26,7 @@ Neither secret is ever published: both live in GitHub secrets and Render's envir
 
 ## Deploying changes
 
-Run **deploy hosted app**. It deploys the helper before the page, and builds the Windows, Mac and Linux apps alongside. Each run is a new [[version|Updating and versions]].
+Push to `main` (merging a pull request is enough) and **deploy hosted app** runs by itself - except for a change to documentation only. It deploys the helper before the page, and builds the Windows, Mac and Linux apps alongside. Each run is a new [[version|Updating and versions]].
 
 ## Things to know
 

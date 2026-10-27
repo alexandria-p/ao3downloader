@@ -445,6 +445,12 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
 
 ### Every deployment is one version, and every copy of the page checks for a newer one
 
+**Every push to `main` deploys** (`deploy-hosted.yml`'s `push` trigger), except one that only
+changes what nothing built reads (`paths-ignore`: `**.md`, `wiki/**`, `INSTRUCTIONS.txt`) - a
+release identical to the last would only tell every app to update to it. A docs change that
+should go out with code goes out with that code's push. The version job's tag push cannot set
+it off again: tags are not branches, and pushes made with `GITHUB_TOKEN` start no workflow.
+
 **The version comes from `VERSION` and the tags.** `deploy-hosted.yml`'s first job, `version`,
 runs `deploy_config.py next-version` with the repository's `v*` tags and the root `VERSION`
 file: the file's version when it is **higher** than every release, and otherwise the highest
