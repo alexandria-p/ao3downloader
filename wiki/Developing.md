@@ -30,7 +30,7 @@ CI (`.github/workflows/test.yml`) runs both on every push.
 | Bundle (needs uv to run) | `generate_build_artifacts.ps1` | `build/` - your `build/config/settings.ini` survives rebuilds |
 | Windows/Mac/Linux app | `uv sync --group package` then `uv run --no-sync python package_app.py` | `dist/*.zip` - built for the system and chip it runs on |
 
-The **build windows app**, **build mac app** and **build linux app** workflows build and smoke-test the apps on every pull request that touches them. **deploy hosted app** publishes them as a release.
+The **build windows app**, **build mac app** and **build linux app** workflows build and test the apps; only **deploy hosted app** runs them, on every push to `main`, and publishes the zips as a release.
 
 To check the parsers against today's AO3, refresh the test fixtures by hand: `dev/refresh_fixtures.py` in the helper's folder, with a test account in `AO3_USERNAME` / `AO3_PASSWORD`, then run the tests. `CLAUDE.md` has the steps.
 

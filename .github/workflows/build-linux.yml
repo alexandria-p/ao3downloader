@@ -8,39 +8,20 @@ name: build linux app
 # the more Linux systems it starts on. x86_64 only.
 #
 # `deploy hosted app` calls it with the version that deployment decided on, and the zip is
-# then added to that version's release, beside the Windows and Mac ones. Run by hand from the
-# Actions tab it builds and tries the app; given a version it publishes that too. The zip is
-# always kept as a download on the run.
+# then added to that version's release, beside the Windows and Mac ones. Nothing else starts
+# it. The zip is also kept as a download on the run.
 #
 # The app updates itself on Linux too (Update now): the same bash swap the Mac uses, starting
 # the app again through its launcher. Every build tries a real update from a stand-in release,
 # as the Windows and Mac ones do.
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to publish it as, e.g. 1.8.3. Empty to build and try it only.'
-        required: false
-        default: ''
+  # only ever started by `deploy hosted app`, with the version it decided on
   workflow_call:
     inputs:
       version:
         type: string
-        required: false
-        default: ''
-  # built and tried - never published - on a pull request that changes how it is built
-  pull_request:
-    paths:
-      - '.github/workflows/build-linux.yml'
-      - 'powershell_source/ao3_download_helper/package_app.py'
-      - 'powershell_source/ao3_download_helper/source_code/desktop.py'
-      - 'powershell_source/ao3_download_helper/source_code/updater.py'
-      - 'powershell_source/ao3_download_helper/stand_in_release.py'
-      - 'powershell_source/ao3_download_helper/source_code/settings_file.py'
-      - 'powershell_source/ao3_download_helper/build_artifacts.py'
-      - 'powershell_source/ao3_download_helper/pyproject.toml'
-      - 'powershell_source/ao3_download_helper/uv.lock'
+        required: true
 
 permissions:
   contents: read
@@ -54,7 +35,7 @@ jobs:
       # only to publish the release
       contents: write
     env:
-      APP_VERSION: ${{ inputs.version || '0.0.1' }}
+      APP_VERSION: ${{ inputs.version }}
       ZIP: dist/ao3downloader-linux-x86_64.zip
 
     steps:
@@ -227,8 +208,6 @@ jobs:
           retention-days: 30
 
       - name: add it to this version's release
-        # never from a pull request, which has no version
-        if: github.event_name != 'pull_request' && inputs.version != ''
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ inputs.version }}

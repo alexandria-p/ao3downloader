@@ -442,7 +442,13 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   settings.ini (a changed value, a comment, a key the app does not know), serves the same zip
   as `99.0.0` from `stand_in_release.py`, posts `/api/update`, and checks the files were
   replaced, the edits kept, the unknown key commented out as deprecated, and `update/` cleaned
-  up. Unpublished builds are version `0.0.1` (`APP_VERSION`) so they have one to update from.
+  up. The app is built as the deployment's own version (`APP_VERSION`), which the 99.0.0
+  stand-in is newer than.
+- **The three build workflows run only when `deploy-hosted.yml` calls them** (`workflow_call`,
+  `version` required) - no pull request trigger, no Actions-tab button. So a change that breaks
+  a build, or its smoke or update test, shows first on the deploy after it is merged, as a red
+  app job; the release then lacks that system's zip until the fix is merged, while the hosted
+  copy and the other systems still go out.
 - **`deploy-hosted.yml` calls it as a job of its own** (`workflow_call`), needing only the
   `version` job, so a Windows build that fails never holds up the helper or the page. It
   publishes the zip as that version's release (`vX.Y.Z`, marked latest); a re-run replaces the
@@ -1887,7 +1893,7 @@ Three rules worth keeping:
   them, and index writes that find an entry by the name it would have now. Read it before
   working near either, and add to it when you leave something fragile behind.
 - **`wiki/` is the GitHub wiki, short.** `publish-wiki.yml` replaces the wiki with it on every
-  change on `main`, so edit it there, never on the wiki. It is the brief version for people
+  push to `main`, so edit it there, never on the wiki. It is the brief version for people
   using the app; the root documents stay the full record. When a change alters what a user
   sees or does - a run, an option, a setting, a file name - update the page it belongs on.
 - **Keep `TERMINOLOGY.md` (project root) up to date with every change to the codebase.** It
