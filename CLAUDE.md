@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1644 python passed; 671 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1645 python passed; 683 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1825,6 +1825,31 @@ and entries parsed have a real total and fill the bar. Progress is set through t
 own generation check, so switching library mid-read never leaves the old read's bar up, and
 it is cleared once the library is on screen. A local folder is read in the page itself,
 fast enough to need only the plain notice.
+
+### The Bookmarks tab lists the whole index, saying where each came from
+
+It used to list only `isBookmarkEntry` (`bookmarked !== false`), so a fic downloaded by its link
+or found through a collection was on disk and in the index but nowhere in the page.
+`isListedEntry` now lists every entry but two, both still shown elsewhere: a work only a
+bookmarked series brought in (in that series' card - `from_series`, **or** a bookmarked series'
+`work_ids` listing it, since an entry can lack `from_series`), and a series you did not
+bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `other` for the
+badge and the **Came from** filter. An entry with no `bookmarked` at all still counts as a
+bookmark, for the same reason `isBookmarkEntry` says so: it came off your bookmarks before
+the field existed.
+
+### Hiding a work is the page's, in one file at the library's top
+
+`Library.hidden` (by `hiddenKey`, `kind:id`) is kept in `HIDDEN_FILE`, `hidden-works.json` at
+the library root, so a Dropbox library hides the same works everywhere. **Nothing else reads or
+moves it**: a run only looks at files named for a work, and setup only moves loose works. The
+local read meets it among all the json and drops it by shape (no `id`, no `title`). Dropbox
+reads it only when the listing shows it exists, so a library with nothing hidden costs no
+extra download (the Dropbox specs count downloads). `saveHidden` shows the change at once and
+puts it back if the write fails. Hidden works are left out before any filter (`visibleWorks`),
+not counted as a filter - the heading says how many are hidden - and **Show hidden works**
+brings them back dimmed with **Unhide**. The warning before hiding says what it does and how
+to undo it, and can be turned off (`ao3.hideWarningOff`, per browser).
 
 ### Filtering by tag reads the index already in memory
 

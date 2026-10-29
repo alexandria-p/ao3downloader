@@ -615,6 +615,11 @@ Opening a library makes sure it has these, creating any that are missing:
 | `collections/` | One json file per collection, if you have synced them. |
 | `runs/` | One json file per run - the history tab. |
 
+The page may also write `hidden-works.json` at the top: the works you hid from its listing
+(the eye button on a work). Hiding deletes nothing, and only the page reads that file. The
+listing also shows works that are not your AO3 bookmarks - downloaded by their link, or
+brought in by a collection - each with a badge saying where it came from.
+
 ## How files are named, and how they get linked together
 
 Every file - json, html, epub, pdf - is named the same way, and the naming is **not**

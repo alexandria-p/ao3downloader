@@ -5,6 +5,7 @@ import {
   bookmarkTypeOf,
   flattenRecord,
   isBookmarkEntry,
+  isListedEntry,
   isNewerCopy,
   isWorkEntry,
   workIdFromFilename,
@@ -230,6 +231,13 @@ export class Library {
    * rewrote, rather than reading the whole library again.
    */
   private entries: Bookmark[] = [];
+  /**
+   * The works hidden from the listing, by `hiddenKey` - kept in the library itself
+   * (`HIDDEN_FILE`), so a library in Dropbox hides the same works on every device. Hiding
+   * touches nothing else: the files and the index entry stay exactly as they were.
+   */
+  readonly hidden = signal<Map<string, HiddenWork>>(new Map());
+
   /** the folder on this computer being shown, to list its works/ again after a run */
   private localHandle: DirectoryHandle | null = null;
 
@@ -294,6 +302,9 @@ export class Library {
       const jsonFiles = await this.readDropboxIndex(folder.path, indexFiles, note);
       if (generation !== this.generation) return;
       await this.ingestRecords(jsonFiles, copies, false, note);
+      // the listing says whether there is one, so a library with nothing hidden costs no download
+      const hiddenPath = `${folder.path}/${HIDDEN_FILE}`.toLowerCase();
+      await this.readHidden(generation, files.some((f) => f.path.toLowerCase() === hiddenPath));
     } catch (error) {
       if (generation !== this.generation) return;
       this.error.set(
@@ -378,6 +389,7 @@ export class Library {
     this.collections.set([]);
     this.sourceName.set('');
     this.copies.set(emptyCopies());
+    this.hidden.set(new Map());
     this.entries = [];
     this.worksById.set(new Map());
     this.seriesById.set(new Map());
@@ -472,6 +484,7 @@ export class Library {
       // not strict: this folder has just been set up as a library, so an empty one is new,
       // not the wrong folder
       await this.ingestRecords(jsonOf(everything), this.mapCopies(works), false);
+      await this.readHidden(generation);
     } catch {
       if (current()) this.error.set(`Could not read ${handle.name}.`);
     } finally {
@@ -491,6 +504,12 @@ export class Library {
       return parts.length === 1 || parts[1]?.toLowerCase() === WORKS_FOLDER;
     });
     await this.ingestRecords(jsonOf(files), this.mapCopies(works), true);
+    // nothing can be written to a folder handed over this way, but what was hidden still is
+    const hidden = files.find((f) => {
+      const parts = relativePath(f).split(/[\\/]/);
+      return parts.length <= 2 && baseName(f).toLowerCase() === HIDDEN_FILE;
+    });
+    this.hidden.set(hidden ? readHiddenFile(await hidden.text()) : new Map());
   }
 
   private localTarget(handle: DirectoryHandle): SetupTarget {
@@ -608,6 +627,57 @@ export class Library {
     }
   }
 
+  /** Hide a work from the listing. Its files and its index entry are left as they are. */
+  async hide(work: Bookmark): Promise<void> {
+    if (!work.id) return;
+    const next = new Map(this.hidden());
+    next.set(hiddenKey(work), {
+      key: hiddenKey(work),
+      id: work.id,
+      kind: bookmarkTypeOf(work),
+      title: work.title ?? '',
+      authors: work.authors ?? [],
+      hidden_on: new Date().toISOString(),
+    });
+    await this.saveHidden(next);
+  }
+
+  async unhide(work: Bookmark): Promise<void> {
+    const next = new Map(this.hidden());
+    next.delete(hiddenKey(work));
+    await this.saveHidden(next);
+  }
+
+  /** shown at once and written to the library; if the write fails the change is undone */
+  private async saveHidden(next: Map<string, HiddenWork>): Promise<void> {
+    const store = this.store();
+    if (!store) throw new Error('this library can only be read, so nothing can be hidden in it');
+    const before = this.hidden();
+    this.hidden.set(next);
+    try {
+      const document = { hidden: [...next.values()] };
+      await store.write(HIDDEN_FILE, new Response(JSON.stringify(document, null, 2) + '\n'));
+    } catch (error) {
+      this.hidden.set(before);
+      throw error;
+    }
+  }
+
+  private async readHidden(generation: number, exists = true): Promise<void> {
+    const store = this.store();
+    if (!store || !exists) {
+      this.hidden.set(new Map());
+      return;
+    }
+    try {
+      const text = await store.read(HIDDEN_FILE);
+      if (generation === this.generation) this.hidden.set(readHiddenFile(text ?? ''));
+    } catch {
+      // unreadable: nothing is hidden, and the next hide writes a good file
+      if (generation === this.generation) this.hidden.set(new Map());
+    }
+  }
+
   /** works/ listed again, for the copies a run downloaded, replaced or renamed */
   private async listCopies(): Promise<Copies | null> {
     if (this.showing === 'dropbox') {
@@ -639,9 +709,13 @@ export class Library {
     this.seriesById.set(seriesById);
     this.externalsById.set(externalsById);
 
-    // the listing is your bookmarks: works, series and external works you bookmarked,
-    // but not a work that is only here because a series holds it - that is in its card
-    const bookmarks = works.filter(isBookmarkEntry);
+    // the listing is your bookmarks, and every other work in the index marked with where it
+    // came from - but not a work that is only here because a series holds it (that is in its
+    // card), nor a series you did not bookmark
+    const inBookmarkedSeries = new Set(
+      [...seriesById.values()].filter(isBookmarkEntry).flatMap((series) => series.work_ids ?? []),
+    );
+    const bookmarks = works.filter((entry) => isListedEntry(entry, inBookmarkedSeries));
     if (bookmarks.length === 0) {
       // collections synced but nothing indexed yet: the collections page still works
       this.data.set(null);
@@ -777,4 +851,36 @@ function dropboxCopies(files: DropboxFile[], root: string): Copies {
     }
   }
   return copies;
+}
+
+/**
+ * The page's list of hidden works, at the top of the library. The helper never reads it - a run
+ * only looks for files named for a work - and setting up a library only moves loose works, so
+ * nothing else touches it.
+ */
+export const HIDDEN_FILE = 'hidden-works.json';
+
+/** one hidden work, with enough said about it to recognise it in the file by hand */
+export interface HiddenWork {
+  key: string;
+  id: string;
+  kind: string;
+  title: string;
+  authors: string[];
+  hidden_on: string;
+}
+
+/** a work and an external work can share a number, so the kind is part of the key */
+export function hiddenKey(work: Bookmark): string {
+  return `${bookmarkTypeOf(work)}:${work.id}`;
+}
+
+function readHiddenFile(text: string): Map<string, HiddenWork> {
+  try {
+    const parsed = JSON.parse(text) as { hidden?: unknown };
+    const list = Array.isArray(parsed?.hidden) ? (parsed.hidden as HiddenWork[]) : [];
+    return new Map(list.filter((h) => h && typeof h.key === 'string').map((h) => [h.key, h]));
+  } catch {
+    return new Map();
+  }
 }

@@ -3,6 +3,11 @@
   @if (filtering()) {
     <span class="filtered-note">(filtered from {{ totalUnfiltered() | number }})</span>
   }
+  @if (hiddenCount() && !showHidden()) {
+    <span class="filtered-note hidden-note">
+      ({{ hiddenCount() | number }} hidden - tick <strong>Show hidden works</strong> under Filter to see them)
+    </span>
+  }
   @if (owner()) {
     by <a [href]="'https://archiveofourown.org/users/' + owner()" target="_blank" rel="noopener">{{ owner() }}</a>
   }
@@ -45,6 +50,20 @@
         <option value="individual work">Individual works</option>
         <option value="series bookmark">Series</option>
         <option value="external work">External works</option>
+      </select>
+    </label>
+
+    <label class="filter-field">
+      <span>Came from</span>
+      <select
+        name="originFilter"
+        [value]="originFilter()"
+        (change)="originFilter.set($any($event.target).value)"
+      >
+        <option value="">Anywhere</option>
+        @for (origin of origins; track origin.origin) {
+          <option [value]="origin.origin">{{ origin.label }}</option>
+        }
       </select>
     </label>
 
@@ -142,6 +161,16 @@
     </p>
   }
 
+  <p class="filter-hidden">
+    <label>
+      <input type="checkbox" name="showHidden" [checked]="showHidden()" (change)="showHidden.set($any($event.target).checked)" />
+      Show hidden works
+      @if (hiddenCount()) {
+        <span class="filter-hint">({{ hiddenCount() | number }} hidden here)</span>
+      }
+    </label>
+  </p>
+
   <p class="filter-actions">
     <button type="button" class="button subtle" [disabled]="!anythingToClear()" (click)="clearFilters()">
       Clear filters
@@ -218,6 +247,39 @@
   </div>
 }
 
+@if (hideProblem()) {
+  <p class="error" role="alert">Not saved: {{ hideProblem() }}</p>
+}
+
+@if (confirmingHide(); as work) {
+  <div class="hide-modal">
+    <div class="backdrop" (click)="cancelHide()"></div>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="hide-title">
+      <header><h2 id="hide-title">Hide this from the list?</h2></header>
+      <section class="body">
+        <p><strong>{{ work.title }}</strong> will no longer show in your lists.</p>
+        <p>
+          Nothing is deleted: its downloaded files and its index entry stay in your library just
+          as they are, and runs carry on keeping it up to date.
+        </p>
+        <p class="hint">
+          To find it again, open <strong>Filter</strong> and tick <strong>Show hidden works</strong>.
+          Hidden works are then shown marked <em>Hidden</em>, with an <strong>Unhide</strong>
+          button. Which works are hidden is kept in <code>hidden-works.json</code> in your library.
+        </p>
+        <label class="dont-warn">
+          <input type="checkbox" [checked]="dontWarnAgain()" (change)="dontWarnAgain.set($any($event.target).checked)" />
+          Don't warn me again
+        </label>
+      </section>
+      <footer>
+        <button type="button" class="button" (click)="cancelHide()">Cancel</button>
+        <button type="button" class="button primary" (click)="confirmHide()">Hide it</button>
+      </footer>
+    </div>
+  </div>
+}
+
 @if (creatingWith(); as items) {
   <app-collection-editor [items]="items" (saved)="collectionCreated($event)" (cancelled)="collectionCancelled()" />
 }
@@ -228,7 +290,8 @@
   @for (work of pageWorks(); track $index) {
     <li class="blurb" [class.series]="typeOf(work) === 'series bookmark'"
         [class.external]="typeOf(work) === 'external work'"
-        [class.selectable]="canSelect()" [class.ticked]="canSelect() && isSelected(work)">
+        [class.selectable]="canSelect()" [class.ticked]="canSelect() && isSelected(work)"
+        [class.hidden-work]="isHidden(work)">
       @if (canSelect() && canCollect(work)) {
         <input class="pick" type="checkbox" [checked]="isSelected(work)"
           [attr.aria-label]="'Tick ' + work.title" (change)="toggleSelected(work)" />
@@ -251,6 +314,29 @@
       } @else {
         <p class="datetime">{{ work.date_updated }}</p>
 
+        <!-- hiding takes it out of this listing only: its files and index entry stay -->
+        @if (canHide() && work.id) {
+          @if (isHidden(work)) {
+            <button type="button" class="hide-toggle unhide" [attr.aria-label]="'Unhide ' + work.title"
+              title="Hidden - show it in the listing again" (click)="unhide(work)">
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" fill="none" stroke="currentColor" stroke-width="1.2" />
+                <circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2" />
+              </svg>
+              Unhide
+            </button>
+          } @else {
+            <button type="button" class="hide-toggle" [attr.aria-label]="'Hide ' + work.title + ' from this list'"
+              title="Hide from this list - the files stay" (click)="askHide(work)">
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" fill="none" stroke="currentColor" stroke-width="1.2" />
+                <circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2" />
+                <path d="M2 14L14 2" stroke="currentColor" stroke-width="1.4" />
+              </svg>
+            </button>
+          }
+        }
+
         <div class="blurb-head">
           <div class="symbols" aria-hidden="true">
             <span class="tile" [class]="ratingClass(work.tags.rating)" [title]="work.tags.rating || 'Not Rated'"></span>
@@ -261,6 +347,18 @@
           </div>
 
           <div class="blurb-titles">
+            @if (isHidden(work) || originNote(work)) {
+              <p class="provenance">
+                @if (isHidden(work)) {
+                  <span class="badge hidden-badge">Hidden</span>
+                }
+                @if (originNote(work)) {
+                  <span class="badge origin" [class]="'badge origin ' + originOf(work)" [title]="originTitle(work)">
+                    {{ originNote(work) }}
+                  </span>
+                }
+              </p>
+            }
             @if (typeOf(work) !== 'individual work') {
               <p class="kind">
                 {{ typeOf(work) === 'series bookmark' ? 'Series' : 'External work' }}

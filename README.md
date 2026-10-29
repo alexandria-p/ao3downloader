@@ -311,7 +311,11 @@ When a run you are watching ends, the listing takes in what it changed - new and
 
 A work's title opens its downloaded html, or the work on AO3 when there is none. Beside the title is a button for each other format downloaded for it - **PDF**, **EPUB**, **MOBI**, **AZW3**. PDF opens in a new tab. A browser cannot show an e-book, so EPUB, MOBI and AZW3 are saved under their own file name instead, for your e-reader to open.
 
-The **Bookmarks** tab lists your indexed bookmarks and has:
+The **Bookmarks** tab lists your indexed bookmarks, and every other fic in your index too - one downloaded by its link, or one an indexed collection brought in - so everything in your library can be found in one place. Those that are not your AO3 bookmarks carry a badge saying where they came from (**Not in your AO3 bookmarks**, or **From the collection ...**), and the Filter panel's **Came from** narrows to your AO3 bookmarks, an AO3 collection, or imported or other. A fic in the index only because a bookmarked series holds it is still shown in that series' card rather than on its own.
+
+The eye button in a fic's bottom corner **hides** it from your lists. Nothing is deleted - its files and index entry stay exactly as they are, and runs keep it up to date - and the page warns you of that first (a box turns the warning off). To find a hidden fic again, open **Filter** and tick **Show hidden works**: hidden fics are then shown dimmed and marked **Hidden**, with an **Unhide** button. The heading says how many are hidden. Which fics are hidden is kept in `hidden-works.json` in your library, so a library in Dropbox hides the same fics on every device.
+
+The **Bookmarks** tab has:
 
 - **Quick Scan** - a full scan that stops early. It indexes in two walks, both back to the day your last qualifying scan started: first your bookmarks **sorted by date bookmarked**, stopping at the first one you bookmarked before that day - which catches old fics you have only just bookmarked - then your bookmarks **sorted by when AO3 last updated each work**, stopping at the first one last updated before that day - which catches fics you bookmarked long ago that have changed since. It then reads your existing files and downloads or updates whatever either walk found, each fic once. A fic bookmarked or updated on that day itself is still indexed. With no earlier scan to measure from, the first walk reads everything and the second is skipped.
 
@@ -406,6 +410,7 @@ Inside your downloads folder:
 | the folder itself | The works: html, epub, pdf and so on. |
 | `<!--CHECK-->images<!--IMAGE_FOLDER_NAME-->/` | Images embedded in works, if you asked for them. |
 | `<!--CHECK-->collections<!--COLLECTIONS_FOLDER_NAME-->/` | One json file per collection, if you have synced them. |
+| `hidden-works.json` | The works you hid from the listing in the page, if any. Only the page reads it. |
 
 ### How files are named
 

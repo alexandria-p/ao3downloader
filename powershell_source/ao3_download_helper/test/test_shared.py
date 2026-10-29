@@ -538,6 +538,18 @@ def test_scan_finds_works_by_the_number_their_name_starts_with(tmp_path):
     assert found['99']['EPUB']['date'] == '2020-01-02'
 
 
+def test_the_pages_list_of_hidden_works_is_never_taken_for_a_work(tmp_path):
+    # the page keeps the works hidden from its listing in hidden-works.json at the top of the
+    # library. a run must pass it over: it is json, and json is a requested file type
+    (tmp_path / 'hidden-works.json').write_text('{"hidden": [{"key": "individual work:111"}]}')
+    make_file(tmp_path, '111 Hidden But Still Here 2024-12-14.html')
+
+    found = shared.scan_downloaded_works(str(tmp_path), ['HTML', 'JSON'])
+
+    assert sorted(found) == ['111']
+    assert 'JSON' not in found['111']
+
+
 def test_scan_reports_an_undated_file_as_having_no_date(tmp_path):
     make_file(tmp_path, '34816549 No Paths - Cal.html')
 

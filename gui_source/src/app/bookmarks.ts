@@ -75,6 +75,47 @@ export function isBookmarkEntry(record: Bookmark): boolean {
   return record.bookmarked !== false;
 }
 
+/**
+ * Where an entry in the listing came from, for the badge on it and the Origin filter:
+ * - `bookmarks` - your own ao3 bookmarks (or an entry from before that was recorded, which
+ *   came off them)
+ * - `collection` - not bookmarked, but in a collection that was indexed
+ * - `other` - not bookmarked and in no collection: a fic downloaded by its link, say, or an
+ *   index brought in from elsewhere
+ */
+export type Origin = 'bookmarks' | 'collection' | 'other';
+
+export const ORIGINS: { origin: Origin; label: string }[] = [
+  { origin: 'bookmarks', label: 'Your AO3 bookmarks' },
+  { origin: 'collection', label: 'An AO3 collection' },
+  { origin: 'other', label: 'Imported or other' },
+];
+
+export function originOf(record: Bookmark): Origin {
+  if (isBookmarkEntry(record)) return 'bookmarks';
+  if ((record.from_collections ?? []).length) return 'collection';
+  return 'other';
+}
+
+/**
+ * Whether an entry is listed on the Bookmarks tab: every bookmark, and every other work in the
+ * index - a fic downloaded by its link, one a collection brought in - marked with where it came
+ * from, so the library on disk is all findable in one list.
+ *
+ * Two are still left to their cards rather than listed twice: a work in the index only because
+ * a bookmarked series holds it (it is in the series' card), and a series you did not bookmark
+ * (it is on the 'Part N of' line of the works in it).
+ */
+export function isListedEntry(record: Bookmark, inBookmarkedSeries: ReadonlySet<string> = new Set()): boolean {
+  if (isBookmarkEntry(record)) return true;
+  if (bookmarkTypeOf(record) === 'series bookmark') return false;
+  // a bookmarked series listing it says so as surely as its own from_series does
+  const viaSeries =
+    (record.from_series ?? []).length > 0 || (!!record.id && inBookmarkedSeries.has(record.id));
+  const viaCollection = (record.from_collections ?? []).length > 0;
+  return !(viaSeries && !viaCollection);
+}
+
 /** one series a work is part of, as its entry records it */
 export interface SeriesMembership {
   id: string;
@@ -104,6 +145,8 @@ export interface Bookmark {
   bookmarked?: boolean;
   /** the bookmarked series, by id, a work was found through */
   from_series?: string[];
+  /** the ao3 collections, by name, that hold it - set by a run's cleanup step */
+  from_collections?: string[];
   /** on a work: the series it is part of, and where in each */
   series?: SeriesMembership[];
   /** on a series: how many works it holds, whether it is finished, and which works */

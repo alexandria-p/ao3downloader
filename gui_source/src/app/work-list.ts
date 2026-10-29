@@ -1,6 +1,7 @@
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
-import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, viewableInBrowser } from './library';
+import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, hiddenKey, viewableInBrowser } from './library';
+import { safeGet, safeSet } from './storage';
 import { Collection, isCustomCollection } from './collections';
 import { CollectionItems, CustomCollections, canCollect, itemsOf } from './custom-collections';
 import { CollectionEditor } from './collection-editor';
@@ -15,6 +16,9 @@ import {
   dateStamp,
   isEntryComplete,
   isWorkEntry,
+  ORIGINS,
+  Origin,
+  originOf,
   pageItems,
   paragraphs,
   placeholderWork,
@@ -92,6 +96,10 @@ export class WorkList {
   protected readonly bookmarkedTo = signal('');
   /** one kind of bookmark only - works, series or external works - or '' for all of them */
   protected readonly typeFilter = signal<'' | BookmarkType>('');
+  /** where a work came from - your bookmarks, a collection, anything else - or '' for all */
+  protected readonly originFilter = signal<'' | Origin>('');
+  /** hidden works are left out unless this is ticked - and then shown, marked as hidden */
+  protected readonly showHidden = signal(false);
   /** tags a work must carry, every one of them, and tags it must not carry - as on ao3 */
   protected readonly includeTags = signal<TagChoice[]>([]);
   protected readonly excludeTags = signal<TagChoice[]>([]);
@@ -131,6 +139,7 @@ export class WorkList {
         this.bookmarkedFrom() ||
         this.bookmarkedTo() ||
         this.typeFilter() ||
+        this.originFilter() ||
         this.includeTags().length ||
         this.excludeTags().length
       ),
@@ -160,9 +169,11 @@ export class WorkList {
     const type = this.typeFilter();
     const include = this.includeTags();
     const exclude = this.excludeTags();
+    const origin = this.originFilter();
 
-    return this.works().filter((work) => {
+    return this.visibleWorks().filter((work) => {
       if (type && bookmarkTypeOf(work) !== type) return false;
+      if (origin && originOf(work) !== origin) return false;
       if (!matchesTags(work, include, exclude)) return false;
       if (title && !(work.title ?? '').toLowerCase().includes(title)) return false;
       if (author && !(work.authors ?? []).some((name) =>
@@ -239,7 +250,7 @@ export class WorkList {
 
   protected readonly total = computed(() => this.filtered().length);
   /** how many there were before any filter, so the listing can say what it is hiding */
-  protected readonly totalUnfiltered = computed(() => this.works().length);
+  protected readonly totalUnfiltered = computed(() => this.visibleWorks().length);
   protected readonly totalPages = computed(() => Math.max(1, Math.ceil(this.total() / PER_PAGE)));
   protected readonly pages = computed(() => pageItems(this.page(), this.totalPages()));
 
@@ -258,6 +269,100 @@ export class WorkList {
     const files = this.htmlFiles();
     return this.filtered().filter((work) => isWorkEntry(work) && work.id && files.has(work.id)).length;
   });
+
+  // region where a work came from, and hiding works
+
+  protected readonly origins = ORIGINS;
+  protected readonly originOf = originOf;
+
+  /**
+   * The works this listing shows at all, before any filter: everything but what was hidden -
+   * unless 'Show hidden works' is ticked. Hiding is not a filter someone set just now, so it
+   * is not counted as one; the heading says how many are hidden instead.
+   */
+  private readonly visibleWorks = computed(() => {
+    if (this.showHidden()) return this.works();
+    const hidden = this.library.hidden();
+    return hidden.size ? this.works().filter((w) => !w.id || !hidden.has(hiddenKey(w))) : this.works();
+  });
+  /** how many of this listing's works are hidden, said in the heading */
+  protected readonly hiddenCount = computed(() => {
+    const hidden = this.library.hidden();
+    return hidden.size ? this.works().filter((w) => w.id && hidden.has(hiddenKey(w))).length : 0;
+  });
+  /** hiding is saved in the library, so only where the page can write to it */
+  protected readonly canHide = computed(() => !!this.library.store());
+
+  /** the work the 'are you sure' is about, while it is up */
+  protected readonly confirmingHide = signal<Bookmark | null>(null);
+  protected readonly dontWarnAgain = signal(false);
+  protected readonly hideProblem = signal('');
+
+  protected isHidden(work: Bookmark): boolean {
+    return !!work.id && this.library.hidden().has(hiddenKey(work));
+  }
+
+  /** what to call where a work came from, on its badge - nothing for your own bookmarks */
+  protected originNote(work: Bookmark): string {
+    switch (originOf(work)) {
+      case 'collection': {
+        const names = work.from_collections ?? [];
+        return `From ${names.length === 1 ? 'the collection ' + names[0] : names.length + ' collections'}`;
+      }
+      case 'other':
+        return 'Not in your AO3 bookmarks';
+      default:
+        return '';
+    }
+  }
+
+  protected originTitle(work: Bookmark): string {
+    return originOf(work) === 'collection'
+      ? `Not in your AO3 bookmarks - it is here because an indexed collection holds it: ${(work.from_collections ?? []).join(', ')}`
+      : 'Not in your AO3 bookmarks - indexed another way, such as downloading it by its link, or brought in with an imported index';
+  }
+
+  /** the warning first, unless it has been turned off - then straight to hiding */
+  protected askHide(work: Bookmark): void {
+    this.hideProblem.set('');
+    if (safeGet(HIDE_WARNING_KEY) === 'off') {
+      void this.doHide(work);
+      return;
+    }
+    this.dontWarnAgain.set(false);
+    this.confirmingHide.set(work);
+  }
+
+  protected async confirmHide(): Promise<void> {
+    const work = this.confirmingHide();
+    if (!work) return;
+    if (this.dontWarnAgain()) safeSet(HIDE_WARNING_KEY, 'off');
+    this.confirmingHide.set(null);
+    await this.doHide(work);
+  }
+
+  protected cancelHide(): void {
+    this.confirmingHide.set(null);
+  }
+
+  protected async unhide(work: Bookmark): Promise<void> {
+    this.hideProblem.set('');
+    try {
+      await this.library.unhide(work);
+    } catch (error) {
+      this.hideProblem.set(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async doHide(work: Bookmark): Promise<void> {
+    try {
+      await this.library.hide(work);
+    } catch (error) {
+      this.hideProblem.set(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // endregion
 
   // region picking works for a custom collection
 
@@ -423,6 +528,7 @@ export class WorkList {
     this.bookmarkedFrom.set('');
     this.bookmarkedTo.set('');
     this.typeFilter.set('');
+    this.originFilter.set('');
     this.includeTags.set([]);
     this.excludeTags.set([]);
     this.sortBy.set(DEFAULT_SORT);
@@ -555,6 +661,9 @@ export class WorkList {
     );
   }
 }
+
+/** set once someone ticks 'do not warn me again' before hiding a work */
+const HIDE_WARNING_KEY = 'ao3.hideWarningOff';
 
 /** a work and an external work can share a number, so the kind is part of the key */
 function keyOf(work: Bookmark): string {

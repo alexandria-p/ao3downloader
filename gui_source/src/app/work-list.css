@@ -738,3 +738,152 @@
   gap: 16px 24px;
   margin-top: 14px;
 }
+
+/* where a work came from, when that is not your own bookmarks, and whether it is hidden */
+.provenance {
+  margin: 0 0 4px;
+}
+
+.badge.origin {
+  border-color: #6b5a8a;
+  color: #c9b8ea;
+}
+
+.badge.origin.collection {
+  border-color: #4f7a68;
+  color: #a6d8c2;
+}
+
+.badge.hidden-badge {
+  border-color: #6b6b6b;
+  color: var(--text-dim);
+}
+
+.blurb.hidden-work {
+  opacity: 0.6;
+  border-style: dashed;
+}
+
+/* hiding sits in the blurb's bottom corner, away from the title and the date */
+.hide-toggle {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.hide-toggle:hover,
+.hide-toggle:focus-visible {
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+
+.hide-toggle.unhide {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.filter-hidden {
+  margin: 12px 0 0;
+  font-size: 0.88rem;
+}
+
+.filter-hidden label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* the 'are you sure' before hiding - the same modal shell as the rest of the page */
+.hide-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.hide-modal .backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.hide-modal .dialog {
+  position: relative;
+  width: min(480px, 100%);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.hide-modal header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hide-modal h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text-strong);
+}
+
+.hide-modal .body {
+  padding: 14px 16px;
+  font-size: 0.9rem;
+}
+
+.hide-modal .body p {
+  margin: 0 0 10px;
+}
+
+.hide-modal .hint {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.dont-warn {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.hide-modal footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.hide-modal .button {
+  padding: 6px 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.hide-modal .button.primary {
+  border-color: #5a7f9a;
+  background: #33566b;
+}
