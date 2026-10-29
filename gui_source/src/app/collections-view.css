@@ -347,3 +347,19 @@
     margin-top: 6px;
   }
 }
+
+/* a collection made in this app: a gold star and its own badge, so it never reads as ao3's */
+.custom-mark {
+  margin-right: 6px;
+  color: #e2b45a;
+}
+
+.collection.custom {
+  border-left: 3px solid #e2b45a;
+}
+
+.badge.custom {
+  border-color: #7a6331;
+  background: #3a3020;
+  color: #f0d79c;
+}

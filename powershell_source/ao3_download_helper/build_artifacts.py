@@ -874,6 +874,19 @@ The one case this cannot see is a collection that had one work added and another
 between runs, leaving the total unchanged. Delete that collection's json file to force a
 full crawl. A crawl that failed or was stopped is never mistaken for a complete one.
 
+### Your own collections
+
+You can also make collections of your own in the page: tick works in any listing, choose
+**Add to a collection**, and name a new one or pick one of yours. Inside one of your own,
+**Remove from this collection** takes ticked works out. They carry a gold star and a **Your
+collection** badge. A collection from AO3 is never changed here, and never offered to add to.
+
+Each is a json file in `collections/custom/`, named `custom-` and ten letters and digits (an
+AO3 collection name never has a hyphen, so the two cannot clash), shaped like an AO3
+collection file with `"custom": true`, `"link": null` and the works in `work_ids` and
+`external_ids`. Series cannot be added. The helper never reads that folder, so no run changes
+these files, and `from_collections` in an index entry names AO3 collections only.
+
 ## Keeping ao3 happy
 
 Ao3 rate-limits by *how fast* requests arrive, not how many you make in total, and it

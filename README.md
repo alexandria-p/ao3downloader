@@ -625,6 +625,42 @@ Works, bookmarked items and subcollections are each judged on their own count, s
 
 The one case this cannot see is a collection that had one work added and another removed between runs, leaving the total unchanged. **Delete that collection's json file to force a full crawl.** A crawl that failed or was stopped is never mistaken for a complete one: nothing is written for a collection you stopped on, and a failed listing is stored as an empty list, which is always re-fetched.
 
+#### Your own collections
+
+Besides the collections indexed from AO3, you can make your own in the page. Tick works in any
+listing - your bookmarks, or the works in a collection - choose **Add to a collection**, and
+either name a new collection or pick one of yours. Inside one of your own, tick works and
+choose **Remove from this collection** to take them out. Your collections are marked with a
+gold star and a **Your collection** badge on the Collections tab.
+
+Only your own collections can be changed. A collection from AO3 shows what AO3 says it holds,
+so nothing is added to it or taken from it here, and it is never offered as a place to add to.
+
+Each one is a json file in `collections/custom/`, named for an id the page gives it
+(`custom-` and ten letters and digits; AO3 collection names never have a hyphen, so the two
+cannot clash). It is shaped like an AO3 collection file and says `"custom": true`:
+
+```json
+{
+  "name": "custom-3fa91c07d2",
+  "custom": true,
+  "link": null,
+  "title": "Comfort reads",
+  "description": "",
+  "created": "2026-10-29",
+  "work_ids": ["34816549", "99"],
+  "bookmark_ids": [],
+  "external_ids": [],
+  "last_modified": "2026-10-29T14:02:11.000Z"
+}
+```
+
+Works and external works can be added; series cannot. The helper never reads
+`collections/custom/`, so a run never changes these files, and a work in one is not recorded
+as being in that collection in its own index entry (`from_collections` is for AO3 collections
+only). Ticking works needs a library the page can write to - a folder opened with Chrome or
+Edge, or Dropbox.
+
 ## Getting Rate Limited
 
 Ao3 limits by **how fast requests arrive**, not how many you make in total. Go too fast and it answers with `Retry-After` - often several minutes - which the script waits out and then carries on by itself. Nothing is lost, and the **Stop** button keeps everything already written.

@@ -9,6 +9,7 @@ import {
   collectionLink,
   collectionNameFromLink,
   historyLength,
+  isCustomCollection,
 } from './collections';
 
 const PER_PAGE = 20;
@@ -80,7 +81,9 @@ export class CollectionsView {
     const byId = this.worksById();
     const works = this.openIds().map((id) => byId.get(id) ?? placeholderWork(id));
     const collection = this.open();
-    if (!collection || this.tab() !== 'bookmarks') return works;
+    // a collection of your own is one list - it has no works-versus-bookmarks split to show
+    const withExternals = !!collection && (isCustomCollection(collection) || this.tab() === 'bookmarks');
+    if (!collection || !withExternals) return works;
     // external works after the works: looked up among external works only, since the two
     // are numbered separately and external work 1 is not work 1
     const externals = this.library.externalsById();
@@ -89,6 +92,11 @@ export class CollectionsView {
       ...collection.external_ids.map((id) => externals.get(id) ?? placeholderExternal(id)),
     ];
   });
+
+  /** everything a custom collection holds: works, and external works */
+  protected itemCount(collection: Collection): number {
+    return collection.work_ids.length + collection.external_ids.length;
+  }
 
   /** everything among a collection's bookmarked items: works, and external works */
   protected bookmarkedCount(collection: Collection): number {
@@ -109,11 +117,15 @@ export class CollectionsView {
     );
   });
 
-  protected readonly emptyMessage = computed(() =>
-    this.tab() === 'works'
+  protected readonly emptyMessage = computed(() => {
+    const collection = this.open();
+    if (collection && isCustomCollection(collection)) {
+      return 'Nothing in this collection yet. Tick works on the Bookmarks tab, then Add to a collection.';
+    }
+    return this.tab() === 'works'
       ? 'No works were recorded for this collection.'
-      : 'No bookmarked items were recorded for this collection.',
-  );
+      : 'No bookmarked items were recorded for this collection.';
+  });
 
   // template helpers
   protected readonly paragraphs = paragraphs;
@@ -121,6 +133,7 @@ export class CollectionsView {
   protected readonly link = collectionLink;
   protected readonly nameFromLink = collectionNameFromLink;
   protected readonly historyLength = historyLength;
+  protected readonly isCustom = isCustomCollection;
 
   protected show(collection: Collection): void {
     this.openName.set(collection.name);

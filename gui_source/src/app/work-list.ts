@@ -1,6 +1,8 @@
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library, LocalCopy, OpenableFormat } from './library';
+import { Collection, isCustomCollection } from './collections';
+import { CustomCollections, TITLE_LIMIT, canCollect, itemsOf } from './custom-collections';
 import {
   Bookmark,
   BookmarkType,
@@ -52,6 +54,12 @@ export class WorkList {
   readonly emptyMessage = input('This export has no works in it.');
   /** shown under the heading, above the listing */
   readonly note = input('');
+  /** whether works can be ticked and put in a custom collection */
+  readonly selectable = input(false);
+  /** the collection being shown, when it is one: a custom one can have works taken out */
+  readonly collection = input<Collection | null>(null);
+
+  private readonly custom = inject(CustomCollections);
 
   protected readonly htmlFiles = this.library.htmlFiles;
   protected readonly pdfFiles = this.library.pdfFiles;
@@ -219,6 +227,129 @@ export class WorkList {
     return this.filtered().filter((work) => isWorkEntry(work) && work.id && files.has(work.id)).length;
   });
 
+  // region picking works for a custom collection
+
+  /** ticking only means something where it can be saved: a library that can be written to */
+  protected readonly canSelect = computed(() => this.selectable() && this.custom.writable());
+  /** a different listing is a different set of works, so it starts with nothing ticked */
+  protected readonly selected = linkedSignal<Bookmark[], ReadonlySet<string>>({
+    source: this.works,
+    computation: () => new Set(),
+  });
+  /** what can be ticked among what the filters leave showing */
+  private readonly selectableShown = computed(() => this.filtered().filter(canCollect));
+  /**
+   * The ticked works the filters still show. Narrowing the listing narrows what an action
+   * acts on, so nothing hidden is added or taken out unseen.
+   */
+  protected readonly selectedShown = computed(() => {
+    const picked = this.selected();
+    return this.selectableShown().filter((work) => picked.has(keyOf(work)));
+  });
+  protected readonly allShownSelected = computed(
+    () => this.selectableShown().length > 0 && this.selectedShown().length === this.selectableShown().length,
+  );
+  /** the open collection, when it is one of the person's own and so can be taken from */
+  protected readonly removableFrom = computed(() => {
+    const collection = this.collection();
+    return collection && isCustomCollection(collection) ? collection : null;
+  });
+  /** where ticked works can go: every custom collection but the one being shown */
+  protected readonly targets = computed(() =>
+    this.custom.all().filter((c) => c.name !== this.collection()?.name),
+  );
+
+  protected readonly adding = signal(false);
+  /** the custom collection to add to, by name - or '' for a new one */
+  protected readonly target = signal('');
+  protected readonly newTitle = signal('');
+  protected readonly busy = signal(false);
+  protected readonly outcome = signal('');
+  protected readonly problem = signal('');
+  protected readonly titleLimit = TITLE_LIMIT;
+
+  protected readonly canAdd = computed(
+    () => !this.busy() && this.selectedShown().length > 0 && (!!this.target() || !!this.newTitle().trim()),
+  );
+
+  protected canCollect(work: Bookmark): boolean {
+    return canCollect(work);
+  }
+
+  protected isSelected(work: Bookmark): boolean {
+    return this.selected().has(keyOf(work));
+  }
+
+  protected toggleSelected(work: Bookmark): void {
+    const picked = new Set(this.selected());
+    const key = keyOf(work);
+    if (picked.has(key)) picked.delete(key);
+    else picked.add(key);
+    this.selected.set(picked);
+  }
+
+  /** every work the filters show, across every page - or none, when they all are already */
+  protected toggleAllShown(): void {
+    if (this.allShownSelected()) {
+      this.selected.set(new Set());
+      return;
+    }
+    this.selected.set(new Set([...this.selected(), ...this.selectableShown().map(keyOf)]));
+  }
+
+  protected clearSelection(): void {
+    this.selected.set(new Set());
+  }
+
+  protected openAdd(): void {
+    this.outcome.set('');
+    this.problem.set('');
+    // straight to a new collection when there is nothing else to add to
+    if (!this.targets().some((c) => c.name === this.target())) this.target.set('');
+    this.adding.set(true);
+  }
+
+  protected async addSelected(): Promise<void> {
+    if (!this.canAdd()) return;
+    const items = itemsOf(this.selectedShown());
+    await this.act(async () => {
+      const target = this.target();
+      const saved = target
+        ? await this.custom.add(target, items)
+        : await this.custom.create(this.newTitle(), items);
+      this.newTitle.set('');
+      this.target.set(saved.name ?? '');
+      this.adding.set(false);
+      return `Added ${countOf(items)} to ${saved.title}.`;
+    });
+  }
+
+  protected async removeSelected(): Promise<void> {
+    const collection = this.removableFrom();
+    if (!collection?.name || this.busy() || this.selectedShown().length === 0) return;
+    const items = itemsOf(this.selectedShown());
+    await this.act(async () => {
+      await this.custom.remove(collection.name!, items);
+      return `Took ${countOf(items)} out of ${collection.title}.`;
+    });
+  }
+
+  private async act(change: () => Promise<string>): Promise<void> {
+    this.busy.set(true);
+    this.problem.set('');
+    this.outcome.set('');
+    try {
+      this.outcome.set(await change());
+      this.selected.set(new Set());
+    } catch (error) {
+      this.problem.set(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  // endregion
+
   protected clearFilters(): void {
     this.titleQuery.set('');
     this.authorQuery.set('');
@@ -326,4 +457,17 @@ export class WorkList {
       },
     );
   }
+}
+
+/** a work and an external work can share a number, so the kind is part of the key */
+function keyOf(work: Bookmark): string {
+  return `${bookmarkTypeOf(work)}:${work.id}`;
+}
+
+/** '1 work', '3 works', '2 works and 1 external work' */
+function countOf(items: { works: string[]; externals: string[] }): string {
+  const say = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? '' : 's'}`;
+  if (!items.externals.length) return say(items.works.length, 'work');
+  if (!items.works.length) return say(items.externals.length, 'external work');
+  return `${say(items.works.length, 'work')} and ${say(items.externals.length, 'external work')}`;
 }

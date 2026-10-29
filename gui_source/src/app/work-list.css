@@ -612,3 +612,128 @@
   color: var(--text-strong);
 }
 
+
+/* picking works for a collection of your own */
+.selection {
+  margin: 12px 0 4px;
+}
+
+.selection-bar,
+.add-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.selection-count {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.selection .button {
+  padding: 5px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.selection .button.primary {
+  border-color: #5a7f9a;
+  background: #33566b;
+}
+
+.selection .button.danger {
+  border-color: #6b4a4a;
+  background: #3a2424;
+}
+
+.selection .button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.add-panel {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.add-panel fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.add-panel legend {
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.add-panel .choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.add-panel .dim,
+.add-panel .hint {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.add-panel .new-title {
+  max-width: 320px;
+  margin-left: 22px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text-strong);
+  font: inherit;
+}
+
+.add-panel .hint {
+  margin: 8px 0;
+}
+
+.custom-mark {
+  color: #e2b45a;
+}
+
+.selection-outcome {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+}
+
+/* the tick sits in the blurb's corner, out of the way of the title */
+.blurb.selectable {
+  padding-left: 38px;
+}
+
+.blurb .pick {
+  position: absolute;
+  top: 14px;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.blurb.ticked {
+  border-color: #5a7f9a;
+}

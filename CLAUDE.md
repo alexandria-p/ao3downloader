@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1643 python passed; 625 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1644 python passed; 642 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1825,6 +1825,36 @@ and entries parsed have a real total and fill the bar. Progress is set through t
 own generation check, so switching library mid-read never leaves the old read's bar up, and
 it is cleared once the library is on screen. A local folder is read in the page itself,
 fast enough to need only the plain notice.
+
+### Custom collections are the page's, and the helper never sees them
+
+`custom-collections.ts` (`CustomCollections`) lets works ticked in any listing be put in a
+collection made in the page. What not to break:
+
+- **They live in `collections/custom/`, a folder inside `collections/`.** Every helper read
+  of `collections/` (`collection_links`, `indexed_work_ids`) lists that folder's own files
+  only (`list_files`, non-recursive), so a custom collection is never linked into
+  `from_collections`, never makes the new-bookmarks walk doubt a work, and can never be
+  overwritten by a collection run. The page reads the whole folder and routes by shape, so
+  it finds them. `test_a_collection_made_in_the_page_is_never_read_as_one_from_ao3` holds the
+  helper side. Don't move them up a level.
+- **`custom: true` says so, rather than a missing link.** An older ao3 file can lack `link`
+  too, and `collectionLink` builds one from its name; for a custom one it answers `''`.
+  `isCustomCollection` is the one test.
+- **Names can never collide with ao3's**: `custom-` and ten hex digits, and ao3 collection
+  names have no hyphen. The name is the file name, so retitling would move nothing.
+- **An ao3 collection is never changed**: `CustomCollections.add`/`remove` refuse one
+  whatever asked, the add panel lists custom collections only (`targets`), and Remove is
+  offered only inside a custom one (`removableFrom`). What ao3 says a collection holds is
+  ao3's, and the next collection run would put it back anyway.
+- **Ticking acts on what the filters show** (`selectedShown`), so nothing hidden is added or
+  removed unseen; the ticks reset when the listing's works change (`selected` is a
+  `linkedSignal` on `works`). Series cannot be ticked (`canCollect`): a collection holds works,
+  and a works id and an external work's are kept apart (`keyOf`, `itemsOf`).
+- **Only where the page can write** (`CustomCollections.writable`, `Library.store`): a folder
+  handed over as a file list, by a browser without a folder picker, offers no ticking.
+- A save updates `Library.collections` directly with what was written, flattened the way a
+  read would, rather than rereading the library.
 
 ### Bookmarks vs collections are told apart by shape
 

@@ -141,12 +141,85 @@
   </p>
 </details>
 
+<!--
+  picking works for a collection of your own. what is ticked is what the filters still show, so
+  narrowing the listing narrows what an action touches, and nothing hidden changes unseen
+-->
+@if (canSelect()) {
+  <div class="selection" role="region" aria-label="Selected works">
+    <p class="selection-bar">
+      <button type="button" class="button subtle" (click)="toggleAllShown()">
+        {{ allShownSelected() ? 'Untick all' : 'Tick all ' + (total() | number) + (filtering() ? ' shown' : '') }}
+      </button>
+      <span class="selection-count">{{ selectedShown().length | number }} ticked</span>
+      @if (selectedShown().length) {
+        <button type="button" class="button subtle" (click)="clearSelection()">Clear</button>
+        <button type="button" class="button primary" [disabled]="busy()" (click)="openAdd()">
+          Add to a collection...
+        </button>
+        @if (removableFrom(); as from) {
+          <button type="button" class="button danger" [disabled]="busy()" (click)="removeSelected()">
+            Remove from this collection
+          </button>
+        }
+      }
+    </p>
+
+    @if (adding() && selectedShown().length) {
+      <div class="add-panel">
+        <fieldset>
+          <legend>Add {{ selectedShown().length | number }} ticked to</legend>
+          @for (collection of targets(); track collection.name) {
+            <label class="choice">
+              <input type="radio" name="addTarget" [value]="collection.name"
+                [checked]="target() === collection.name" (change)="target.set(collection.name ?? '')" />
+              <span class="custom-mark" aria-hidden="true">&#9733;</span>
+              {{ collection.title }}
+              <span class="dim">({{ collection.work_ids.length + collection.external_ids.length | number }})</span>
+            </label>
+          }
+          <label class="choice">
+            <input type="radio" name="addTarget" value="" [checked]="target() === ''" (change)="target.set('')" />
+            A new collection
+          </label>
+          @if (target() === '') {
+            <input class="new-title" type="text" name="newTitle" placeholder="Name it" [maxLength]="titleLimit"
+              [value]="newTitle()" (input)="newTitle.set($any($event.target).value)" />
+          }
+        </fieldset>
+        <p class="hint">
+          Only your own collections are listed. Collections from AO3 show what AO3 says they
+          hold, so nothing is added to them here.
+        </p>
+        <p class="add-actions">
+          <button type="button" class="button subtle" (click)="adding.set(false)">Cancel</button>
+          <button type="button" class="button primary" [disabled]="!canAdd()" (click)="addSelected()">
+            {{ busy() ? 'Saving...' : 'Add' }}
+          </button>
+        </p>
+      </div>
+    }
+
+    @if (outcome()) {
+      <p class="selection-outcome" role="status">{{ outcome() }}</p>
+    }
+    @if (problem()) {
+      <p class="error" role="alert">Not saved: {{ problem() }}</p>
+    }
+  </div>
+}
+
 <ng-container *ngTemplateOutlet="pager"></ng-container>
 
 <ol class="index">
   @for (work of pageWorks(); track $index) {
     <li class="blurb" [class.series]="typeOf(work) === 'series bookmark'"
-        [class.external]="typeOf(work) === 'external work'">
+        [class.external]="typeOf(work) === 'external work'"
+        [class.selectable]="canSelect()" [class.ticked]="canSelect() && isSelected(work)">
+      @if (canSelect() && canCollect(work)) {
+        <input class="pick" type="checkbox" [checked]="isSelected(work)"
+          [attr.aria-label]="'Tick ' + work.title" (change)="toggleSelected(work)" />
+      }
       @if (work.error) {
         <p class="error">This bookmark could not be read from the listing page.</p>
       } @else if (work.placeholder) {

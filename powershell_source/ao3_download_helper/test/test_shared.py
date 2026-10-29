@@ -486,6 +486,28 @@ def test_a_collection_file_is_not_an_index_entry_either(tmp_path):
     assert shared.indexed_work_ids(with_folder(tmp_path)) == set()
 
 
+def test_a_collection_made_in_the_page_is_never_read_as_one_from_ao3(tmp_path):
+    # the page keeps the collections people make themselves in collections/custom, and every
+    # helper read of collections/ lists that folder's own files only - so a work in a custom
+    # collection is not held back as doubtful, and no run links it into from_collections
+    collections = tmp_path / strings.COLLECTIONS_FOLDER_NAME
+    (collections / 'custom').mkdir(parents=True)
+    (collections / 'yuletide.json').write_text(
+        json.dumps({'name': 'yuletide', 'title': 'Yuletide', 'work_ids': ['111']}), encoding='utf-8')
+    (collections / 'custom' / 'custom-ab12.json').write_text(
+        json.dumps({'name': 'custom-ab12', 'custom': True, 'title': 'Mine', 'work_ids': ['222']}), encoding='utf-8')
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '111 In Yuletide - Cal.json'))
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '222 Mine - Cal.json'))
+    fileops = with_folder(tmp_path)
+    fileops.load_json.side_effect = lambda path: json.loads(
+        (tmp_path / path).read_text(encoding='utf-8')) if (tmp_path / path).is_file() else {}
+
+    known = shared.indexed_work_ids(fileops)
+
+    assert '111' in known.doubtful
+    assert '222' not in known.doubtful
+
+
 def test_a_file_in_the_index_folder_that_is_not_json_is_ignored(tmp_path):
     make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '111 stray.html'))
     make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '222 real - Cal.json'))

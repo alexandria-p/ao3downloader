@@ -1,0 +1,283 @@
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { CustomCollections, CUSTOM_COLLECTIONS_FOLDER, canCollect, itemsOf } from './custom-collections';
+import { Collection, collectionLink, flattenCollection, isCollectionRecord, isCustomCollection } from './collections';
+import { Bookmark } from './bookmarks';
+import { CollectionsView } from './collections-view';
+import { Library } from './library';
+import { LibraryStore } from './library-store';
+import { WorkList } from './work-list';
+
+/**
+ * Collections of your own: works ticked in the listing, grouped under a name, saved in the
+ * library beside the collections read from ao3 - and never mixed up with them.
+ */
+
+function work(id: string, type?: Bookmark['bookmark_type']): Bookmark {
+  return {
+    id,
+    bookmark_type: type,
+    link: `https://archiveofourown.org/works/${id}`,
+    title: `Work ${id}`,
+    authors: ['Writer'],
+    date_created: null,
+    date_updated: '01 Jan 2020',
+    fandoms: [],
+    warnings: [],
+    tags: { rating: '', categories: [], relationships: [], characters: [], additional: [] },
+    summary: '',
+    words: null,
+    chapters_published: 1,
+    chapters_total: 1,
+    comments: null,
+    kudos: null,
+    bookmarks: null,
+    hits: null,
+    date_bookmarked: '',
+    bookmark_notes: '',
+    bookmark_tags: [],
+    bookmark_collections: [],
+    bookmark_private: false,
+    bookmark_rec: false,
+  } as Bookmark;
+}
+
+/** a library in memory: what is written can be read back */
+class MemoryStore implements LibraryStore {
+  readonly label = 'memory';
+  readonly files = new Map<string, string>();
+  async check() {}
+  async list() {
+    return [...this.files.keys()];
+  }
+  async read(path: string) {
+    return this.files.get(path) ?? null;
+  }
+  async write(path: string, body: Response) {
+    const text = await body.text();
+    this.files.set(path, text);
+    return text.length;
+  }
+  async size(path: string) {
+    return this.files.get(path)?.length ?? null;
+  }
+  async delete(path: string) {
+    this.files.delete(path);
+  }
+  async rename() {}
+  async mkdir() {}
+}
+
+const AO3_COLLECTION = flattenCollection({
+  name: 'yuletide2024',
+  title: 'Yuletide 2024',
+  link: 'https://archiveofourown.org/collections/yuletide2024',
+  work_ids: ['1'],
+  bookmark_ids: [],
+})!;
+
+let library: Library;
+let store: MemoryStore;
+let custom: CustomCollections;
+
+function written(name: string): Record<string, unknown> {
+  return JSON.parse(store.files.get(`${CUSTOM_COLLECTIONS_FOLDER}/${name}.json`)!);
+}
+
+beforeEach(() => {
+  library = TestBed.inject(Library);
+  store = new MemoryStore();
+  library.store.set(store);
+  library.collections.set([AO3_COLLECTION]);
+  library.worksById.set(new Map(['1', '2', '3'].map((id) => [id, work(id)])));
+  custom = TestBed.inject(CustomCollections);
+});
+
+describe('telling a custom collection from one off ao3', () => {
+  it('says so in the file, and a collection with no such flag is ao3s', () => {
+    expect(isCustomCollection(AO3_COLLECTION)).toBe(false);
+    expect(isCustomCollection(flattenCollection({ name: 'custom-1', custom: true, work_ids: [] })!)).toBe(true);
+  });
+
+  it('never links a custom collection to ao3, even with no link of its own', () => {
+    const mine = flattenCollection({ name: 'custom-1', custom: true, link: null, work_ids: [] })!;
+    expect(collectionLink(mine)).toBe('');
+    // an older ao3 file with no link still gets its ao3 address
+    expect(collectionLink(flattenCollection({ name: 'old', work_ids: [] })!)).toContain('/collections/old');
+  });
+});
+
+describe('CustomCollections', () => {
+  it('makes a collection in collections/custom, read back as a collection by its shape', async () => {
+    const made = await custom.create('  Comfort reads  ', { works: ['2', '1', '2'], externals: ['9'] });
+
+    expect(made.name).toMatch(/^custom-[0-9a-f]{10}$/);
+    const file = written(made.name!);
+    expect(file).toMatchObject({ custom: true, title: 'Comfort reads', work_ids: ['2', '1'], external_ids: ['9'] });
+    expect(isCollectionRecord(file)).toBe(true);
+    expect(library.collections().map((c) => c.title)).toEqual(['Comfort reads', 'Yuletide 2024']);
+  });
+
+  it('names a collection so it can never be an ao3 one, which have no hyphens', async () => {
+    const made = await custom.create('Yuletide 2024', { works: ['1'], externals: [] });
+    expect(made.name).not.toBe('yuletide2024');
+    expect(made.name).toContain('-');
+  });
+
+  it('adds to a custom collection, keeping what it held and its order', async () => {
+    const made = await custom.create('Mine', { works: ['1'], externals: [] });
+
+    await custom.add(made.name!, { works: ['3', '1', '2'], externals: [] });
+
+    expect(written(made.name!)['work_ids']).toEqual(['1', '3', '2']);
+  });
+
+  it('takes works out of a custom collection', async () => {
+    const made = await custom.create('Mine', { works: ['1', '2', '3'], externals: ['9'] });
+
+    await custom.remove(made.name!, { works: ['2'], externals: ['9'] });
+
+    expect(written(made.name!)).toMatchObject({ work_ids: ['1', '3'], external_ids: [] });
+  });
+
+  it('refuses to change a collection from ao3, and writes nothing', async () => {
+    await expect(custom.add('yuletide2024', { works: ['2'], externals: [] })).rejects.toThrow(/AO3/);
+    await expect(custom.remove('yuletide2024', { works: ['1'], externals: [] })).rejects.toThrow(/AO3/);
+    expect(store.files.size).toBe(0);
+  });
+
+  it('needs a name, and a library that can be written to', async () => {
+    await expect(custom.create('   ', { works: ['1'], externals: [] })).rejects.toThrow(/name/);
+    library.store.set(null);
+    expect(custom.writable()).toBe(false);
+    await expect(custom.create('Mine', { works: ['1'], externals: [] })).rejects.toThrow(/read/);
+  });
+
+  it('takes works and external works, and leaves series out', () => {
+    const entries = [work('1'), work('5', 'external work'), work('7', 'series bookmark')];
+    expect(entries.map(canCollect)).toEqual([true, true, false]);
+    expect(itemsOf(entries)).toEqual({ works: ['1'], externals: ['5'] });
+  });
+});
+
+describe('ticking works in the listing', () => {
+  let fixture: ComponentFixture<WorkList>;
+  let element: HTMLElement;
+
+  async function listing(works: Bookmark[], collection: Collection | null = null) {
+    fixture = TestBed.createComponent(WorkList);
+    fixture.componentRef.setInput('works', works);
+    fixture.componentRef.setInput('selectable', true);
+    fixture.componentRef.setInput('collection', collection);
+    await settle();
+    element = fixture.nativeElement as HTMLElement;
+  }
+
+  async function settle() {
+    for (let i = 0; i < 3; i++) {
+      await fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  }
+
+  function button(text: string): HTMLButtonElement {
+    return [...element.querySelectorAll('button')].find((b) => b.textContent?.includes(text))!;
+  }
+
+  async function tick(at: number) {
+    const boxes = element.querySelectorAll<HTMLInputElement>('input.pick');
+    boxes[at].dispatchEvent(new Event('change'));
+    await settle();
+  }
+
+  it('offers no ticking in a library that can only be read', async () => {
+    library.store.set(null);
+    await listing([work('1')]);
+    expect(element.querySelector('input.pick')).toBeNull();
+    expect(element.querySelector('.selection')).toBeNull();
+  });
+
+  it('puts ticked works in a new collection of your own', async () => {
+    await listing([work('1'), work('2'), work('3')]);
+    await tick(0);
+    await tick(2);
+
+    button('Add to a collection').click();
+    await settle();
+    const title = element.querySelector<HTMLInputElement>('input[name="newTitle"]')!;
+    title.value = 'Favourites';
+    title.dispatchEvent(new Event('input'));
+    await settle();
+    [...element.querySelectorAll('.add-panel button')].find((b) => b.textContent?.trim() === 'Add')!
+      .dispatchEvent(new MouseEvent('click'));
+    await settle();
+
+    const made = custom.all().find((c) => c.title === 'Favourites')!;
+    expect(made.work_ids).toEqual(['1', '3']);
+    expect(element.textContent).toContain('Added 2 works to Favourites.');
+    expect(element.querySelectorAll('input.pick:checked').length).toBe(0);
+  });
+
+  it('offers only your own collections to add to, never one from ao3', async () => {
+    await custom.create('Mine', { works: [], externals: [] });
+    await listing([work('1')]);
+    await tick(0);
+
+    button('Add to a collection').click();
+    await settle();
+
+    const offered = [...element.querySelectorAll('.add-panel .choice')].map((c) => c.textContent);
+    expect(offered.some((text) => text?.includes('Mine'))).toBe(true);
+    expect(offered.some((text) => text?.includes('Yuletide'))).toBe(false);
+  });
+
+  it('ticks everything the filters show, across pages', async () => {
+    await listing(Array.from({ length: 25 }, (_, i) => work(String(i + 1))));
+
+    button('Tick all').click();
+    await settle();
+
+    expect(element.textContent).toContain('25 ticked');
+  });
+
+  it('gives a series no box to tick', async () => {
+    await listing([work('1'), work('7', 'series bookmark')]);
+    expect(element.querySelectorAll('input.pick').length).toBe(1);
+  });
+
+  it('takes ticked works out of the custom collection being shown', async () => {
+    const made = await custom.create('Mine', { works: ['1', '2'], externals: [] });
+    await listing([work('1'), work('2')], made);
+    await tick(1);
+
+    button('Remove from this collection').click();
+    await settle();
+
+    expect(written(made.name!)['work_ids']).toEqual(['1']);
+    expect(element.textContent).toContain('Took 1 work out of Mine.');
+  });
+
+  it('offers no removing inside a collection from ao3', async () => {
+    await listing([work('1')], AO3_COLLECTION);
+    await tick(0);
+    expect(button('Remove from this collection')).toBeUndefined();
+  });
+});
+
+describe('the collections page', () => {
+  it('marks a custom collection with a star and its own badge, and an ao3 one without', async () => {
+    await custom.create('Mine', { works: ['1'], externals: [] });
+    const fixture = TestBed.createComponent(CollectionsView);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+
+    const cards = [...element.querySelectorAll('li.collection')];
+    const mine = cards.find((c) => c.textContent?.includes('Mine'))!;
+    const ao3 = cards.find((c) => c.textContent?.includes('Yuletide'))!;
+    expect(mine.classList).toContain('custom');
+    expect(mine.querySelector('.custom-mark')).not.toBeNull();
+    expect(mine.textContent).toContain('Your collection');
+    expect(ao3.querySelector('.custom-mark')).toBeNull();
+  });
+});

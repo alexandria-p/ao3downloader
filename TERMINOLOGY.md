@@ -13,6 +13,8 @@ the same thing in conversation.
 - **Series bookmark** [bookmarked series] - a bookmark of a whole series rather than one of its works.
 - **External work** - a bookmark of a work hosted somewhere other than AO3; indexed, never downloaded.
 - **Collection** - an AO3 collection; indexed as a list of the works it holds, and optionally the works themselves.
+- **Custom collection** [your collection, in-app collection] - a collection made in the page rather than read from AO3: works ticked in a listing and added with **Add to a collection** (`custom-collections.ts`, `CustomCollections`). Its file is `collections/custom/<name>.json` with `"custom": true` (`isCustomCollection`), named `custom-` and ten hex digits. Holds works and external works, never series. Only custom collections can be added to or have works removed (**Remove from this collection**); shown with a gold star and a **Your collection** badge. The helper never reads them.
+- **Ticking works** [multi-select, selection] - the checkboxes on each blurb in a listing, when the library can be written to. **Tick all** ticks everything the filters show, on every page; an action acts only on ticked works the filters still show.
 
 ## Index properties
 

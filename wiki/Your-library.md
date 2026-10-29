@@ -55,4 +55,6 @@ Each fic's JSON keeps a history: a new reading is added only when something chan
 
 A collection's file records what it holds, by number: `work_ids`, `bookmark_ids`, `external_ids` (external works have their own numbering) and `series_ids`. Opening a collection in the page shows the works you have indexed in full, and the rest by number with a link to AO3.
 
+**Your own collections.** Tick works in any listing, then **Add to a collection** to put them in a new collection or one of yours; inside one of yours, **Remove from this collection** takes them out. They have a gold star and a **Your collection** badge, and live in `collections/custom/` with `"custom": true`. Collections from AO3 can't be changed. Ticking needs a library the page can save to: a folder opened in Chrome or Edge, or Dropbox.
+
 Re-indexing a collection whose counts haven't changed costs two requests, not hundreds. The one thing that misses is a work added and another removed between runs - delete the collection's JSON to force a full read.
