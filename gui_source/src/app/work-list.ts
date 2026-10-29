@@ -1,8 +1,9 @@
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
-import { Library, LocalCopy, OpenableFormat } from './library';
+import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, viewableInBrowser } from './library';
 import { Collection, isCustomCollection } from './collections';
-import { CustomCollections, TITLE_LIMIT, canCollect, itemsOf } from './custom-collections';
+import { CollectionItems, CustomCollections, canCollect, itemsOf } from './custom-collections';
+import { CollectionEditor } from './collection-editor';
 import {
   Bookmark,
   BookmarkType,
@@ -22,7 +23,21 @@ import {
 const PER_PAGE = 20;
 
 /** the orderings the filter panel offers; '' is the order the folder was read in */
-export type WorkSort = '' | 'created-desc' | 'created-asc' | 'bookmarked-desc' | 'bookmarked-asc';
+export type WorkSort =
+  | ''
+  | 'created-desc'
+  | 'created-asc'
+  | 'bookmarked-desc'
+  | 'bookmarked-asc'
+  | 'updated-desc'
+  | 'updated-asc';
+
+/** the date each sort orders by */
+function sortField(sort: WorkSort): 'date_created' | 'date_bookmarked' | 'date_updated' {
+  if (sort.startsWith('created')) return 'date_created';
+  if (sort.startsWith('updated')) return 'date_updated';
+  return 'date_bookmarked';
+}
 
 /**
  * How the works are listed until someone asks otherwise: most recently bookmarked first,
@@ -39,7 +54,7 @@ export const DEFAULT_SORT: WorkSort = 'bookmarked-desc';
  */
 @Component({
   selector: 'app-work-list',
-  imports: [DecimalPipe, NgTemplateOutlet],
+  imports: [DecimalPipe, NgTemplateOutlet, CollectionEditor],
   styleUrl: './work-list.css',
   templateUrl: './work-list.html',
 })
@@ -62,7 +77,7 @@ export class WorkList {
   private readonly custom = inject(CustomCollections);
 
   protected readonly htmlFiles = this.library.htmlFiles;
-  protected readonly pdfFiles = this.library.pdfFiles;
+  private readonly copies = this.library.copies;
 
   // What to narrow the listing to. All four are 'no opinion' when empty, so an untouched
   // panel shows everything - the filters are for finding something, not for hiding things
@@ -167,7 +182,7 @@ export class WorkList {
     const works = this.filtered();
     if (!sort) return works;
 
-    const field = sort.startsWith('created') ? 'date_created' : 'date_bookmarked';
+    const field = sortField(sort);
     const ascending = sort.endsWith('asc');
     return works
       .map((work, at) => ({ work, at, stamp: dateStamp(work[field] ?? '') }))
@@ -195,7 +210,7 @@ export class WorkList {
     // the default is not something anyone chose, so it is not worth a note that it does
     // nothing - a collection of works you never bookmarked has no bookmark dates at all
     if (!sort || sort === DEFAULT_SORT) return false;
-    const field = sort.startsWith('created') ? 'date_created' : 'date_bookmarked';
+    const field = sortField(sort);
     return this.filtered().length > 0 &&
       !this.filtered().some((work) => dateStamp(work[field] ?? ''));
   });
@@ -260,16 +275,19 @@ export class WorkList {
   );
 
   protected readonly adding = signal(false);
-  /** the custom collection to add to, by name - or '' for a new one */
+  /** the custom collection to add to, by name - '' until one is chosen */
   protected readonly target = signal('');
-  protected readonly newTitle = signal('');
+  /**
+   * The works a new collection is being made for, while its window is open. Taken when the
+   * window opens, so what it starts with is what was ticked then; null when it is shut.
+   */
+  protected readonly creatingWith = signal<CollectionItems | null>(null);
   protected readonly busy = signal(false);
   protected readonly outcome = signal('');
   protected readonly problem = signal('');
-  protected readonly titleLimit = TITLE_LIMIT;
 
   protected readonly canAdd = computed(
-    () => !this.busy() && this.selectedShown().length > 0 && (!!this.target() || !!this.newTitle().trim()),
+    () => !this.busy() && this.selectedShown().length > 0 && !!this.target(),
   );
 
   protected canCollect(work: Bookmark): boolean {
@@ -304,23 +322,53 @@ export class WorkList {
   protected openAdd(): void {
     this.outcome.set('');
     this.problem.set('');
-    // straight to a new collection when there is nothing else to add to
-    if (!this.targets().some((c) => c.name === this.target())) this.target.set('');
+    // the last one added to stays chosen; otherwise the first, so Add is never waiting on a click
+    if (!this.targets().some((c) => c.name === this.target())) this.target.set(this.targets()[0]?.name ?? '');
+    // with none of your own to add to, the only answer is a new one - so ask that straight away
+    if (this.targets().length === 0) {
+      this.newCollection();
+      return;
+    }
     this.adding.set(true);
+  }
+
+  /** open the new-collection window, to start with what is ticked */
+  protected newCollection(): void {
+    this.outcome.set('');
+    this.problem.set('');
+    this.creatingWith.set(itemsOf(this.selectedShown()));
+  }
+
+  /** the new collection was made, with the ticked works already in it */
+  protected collectionCreated(collection: Collection): void {
+    const items = this.creatingWith() ?? { works: [], externals: [] };
+    this.creatingWith.set(null);
+    this.adding.set(false);
+    this.target.set(collection.name ?? '');
+    this.selected.set(new Set());
+    this.outcome.set(`Made ${collection.title}, with ${countOf(items)} in it.`);
+  }
+
+  /**
+   * Closed without saving: no collection was made, and nothing else changes - the works stay
+   * ticked and the add panel stays as it was, so the person can pick another way.
+   */
+  protected collectionCancelled(): void {
+    this.creatingWith.set(null);
   }
 
   protected async addSelected(): Promise<void> {
     if (!this.canAdd()) return;
     const items = itemsOf(this.selectedShown());
     await this.act(async () => {
-      const target = this.target();
-      const saved = target
-        ? await this.custom.add(target, items)
-        : await this.custom.create(this.newTitle(), items);
-      this.newTitle.set('');
-      this.target.set(saved.name ?? '');
+      const { collection, added, already } = await this.custom.add(this.target(), items);
       this.adding.set(false);
-      return `Added ${countOf(items)} to ${saved.title}.`;
+      const count = added.works.length + added.externals.length;
+      // a work is in a collection once: those already there are said, not added again
+      const skipped = already ? ` ${already.toLocaleString()} ${already === 1 ? 'was' : 'were'} already in it.` : '';
+      return count
+        ? `Added ${countOf(added)} to ${collection.title}.${skipped}`
+        : `Everything ticked was already in ${collection.title}.`;
     });
   }
 
@@ -421,16 +469,46 @@ export class WorkList {
     if (work.link) window.open(work.link, '_blank', 'noopener');
   }
 
-  /** whether this folder holds a downloaded PDF of the work */
-  protected hasPdf(work: Bookmark): boolean {
-    return isWorkEntry(work) && !!work.id && this.pdfFiles().has(work.id);
+  /**
+   * The formats this folder holds a downloaded copy of the work in, besides the html its title
+   * opens - each one a button beside the title. A series' or an external work's id is not a
+   * work number, so they never get one.
+   */
+  protected formatsOf(work: Bookmark): OpenableFormat[] {
+    if (!isWorkEntry(work) || !work.id) return [];
+    const copies = this.copies();
+    return OPENABLE_FORMATS.filter((format) => format !== 'html' && copies[format].has(work.id!));
   }
 
-  /** Open the work's newest downloaded PDF in a new tab. */
-  protected openPdf(work: Bookmark, event: Event): void {
+  protected readonly viewable = viewableInBrowser;
+
+  /**
+   * Open the work's newest copy in that format: in a new tab where a browser can show it (a
+   * pdf), and otherwise saved under its own name, for an e-reader - no browser shows an epub,
+   * mobi or azw3, and a tab handed one only saves it under a made-up name.
+   */
+  protected openFormat(work: Bookmark, format: OpenableFormat, event: Event): void {
     event.preventDefault();
-    const copy = isWorkEntry(work) && work.id ? this.pdfFiles().get(work.id) : undefined;
-    if (copy) this.openCopy(copy, 'pdf', null);
+    const copy = isWorkEntry(work) && work.id ? this.copies()[format].get(work.id) : undefined;
+    if (!copy) return;
+    if (viewableInBrowser(format)) this.openCopy(copy, format, null);
+    else this.saveCopy(copy, format);
+  }
+
+  private saveCopy(copy: LocalCopy, format: OpenableFormat): void {
+    void this.library.readCopy(copy, format).then(
+      (blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = copyName(copy);
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      },
+      () => {
+        // the file has gone since the folder was read; the button stays, nothing is saved
+      },
+    );
   }
 
   /**

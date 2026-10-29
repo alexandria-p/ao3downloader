@@ -12,11 +12,48 @@
       {{ collection.title }}
     </h2>
     <p class="flags"><span class="badge custom">Your collection</span></p>
+    @if (writable()) {
+      <p class="head-actions">
+        <button type="button" class="button" (click)="editing.set(collection)">Edit collection</button>
+      </p>
+    }
   </header>
+
+  @if (collection.description) {
+    <blockquote class="summary">
+      @for (line of paragraphs(collection.description); track $index) {
+        <p>{{ line }}</p>
+      }
+    </blockquote>
+  }
+
+  @if (collection.tags.length) {
+    <ul class="tags">
+      @for (tag of collection.tags; track tag) {
+        <li><span class="tag">{{ tag }}</span></li>
+      }
+    </ul>
+  }
 
   <dl class="facts">
     <dt>Made in</dt>
     <dd>this app - it is not on AO3</dd>
+    @if (collection.maintainers.length) {
+      <dt>Maintainers</dt>
+      <dd>{{ collection.maintainers.join(', ') }}</dd>
+    }
+    @if (collection.challenge_type && collection.challenge_type !== 'No Challenge') {
+      <dt>Challenge</dt>
+      <dd>{{ collection.challenge_type }}</dd>
+    }
+    @if (badges(collection).length) {
+      <dt>Shown as</dt>
+      <dd>{{ badges(collection).join(', ') }}</dd>
+    }
+    @if (collection.active_since) {
+      <dt>Active since</dt>
+      <dd>{{ collection.active_since }}</dd>
+    }
     @if (collection.created) {
       <dt>Created</dt>
       <dd>{{ collection.created }}</dd>
@@ -166,9 +203,14 @@
   }
 } @else {
   <!-- the listing of collections -->
-  <p class="listing-heading">
-    {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
-  </p>
+  <div class="listing-top">
+    <p class="listing-heading">
+      {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
+    </p>
+    @if (writable()) {
+      <button type="button" class="button primary" (click)="editing.set('new')">+ New collection</button>
+    }
+  </div>
 
   <ol class="collections">
     @for (collection of visible(); track collection.name) {
@@ -263,4 +305,9 @@
       </button>
     </nav>
   }
+}
+
+@if (editing()) {
+  <app-collection-editor [collection]="editorCollection()" (saved)="editorSaved($event)"
+                         (cancelled)="editing.set(null)" />
 }

@@ -589,8 +589,8 @@
 
 /* endregion */
 
-/* the button that opens a work's downloaded PDF, beside its title */
-.pdf {
+/* the buttons that open or save a work's downloaded copies, beside its title */
+.format {
   display: inline-flex;
   gap: 3px;
   align-items: center;
@@ -607,7 +607,7 @@
   cursor: pointer;
 }
 
-.pdf:hover {
+.format:hover {
   border-color: var(--accent);
   color: var(--text-strong);
 }
@@ -695,15 +695,8 @@
   font-size: 0.78rem;
 }
 
-.add-panel .new-title {
-  max-width: 320px;
-  margin-left: 22px;
-  padding: 5px 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: 3px;
-  background: var(--bg);
-  color: var(--text-strong);
-  font: inherit;
+.add-new {
+  margin: 8px 0 0;
 }
 
 .add-panel .hint {

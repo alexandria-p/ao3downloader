@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { CustomCollections, CUSTOM_COLLECTIONS_FOLDER, canCollect, itemsOf } from './custom-collections';
+import { CustomCollections, CUSTOM_COLLECTIONS_FOLDER, blankFields, canCollect, fieldsOf, itemsOf } from './custom-collections';
 import { Collection, collectionLink, flattenCollection, isCollectionRecord, isCustomCollection } from './collections';
 import { Bookmark } from './bookmarks';
 import { CollectionsView } from './collections-view';
@@ -132,6 +132,48 @@ describe('CustomCollections', () => {
     expect(written(made.name!)['work_ids']).toEqual(['1', '3', '2']);
   });
 
+  it('adds a work it already holds only once, by work number', async () => {
+    const made = await custom.create('Mine', { works: ['1', '2'], externals: ['9'] });
+
+    const result = await custom.add(made.name!, { works: ['2', '3', '3'], externals: ['9'] });
+
+    expect(written(made.name!)).toMatchObject({ work_ids: ['1', '2', '3'], external_ids: ['9'] });
+    expect(result.added).toEqual({ works: ['3'], externals: [] });
+    expect(result.already).toBe(2);
+  });
+
+  it('writes every field it is given, in ao3s own shape', async () => {
+    const made = await custom.create({
+      ...blankFields('Rec list'),
+      description: 'The best ones',
+      tags: [' fluff ', '', 'fluff', 'angst'],
+      maintainers: ['me'],
+      challenge_type: 'Gift Exchange',
+      moderated: true,
+      multifandom: true,
+    });
+
+    expect(written(made.name!)).toMatchObject({
+      title: 'Rec list',
+      description: 'The best ones',
+      tags: ['fluff', 'angst'],
+      maintainers: ['me'],
+      challenge_type: 'Gift Exchange',
+      moderated: true,
+      multifandom: true,
+      flags: ['Open', 'Moderated'],
+    });
+  });
+
+  it('changes what is said about a collection and leaves what it holds alone', async () => {
+    const made = await custom.create('Mine', { works: ['1', '2'], externals: [] });
+
+    await custom.update(made.name!, { ...fieldsOf(made), title: 'Renamed', tags: ['new'] });
+
+    expect(written(made.name!)).toMatchObject({ name: made.name, title: 'Renamed', tags: ['new'], work_ids: ['1', '2'] });
+    await expect(custom.update('yuletide2024', blankFields('x'))).rejects.toThrow(/AO3/);
+  });
+
   it('takes works out of a custom collection', async () => {
     const made = await custom.create('Mine', { works: ['1', '2', '3'], externals: ['9'] });
 
@@ -198,25 +240,75 @@ describe('ticking works in the listing', () => {
     expect(element.querySelector('.selection')).toBeNull();
   });
 
-  it('puts ticked works in a new collection of your own', async () => {
+  /** type into the collection window's name box and press its Create */
+  async function createInWindow(title: string) {
+    const name = element.querySelector<HTMLInputElement>('app-collection-editor input[name="title"]')!;
+    name.value = title;
+    name.dispatchEvent(new Event('input'));
+    await settle();
+    element.querySelector('app-collection-editor form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle();
+  }
+
+  it('asks for a new collection straight away when there is none of your own to add to', async () => {
     await listing([work('1'), work('2'), work('3')]);
     await tick(0);
     await tick(2);
 
     button('Add to a collection').click();
     await settle();
-    const title = element.querySelector<HTMLInputElement>('input[name="newTitle"]')!;
-    title.value = 'Favourites';
-    title.dispatchEvent(new Event('input'));
+
+    expect(element.querySelector('app-collection-editor')).not.toBeNull();
+    expect(element.querySelector('app-collection-editor')!.textContent).toContain('the 2 works you ticked');
+    await createInWindow('Favourites');
+
+    const made = custom.all().find((c) => c.title === 'Favourites')!;
+    expect(made.work_ids).toEqual(['1', '3']);
+    expect(element.querySelector('app-collection-editor')).toBeNull();
+    expect(element.textContent).toContain('Made Favourites, with 2 works in it.');
+    expect(element.querySelectorAll('input.pick:checked').length).toBe(0);
+  });
+
+  it('makes no collection and keeps the ticks when the new collection window is closed unsaved', async () => {
+    await custom.create('Mine', { works: [], externals: [] });
+    await listing([work('1'), work('2')]);
+    await tick(0);
+    await tick(1);
+    button('Add to a collection').click();
+    await settle();
+
+    button('A new collection').click();
+    await settle();
+    const name = element.querySelector<HTMLInputElement>('app-collection-editor input[name="title"]')!;
+    name.value = 'Never saved';
+    name.dispatchEvent(new Event('input'));
+    await settle();
+    // every way out: Escape here; Cancel, the cross and the backdrop go the same way
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+
+    expect(element.querySelector('app-collection-editor')).toBeNull();
+    expect(custom.all().map((c) => c.title)).toEqual(['Mine']);
+    expect([...store.files.keys()].length).toBe(1);
+    expect(element.querySelectorAll('input.pick:checked').length).toBe(2);
+    expect(element.querySelector('.add-panel')).not.toBeNull();
+  });
+
+  it('never adds a work twice, and says which were already there', async () => {
+    const made = await custom.create('Mine', { works: ['1'], externals: [] });
+    await listing([work('1'), work('2')]);
+    button('Tick all').click();
+    await settle();
+    button('Add to a collection').click();
+    await settle();
+    element.querySelector<HTMLInputElement>('.add-panel input[type="radio"]')!.dispatchEvent(new Event('change'));
     await settle();
     [...element.querySelectorAll('.add-panel button')].find((b) => b.textContent?.trim() === 'Add')!
       .dispatchEvent(new MouseEvent('click'));
     await settle();
 
-    const made = custom.all().find((c) => c.title === 'Favourites')!;
-    expect(made.work_ids).toEqual(['1', '3']);
-    expect(element.textContent).toContain('Added 2 works to Favourites.');
-    expect(element.querySelectorAll('input.pick:checked').length).toBe(0);
+    expect(written(made.name!)['work_ids']).toEqual(['1', '2']);
+    expect(element.textContent).toContain('Added 1 work to Mine. 1 was already in it.');
   });
 
   it('offers only your own collections to add to, never one from ao3', async () => {
@@ -279,5 +371,105 @@ describe('the collections page', () => {
     expect(mine.querySelector('.custom-mark')).not.toBeNull();
     expect(mine.textContent).toContain('Your collection');
     expect(ao3.querySelector('.custom-mark')).toBeNull();
+  });
+});
+
+describe('making and editing collections from the Collections tab', () => {
+  let fixture: ComponentFixture<CollectionsView>;
+  let element: HTMLElement;
+
+  async function settle() {
+    for (let i = 0; i < 3; i++) {
+      await fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  }
+
+  function button(text: string): HTMLButtonElement {
+    return [...element.querySelectorAll('button')].find((b) => b.textContent?.includes(text))!;
+  }
+
+  async function typeIn(name: string, value: string) {
+    const input = element.querySelector<HTMLInputElement | HTMLTextAreaElement>(`app-collection-editor [name="${name}"]`)!;
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+    await settle();
+  }
+
+  async function submit() {
+    element.querySelector('app-collection-editor form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    await settle();
+  }
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(CollectionsView);
+    element = fixture.nativeElement as HTMLElement;
+    await settle();
+  });
+
+  it('makes a new collection from its own button, and opens it', async () => {
+    button('New collection').click();
+    await settle();
+    const create = element.querySelector<HTMLButtonElement>('app-collection-editor button[type="submit"]')!;
+    expect(create.disabled).toBe(true);
+
+    await typeIn('title', 'To read');
+    await typeIn('description', 'Later');
+    await typeIn('tags', 'cosy, long');
+    await submit();
+
+    const made = custom.all()[0];
+    expect(written(made.name!)).toMatchObject({ title: 'To read', description: 'Later', tags: ['cosy', 'long'], work_ids: [] });
+    expect(element.querySelector('app-collection-editor')).toBeNull();
+    expect(element.querySelector('h2')?.textContent).toContain('To read');
+  });
+
+  it('makes nothing when the window is cancelled', async () => {
+    button('New collection').click();
+    await settle();
+    await typeIn('title', 'Nope');
+
+    button('Cancel').click();
+    await settle();
+
+    expect(custom.all()).toEqual([]);
+    expect(store.files.size).toBe(0);
+  });
+
+  it('offers no new collection where nothing can be saved', async () => {
+    library.store.set(null);
+    await settle();
+    expect(button('New collection')).toBeUndefined();
+  });
+
+  it('keeps it bare until every ao3 field is asked for, then edits them', async () => {
+    const made = await custom.create('Mine', { works: ['1'], externals: [] });
+    await settle();
+    button('Mine').click();
+    await settle();
+
+    button('Edit collection').click();
+    await settle();
+    expect(element.querySelector('app-collection-editor [name="maintainers"]')).toBeNull();
+    expect((element.querySelector<HTMLInputElement>('app-collection-editor [name="title"]'))!.value).toBe('Mine');
+
+    button('Show every field').click();
+    await settle();
+    await typeIn('maintainers', 'me, a friend');
+    const moderated = element.querySelector<HTMLInputElement>('app-collection-editor [name="moderated"]')!;
+    moderated.checked = true;
+    moderated.dispatchEvent(new Event('change'));
+    await settle();
+    await submit();
+
+    expect(written(made.name!)).toMatchObject({ maintainers: ['me', 'a friend'], moderated: true, work_ids: ['1'] });
+    expect(element.textContent).toContain('a friend');
+  });
+
+  it('offers no edit on a collection from ao3', async () => {
+    button('Yuletide 2024').click();
+    await settle();
+    expect(button('Edit collection')).toBeUndefined();
   });
 });

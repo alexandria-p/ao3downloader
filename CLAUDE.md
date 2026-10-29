@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1644 python passed; 642 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1644 python passed; 656 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1826,6 +1826,16 @@ own generation check, so switching library mid-read never leaves the old read's 
 it is cleared once the library is on screen. A local folder is read in the page itself,
 fast enough to need only the plain notice.
 
+### Every downloaded format has a button beside the title
+
+`Library.copies` holds each work's newest copy in **every** format ao3 offers (`OPENABLE`:
+html, pdf, epub, mobi, azw3), by the date in its name; `htmlFiles`/`pdfFiles` are computed views
+of it. The title opens the html; `formatsOf` puts one button per other format beside it, in that
+order. **Only html and pdf open in a tab** (`viewableInBrowser`): no browser shows an e-book, and
+a tab handed a blob of one only saves it under a made-up name - so `saveCopy` saves it under its
+own file name (`copyName`) for an e-reader. Specs set copies with `copies.update`, since a
+computed cannot be set.
+
 ### Custom collections are the page's, and the helper never sees them
 
 `custom-collections.ts` (`CustomCollections`) lets works ticked in any listing be put in a
@@ -1855,6 +1865,20 @@ collection made in the page. What not to break:
   handed over as a file list, by a browser without a folder picker, offers no ticking.
 - A save updates `Library.collections` directly with what was written, flattened the way a
   read would, rather than rereading the library.
+- **A work is in a custom collection once**, by its number. `add` filters out what the
+  collection holds already and answers `Added` (`added`, `already`), so the page can say how
+  many were already there; `documentOf` dedupes on every save, so a hand-edited file heals.
+- **One window makes and edits them** (`collection-editor.ts`), opened from **+ New
+  collection**, from **+ A new collection...** in the add panel (with the ticked works as
+  `items`), and from **Edit collection**. **Nothing is written until Create/Save**: Cancel,
+  the cross, Escape and the backdrop all emit `cancelled`, the opener drops its
+  `creatingWith`/`editing` and changes nothing else - so the works stay ticked and the add
+  panel stays open. Bare by default (name, description, tags); **Show every field** adds the
+  rest of what an ao3 collection records (`CollectionFields`), written in ao3's own shape by
+  `documentFields`, flags included, so a custom one renders exactly as an ao3 one does. Tags
+  and maintainers are kept as typed and split only on save, or the box would be rewritten
+  under the cursor. With no custom collection to add to, **Add to a collection** opens the
+  window straight away.
 
 ### Bookmarks vs collections are told apart by shape
 

@@ -2,6 +2,8 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { Library } from './library';
 import { WorkList } from './work-list';
+import { CollectionEditor } from './collection-editor';
+import { CustomCollections } from './custom-collections';
 import { Bookmark, pageItems, paragraphs, placeholderExternal, placeholderWork } from './bookmarks';
 import {
   Collection,
@@ -27,7 +29,7 @@ type Tab = 'works' | 'bookmarks';
  */
 @Component({
   selector: 'app-collections-view',
-  imports: [DecimalPipe, WorkList],
+  imports: [DecimalPipe, WorkList, CollectionEditor],
   styleUrl: './collections-view.css',
   templateUrl: './collections-view.html',
 })
@@ -35,6 +37,13 @@ export class CollectionsView {
   private readonly library = inject(Library);
 
   protected readonly collections = this.library.collections;
+  /** whether collections of your own can be made or changed: a library the page can write to */
+  protected readonly writable = inject(CustomCollections).writable;
+  /**
+   * The collection window, when it is open: 'new' to make one, or the custom collection
+   * being edited. Closing it without saving changes nothing.
+   */
+  protected readonly editing = signal<'new' | Collection | null>(null);
 
   /** the open collection, by ao3 name; null while the listing is showing */
   protected readonly openName = signal<string | null>(null);
@@ -139,6 +148,18 @@ export class CollectionsView {
     this.openName.set(collection.name);
     this.tab.set('works');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  protected editorCollection(): Collection | null {
+    const editing = this.editing();
+    return editing === 'new' ? null : editing;
+  }
+
+  /** a new one is opened at once, to put works in; an edit stays where it was */
+  protected editorSaved(collection: Collection): void {
+    const wasNew = this.editing() === 'new';
+    this.editing.set(null);
+    if (wasNew) this.show(collection);
   }
 
   protected back(): void {

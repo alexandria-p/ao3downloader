@@ -303,7 +303,9 @@ The helper exists because a web page cannot do this work itself. Ao3 sends no CO
 
 The page has four tabs. **Bookmarks** and **Collections** each carry the buttons that fill them; **History** lists what past runs did, read back from the `runs` folder inside your downloads folder - one json file per run, holding which button, the settings and file types it ran with, which fics it touched, and anything it could not get; **FAQ** covers what does and does not survive a download, how indexing works, and the file naming rule.
 
-The listing has a **Filter** panel above it, collapsed until you want it. You can narrow by title, by author, by when AO3 last updated the work, and by when you bookmarked it. Title and author are case-insensitive and match any part of the name; both date ranges count their end days, and either end can be left empty. Everything filled in has to match. You can also sort by date bookmarked or date created, newest or oldest first; works with no date for that field go last either way. Date created is usually empty, because it is only recorded by a per-fic lookup this app does not run, and the panel says so when a sort has nothing to work with. This reads what is already in your folder, so it costs no requests and works with the helper stopped - and the heading says `(filtered from N)` while a filter is on, so a short listing is never mistaken for a small library. A work whose date AO3 never recorded is left out of a date range, because there is nothing to compare it against. The same panel appears on the works inside a collection.
+The listing has a **Filter** panel above it, collapsed until you want it. You can narrow by title, by author, by when AO3 last updated the work, and by when you bookmarked it. Title and author are case-insensitive and match any part of the name; both date ranges count their end days, and either end can be left empty. Everything filled in has to match. You can also sort by date bookmarked, date updated on AO3 or date created, newest or oldest first; works with no date for that field go last either way. Date created is usually empty, because it is only recorded by a per-fic lookup this app does not run, and the panel says so when a sort has nothing to work with. This reads what is already in your folder, so it costs no requests and works with the helper stopped - and the heading says `(filtered from N)` while a filter is on, so a short listing is never mistaken for a small library. A work whose date AO3 never recorded is left out of a date range, because there is nothing to compare it against. The same panel appears on the works inside a collection.
+
+A work's title opens its downloaded html, or the work on AO3 when there is none. Beside the title is a button for each other format downloaded for it - **PDF**, **EPUB**, **MOBI**, **AZW3**. PDF opens in a new tab. A browser cannot show an e-book, so EPUB, MOBI and AZW3 are saved under their own file name instead, for your e-reader to open.
 
 The **Bookmarks** tab lists your indexed bookmarks and has:
 
@@ -627,11 +629,22 @@ The one case this cannot see is a collection that had one work added and another
 
 #### Your own collections
 
-Besides the collections indexed from AO3, you can make your own in the page. Tick works in any
-listing - your bookmarks, or the works in a collection - choose **Add to a collection**, and
-either name a new collection or pick one of yours. Inside one of your own, tick works and
-choose **Remove from this collection** to take them out. Your collections are marked with a
-gold star and a **Your collection** badge on the Collections tab.
+Besides the collections indexed from AO3, you can make your own in the page:
+
+- **+ New collection** on the Collections tab makes an empty one.
+- Tick works in any listing - your bookmarks, or the works in a collection - and choose
+  **Add to a collection**: pick one of yours, or **+ A new collection...** to make one that
+  starts with what you ticked. Closing that window without saving makes nothing, and your works
+  stay ticked.
+- A work is in a collection once. Adding it again leaves it where it is, and the page says how
+  many were already there.
+- Inside one of your own, tick works and choose **Remove from this collection** to take them
+  out, or **Edit collection** to change what it says about itself.
+
+The collection window asks for a name (required), a description and tags. **Show every field
+AO3 collections have** adds maintainers, the kind of challenge, Closed, Moderated, Unrevealed,
+Anonymous, Multifandom, and when it was created and active since. Your collections are marked
+with a gold star and a **Your collection** badge on the Collections tab.
 
 Only your own collections can be changed. A collection from AO3 shows what AO3 says it holds,
 so nothing is added to it or taken from it here, and it is never offered as a place to add to.
@@ -647,7 +660,17 @@ cannot clash). It is shaped like an AO3 collection file and says `"custom": true
   "link": null,
   "title": "Comfort reads",
   "description": "",
+  "tags": ["fluff"],
+  "maintainers": [],
+  "challenge_type": "No Challenge",
+  "closed": false,
+  "moderated": false,
+  "unrevealed": false,
+  "anonymous": false,
+  "multifandom": null,
+  "flags": ["Open", "Unmoderated"],
   "created": "2026-10-29",
+  "active_since": "",
   "work_ids": ["34816549", "99"],
   "bookmark_ids": [],
   "external_ids": [],

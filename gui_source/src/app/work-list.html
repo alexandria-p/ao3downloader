@@ -107,6 +107,8 @@
       >
         <option value="bookmarked-desc">Date bookmarked, newest first</option>
         <option value="bookmarked-asc">Date bookmarked, oldest first</option>
+        <option value="updated-desc">Date updated on AO3, newest first</option>
+        <option value="updated-asc">Date updated on AO3, oldest first</option>
         <option value="created-desc">Date created, newest first</option>
         <option value="created-asc">Date created, oldest first</option>
       </select>
@@ -178,15 +180,12 @@
               <span class="dim">({{ collection.work_ids.length + collection.external_ids.length | number }})</span>
             </label>
           }
-          <label class="choice">
-            <input type="radio" name="addTarget" value="" [checked]="target() === ''" (change)="target.set('')" />
-            A new collection
-          </label>
-          @if (target() === '') {
-            <input class="new-title" type="text" name="newTitle" placeholder="Name it" [maxLength]="titleLimit"
-              [value]="newTitle()" (input)="newTitle.set($any($event.target).value)" />
-          }
         </fieldset>
+        <p class="add-new">
+          <button type="button" class="button subtle" [disabled]="busy()" (click)="newCollection()">
+            + A new collection...
+          </button>
+        </p>
         <p class="hint">
           Only your own collections are listed. Collections from AO3 show what AO3 says they
           hold, so nothing is added to them here.
@@ -207,6 +206,10 @@
       <p class="error" role="alert">Not saved: {{ problem() }}</p>
     }
   </div>
+}
+
+@if (creatingWith(); as items) {
+  <app-collection-editor [items]="items" (saved)="collectionCreated($event)" (cancelled)="collectionCancelled()" />
 }
 
 <ng-container *ngTemplateOutlet="pager"></ng-container>
@@ -263,9 +266,7 @@
                   (click)="openWork(work, $event)"
                   >{{ work.title }}</a
                 >
-                @if (hasPdf(work)) {
-                  <ng-container *ngTemplateOutlet="pdfButton; context: { $implicit: work }"></ng-container>
-                }
+                <ng-container *ngTemplateOutlet="formatButtons; context: { $implicit: work }"></ng-container>
               } @else {
                 <!-- a series opens on ao3; an external work opens wherever it is hosted -->
                 <a
@@ -501,9 +502,7 @@
               (click)="openWork(part, $event)"
               >{{ part.title }}</a
             >
-            @if (hasPdf(part)) {
-              <ng-container *ngTemplateOutlet="pdfButton; context: { $implicit: part }"></ng-container>
-            }
+            <ng-container *ngTemplateOutlet="formatButtons; context: { $implicit: part }"></ng-container>
             @if (part.authors.length) {
               <span class="by">by</span> {{ part.authors.join(', ') }}
             }
@@ -525,19 +524,27 @@
 </ng-template>
 
 <!-- opens the work's newest downloaded PDF; only shown when there is one -->
-<ng-template #pdfButton let-work>
-  <button
-    type="button"
-    class="pdf"
-    [attr.aria-label]="'Open the downloaded PDF of ' + work.title"
-    title="Open the downloaded PDF in a new tab"
-    (click)="openPdf(work, $event)"
-  >
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <path d="M4 1h5l4 4v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none"
-            stroke="currentColor" stroke-width="1.2" />
-      <path d="M9 1v4h4" fill="none" stroke="currentColor" stroke-width="1.2" />
-    </svg>
-    PDF
-  </button>
+<!--
+  one button per downloaded format beside the title, which opens the html: a pdf opens in a
+  tab, and an e-book - which no browser shows - is saved under its own name for an e-reader
+-->
+<ng-template #formatButtons let-work>
+  @for (format of formatsOf(work); track format) {
+    <button
+      type="button"
+      class="format"
+      [class]="'format ' + format"
+      [attr.aria-label]="(viewable(format) ? 'Open' : 'Save') + ' the downloaded ' + format.toUpperCase() + ' of ' + work.title"
+      [title]="viewable(format) ? 'Open the downloaded ' + format.toUpperCase() + ' in a new tab'
+        : 'Save the downloaded ' + format.toUpperCase() + ' to open in your e-reader'"
+      (click)="openFormat(work, format, $event)"
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path d="M4 1h5l4 4v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z" fill="none"
+              stroke="currentColor" stroke-width="1.2" />
+        <path d="M9 1v4h4" fill="none" stroke="currentColor" stroke-width="1.2" />
+      </svg>
+      {{ format.toUpperCase() }}
+    </button>
+  }
 </ng-template>

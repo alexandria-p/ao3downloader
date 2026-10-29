@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   Bookmark,
   BookmarksExport,
@@ -28,16 +28,50 @@ export interface DropboxCopy {
   modified: number;
 }
 
-/** the downloaded copies the listing can open, by work number, for each format it offers */
-export interface Copies {
-  html: Map<string, LocalCopy>;
-  pdf: Map<string, LocalCopy>;
+/**
+ * Every format ao3 offers a download in, as the listing knows its files - in the order the
+ * listing shows their buttons. The title opens the html, so html has no button of its own.
+ */
+const OPENABLE = {
+  html: /\.html?$/i,
+  pdf: /\.pdf$/i,
+  epub: /\.epub$/i,
+  mobi: /\.mobi$/i,
+  azw3: /\.azw3$/i,
+} as const;
+export type OpenableFormat = keyof typeof OPENABLE;
+export const OPENABLE_FORMATS = Object.keys(OPENABLE) as OpenableFormat[];
+
+/** the downloaded copies the listing can open, by work number, for each format */
+export type Copies = Record<OpenableFormat, Map<string, LocalCopy>>;
+
+export function emptyCopies(): Copies {
+  return Object.fromEntries(OPENABLE_FORMATS.map((f) => [f, new Map()])) as Copies;
 }
 
-/** the formats the listing opens, and how a tab is told to show each */
-const OPENABLE = { html: /\.html?$/i, pdf: /\.pdf$/i } as const;
-export type OpenableFormat = keyof typeof OPENABLE;
-const SHOWN_AS: Record<OpenableFormat, string> = { html: 'text/html', pdf: 'application/pdf' };
+/** how a tab is told to show each format, or a saved file to be typed */
+const SHOWN_AS: Record<OpenableFormat, string> = {
+  html: 'text/html',
+  pdf: 'application/pdf',
+  epub: 'application/epub+zip',
+  mobi: 'application/x-mobipocket-ebook',
+  azw3: 'application/vnd.amazon.ebook',
+};
+
+/**
+ * Whether a browser can show the format itself. Html and pdf open in a tab; an e-book has no
+ * viewer in any browser - a tab handed one only saves it under a made-up name - so those are
+ * saved, under the file's own name, for an e-reader to open.
+ */
+export function viewableInBrowser(format: OpenableFormat): boolean {
+  return format === 'html' || format === 'pdf';
+}
+
+/** a downloaded copy's own file name, to save it under */
+export function copyName(copy: LocalCopy): string {
+  if (copy instanceof Blob) return (copy as File).name ?? 'work';
+  return copy.dropboxPath.split('/').pop() ?? 'work';
+}
 
 /** the folders whose json is the index, read in one zip each */
 const INDEX_FOLDERS = ['indexing', 'collections'];
@@ -133,9 +167,11 @@ export class Library {
   readonly collections = signal<Collection[]>([]);
   readonly sourceName = signal('');
   readonly folderName = signal('');
-  readonly htmlFiles = signal<Map<string, LocalCopy>>(new Map());
+  /** each work's newest downloaded copy in every format, by work number */
+  readonly copies = signal<Copies>(emptyCopies());
+  readonly htmlFiles = computed(() => this.copies().html);
   /** each work's newest downloaded PDF, by work number - what the listing's PDF button opens */
-  readonly pdfFiles = signal<Map<string, LocalCopy>>(new Map());
+  readonly pdfFiles = computed(() => this.copies().pdf);
   /**
    * Every work in the index by work number - including works that are there only because a
    * series you bookmarked holds them, which the bookmarks listing leaves out. A series' card
@@ -235,7 +271,7 @@ export class Library {
       const indexFiles = files.filter(
         (f) => /\.json$/i.test(f.name) && INDEX_FOLDERS.includes(inside(f)[0]?.toLowerCase()),
       );
-      const copies: Copies = { html: new Map(), pdf: new Map() };
+      const copies = emptyCopies();
       for (const file of files) {
         const format = openableFormat(file.name);
         if (!format) continue;
@@ -338,8 +374,7 @@ export class Library {
     this.data.set(null);
     this.collections.set([]);
     this.sourceName.set('');
-    this.htmlFiles.set(new Map());
-    this.pdfFiles.set(new Map());
+    this.copies.set(emptyCopies());
     this.worksById.set(new Map());
     this.seriesById.set(new Map());
     this.externalsById.set(new Map());
@@ -518,8 +553,7 @@ export class Library {
       // no listing order is kept: the works list sorts by when each was bookmarked
       collections.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
       this.collections.set(collections);
-      this.htmlFiles.set(copies.html);
-      this.pdfFiles.set(copies.pdf);
+      this.copies.set(copies);
       const byId = new Map<string, Bookmark>();
       const seriesById = new Map<string, Bookmark>();
       const externalsById = new Map<string, Bookmark>();
@@ -612,16 +646,16 @@ export class Library {
     return { works, collections };
   }
 
-  /** each work's newest HTML and PDF, from the files in works/ */
+  /** each work's newest copy in every format, from the files in works/ */
   private mapCopies(files: File[]): Copies {
-    const copies = { html: new Map<string, File>(), pdf: new Map<string, File>() };
+    const copies = emptyCopies();
     for (const file of files) {
       const format = openableFormat(baseName(file));
       if (!format) continue;
       const id = workIdFromFilename(baseName(file));
       if (!id) continue;
       const map = copies[format];
-      const existing = map.get(id);
+      const existing = map.get(id) as File | undefined;
       // the newest version by the date in its name, as a run would judge it - not whichever
       // file was touched last, which a copy or a sync tool can change
       if (!existing || isNewerCopy(baseName(file), file.lastModified,

@@ -876,15 +876,20 @@ full crawl. A crawl that failed or was stopped is never mistaken for a complete 
 
 ### Your own collections
 
-You can also make collections of your own in the page: tick works in any listing, choose
-**Add to a collection**, and name a new one or pick one of yours. Inside one of your own,
-**Remove from this collection** takes ticked works out. They carry a gold star and a **Your
-collection** badge. A collection from AO3 is never changed here, and never offered to add to.
+You can also make collections of your own in the page: **+ New collection** on the
+Collections tab, or tick works in any listing and choose **Add to a collection** - one of
+yours, or **+ A new collection...** to start one with them (closing that window unsaved makes
+nothing, and the works stay ticked). A work is in a collection once; adding it again changes
+nothing. Inside one of your own, **Remove from this collection** takes ticked works out and
+**Edit collection** changes its name, description and tags - or, under **Show every field AO3
+collections have**, its maintainers, challenge, flags, multifandom and dates. They carry a
+gold star and a **Your collection** badge. A collection from AO3 is never changed here.
 
 Each is a json file in `collections/custom/`, named `custom-` and ten letters and digits (an
 AO3 collection name never has a hyphen, so the two cannot clash), shaped like an AO3
-collection file with `"custom": true`, `"link": null` and the works in `work_ids` and
-`external_ids`. Series cannot be added. The helper never reads that folder, so no run changes
+collection file - the same field names, `title`, `description`, `tags`, `maintainers`,
+`challenge_type`, the flags and dates - with `"custom": true`, `"link": null` and the works in
+`work_ids` and `external_ids`. Series cannot be added. The helper never reads that folder, so no run changes
 these files, and `from_collections` in an index entry names AO3 collections only.
 
 ## Keeping ao3 happy

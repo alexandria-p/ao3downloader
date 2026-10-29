@@ -50,6 +50,74 @@ export function itemsOf(entries: Bookmark[]): CollectionItems {
   return { works, externals };
 }
 
+/**
+ * What a person can say about a collection of their own: the same fields an ao3 collection
+ * has, so the page shows the two the same way. The counts ao3 keeps (works, fandoms) are not
+ * here - a custom collection's are what it holds.
+ */
+export interface CollectionFields {
+  title: string;
+  description: string;
+  tags: string[];
+  maintainers: string[];
+  challenge_type: string;
+  closed: boolean;
+  moderated: boolean;
+  unrevealed: boolean;
+  anonymous: boolean;
+  /** null is 'not said', as on an ao3 collection that does not say */
+  multifandom: boolean | null;
+  created: string;
+  active_since: string;
+}
+
+/** the kinds of challenge ao3 collections are, as ao3 names them */
+export const CHALLENGE_TYPES = ['No Challenge', 'Gift Exchange', 'Prompt Meme'];
+
+/** a new collection's fields before anyone has said anything about it */
+export function blankFields(title = ''): CollectionFields {
+  return {
+    title,
+    description: '',
+    tags: [],
+    maintainers: [],
+    challenge_type: 'No Challenge',
+    closed: false,
+    moderated: false,
+    unrevealed: false,
+    anonymous: false,
+    multifandom: null,
+    created: new Date().toISOString().slice(0, 10),
+    active_since: '',
+  };
+}
+
+/** a collection's fields, to edit */
+export function fieldsOf(collection: Collection): CollectionFields {
+  return {
+    title: collection.title,
+    description: collection.description ?? '',
+    tags: [...(collection.tags ?? [])],
+    maintainers: [...(collection.maintainers ?? [])],
+    challenge_type: collection.challenge_type || 'No Challenge',
+    closed: !!collection.closed,
+    moderated: !!collection.moderated,
+    unrevealed: !!collection.unrevealed,
+    anonymous: !!collection.anonymous,
+    multifandom: collection.multifandom ?? null,
+    created: collection.created ?? '',
+    active_since: collection.active_since ?? '',
+  };
+}
+
+/** what an add did: the collection as saved, and how many were new to it */
+export interface Added {
+  collection: Collection;
+  added: CollectionItems;
+  /** how many of those asked for were in it already, and so were left as they were */
+  already: number;
+}
+
 /** whether an entry can be put in a custom collection at all */
 export function canCollect(entry: Bookmark): boolean {
   return !!entry.id && !entry.error && bookmarkTypeOf(entry) !== 'series bookmark';
@@ -68,31 +136,51 @@ export class CustomCollections {
    */
   readonly writable = computed(() => !!this.library.store());
 
-  /** Make a collection holding `items`, and answer it. */
-  async create(title: string, items: CollectionItems): Promise<Collection> {
-    const name = title.trim().slice(0, TITLE_LIMIT);
-    if (!name) throw new Error('give the collection a name');
+  /** Make a collection holding `items` - a title alone, or every field - and answer it. */
+  async create(
+    given: string | CollectionFields,
+    items: CollectionItems = { works: [], externals: [] },
+  ): Promise<Collection> {
+    const fields = typeof given === 'string' ? blankFields(given) : given;
     return this.save({
+      ...documentFields(fields),
       name: this.newName(),
       custom: true,
       link: null,
-      title: name,
-      description: '',
-      created: new Date().toISOString().slice(0, 10),
       work_ids: unique(items.works),
       bookmark_ids: [],
       external_ids: unique(items.externals),
     });
   }
 
-  /** Add `items` to a custom collection, keeping what it holds and its order. */
-  async add(name: string, items: CollectionItems): Promise<Collection> {
+  /** Change what is said about a custom collection; what it holds stays as it is. */
+  async update(name: string, fields: CollectionFields): Promise<Collection> {
     const collection = this.customNamed(name);
-    return this.save({
+    return this.save({ ...this.documentOf(collection), ...documentFields(fields) });
+  }
+
+  /**
+   * Add `items` to a custom collection, keeping what it holds and its order. **A work is in
+   * a collection once**, by its number: one already there is left where it is, not added
+   * again, and the answer says how many that was.
+   */
+  async add(name: string, items: CollectionItems): Promise<Added> {
+    const collection = this.customNamed(name);
+    const works = new Set(collection.work_ids.map(String));
+    const externals = new Set(collection.external_ids.map(String));
+    const added = {
+      works: unique(items.works).filter((id) => !works.has(id)),
+      externals: unique(items.externals).filter((id) => !externals.has(id)),
+    };
+    const already =
+      unique(items.works).length + unique(items.externals).length -
+      added.works.length - added.externals.length;
+    const saved = await this.save({
       ...this.documentOf(collection),
-      work_ids: unique([...collection.work_ids, ...items.works]),
-      external_ids: unique([...collection.external_ids, ...items.externals]),
+      work_ids: [...collection.work_ids, ...added.works],
+      external_ids: [...collection.external_ids, ...added.externals],
     });
+    return { collection: saved, added, already };
   }
 
   /** Take `items` out of a custom collection. */
@@ -120,15 +208,13 @@ export class CustomCollections {
   /** what is written for a custom collection: its own fields, not everything flattening added */
   private documentOf(collection: Collection): Record<string, unknown> {
     return {
+      ...documentFields(fieldsOf(collection)),
       name: collection.name,
       custom: true,
       link: null,
-      title: collection.title,
-      description: collection.description,
-      created: collection.created,
-      work_ids: collection.work_ids,
+      work_ids: unique(collection.work_ids),
       bookmark_ids: [],
-      external_ids: collection.external_ids,
+      external_ids: unique(collection.external_ids),
     };
   }
 
@@ -162,4 +248,36 @@ export class CustomCollections {
 
 function unique(ids: string[]): string[] {
   return [...new Set(ids.map(String))];
+}
+
+/**
+ * The fields as written - checked, trimmed and in ao3's own shape, so the page reads a custom
+ * collection exactly as it reads one from ao3. `flags` is what ao3 shows in brackets after a
+ * collection's name, said again as the booleans are.
+ */
+function documentFields(fields: CollectionFields): Record<string, unknown> {
+  const title = fields.title.trim().slice(0, TITLE_LIMIT);
+  if (!title) throw new Error('give the collection a name');
+  const list = (values: string[]) => unique(values.map((v) => v.trim()).filter(Boolean));
+  const flags = [
+    fields.closed ? 'Closed' : 'Open',
+    fields.moderated ? 'Moderated' : 'Unmoderated',
+    ...(fields.unrevealed ? ['Unrevealed'] : []),
+    ...(fields.anonymous ? ['Anonymous'] : []),
+  ];
+  return {
+    title,
+    description: fields.description.trim(),
+    tags: list(fields.tags),
+    maintainers: list(fields.maintainers),
+    challenge_type: CHALLENGE_TYPES.includes(fields.challenge_type) ? fields.challenge_type : 'No Challenge',
+    closed: fields.closed,
+    moderated: fields.moderated,
+    unrevealed: fields.unrevealed,
+    anonymous: fields.anonymous,
+    multifandom: fields.multifandom,
+    flags,
+    created: fields.created.trim(),
+    active_since: fields.active_since.trim(),
+  };
 }

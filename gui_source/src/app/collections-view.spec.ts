@@ -83,7 +83,7 @@ describe('CollectionsView', () => {
   beforeEach(async () => {
     vi.stubGlobal('scrollTo', vi.fn());
     await TestBed.configureTestingModule({ imports: [CollectionsView] }).compileComponents();
-    TestBed.inject(Library).htmlFiles.set(new Map());
+    TestBed.inject(Library).copies.update((c) => ({ ...c, html: new Map() }));
   });
 
   // region the listing
