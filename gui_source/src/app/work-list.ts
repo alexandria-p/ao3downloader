@@ -4,6 +4,8 @@ import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, viewabl
 import { Collection, isCustomCollection } from './collections';
 import { CollectionItems, CustomCollections, canCollect, itemsOf } from './custom-collections';
 import { CollectionEditor } from './collection-editor';
+import { TagFilter } from './tag-filter';
+import { TagChoice, buildTagIndex, matchesTags } from './tags';
 import {
   Bookmark,
   BookmarkType,
@@ -54,7 +56,7 @@ export const DEFAULT_SORT: WorkSort = 'bookmarked-desc';
  */
 @Component({
   selector: 'app-work-list',
-  imports: [DecimalPipe, NgTemplateOutlet, CollectionEditor],
+  imports: [DecimalPipe, NgTemplateOutlet, CollectionEditor, TagFilter],
   styleUrl: './work-list.css',
   templateUrl: './work-list.html',
 })
@@ -90,6 +92,16 @@ export class WorkList {
   protected readonly bookmarkedTo = signal('');
   /** one kind of bookmark only - works, series or external works - or '' for all of them */
   protected readonly typeFilter = signal<'' | BookmarkType>('');
+  /** tags a work must carry, every one of them, and tags it must not carry - as on ao3 */
+  protected readonly includeTags = signal<TagChoice[]>([]);
+  protected readonly excludeTags = signal<TagChoice[]>([]);
+  /**
+   * Whether the Filter panel is open. The tag filters are only drawn while it is, so a listing
+   * nobody filters never counts its tags.
+   */
+  protected readonly filtersOpen = signal(false);
+  /** this listing's tags by kind, for the folds to tick from - rebuilt only when the works change */
+  protected readonly listingTags = computed(() => buildTagIndex(this.works()));
 
   /**
    * The parts lists that are open. A series card is keyed by the series id; a work's
@@ -118,7 +130,9 @@ export class WorkList {
         this.updatedTo() ||
         this.bookmarkedFrom() ||
         this.bookmarkedTo() ||
-        this.typeFilter()
+        this.typeFilter() ||
+        this.includeTags().length ||
+        this.excludeTags().length
       ),
   );
 
@@ -144,9 +158,12 @@ export class WorkList {
     const bookmarkedFrom = this.bookmarkedFrom();
     const bookmarkedTo = this.bookmarkedTo();
     const type = this.typeFilter();
+    const include = this.includeTags();
+    const exclude = this.excludeTags();
 
     return this.works().filter((work) => {
       if (type && bookmarkTypeOf(work) !== type) return false;
+      if (!matchesTags(work, include, exclude)) return false;
       if (title && !(work.title ?? '').toLowerCase().includes(title)) return false;
       if (author && !(work.authors ?? []).some((name) =>
         name.toLowerCase().includes(author))) return false;
@@ -406,6 +423,8 @@ export class WorkList {
     this.bookmarkedFrom.set('');
     this.bookmarkedTo.set('');
     this.typeFilter.set('');
+    this.includeTags.set([]);
+    this.excludeTags.set([]);
     this.sortBy.set(DEFAULT_SORT);
   }
 

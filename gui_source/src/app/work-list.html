@@ -25,7 +25,7 @@
   narrowing the listing, not searching ao3: everything here is filtered from what the folder
   already holds, so it costs no requests and works with the helper stopped
 -->
-<details class="filters">
+<details class="filters" (toggle)="filtersOpen.set($any($event.target).open)">
   <summary>
     Filter
     @if (filtering()) {
@@ -124,6 +124,16 @@
       />
     </label>
   </div>
+
+  <!-- by tag, as ao3's own panel does: every included tag must be there, no excluded one may be -->
+  @if (filtersOpen()) {
+    <div class="tag-filters">
+      <app-tag-filter label="Include" [listing]="listingTags()" [chosen]="includeTags()"
+        [elsewhere]="excludeTags()" (chosenChange)="includeTags.set($event)" />
+      <app-tag-filter label="Exclude" [listing]="listingTags()" [chosen]="excludeTags()"
+        [elsewhere]="includeTags()" (chosenChange)="excludeTags.set($event)" />
+    </div>
+  }
 
   @if (sortHasNoDates()) {
     <p class="filter-hint sort-empty">

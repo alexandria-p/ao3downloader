@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   Bookmark,
   BookmarksExport,
+  bookmarkTypeOf,
   flattenRecord,
   isBookmarkEntry,
   isNewerCopy,
@@ -15,6 +16,7 @@ import { isRunRecord } from './jobs';
 import { LibrarySetup, SetupTarget, WORKS_FOLDER } from './library-setup';
 import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
 import { unzip } from './unzip';
+import { buildTagIndex } from './tags';
 
 /**
  * A downloaded work that can be opened from the listing: a file already in hand for a
@@ -188,6 +190,14 @@ export class Library {
    * are numbered separately, so a collection's external works are never matched to a work.
    */
   readonly externalsById = signal<Map<string, Bookmark>>(new Map());
+  /**
+   * Every tag in the library, by kind and most-used first - what the tag filter suggests from.
+   * Built from the works already in memory: once per read, and again only when the works change
+   * (a run's refresh, another library), never on a keystroke.
+   */
+  readonly tagIndex = computed(() =>
+    buildTagIndex([...this.worksById().values(), ...this.seriesById().values(), ...this.externalsById().values()]),
+  );
   readonly error = signal('');
   readonly loading = signal(false);
   /** while a Dropbox library is being read, how far it has got; null otherwise */
@@ -214,6 +224,14 @@ export class Library {
    * have the old library land on top of the new one.
    */
   private generation = 0;
+  /**
+   * Every entry the index holds, as last read - bookmarks and the works a series or a
+   * collection brought in alike. Kept so a refresh after a run can swap in only what the run
+   * rewrote, rather than reading the whole library again.
+   */
+  private entries: Bookmark[] = [];
+  /** the folder on this computer being shown, to list its works/ again after a run */
+  private localHandle: DirectoryHandle | null = null;
 
   readonly canPickFolder = this.folders.supported();
 
@@ -271,22 +289,7 @@ export class Library {
       const indexFiles = files.filter(
         (f) => /\.json$/i.test(f.name) && INDEX_FOLDERS.includes(inside(f)[0]?.toLowerCase()),
       );
-      const copies = emptyCopies();
-      for (const file of files) {
-        const format = openableFormat(file.name);
-        if (!format) continue;
-        // works/ and nowhere else - the same place a run looks
-        if (inside(file)[0]?.toLowerCase() !== WORKS_FOLDER) continue;
-        const id = workIdFromFilename(file.name);
-        if (!id) continue;
-        const map = copies[format];
-        const existing = map.get(id) as DropboxCopy | undefined;
-        // the newest version by the date in its name, as a run would judge it
-        if (!existing || isNewerCopy(file.name, file.modified,
-            { name: existing.dropboxPath, modified: existing.modified })) {
-          map.set(id, { dropboxPath: file.path, modified: file.modified });
-        }
-      }
+      const copies = dropboxCopies(files, folder.path);
 
       const jsonFiles = await this.readDropboxIndex(folder.path, indexFiles, note);
       if (generation !== this.generation) return;
@@ -375,6 +378,7 @@ export class Library {
     this.collections.set([]);
     this.sourceName.set('');
     this.copies.set(emptyCopies());
+    this.entries = [];
     this.worksById.set(new Map());
     this.seriesById.set(new Map());
     this.externalsById.set(new Map());
@@ -459,6 +463,7 @@ export class Library {
       }
       if (!current()) return;
       this.store.set(new LocalLibraryStore(handle));
+      this.localHandle = handle;
       // the index can be anywhere it has ever been written, so all of it is read for json;
       // works only ever come from works/
       const everything = await this.folders.read(handle);
@@ -550,47 +555,111 @@ export class Library {
         return;
       }
 
-      // no listing order is kept: the works list sorts by when each was bookmarked
-      collections.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      this.collections.set(collections);
-      this.copies.set(copies);
-      const byId = new Map<string, Bookmark>();
-      const seriesById = new Map<string, Bookmark>();
-      const externalsById = new Map<string, Bookmark>();
-      for (const entry of works) {
-        if (!entry.id) continue;
-        if (isWorkEntry(entry)) byId.set(entry.id, entry);
-        else if (entry.bookmark_type === 'series bookmark') seriesById.set(entry.id, entry);
-        else if (entry.bookmark_type === 'external work') externalsById.set(entry.id, entry);
-      }
-      this.worksById.set(byId);
-      this.seriesById.set(seriesById);
-      this.externalsById.set(externalsById);
-
-      // the listing is your bookmarks: works, series and external works you bookmarked,
-      // but not a work that is only here because a series holds it - that is in its card
-      const bookmarks = works.filter(isBookmarkEntry);
-      if (bookmarks.length === 0) {
-        // collections synced but nothing indexed yet: the collections page still works
-        this.data.set(null);
-        this.sourceName.set(`${collections.length} collections`);
-        return;
-      }
-
-      this.data.set({
-        source: works.find((w) => w.source)?.source ?? '',
-        // newer files record when they were last checked; older ones a single retrieval
-        retrieved:
-          works.find((w) => w.last_indexed)?.last_indexed ??
-          works.find((w) => w.retrieved)?.retrieved ??
-          '',
-        count: bookmarks.length,
-        works: bookmarks,
-      });
-      this.sourceName.set(`${bookmarks.length} bookmarks`);
+      this.publish(works, collections, copies);
     } finally {
       this.loading.set(false);
     }
+  }
+
+  /**
+   * Bring the listing up to date with what a run just wrote, without reading the whole
+   * library again - which, for a large library in Dropbox, is minutes.
+   *
+   * `changed` is every path the run wrote, deleted or renamed (the page made each of those
+   * changes for it, so it knows them all). The index files among them are read again and
+   * swapped in for the entries and collections they hold; works/ is listed again if anything
+   * in it changed, since a download can replace or rename an older copy. Everything else is
+   * kept as it was. An index file the run deleted leaves its entry until the library is next
+   * opened - runs do not delete index entries, so that is only ever a file removed by hand.
+   */
+  async refreshAfterRun(changed: Iterable<string>, store: LibraryStore | null = this.store()): Promise<void> {
+    // the run's library is not the one on screen any more: nothing here to bring up to date
+    if (!store || store !== this.store()) return;
+    const generation = this.generation;
+    const paths = [...new Set(changed)].map((p) => p.replace(/^\/+/, ''));
+    const top = (path: string) => path.split('/')[0]?.toLowerCase() ?? '';
+    const indexPaths = paths.filter((p) => /\.json$/i.test(p) && INDEX_FOLDERS.includes(top(p)));
+    const worksChanged = paths.some((p) => top(p) === WORKS_FOLDER);
+    if (!indexPaths.length && !worksChanged) return;
+
+    try {
+      const read = await Promise.all(
+        indexPaths.map(async (path) => {
+          const text = await store.read(path).catch(() => null);
+          return text === null ? null : new File([text], path.split('/').pop() ?? path);
+        }),
+      );
+      const { works, collections } = await this.readRecords(read.filter((f): f is File => !!f));
+      const copies = worksChanged ? await this.listCopies() : this.copies();
+      if (generation !== this.generation || store !== this.store()) return;
+
+      const key = (entry: Bookmark) => `${bookmarkTypeOf(entry)}:${entry.id}`;
+      const fresh = new Map(works.filter((w) => w.id).map((w) => [key(w), w]));
+      const merged = this.entries.map((entry) => (entry.id && fresh.get(key(entry))) || entry);
+      const known = new Set(this.entries.filter((e) => e.id).map(key));
+      merged.push(...works.filter((w) => !w.id || !known.has(key(w))));
+
+      const freshCollections = new Map(collections.map((c) => [c.name, c]));
+      const keptCollections = this.collections().filter((c) => !freshCollections.has(c.name));
+      this.publish(merged, [...keptCollections, ...collections], copies ?? this.copies());
+    } catch {
+      // the listing stays as it was: still right about everything but what the run changed,
+      // and the next time the library is opened reads it all again
+    }
+  }
+
+  /** works/ listed again, for the copies a run downloaded, replaced or renamed */
+  private async listCopies(): Promise<Copies | null> {
+    if (this.showing === 'dropbox') {
+      const folder = this.dropbox.folder();
+      if (!folder) return null;
+      return dropboxCopies(await this.dropbox.listFiles(`${folder.path}/${WORKS_FOLDER}`, true), folder.path);
+    }
+    if (!this.localHandle) return null;
+    return this.mapCopies(await this.folders.readSubfolder(this.localHandle, WORKS_FOLDER));
+  }
+
+  /** Show `works` and `collections` as the library, with `copies` as its downloaded files. */
+  private publish(works: Bookmark[], collections: Collection[], copies: Copies): void {
+    this.entries = works;
+    // no listing order is kept: the works list sorts by when each was bookmarked
+    collections.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    this.collections.set(collections);
+    this.copies.set(copies);
+    const byId = new Map<string, Bookmark>();
+    const seriesById = new Map<string, Bookmark>();
+    const externalsById = new Map<string, Bookmark>();
+    for (const entry of works) {
+      if (!entry.id) continue;
+      if (isWorkEntry(entry)) byId.set(entry.id, entry);
+      else if (entry.bookmark_type === 'series bookmark') seriesById.set(entry.id, entry);
+      else if (entry.bookmark_type === 'external work') externalsById.set(entry.id, entry);
+    }
+    this.worksById.set(byId);
+    this.seriesById.set(seriesById);
+    this.externalsById.set(externalsById);
+
+    // the listing is your bookmarks: works, series and external works you bookmarked,
+    // but not a work that is only here because a series holds it - that is in its card
+    const bookmarks = works.filter(isBookmarkEntry);
+    if (bookmarks.length === 0) {
+      // collections synced but nothing indexed yet: the collections page still works
+      this.data.set(null);
+      this.sourceName.set(`${collections.length} collections`);
+      return;
+    }
+
+    this.data.set({
+      source: works.find((w) => w.source)?.source ?? '',
+      // newer files record when they were last checked; older ones a single retrieval
+      retrieved:
+        works.find((w) => w.last_indexed)?.last_indexed ??
+        works.find((w) => w.retrieved)?.retrieved ??
+        '',
+      count: bookmarks.length,
+      works: bookmarks,
+    });
+    this.sourceName.set(`${bookmarks.length} bookmarks`);
   }
 
   /**
@@ -685,4 +754,27 @@ function baseName(file: File): string {
 
 function jsonOf(files: File[]): File[] {
   return files.filter((f) => /\.json$/i.test(baseName(f)));
+}
+
+/**
+ * Each work's newest copy in every format, from a Dropbox listing - works/ and nowhere else,
+ * the same place a run looks, and newest by the date in its name, as a run would judge it.
+ */
+function dropboxCopies(files: DropboxFile[], root: string): Copies {
+  const copies = emptyCopies();
+  for (const file of files) {
+    const format = openableFormat(file.name);
+    if (!format) continue;
+    const inside = file.path.slice(root.length).split('/').filter(Boolean);
+    if (inside[0]?.toLowerCase() !== WORKS_FOLDER) continue;
+    const id = workIdFromFilename(file.name);
+    if (!id) continue;
+    const map = copies[format];
+    const existing = map.get(id) as DropboxCopy | undefined;
+    if (!existing || isNewerCopy(file.name, file.modified,
+        { name: existing.dropboxPath, modified: existing.modified })) {
+      map.set(id, { dropboxPath: file.path, modified: file.modified });
+    }
+  }
+  return copies;
 }

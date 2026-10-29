@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1644 python passed; 656 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1644 python passed; 671 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1825,6 +1825,41 @@ and entries parsed have a real total and fill the bar. Progress is set through t
 own generation check, so switching library mid-read never leaves the old read's bar up, and
 it is cleared once the library is on screen. A local folder is read in the page itself,
 fast enough to need only the plain notice.
+
+### Filtering by tag reads the index already in memory
+
+`tags.ts` and `app-tag-filter` give the listing's Filter panel ao3's Include/Exclude by tag. What
+not to break:
+
+- **Nothing is fetched or stored for it.** Every tag is in the index the page has already read,
+  so `Library.tagIndex` (every entry's tags, by kind, most-used first) is a `computed` over
+  `worksById`/`seriesById`/`externalsById`: built once per read and again only when the works
+  change. A cache in the browser would be a second copy of the index that could fall behind.
+- **It is kept cheap, and was measured** (10,000 works, 33,000 distinct tags): the index builds
+  in about half a second, **only once someone types** (`suggestions` reads it only for a
+  non-empty box) or opens Filter (the tag halves render only while `filtersOpen`, and
+  `listingTags` counts the listing's own works for the folds). A keystroke is under a
+  millisecond: each tag's lower-case name is kept (`lower`), and `suggestTags` stops once it has
+  enough that start with the text, since the index is most-used first. Filtering is ~13ms: a
+  work's tag keys are worked out once and kept in a `WeakMap` (`keysOf`), so a refreshed entry,
+  a new object, never answers with old tags.
+- **Every included tag, no excluded one, matched within its kind** (`tagKey` is
+  `kind:lower-case name`), as ao3 does. A tag chosen in one half is disabled in the other.
+- **Suggestions come from the whole library; the folds count this listing.** One finds any tag
+  you have; the other says what ticking it will narrow here.
+
+### The listing takes in what a run changed
+
+Before this the listing only changed when the library was opened again. Now `DownloadDialog`
+notes every path a run **writes, deletes or renames** (`changedPaths`, both ends of a rename) -
+each goes through the page, so it sees them all - and `finishUp` hands them to
+`Library.refreshAfterRun` once `storageQueue` has drained, with the run's own store. It
+re-reads only the changed index files (`indexing/`, `collections/`), swaps them in for the
+entries and collections they hold (`entries`, kept by `publish`), and lists `works/` again only
+if the run touched it (`listCopies`). A different library now on screen, a later read
+(`generation`), or a failure leaves the listing as it was. An index file deleted outside a run
+keeps its entry until the next full read; runs never delete one. A **background** run answers
+storage itself, so the page sees none of its changes - its results show on the next read.
 
 ### Every downloaded format has a button beside the title
 
