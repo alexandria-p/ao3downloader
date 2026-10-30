@@ -611,7 +611,6 @@ describe('History', () => {
 
     const text = await saved!.text();
     for (const line of [
-      '# AO3 account: Someone',
       '# Links (2):',
       '#   https://archiveofourown.org/works/2',
       '# File types: HTML, JSON',
@@ -619,12 +618,15 @@ describe('History', () => {
       '# Ran in the background',
       '# Run options:',
       '#   skipLogin: true',
-      '# settings.ini (/x/settings.ini):',
+      '# settings.ini:',
       '#   extraWaitTime: 5',
       '#   maxRetries: 30',
     ]) {
       expect(text.split('\n')).toContain(line);
     }
+    // neither the account nor where settings.ini is: a log gets passed around
+    expect(text).not.toContain('AO3 account');
+    expect(text).not.toContain('/x/settings.ini');
     // the settings come before the log, and the log is still last
     expect(text.indexOf('maxRetries')).toBeLessThan(text.indexOf('looking up work 1'));
     expect(text.trim().split('\n').at(-1)).toBe('[2026-10-30 14:47:47] looking up work 1');

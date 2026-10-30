@@ -982,9 +982,10 @@ abandonment notice - is added by hand. **Every line starts with when it was said
 force-stop line is stamped too. The page shows no times in the run window; the downloaded
 log and the feedback log carry them as kept. Older records' lines have none and download
 as they are. **The downloaded log opens with how the run was set up** (`runSettingsHead`),
-read from the same file: account, link(s), file types, background, helper, then every
-recorded option and every settings.ini value as `key: value` - all of them, not only what
-the History entry puts into words, because a log is read to explain a run. `save` rewrites the whole file, so a line saves the
+read from the same file: link(s), file types, background, helper, then every recorded
+option and every settings.ini value as `key: value` - all of them, not only what the History
+entry puts into words, because a log is read to explain a run. **Not the AO3 account, and
+not settings.ini's path**: a log gets passed around, and a path names someone's folders. `save` rewrites the whole file, so a line saves the
 record only once `LOG_FLUSH_SECONDS` (120, deliberately not a setting) have passed since the
 last save. **Time alone decides** - it was
 also 25 lines, which left a slow step (an index walk held up by the rate limit prints a few

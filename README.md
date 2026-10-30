@@ -202,7 +202,7 @@ the helper can only reach that folder through the open page.
   one text file of the works that failed, the copies to check by hand and the bookmarks that
   are not works - and a **Download log** button, the whole account the run gave in its
   window, each line starting with the time it was said, under a header saying how the run
-  was set up (account, links, file types, options and the settings.ini it ran with).
+  was set up (links, file types, options and the settings.ini values it ran with).
 - A run saves its History entry - log, issues and the fics it touched - as it goes: at every
   checkpoint, and whenever it prints a line at least two minutes after the last save. So a run cut off outright - the helper crashing, or a deploy - keeps
   everything up to about its last two minutes. A run that is stopped, abandoned or fails

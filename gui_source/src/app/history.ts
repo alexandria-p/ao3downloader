@@ -193,8 +193,6 @@ export class History {
    */
   private runSettingsHead(run: RunHistory, record: LogRecord): string[] {
     const head = ['#'];
-    const username = record.username ?? run.username;
-    if (username) head.push(`# AO3 account: ${username}`);
     const links = String(record.url ?? run.url ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
     if (links.length === 1) head.push(`# Link: ${links[0]}`);
     if (links.length > 1) head.push(`# Links (${links.length}):`, ...links.map((x) => `#   ${x}`));
@@ -206,10 +204,11 @@ export class History {
     if (record.background) head.push('# Ran in the background');
     if (record.helper) head.push(`# Helper: ${record.helper}`);
     head.push(...listed('Run options', options));
+    // not where settings.ini is, nor the account: a log is passed around - attached to an
+    // issue, say - and a path names the person's folders as surely as a username does
     const settings = { ...(record.settings ?? {}) };
-    const file = settings['file'];
     delete settings['file'];
-    head.push(...listed(`settings.ini${file ? ` (${file})` : ''}`, settings));
+    head.push(...listed('settings.ini', settings));
     return head;
   }
 
@@ -288,7 +287,6 @@ export class History {
 interface LogRecord {
   log?: string[];
   logTrimmed?: number;
-  username?: string;
   url?: string;
   filetypes?: string[];
   options?: Record<string, unknown>;
