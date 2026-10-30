@@ -61,6 +61,28 @@ const COLLECTION_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/collections\/(
 /** any chapter or page of a work will do, so this only asks that digits follow /works/ */
 const WORK_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/works\/(\d+)/i;
 
+/** the most fics one 'several fics' run takes - the helper's MAX_WORK_LINKS */
+export const MAX_WORKS = 500;
+
+/**
+ * The works in a paste of links or work numbers, and whatever in it was neither.
+ *
+ * Separated by anything people separate a list with - new lines, commas, spaces,
+ * semicolons, in any mix. The same work twice is one work. The helper reads the paste again
+ * by the same rule (`work_links`) and refuses what this would.
+ */
+export function parseWorkList(text: string): { ids: string[]; unknown: string[] } {
+  const ids: string[] = [];
+  const unknown: string[] = [];
+  for (const piece of text.split(/[\s,;]+/)) {
+    if (!piece) continue;
+    const id = /^\d+$/.test(piece) ? piece : WORK_URL.exec(piece)?.[2];
+    if (!id) unknown.push(piece);
+    else if (!ids.includes(id)) ids.push(id);
+  }
+  return { ids, unknown };
+}
+
 /**
  * The index's own file type, which is not a copy of a work like the others.
  *
@@ -317,6 +339,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Download new bookmarks and update incomplete fics';
       case 'work':
         return 'Download/update a specific fic';
+      case 'works':
+        return 'Download/update several fics';
       case 'custom':
         return 'Custom run';
       case 'quick':
@@ -340,6 +364,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Three passes: your new bookmarks, then the fics your index last saw unfinished, then any finished fic missing a format you asked for.';
       case 'work':
         return 'Indexes one fic and downloads it, in whichever formats you pick. Use it for a single work you want now, or to repair one copy.';
+      case 'works':
+        return 'The same as downloading a specific fic, for a whole list at once: paste their links or work numbers, and each is indexed, then all are downloaded.';
       case 'custom':
         return 'A full scan with its parts made optional - choose the pages to cover, or skip reading AO3 entirely and work from what is already indexed.';
       case 'quick':
@@ -391,7 +417,7 @@ export class DownloadDialog implements OnDestroy {
    */
   protected readonly picksSeries = computed(
     () =>
-      (['bookmarks', 'quick', 'custom', 'work'] as JobAction[]).includes(this.action()) ||
+      (['bookmarks', 'quick', 'custom', 'work', 'works'] as JobAction[]).includes(this.action()) ||
       // a collections run meets works only when it was asked to index them
       (this.picksCollectionWorks() && this.collectionWorks()),
   );
@@ -461,10 +487,26 @@ export class DownloadDialog implements OnDestroy {
     () => !this.picksCollectionWorks() || this.collectionWorks(),
   );
   protected readonly needsLink = computed(
-    () => this.action() === 'collection' || this.action() === 'work',
+    () => this.action() === 'collection' || this.action() === 'work' || this.action() === 'works',
   );
   /** the link step asks for a fic rather than a collection */
   protected readonly wantsWork = computed(() => this.action() === 'work');
+  /** the link step asks for a list of fics */
+  protected readonly wantsWorks = computed(() => this.action() === 'works');
+  /** what the pasted list holds, as it is typed */
+  protected readonly workList = computed(() => parseWorkList(this.collectionUrl()));
+  protected readonly maxWorks = MAX_WORKS;
+
+  /**
+   * Whether to go without an AO3 login: the runs pointed at fics by hand alone, since every
+   * other one reads your own bookmarks or collections. Off unless ticked, and warned about.
+   */
+  protected readonly picksSkipLogin = computed(
+    () => this.action() === 'work' || this.action() === 'works',
+  );
+  protected readonly skipLogin = signal(false);
+  /** whether this run will log in at all */
+  protected readonly logsIn = computed(() => !(this.picksSkipLogin() && this.skipLogin()));
 
   /**
    * Which runs say what they cannot do before anyone logs in for them.
@@ -521,6 +563,10 @@ export class DownloadDialog implements OnDestroy {
   /** whether what has been typed is something this run can act on */
   protected readonly linkIsValid = computed(() => {
     const typed = this.collectionUrl().trim();
+    if (this.wantsWorks()) {
+      const { ids, unknown } = this.workList();
+      return ids.length > 0 && unknown.length === 0 && ids.length <= MAX_WORKS;
+    }
     if (!this.wantsWork()) return COLLECTION_URL.test(typed);
     // a bare work number says the same thing as the whole url, and is what you get from
     // the address bar most easily
@@ -791,7 +837,10 @@ export class DownloadDialog implements OnDestroy {
 
   /** whether the run replaces every copy anyway, which decides the undated question for it */
   private readonly overwrites = computed(
-    () => this.action() === 'work' || (this.picksOverwrite() && this.overwrite()),
+    () =>
+      this.action() === 'work' ||
+      this.action() === 'works' ||
+      (this.picksOverwrite() && this.overwrite()),
   );
 
   /**
@@ -1139,11 +1188,14 @@ export class DownloadDialog implements OnDestroy {
 
   protected async submit(event: Event): Promise<void> {
     event.preventDefault();
-    if (!this.username().trim() || !this.password()) return;
+    if (this.logsIn() && (!this.username().trim() || !this.password())) return;
 
     // only the username is ours to keep. the password is left to the browser's own
     // password manager, which stores it in the OS keychain rather than in page storage.
-    if (this.remember()) {
+    // a run that does not log in leaves whatever was remembered alone
+    if (!this.logsIn()) {
+      // nothing typed is used, so nothing typed is kept
+    } else if (this.remember()) {
       safeSet(REMEMBER_KEY, 'true');
       safeSet(USERNAME_KEY, this.username().trim());
     } else {
@@ -1272,9 +1324,12 @@ export class DownloadDialog implements OnDestroy {
         floorRun: this.picksFloorRun() ? this.floorRun() : '',
         // the helper takes everything else from that run's own record
         resume: resumed ? resumed.id : '',
+        // only a run pointed at fics by hand can go without a login
+        skipLogin: !this.logsIn(),
       } satisfies JobOptions,
-      username: this.username().trim(),
-      password: this.password(),
+      // nothing is sent for a run that will not log in, whatever is in the boxes
+      username: this.logsIn() ? this.username().trim() : '',
+      password: this.logsIn() ? this.password() : '',
       url: this.needsLink() ? this.collectionUrl().trim() : undefined,
     };
   }

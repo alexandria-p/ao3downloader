@@ -512,6 +512,13 @@ Behind **Advanced options**:
 **Download/update a specific fic** takes a work link or just the work number, indexes that
 one fic, and downloads it in the formats you pick. A link to any chapter of it will do.
 
+**Download/update several fics** does the same for a list - work links or numbers, one per
+line or separated by commas, spaces or semicolons, up to 500. Each is indexed in turn, then
+all are downloaded; FicHub is offered once, at the end, for every fic that failed.
+
+Both offer **Skip AO3 login?**, unticked by default and not recommended: without a login,
+fics restricted to AO3 users can't be reached, and the run may have to fall back on FicHub.
+
 **Custom run** is the full scan with its parts made optional. It covers exactly one of
 three things, which it asks before anything else: **all bookmarks**, a **slice** of your
 listing by page number, or a **date range**. They are alternatives rather than settings that

@@ -146,6 +146,8 @@ AO3_INFO_LOGIN = 'logging in'
 # the web ui shows the console output as the run's log, and logging in is the first thing
 # it does. without a line here the modal opens on an empty log and looks like it hung
 AO3_INFO_LOGGING_IN = 'logging in as {}'
+AO3_INFO_NOT_LOGGING_IN = ('not logging in to AO3, as asked. works only logged-in users can see will '
+                           'fail, and FicHub is offered for them at the end')
 AO3_INFO_LOGGED_IN = 'successfully logged in'
 AO3_INFO_DOWNLOADING = 'downloading works'
 AO3_INFO_FILE_TYPE = 'added {} to list of download types'
@@ -289,6 +291,8 @@ AO3_INFO_ONE_WORK = 'looking up work {}'
 AO3_INFO_ONE_WORK_INDEXED = 'index updated'
 AO3_INFO_ONE_WORK_UNREADABLE = 'AO3 would not show this work: {}'
 AO3_INFO_ONE_WORK_DONE = 'finished with work {}'
+AO3_INFO_MANY_WORKS = '{} fics to look up'
+AO3_INFO_MANY_WORK = 'fic {} of {}: looking up work {}'
 # a custom run told to work from what is already indexed
 # the separate images pass, which costs a work page per fic on top of everything else
 AO3_INFO_IMAGES_START = 'now fetching each work page for the images embedded in it - this is the slow part'
@@ -328,6 +332,7 @@ ACTION_NAME_COLLECTION = 'Index collection by URL'
 ACTION_NAME_NEW = 'Just download newly added bookmarks'
 ACTION_NAME_SYNC = 'Download new bookmarks and update incomplete fics'
 ACTION_NAME_WORK = 'Download/update a specific fic'
+ACTION_NAME_WORKS = 'Download/update several fics'
 ACTION_NAME_CUSTOM = 'Custom run'
 ACTION_NAME_QUICK = 'Quick Scan'
 
@@ -341,6 +346,7 @@ STEP_INDEX_SINCE = 'Index works AO3 has updated since your last run'
 STEP_INDEX_BOOKMARKED_WINDOW = 'Index bookmarks added in that date range'
 STEP_INDEX_UPDATED_WINDOW = 'Index works AO3 updated in that date range'
 STEP_INDEX_ONE = 'Index this fic'
+STEP_INDEX_MANY = 'Index these fics'
 STEP_INDEX_COLLECTIONS = 'Index your collections'
 STEP_INDEX_COLLECTION = 'Index this collection'
 # the same crawl, told to index each work it meets as well - see Ao3.collect_work_ids
@@ -353,6 +359,7 @@ STEP_CHECK_FILES = 'Read your existing downloaded files'
 STEP_DOWNLOAD = 'Download or update works as necessary'
 # the single-fic run always replaces what you have, so nothing about it is conditional
 STEP_DOWNLOAD_ONE = 'Download this fic'
+STEP_DOWNLOAD_MANY = 'Download these fics'
 # the runs that only ever fetch bookmarks added since last time say so, because on those
 # 'the works' would read as the whole library
 STEP_DOWNLOAD_NEW = 'Download newly added works'
@@ -610,6 +617,11 @@ ERROR_UPDATE_DURING_RUN = 'A run is in progress. Updating restarts the app, whic
 ERROR_RUN_DURING_UPDATE = 'The app is updating itself, and will restart in a moment. Start the run once it is back.'
 ERROR_RUN_IN_PROGRESS = 'A run is already in progress. Wait until it is complete to start a new one - the History tab shows it.'
 ERROR_BACKGROUND_NEEDS_DROPBOX = 'A background run needs a library in Dropbox, and this request came without a Dropbox sign-in. Sign in to Dropbox and try again.'
+ERROR_NOT_WORK_LINKS = ('These are not AO3 works: {}. Paste work links like '
+                        'https://archiveofourown.org/works/34816549, or work numbers, separated by '
+                        'new lines, commas, spaces or semicolons.')
+ERROR_NO_WORK_LINKS = 'Paste at least one AO3 work link or work number.'
+ERROR_TOO_MANY_WORK_LINKS = 'That is {} fics - one run takes at most {}. Split them into smaller runs.'
 ERROR_NOT_A_WORK_LINK = 'That is not an ao3 work. Paste a link like https://archiveofourown.org/works/34816549, or just the work number.'
 ERROR_COLLECTION_PROFILE = 'Problem reading a collection profile page'
 ERROR_COLLECTION_ITEMS = 'Problem reading the items in a collection'

@@ -16,6 +16,7 @@ import io
 import json
 import os
 import queue
+import re
 import socket
 import sys
 import threading
@@ -64,6 +65,8 @@ ACTION_NEW = 'new'
 ACTION_SYNC = 'sync'
 # one fic, by link or work number
 ACTION_WORK = 'work'
+# several fics, pasted as links or work numbers - the single-fic run over a list
+ACTION_WORKS = 'works'
 # the full scan with its parts made optional
 ACTION_CUSTOM = 'custom'
 # a full scan's shape, but stopping at the works ao3 has not touched since the last run
@@ -140,10 +143,17 @@ CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
 BACKGROUND_KEPT_MESSAGES = 1000
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
-           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_CUSTOM, ACTION_QUICK)
+           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_WORKS, ACTION_CUSTOM, ACTION_QUICK)
 
 # actions that need a link from the caller rather than working it out from the username
-ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK)
+ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK, ACTION_WORKS)
+
+# the runs pointed at fics by hand, which may be told not to log in (`skipLogin`). Every
+# other run reads your own bookmarks or collections, which only a login can see
+SKIP_LOGIN_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+
+# the most fics one 'several fics' run takes. a paste of a whole library belongs to a scan
+MAX_WORK_LINKS = 500
 
 # the two collection runs. On their own they write only the collections' files; asked to
 # (`collectionWorks`) they index every work they meet as well, and download those
@@ -258,6 +268,8 @@ def resolve_options(requested) -> dict:
         # both: one picks works by where they sit in the listing and the other by when ao3
         # last touched them, and a run cannot be walking a listing and not walking it.
         'dates': bool(given.get('dates')),
+        # a run pointed at fics by hand may go without logging in - see SKIP_LOGIN_ACTIONS
+        'skipLogin': bool(given.get('skipLogin')),
         'dateFrom': parse_text.get_date_stamp(given.get('dateFrom') or ''),
         'dateTo': parse_text.get_date_stamp(given.get('dateTo') or ''),
         # a quick scan told which earlier scan to measure back to, by that run's id. only the
@@ -643,6 +655,7 @@ def action_name(action: str) -> str:
         ACTION_NEW: strings.ACTION_NAME_NEW,
         ACTION_SYNC: strings.ACTION_NAME_SYNC,
         ACTION_WORK: strings.ACTION_NAME_WORK,
+        ACTION_WORKS: strings.ACTION_NAME_WORKS,
         ACTION_CUSTOM: strings.ACTION_NAME_CUSTOM,
         ACTION_QUICK: strings.ACTION_NAME_QUICK,
     }.get(action, action)
@@ -688,12 +701,14 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         if works and downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD))
-    elif job.action == ACTION_WORK:
-        plan.append(('index', strings.STEP_INDEX_ONE))
+    elif job.action in (ACTION_WORK, ACTION_WORKS):
+        one = job.action == ACTION_WORK
+        plan.append(('index', strings.STEP_INDEX_ONE if one else strings.STEP_INDEX_MANY))
         plan.append(('series', strings.STEP_SERIES))
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
-            plan.append(('download', strings.STEP_DOWNLOAD_ONE))
+            plan.append(('download', strings.STEP_DOWNLOAD_ONE if one
+                         else strings.STEP_DOWNLOAD_MANY))
     elif job.action == ACTION_UPDATE:
         plan.append(('read', strings.STEP_READ_INDEX))
         if downloads: plan.append(('check', strings.STEP_CHECK_FILES))
@@ -858,9 +873,11 @@ def run_job(job: Job, password: str) -> None:
 
                 # announced separately so the ui can show it is waiting, and say whether
                 # the credentials worked before anything else starts
-                job.steps.start('login')
-                progress.report(report, progress.PHASE, name=progress.AUTHENTICATING)
-                print(strings.AO3_INFO_LOGGING_IN.format(job.username))
+                skip_login = bool(job.options.get('skipLogin'))
+                if not skip_login:
+                    job.steps.start('login')
+                    progress.report(report, progress.PHASE, name=progress.AUTHENTICATING)
+                    print(strings.AO3_INFO_LOGGING_IN.format(job.username))
                 # written here rather than at the end: a run killed mid-flight cannot write
                 # its own epitaph, so a record still saying 'running' is how the history
                 # page recognises one that was interrupted.
@@ -878,11 +895,19 @@ def run_job(job: Job, password: str) -> None:
                                             url=job.url, username=job.username)
                 # the issues and fic lists go into every save, not only the last one
                 job.record.source = lambda: job.ao3
-                repo.login(job.username, password)
-                print(strings.AO3_INFO_LOGGED_IN)
-                begin_record(job, fileops)
-                progress.report(report, progress.AUTHENTICATED, username=job.username)
-                job.steps.done('login')
+                if skip_login:
+                    # asked for, on a run pointed at fics by hand: everything goes on as it
+                    # would, and what ao3 shows only to a login fails and goes to FicHub
+                    print(strings.AO3_INFO_NOT_LOGGING_IN)
+                    repo.logged_in = False
+                    begin_record(job, fileops)
+                    job.steps.skip('login')
+                else:
+                    repo.login(job.username, password)
+                    print(strings.AO3_INFO_LOGGED_IN)
+                    begin_record(job, fileops)
+                    progress.report(report, progress.AUTHENTICATED, username=job.username)
+                    job.steps.done('login')
 
                 runners()[job.action](job, fileops, repo, report)
                 # every runner ends by calling report_failures, so by the time it returns
@@ -1834,6 +1859,67 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     finish_run(job, fileops, ao3, report)
 
 
+def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """The single-fic run over a list: index each fic, then download them all.
+
+    Every fic is looked up before anything is downloaded, as a scan indexes before it
+    downloads, and one that ao3 will not show is recorded and passed over rather than ending
+    the run. FicHub is asked about all of those **once, at the end** (`finish_run`), not
+    after each fic - a question per fic would hold the run up at every one.
+
+    It replaces the copies of the fics named, as the single-fic run does, and only those -
+    the rest of a series it goes on to walk is fetched where it is missing or behind.
+    """
+
+    downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    links = [x for x in job.url.split('\n') if x.strip()]
+    if not links:
+        raise exceptions.InvalidLinkException(strings.ERROR_NO_WORK_LINKS)
+
+    job.options['overwrite'] = True
+    ao3 = Ao3(repo, fileops, downloadtypes, None, job.options['series'], job.options['images'],
+              progress=report, cancelled=job.cancel.is_set)
+    job.ao3 = ao3
+
+    job.steps.start('index')
+    progress.report(report, progress.PHASE, name=progress.INDEXING)
+    print(strings.AO3_INFO_MANY_WORKS.format(len(links)))
+    index = {str(x.get('id') or ''): x for x in shared.read_index(fileops)}
+
+    records: list[dict] = []
+    asked: list[str] = []
+    for done, link in enumerate(links, start=1):
+        if job.cancel.is_set(): break
+        if job.skipping():
+            print(strings.AO3_INFO_STEP_SKIPPED)
+            break
+        work = parse_text.get_work_number(link) or ''
+        print(strings.AO3_INFO_MANY_WORK.format(done, len(links), work))
+        progress.report(report, progress.WORK, title=link, link=link, done=done,
+                        total=len(links), phase=progress.INDEXING)
+        try:
+            record = ao3.index_one_work(link, index.get(work))
+        except (exceptions.CancelledException, exceptions.SessionExpiredException):
+            raise
+        except Exception as e:
+            # one fic ao3 will not show is that fic's failure, never the run's
+            ao3.record_failure(link, e)
+            ao3.log_error({'link': link}, e)
+            print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
+            continue
+        ao3.mark_series_of(record)
+        records.append(record)
+        asked.append(record.get('link') or link)
+    if job.cancel.is_set():
+        finish_run(job, fileops, ao3, report)
+        return
+    job.steps.done('index')
+
+    records = merge_by_work(records, index_marked_series(job, ao3, report))
+    download_planned(job, fileops, ao3, records, downloadtypes, report, overwrite=asked)
+    finish_run(job, fileops, ao3, report)
+
+
 def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     """A full scan's shape, stopping where ao3 stopped changing things.
 
@@ -2212,6 +2298,24 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     finish_run(job, fileops, ao3, report)
 
 
+def work_links(text: str) -> tuple[list[str], list[str]]:
+    """Every work in a paste of links or work numbers, and whatever in it was neither.
+
+    Separated by anything people separate a list with - new lines, commas, spaces,
+    semicolons, in any mix. Each one goes through `work_link`, so a link to any chapter and a
+    bare number both count; the same work twice is one work, kept where it first appeared.
+    """
+
+    links: list[str] = []
+    unknown: list[str] = []
+    for piece in re.split(r'[\s,;]+', text or ''):
+        if not piece: continue
+        link = work_link(piece)
+        if link is None: unknown.append(piece)
+        elif link not in links: links.append(link)
+    return links, unknown
+
+
 def work_link(value: str) -> str | None:
     """A work link from either a link or a bare work number.
 
@@ -2395,7 +2499,7 @@ def cleanup(job: Job, fileops: FileOps, ao3) -> None:
 
 # the runs whose cleanup notes which collections hold the works they covered: every
 # workflow but the debug ones (the combined run, new bookmarks only, update incomplete)
-LINKING_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM, ACTION_WORK,
+LINKING_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM, ACTION_WORK, ACTION_WORKS,
                    ACTION_COLLECTIONS, ACTION_COLLECTION)
 
 
@@ -3407,6 +3511,7 @@ def runners() -> dict:
         ACTION_NEW: run_new,
         ACTION_SYNC: run_sync,
         ACTION_WORK: run_work,
+        ACTION_WORKS: run_works,
         ACTION_CUSTOM: run_custom,
         ACTION_QUICK: run_quick,
     }
@@ -3623,11 +3728,16 @@ class Handler(BaseHTTPRequestHandler):
         except access.AccessError as e:
             self.send_json(400, {'error': str(e)})
             return
-        if not username or not password:
+        options = resolve_options(body.get('options'))
+        # only a run pointed at fics by hand may go without a login; any other always logs in
+        if action not in SKIP_LOGIN_ACTIONS: options['skipLogin'] = False
+        if options['skipLogin']:
+            # whatever was typed is not used, so it is not kept either
+            username, password = '', ''
+        elif not username or not password:
             self.send_json(400, {'error': 'username and password are required'})
             return
 
-        options = resolve_options(body.get('options'))
         # the option only means anything on the runs that offer it. the ui never sends it
         # otherwise, but the rule belongs here, where what arrives in a request is turned
         # into what a run may actually do - a stray flag must not make a routine run
@@ -3669,6 +3779,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # normalised now, so the run is handed a link rather than whatever was pasted
             url = link
+        elif action == ACTION_WORKS:
+            links, unknown = work_links(url)
+            problem = (strings.ERROR_NOT_WORK_LINKS.format(', '.join(unknown[:10]))
+                       if unknown else strings.ERROR_NO_WORK_LINKS if not links
+                       else strings.ERROR_TOO_MANY_WORK_LINKS.format(len(links), MAX_WORK_LINKS)
+                       if len(links) > MAX_WORK_LINKS else '')
+            if problem:
+                self.send_json(400, {'error': problem})
+                return
+            # one link to a line, which is also how the history file shows them
+            url = '\n'.join(links)
         elif action in ACTIONS_NEEDING_URL:
             if strings.AO3_BASE_URL not in url or not parse_text.get_collection_name(url):
                 self.send_json(400, {'error': strings.ERROR_NOT_A_COLLECTION})

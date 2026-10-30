@@ -90,7 +90,7 @@ def test_html_is_offered_by_default_but_can_be_turned_off():
 def test_resolve_options_defaults_match_the_console_defaults():
     assert server.resolve_options(None) == {
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
-        'reindex': True, 'dates': False, 'dateFrom': '', 'dateTo': '',
+        'reindex': True, 'dates': False, 'skipLogin': False, 'dateFrom': '', 'dateTo': '',
         'overwrite': False, 'floorRun': '', 'nonBookmarks': False, 'resume': '',
         'collectionWorks': False, 'subcollections': False, 'parentCollections': False,
     }
@@ -104,7 +104,7 @@ def test_resolve_options_reads_what_was_asked_for():
          'collectionWorks': True, 'subcollections': True, 'parentCollections': True})
 
     assert result == {'start': 5, 'pages': 8, 'series': True, 'images': True,
-                      'workdates': True, 'reindex': False, 'dates': True,
+                      'workdates': True, 'reindex': False, 'dates': True, 'skipLogin': False,
                       'dateFrom': '2026-01-01', 'dateTo': '2026-06-30',
                       'overwrite': True, 'floorRun': '', 'nonBookmarks': True,
                       'resume': '', 'collectionWorks': True, 'subcollections': True,
@@ -3475,5 +3475,140 @@ def test_every_run_that_indexes_lists_the_walkthrough_step_after_indexing():
         assert ids.index('series') < ids.index('check'), action
     # the update run indexes nothing, so it has nothing to mark
     assert 'series' not in plan_ids(server.ACTION_UPDATE)
+
+# endregion
+
+
+# region several fics, and skipping the login
+
+def test_a_paste_of_links_and_numbers_is_read_whatever_separates_them():
+    links, unknown = server.work_links(
+        '123\nhttps://archiveofourown.org/works/456/chapters/9, 789; 123  '
+        'https://archiveofourown.org/series/5\t1011')
+
+    assert links == ['https://archiveofourown.org/works/123',
+                     'https://archiveofourown.org/works/456',
+                     'https://archiveofourown.org/works/789',
+                     'https://archiveofourown.org/works/1011']
+    assert unknown == ['https://archiveofourown.org/series/5']
+
+
+def start_request(action, url='', username='Someone', password='a-password', **options):
+    sent = {}
+    handler = MagicMock()
+    handler.path = '/api/jobs'
+    handler.read_json.return_value = {'action': action, 'username': username,
+                                      'password': password, 'filetypes': ['JSON', 'HTML'],
+                                      'options': options, 'url': url}
+    handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
+    with patch.object(server.threading, 'Thread') as thread, \
+         patch.dict(server.Handler.jobs, clear=True):
+        server.Handler.do_POST(handler)
+        jobs = list(server.Handler.jobs.values())
+    return sent, jobs, thread
+
+
+def test_several_fics_start_with_one_link_to_a_line():
+    sent, [job], _ = start_request(server.ACTION_WORKS, '1, 2 2;3')
+
+    assert sent['status'] == 202
+    assert job.url == '\n'.join(f'https://archiveofourown.org/works/{n}' for n in (1, 2, 3))
+
+
+def test_several_fics_name_what_in_the_paste_is_not_a_work():
+    sent, jobs, _ = start_request(server.ACTION_WORKS, '1 not-a-fic 2')
+
+    assert sent['status'] == 400
+    assert 'not-a-fic' in sent['body']['error']
+    assert jobs == []
+
+
+def test_a_paste_with_nothing_in_it_is_refused():
+    sent, _, _ = start_request(server.ACTION_WORKS, ' ,; ')
+    assert sent['status'] == 400
+    assert sent['body']['error'] == strings.ERROR_NO_WORK_LINKS
+
+
+@pytest.mark.parametrize('action', [server.ACTION_WORK, server.ACTION_WORKS])
+def test_a_fic_run_told_to_skip_the_login_needs_no_credentials_and_keeps_none(action):
+    sent, [job], thread = start_request(action, '123', username='Someone', password='',
+                                        skipLogin=True)
+
+    assert sent['status'] == 202
+    assert sent['body']['options']['skipLogin'] is True
+    assert job.username == ''
+    # the password handed to the run is empty, whatever the request carried
+    assert thread.call_args.kwargs['args'][1] == ''
+
+
+def test_skipping_the_login_is_only_for_the_fic_runs():
+    sent, jobs, _ = start_request(server.ACTION_BOOKMARKS, username='', password='',
+                                  skipLogin=True)
+    assert sent['status'] == 400
+    assert jobs == []
+
+
+def test_a_run_told_to_skip_the_login_never_logs_in(fake_environment):
+    job = server.Job(server.ACTION_WORK, ['JSON'], '', server.resolve_options({'skipLogin': True}),
+                     url='https://archiveofourown.org/works/1')
+
+    with patch.object(server, 'run_work') as run:
+        server.run_job(job, '')
+
+    run.assert_called_once()
+    fake_environment['repo'].login.assert_not_called()
+    assert fake_environment['repo'].logged_in is False
+    login = [e for e in job.history if e['type'] == progress.STEP and e['id'] == 'login']
+    assert [e['status'] for e in login] == [progress.STEP_SKIPPED]
+    assert progress.AUTHENTICATED not in _types(job)
+    assert _types(job)[-1] == progress.FINISHED
+
+
+def test_a_failure_with_no_login_never_asks_whether_the_login_lapsed():
+    from source_code.ao3 import Ao3
+    repo = MagicMock()
+    repo.logged_in = False
+    ao3 = Ao3(repo, MagicMock(), ['HTML'], None, False, False)
+
+    ao3.check_session()
+
+    repo.still_logged_in.assert_not_called()
+
+
+def test_several_fics_are_each_indexed_then_downloaded_and_one_ao3_will_not_show_is_passed_over(
+        fake_environment):
+    links = [f'https://archiveofourown.org/works/{n}' for n in (1, 2, 3)]
+    job = server.Job(server.ACTION_WORKS, ['JSON', 'HTML'], 'Someone',
+                     server.resolve_options({}), url='\n'.join(links))
+    ao3 = MagicMock()
+    ao3.failures = []
+
+    def index(link, existing):
+        if link.endswith('/2'): raise exceptions.DeletedException('deleted')
+        return {'id': link.rsplit('/', 1)[1], 'link': link}
+
+    ao3.index_one_work.side_effect = index
+    with patch.object(server, 'Ao3', return_value=ao3), \
+         patch.object(server.shared, 'read_index', return_value=[]), \
+         patch.object(server, 'index_marked_series', return_value=[]), \
+         patch.object(server, 'download_planned') as downloaded, \
+         patch.object(server, 'finish_run') as finished:
+        server.run_works(job, fake_environment['fileops'], fake_environment['repo'], MagicMock())
+
+    assert ao3.index_one_work.call_count == 3
+    ao3.record_failure.assert_called_once()
+    assert ao3.record_failure.call_args.args[0] == links[1]
+    records = downloaded.call_args.args[3]
+    assert [r['id'] for r in records] == ['1', '3']
+    assert downloaded.call_args.kwargs['overwrite'] == [links[0], links[2]]
+    # FicHub is asked about the failures once, at the end, not after each fic
+    finished.assert_called_once()
+
+
+def test_several_fics_have_their_own_checklist_wording():
+    job = server.Job(server.ACTION_WORKS, ['JSON', 'HTML'], 'Someone', server.resolve_options({}))
+    plan = dict(server.step_plan(job))
+    assert plan['index'] == strings.STEP_INDEX_MANY
+    assert plan['download'] == strings.STEP_DOWNLOAD_MANY
 
 # endregion

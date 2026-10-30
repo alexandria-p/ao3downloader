@@ -23,6 +23,8 @@ export type JobAction =
   | 'sync'
   /** one fic, by link or work number */
   | 'work'
+  /** several fics, pasted as links or work numbers */
+  | 'works'
   /** the full scan with its parts made optional */
   | 'custom'
   /** a full scan that stops at the works ao3 has not touched since the last run */
@@ -68,6 +70,11 @@ export interface ServerConfig {
 
 /** the questions the console menu asks after the file types */
 export interface JobOptions {
+  /**
+   * Go without logging in to AO3. Only the runs pointed at fics by hand offer it; works only
+   * a login can see then fail, and FicHub is offered for them at the end.
+   */
+  skipLogin?: boolean;
   /** page to begin on; 1 is the start of the listing */
   start: number;
   /** page to stop on; 0 means every page */

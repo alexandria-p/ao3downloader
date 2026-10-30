@@ -42,6 +42,8 @@ class Repository:
         self.extra_wait = fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0)
         self.max_retries = fileops.get_ini_value_integer(strings.INI_MAX_RETRIES, 0)
         self.max_timeouts = fileops.get_ini_value_integer(strings.INI_MAX_TIMEOUTS, 3)
+        # True once logged in, False for a run told not to, None until either is known
+        self.logged_in: bool | None = None
 
 
     def __enter__(self):
@@ -316,6 +318,10 @@ class Repository:
 
     def login(self, username: str, password: str):
         """Login to ao3."""
+
+        # a run told not to log in never gets here, and `Ao3.check_session` reads this to
+        # know there is no session to have lapsed
+        self.logged_in = True
 
         soup = self.get_soup(strings.AO3_LOGIN_URL)
         if not soup: raise Exception(strings.ERROR_FAILED_LOGIN.format(strings.FAILED_LOGIN_NOT_FOUND))

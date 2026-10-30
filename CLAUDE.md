@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1673 python passed; 736 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1684 python passed; 742 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1821,6 +1821,27 @@ holds that - and is skipped when nothing failed. What not to break:
   `test_fichub.py` is the real thing, against FicHub's real answer for 75354806
   (`test/fixtures/fichub/wolfbird.json`). fichub.net was not reachable from where this was
   built, so the first live call was the user's own.
+
+### Several fics at once, and fic runs without a login
+
+`ACTION_WORKS` (`run_works`) is the single-fic run over a pasted list. `work_links` reads the
+paste - any mix of new lines, commas, spaces and semicolons, links or bare numbers, the same
+work once - and `do_POST` refuses it whole, naming what is not a work, rather than starting a
+run that silently skips a typo; at most `MAX_WORK_LINKS` (500). The page's `parseWorkList`
+follows the same rule so the box can say so as it is typed. The run's `url` is the links one
+to a line, which History lists. Every fic is indexed before any is downloaded, a fic ao3 will
+not show is a recorded failure and passed over, and **FicHub is asked once, at the end**
+(`finish_run`) - never per fic. It overwrites exactly the fics listed, as `run_work` does.
+
+**`skipLogin` belongs to `SKIP_LOGIN_ACTIONS` (`work`, `works`) alone** - `do_POST` clamps it
+off for every other run, since they read your own bookmarks. With it, the credentials are
+neither required nor kept (`username`/`password` emptied), `run_job` skips the login step
+(marked `skipped`, no `authenticated` event) and sets `repo.logged_in = False`, and
+`Ao3.check_session` returns early on that - a logged-out run would otherwise take its first
+failure for a lapsed session and end. `logged_in` is `None` until known, so a mocked or
+console `Repository` keeps the old behaviour. The page's checkbox is unticked by default and
+shows a warning when ticked; its credentials step then asks for nothing, and a hosted page
+seals an empty login.
 
 ### A run can be paused, and there are exactly two places it may pause
 

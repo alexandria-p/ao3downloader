@@ -34,6 +34,7 @@ the same thing in conversation.
 
 ## Reading AO3
 
+- **Skip AO3 login** [skipLogin, logged out] - a run pointed at fics by hand (`work`, `works`) told not to log in (`SKIP_LOGIN_ACTIONS`). Every other run always logs in.
 - **Run** [job] - one use of a workflow, from pressing Start to its report.
 - **Step** [checklist item] - one stage of a run, shown ticked, skipped, failed, or *done in the earlier run* (a resumed run's step its earlier attempt finished) in the run window.
 - **Option** [checkbox, configuration] - a choice made before a run starts.
@@ -204,13 +205,34 @@ With a date range, steps 2 and 3 read "…in that date range".
   - File types
   - Always replaces the fic's own files; no overwrite checkbox
   - A fic AO3 will not show (deleted, hidden, locked) is a failure of the fic, not of the run: the run goes straight to the FicHub step
+  - *Skip AO3 login?* [`skipLogin`] - off unless ticked; ticking it shows a warning that this is not recommended, that fics restricted to AO3 users are harder to reach, and that the run may have to fall back on FicHub. The run then never logs in: its *Log in to AO3* step is marked skipped, the login page asks for no username or password, and nothing typed is sent. A fic AO3 shows only to a login fails like any other and goes to the FicHub step. A failure never triggers the lapsed-login check, since there is no session.
 - **Steps:**
-  1. Log in to AO3
+  1. Log in to AO3 (skipped with *Skip AO3 login?*)
   2. Index this fic
   3. Index works in series marked for walkthrough
   4. Read your existing downloaded files
   5. Download this fic
   6. Try FicHub for works AO3 would not give us
+  7. Cleanup
+  8. Report any failures
+
+## Download/update several fics
+
+- **Programmatic name:** `works`
+- The single-fic run over a list. Under **Advanced options**, beside *Download/update a specific fic*.
+- **Options:**
+  - The fics: work links or work numbers pasted into one box, separated by new lines, commas, spaces or semicolons in any mix (`parseWorkList` on the page, `work_links` in the helper). A link to any chapter counts; the same fic twice is one fic. Anything that is neither is named and the run will not start; at most 500 fics a run (`MAX_WORK_LINKS`). The run keeps them as its `url`, one link to a line, which History lists.
+  - *Get all works from encountered series*
+  - *Skip AO3 login?* - as on the single-fic run
+  - File types
+  - Always replaces the listed fics' own files; no overwrite checkbox
+- **Steps:**
+  1. Log in to AO3 (skipped with *Skip AO3 login?*)
+  2. Index these fics - each in turn, from its own page; one AO3 will not show is recorded as a failure and passed over
+  3. Index works in series marked for walkthrough
+  4. Read your existing downloaded files
+  5. Download these fics
+  6. Try FicHub for works AO3 would not give us - asked **once**, about every fic that failed, after all have been tried
   7. Cleanup
   8. Report any failures
 

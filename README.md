@@ -340,6 +340,8 @@ The **Bookmarks** tab has:
 Behind **Advanced options**:
 
 - **Download/update a specific fic** - paste a work link or just the work number. Indexes that one fic and downloads it in the formats you pick. A link to any chapter works.
+- **Download/update several fics** - the same for a list: paste work links or numbers, one per line or separated by commas, spaces or semicolons (up to 500). Each is indexed in turn, then all are downloaded. One AO3 will not show is passed over, and FicHub is offered once at the end for every fic that failed.
+- Both offer **Skip AO3 login?** - unticked by default, and **not recommended**: without a login, fics their authors restricted to AO3 users can't be reached, and the run may have to fall back on FicHub for them. Ticked, the login page asks for nothing and the run never logs in.
 - **Custom run** - a full scan with its parts made optional. It covers one of three things, which it asks first: **all bookmarks**, a **slice** of your listing by page number, or a **date range**. On top of that it can skip reading AO3 at all and work from what is already indexed. That last one costs no requests to decide anything, but judges everything against however old your index is. This is the one run that asks its options *before* the file types, because skipping the indexing decides one of them: JSON is the index, so a run that does not index does not write it, and the JSON box is ticked or unticked to match and locked either way.
 
 Behind **Advanced options**, only when the debug tools are on:

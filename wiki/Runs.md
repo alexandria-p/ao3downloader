@@ -7,6 +7,7 @@ A **run** is one press of a button: it logs in to AO3, indexes, downloads, and r
 | **Quick Scan** | Bookmarks | Everyday use: new bookmarks, and anything AO3 updated since your last scan | Small |
 | **(Full scan) Reindex & Update All** | Bookmarks | Repairing the index, or catching a finished fic that was added to | Reads everything - hours on a large library |
 | **Download/update a specific fic** | Advanced options | One fic, by link or work number. Always re-downloads it | One fic |
+| **Download/update several fics** | Advanced options | A pasted list of links or work numbers (any separators, up to 500). Always re-downloads them | One fic each |
 | **Custom run** | Advanced options | A slice of pages, a date range, or working from the index without reading AO3 | Depends |
 | **Index my collections** | Collections | Your own collections | 1 request per 20 works |
 | **Index collection by URL** | Collections | Any collection, from a link | 1 request per 20 works |
@@ -36,6 +37,7 @@ Each run asks its options, then which file types, then your login.
 - **Save embedded images separately** - custom run only. Usually unnecessary: images are already inside the downloaded work.
 - **Index and download encountered works** - collection runs only. Off: just records which works the collection holds. On: indexes and downloads them too.
 - **Include subcollections / parent collections** - collection runs only. Follows the family, each collection once, up to 200.
+- **Skip AO3 login?** - the fic runs only, off by default. Not recommended: fics restricted to AO3 users can't be reached logged out, and may have to come from FicHub instead.
 
 ## Questions a run may stop to ask
 

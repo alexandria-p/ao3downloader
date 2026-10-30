@@ -2178,6 +2178,9 @@ class Ao3:
         # one. a damaged file on disk says nothing about the login - don't pay to ask
         if isinstance(sys.exc_info()[1], exceptions.SavedFileException): return
         if self.session_checked: return
+        # a run told not to log in has no session to lose: a work that needs one fails on its
+        # own, and goes to FicHub at the end like any other failure
+        if getattr(self.repo, 'logged_in', True) is False: return
         self.session_checked = True
         if self.repo.still_logged_in(): return
         raise exceptions.SessionExpiredException(strings.ERROR_SESSION_EXPIRED)
