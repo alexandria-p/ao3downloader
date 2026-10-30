@@ -16,6 +16,8 @@ Indexing reads 20 works per request; each downloaded format is one request per w
 
 AO3 shows a *The archive is down for maintenance* page in place of everything. A run notices it, says so in its log, checks twice more 30 seconds apart, then stops asking AO3 for the rest of the run - every fic after that fails at once with *AO3 is down for maintenance*, rather than each one retrying for minutes. Fics with a work number are then offered to FicHub at the end. A run that has to log in fails at the login. Check [AO3's status page](https://status.archiveofourown.org) and start again once it is back.
 
+A request AO3 doesn't answer says `still waiting for AO3 to answer ...` every 15 seconds, and gives up after 60 seconds in all - it is tried again up to `MaxTimeouts` (3) times, then that fic fails and goes to FicHub at the end.
+
 Any other error AO3 answers with is retried, and every retry is said in the run's log (`AO3 answered 503 ... trying again in 4s (attempt 3 of 30)`). **Stop works during a retry.**
 
 ## Works started failing partway through

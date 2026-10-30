@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1700 python passed; 748 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1701 python passed; 748 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1877,6 +1877,13 @@ again, so Resume repeats the same request (the same fic looked up). Nothing is w
 a whole body has been judged, so abandoning one loses nothing. A POST is abandoned only for a
 stop. With neither `cancelled` nor `held` set (the console, most tests) it calls straight
 through.
+
+**`timeout` is a limit on the whole request there, not only on silence.** requests' own
+timeout fires only when a connection says nothing for that long, so ao3 holding one open (as
+it did during a maintenance outage) kept "looking up work" going for many minutes with nothing
+in the log. `abandonable` raises `TimeoutException` once `timeout` (60s) has passed in all,
+which `my_request` retries and counts toward `MaxTimeouts` as before, and prints
+`MESSAGE_STILL_WAITING` every `waiting_note` (15s) until then.
 
 **Force stop** (`POST /api/jobs/<id>/force-stop`, `force_stop`, History's pinned run) is the
 last resort for a run whose thread never reaches a gate or whose page has gone. It does what
