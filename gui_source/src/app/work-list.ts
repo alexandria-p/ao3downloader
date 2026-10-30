@@ -3,7 +3,7 @@ import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, hiddenKey, viewableInBrowser } from './library';
 import { safeGet, safeSet } from './storage';
 import { Collection, isCustomCollection } from './collections';
-import { CollectionItems, CustomCollections, canCollect, itemsOf } from './custom-collections';
+import { CollectionItems, CustomCollections, canCollect, canTick, itemsOf } from './custom-collections';
 import { CollectionEditor } from './collection-editor';
 import { TagFilter } from './tag-filter';
 import { TagChoice, buildTagIndex, matchesTags } from './tags';
@@ -60,6 +60,7 @@ export const DEFAULT_SORT: WorkSort = 'bookmarked-desc';
  */
 @Component({
   selector: 'app-work-list',
+  host: { '(document:click)': 'closeMenu()', '(document:keydown.escape)': 'closeMenu()' },
   imports: [DecimalPipe, NgTemplateOutlet, CollectionEditor, TagFilter],
   styleUrl: './work-list.css',
   templateUrl: './work-list.html',
@@ -374,6 +375,44 @@ export class WorkList {
     }
   }
 
+  // region each entry's own menu
+
+  /** the entry whose ⋯ menu is open, by its key; null when none is */
+  protected readonly menuFor = signal<string | null>(null);
+
+  protected menuKey(work: Bookmark): string {
+    return keyOf(work);
+  }
+
+  protected toggleMenu(work: Bookmark, event: Event): void {
+    // the click that opens it must not reach the document and shut it again
+    event.stopPropagation();
+    this.menuFor.set(this.menuFor() === keyOf(work) ? null : keyOf(work));
+  }
+
+  /** a click anywhere else, or Escape, shuts an open menu */
+  protected closeMenu(): void {
+    if (this.menuFor()) this.menuFor.set(null);
+  }
+
+  protected menuHide(work: Bookmark): void {
+    this.menuFor.set(null);
+    this.askHide(work);
+  }
+
+  protected menuUnhide(work: Bookmark): void {
+    this.menuFor.set(null);
+    void this.unhide(work);
+  }
+
+  /** a series cannot go in a collection: the item is there, greyed, and says why */
+  protected menuAdd(work: Bookmark): void {
+    if (!canCollect(work)) return;
+    this.startAdd([work], false);
+  }
+
+  // endregion
+
   // region hiding and unhiding what is ticked
 
   /**
@@ -430,8 +469,8 @@ export class WorkList {
     source: this.works,
     computation: () => new Set(),
   });
-  /** what can be ticked among what the filters leave showing */
-  private readonly selectableShown = computed(() => this.filtered().filter(canCollect));
+  /** what can be ticked among what the filters leave showing - series included */
+  private readonly selectableShown = computed(() => this.filtered().filter(canTick));
   /**
    * The ticked works the filters still show. Narrowing the listing narrows what an action
    * acts on, so nothing hidden is added or taken out unseen.
@@ -454,6 +493,21 @@ export class WorkList {
   );
 
   protected readonly adding = signal(false);
+  /**
+   * The works an add is for, while one is under way: the ticked works, from the bar, or one
+   * work, from its own menu. Kept apart from the ticks so adding one work from its menu
+   * neither needs nor disturbs whatever else is ticked. Series are already left out.
+   */
+  protected readonly addingWith = signal<Bookmark[] | null>(null);
+  /** whether the add under way came from the bar, and so clears the ticks once it is done */
+  private addFromBar = false;
+  /**
+   * The series an add was asked to include, which cannot go in a collection - said before
+   * anything is added, with the works that will be, until the person says to go on or not.
+   */
+  protected readonly seriesWarning = signal<{ series: Bookmark[]; rest: Bookmark[]; fromBar: boolean } | null>(null);
+  /** among what is ticked, what can go in a collection - not a series */
+  protected readonly tickedCollectable = computed(() => this.selectedShown().filter(canCollect));
   /** the custom collection to add to, by name - '' until one is chosen */
   protected readonly target = signal('');
   /**
@@ -466,11 +520,15 @@ export class WorkList {
   protected readonly problem = signal('');
 
   protected readonly canAdd = computed(
-    () => !this.busy() && this.selectedShown().length > 0 && !!this.target(),
+    () => !this.busy() && (this.addingWith() ?? []).length > 0 && !!this.target(),
   );
 
   protected canCollect(work: Bookmark): boolean {
     return canCollect(work);
+  }
+
+  protected canTick(work: Bookmark): boolean {
+    return canTick(work);
   }
 
   protected isSelected(work: Bookmark): boolean {
@@ -498,9 +556,44 @@ export class WorkList {
     this.selected.set(new Set());
   }
 
+  /** Add to a collection, from the bar: everything ticked that can go in one */
   protected openAdd(): void {
+    this.startAdd(this.selectedShown(), true);
+  }
+
+  /**
+   * Begin an add for `works`. A series cannot go in a collection, so any among them are named
+   * in a warning first - the rest are added only once the person says that is all right.
+   */
+  protected startAdd(works: Bookmark[], fromBar: boolean): void {
     this.outcome.set('');
     this.problem.set('');
+    this.menuFor.set(null);
+    const rest = works.filter(canCollect);
+    if (!rest.length) return;
+    const series = works.filter((w) => bookmarkTypeOf(w) === 'series bookmark');
+    if (series.length) {
+      this.seriesWarning.set({ series, rest, fromBar });
+      return;
+    }
+    this.proceedAdd(rest, fromBar);
+  }
+
+  /** the series were named and the person said go on: add the rest */
+  protected addWithoutSeries(): void {
+    const warning = this.seriesWarning();
+    this.seriesWarning.set(null);
+    if (warning) this.proceedAdd(warning.rest, warning.fromBar);
+  }
+
+  /** not now: nothing is added, and whatever was ticked stays ticked */
+  protected cancelSeriesWarning(): void {
+    this.seriesWarning.set(null);
+  }
+
+  private proceedAdd(works: Bookmark[], fromBar: boolean): void {
+    this.addingWith.set(works);
+    this.addFromBar = fromBar;
     // the last one added to stays chosen; otherwise the first, so Add is never waiting on a click
     if (!this.targets().some((c) => c.name === this.target())) this.target.set(this.targets()[0]?.name ?? '');
     // with none of your own to add to, the only answer is a new one - so ask that straight away
@@ -511,44 +604,56 @@ export class WorkList {
     this.adding.set(true);
   }
 
-  /** open the new-collection window, to start with what is ticked */
+  /** the add panel shut without adding: nothing changes */
+  protected closeAdd(): void {
+    this.adding.set(false);
+    this.addingWith.set(null);
+  }
+
+  /** open the new-collection window, to start with the works the add is for */
   protected newCollection(): void {
     this.outcome.set('');
     this.problem.set('');
-    this.creatingWith.set(itemsOf(this.selectedShown()));
+    this.creatingWith.set(itemsOf(this.addingWith() ?? []));
   }
 
-  /** the new collection was made, with the ticked works already in it */
+  /** the new collection was made, with the works already in it */
   protected collectionCreated(collection: Collection): void {
     const items = this.creatingWith() ?? { works: [], externals: [] };
     this.creatingWith.set(null);
     this.adding.set(false);
+    this.addingWith.set(null);
     this.target.set(collection.name ?? '');
-    this.selected.set(new Set());
+    if (this.addFromBar) this.selected.set(new Set());
     this.outcome.set(`Made ${collection.title}, with ${countOf(items)} in it.`);
   }
 
   /**
    * Closed without saving: no collection was made, and nothing else changes - the works stay
-   * ticked and the add panel stays as it was, so the person can pick another way.
+   * ticked and the add panel stays as it was, so the person can pick another way. Opened
+   * straight from Add (there being no collection of their own yet), there is no panel to go
+   * back to, so the add is over.
    */
   protected collectionCancelled(): void {
     this.creatingWith.set(null);
+    if (!this.adding()) this.addingWith.set(null);
   }
 
   protected async addSelected(): Promise<void> {
     if (!this.canAdd()) return;
-    const items = itemsOf(this.selectedShown());
+    const items = itemsOf(this.addingWith() ?? []);
+    const clear = this.addFromBar;
     await this.act(async () => {
       const { collection, added, already } = await this.custom.add(this.target(), items);
       this.adding.set(false);
+      this.addingWith.set(null);
       const count = added.works.length + added.externals.length;
       // a work is in a collection once: those already there are said, not added again
       const skipped = already ? ` ${already.toLocaleString()} ${already === 1 ? 'was' : 'were'} already in it.` : '';
       return count
         ? `Added ${countOf(added)} to ${collection.title}.${skipped}`
-        : `Everything ticked was already in ${collection.title}.`;
-    });
+        : `${items.works.length + items.externals.length === 1 ? 'That was' : 'Everything ticked was'} already in ${collection.title}.`;
+    }, clear);
   }
 
   protected async removeSelected(): Promise<void> {
@@ -561,13 +666,13 @@ export class WorkList {
     });
   }
 
-  private async act(change: () => Promise<string>): Promise<void> {
+  private async act(change: () => Promise<string>, clearTicks = true): Promise<void> {
     this.busy.set(true);
     this.problem.set('');
     this.outcome.set('');
     try {
       this.outcome.set(await change());
-      this.selected.set(new Set());
+      if (clearTicks) this.selected.set(new Set());
     } catch (error) {
       this.problem.set(error instanceof Error ? error.message : String(error));
     } finally {

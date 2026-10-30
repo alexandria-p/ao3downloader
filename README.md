@@ -687,7 +687,11 @@ cannot clash). It is shaped like an AO3 collection file and says `"custom": true
 }
 ```
 
-Works and external works can be added; series cannot. The helper never reads
+Works and external works can be added; series cannot. Series can still be ticked - to hide
+them with the rest - and adding with series ticked first names them and asks whether to add
+everything else without them. Each fic also has a **⋯** menu in its bottom corner, offering the
+same for that fic alone: Hide or Unhide, and Add to a collection (greyed out for a series, with
+a note on hover saying why). The helper never reads
 `collections/custom/`, so a run never changes these files, and a work in one is not recorded
 as being in that collection in its own index entry (`from_collections` is for AO3 collections
 only). Ticking works needs a library the page can write to - a folder opened with Chrome or

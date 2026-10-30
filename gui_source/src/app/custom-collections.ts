@@ -118,6 +118,15 @@ export interface Added {
   already: number;
 }
 
+/**
+ * Whether an entry can be ticked in a listing: anything with a number - works, series and
+ * external works alike, so all of them can be hidden together. Whether it can then go in a
+ * collection is `canCollect`'s to say.
+ */
+export function canTick(entry: Bookmark): boolean {
+  return !!entry.id && !entry.error;
+}
+
 /** whether an entry can be put in a custom collection at all */
 export function canCollect(entry: Bookmark): boolean {
   return !!entry.id && !entry.error && bookmarkTypeOf(entry) !== 'series bookmark';

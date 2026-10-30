@@ -195,7 +195,10 @@
       <span class="selection-count">{{ selectedShown().length | number }} ticked</span>
       @if (selectedShown().length) {
         <button type="button" class="button subtle" (click)="clearSelection()">Clear</button>
-        <button type="button" class="button primary" [disabled]="busy()" (click)="openAdd()">
+        <!-- a series cannot go in a collection: with only series ticked there is nothing to add -->
+        <button type="button" class="button primary" [disabled]="busy() || !tickedCollectable().length"
+          [title]="tickedCollectable().length ? '' : 'A series cannot be added to a collection - only works can'"
+          (click)="openAdd()">
           Add to a collection...
         </button>
         @if (removableFrom(); as from) {
@@ -213,10 +216,28 @@
       }
     </p>
 
-    @if (adding() && selectedShown().length) {
-      <div class="add-panel">
+    @if (outcome()) {
+      <p class="selection-outcome" role="status">{{ outcome() }}</p>
+    }
+    @if (problem()) {
+      <p class="error" role="alert">Not saved: {{ problem() }}</p>
+    }
+  </div>
+}
+
+<!-- where to add to: a window rather than a panel, so it is in view from any fic's menu too -->
+@if (adding() && addingWith(); as works) {
+  <div class="hide-modal">
+    <div class="backdrop" (click)="closeAdd()"></div>
+    <div class="dialog add-panel" role="dialog" aria-modal="true" aria-labelledby="add-title">
+      <header>
+        <h2 id="add-title">
+          {{ works.length === 1 ? 'Add ' + works[0].title + ' to a collection' : 'Add ' + works.length + ' works to a collection' }}
+        </h2>
+      </header>
+      <section class="body">
         <fieldset>
-          <legend>Add {{ selectedShown().length | number }} ticked to</legend>
+          <legend>Your collections</legend>
           @for (collection of targets(); track collection.name) {
             <label class="choice">
               <input type="radio" name="addTarget" [value]="collection.name"
@@ -236,21 +257,40 @@
           Only your own collections are listed. Collections from AO3 show what AO3 says they
           hold, so nothing is added to them here.
         </p>
-        <p class="add-actions">
-          <button type="button" class="button subtle" (click)="adding.set(false)">Cancel</button>
-          <button type="button" class="button primary" [disabled]="!canAdd()" (click)="addSelected()">
-            {{ busy() ? 'Saving...' : 'Add' }}
-          </button>
-        </p>
-      </div>
-    }
+      </section>
+      <footer class="add-actions">
+        <button type="button" class="button subtle" (click)="closeAdd()">Cancel</button>
+        <button type="button" class="button primary" [disabled]="!canAdd()" (click)="addSelected()">
+          {{ busy() ? 'Saving...' : 'Add' }}
+        </button>
+      </footer>
+    </div>
+  </div>
+}
 
-    @if (outcome()) {
-      <p class="selection-outcome" role="status">{{ outcome() }}</p>
-    }
-    @if (problem()) {
-      <p class="error" role="alert">Not saved: {{ problem() }}</p>
-    }
+<!-- a series cannot go in a collection: say which will be left out before adding the rest -->
+@if (seriesWarning(); as warning) {
+  <div class="hide-modal">
+    <div class="backdrop" (click)="cancelSeriesWarning()"></div>
+    <div class="dialog series-warning" role="dialog" aria-modal="true" aria-labelledby="series-title">
+      <header><h2 id="series-title">Series can't go in a collection</h2></header>
+      <section class="body">
+        <p>
+          We'll add everything else - {{ warning.rest.length === 1 ? '1 work' : warning.rest.length + ' works' }} -
+          but {{ warning.series.length === 1 ? 'this series' : 'these series' }} will not be:
+        </p>
+        <ul class="series-left-out">
+          @for (series of warning.series; track series.id) {
+            <li><span class="dim">Series {{ series.id }}</span> {{ series.title }}</li>
+          }
+        </ul>
+        <p>Is that okay?</p>
+      </section>
+      <footer>
+        <button type="button" class="button" (click)="cancelSeriesWarning()">Cancel</button>
+        <button type="button" class="button primary" (click)="addWithoutSeries()">Add the rest</button>
+      </footer>
+    </div>
   </div>
 }
 
@@ -303,7 +343,7 @@
         [class.external]="typeOf(work) === 'external work'"
         [class.selectable]="canSelect()" [class.ticked]="canSelect() && isSelected(work)"
         [class.hidden-work]="isHidden(work)">
-      @if (canSelect() && canCollect(work)) {
+      @if (canSelect() && canTick(work)) {
         <input class="pick" type="checkbox" [checked]="isSelected(work)"
           [attr.aria-label]="'Tick ' + work.title" (change)="toggleSelected(work)" />
       }
@@ -325,27 +365,67 @@
       } @else {
         <p class="datetime">{{ work.date_updated }}</p>
 
-        <!-- hiding takes it out of this listing only: its files and index entry stay -->
-        @if (canHide() && work.id) {
-          @if (isHidden(work)) {
-            <button type="button" class="hide-toggle unhide" [attr.aria-label]="'Unhide ' + work.title"
-              title="Hidden - show it in the listing again" (click)="unhide(work)">
-              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-                <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" fill="none" stroke="currentColor" stroke-width="1.2" />
-                <circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2" />
-              </svg>
-              Unhide
-            </button>
-          } @else {
-            <button type="button" class="hide-toggle" [attr.aria-label]="'Hide ' + work.title + ' from this list'"
-              title="Hide from this list - the files stay" (click)="askHide(work)">
-              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-                <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" fill="none" stroke="currentColor" stroke-width="1.2" />
-                <circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2" />
-                <path d="M2 14L14 2" stroke="currentColor" stroke-width="1.4" />
-              </svg>
-            </button>
-          }
+        <!--
+          the entry's own actions, in its bottom corner: the eye hides or unhides at once, and
+          the menu offers the same as the bar does for ticked works, for this one
+        -->
+        @if ((canHide() || canSelect()) && work.id) {
+          <div class="entry-actions">
+            <!-- hiding takes it out of this listing only: its files and index entry stay -->
+            @if (canHide()) {
+              @if (isHidden(work)) {
+                <button type="button" class="hide-toggle unhide" [attr.aria-label]="'Unhide ' + work.title"
+                  title="Hidden - show it in the listing again" (click)="unhide(work)">
+                  <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                    <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" fill="none" stroke="currentColor" stroke-width="1.2" />
+                    <circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2" />
+                  </svg>
+                  Unhide
+                </button>
+              } @else {
+                <button type="button" class="hide-toggle" [attr.aria-label]="'Hide ' + work.title + ' from this list'"
+                  title="Hide from this list - the files stay" (click)="askHide(work)">
+                  <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                    <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" fill="none" stroke="currentColor" stroke-width="1.2" />
+                    <circle cx="8" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.2" />
+                    <path d="M2 14L14 2" stroke="currentColor" stroke-width="1.4" />
+                  </svg>
+                </button>
+              }
+            }
+
+            <div class="entry-menu">
+              <button type="button" class="entry-menu-toggle" aria-haspopup="menu"
+                [attr.aria-expanded]="menuFor() === menuKey(work)"
+                [attr.aria-label]="'More for ' + work.title" title="More" (click)="toggleMenu(work, $event)">
+                &#8943;
+              </button>
+              @if (menuFor() === menuKey(work)) {
+                <ul class="entry-menu-items" role="menu" (click)="$event.stopPropagation()">
+                  @if (canHide()) {
+                    <li role="none">
+                      @if (isHidden(work)) {
+                        <button type="button" role="menuitem" (click)="menuUnhide(work)">Unhide</button>
+                      } @else {
+                        <button type="button" role="menuitem" (click)="menuHide(work)">Hide</button>
+                      }
+                    </li>
+                  }
+                  @if (canSelect()) {
+                    <li role="none">
+                      <!-- aria-disabled rather than disabled, so hovering still says why -->
+                      <button type="button" role="menuitem" [class.unavailable]="!canCollect(work)"
+                        [attr.aria-disabled]="!canCollect(work)"
+                        [title]="canCollect(work) ? '' : 'A series cannot be added to a collection - only works can'"
+                        (click)="menuAdd(work)">
+                        Add to a collection...
+                      </button>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+          </div>
         }
 
         <div class="blurb-head">

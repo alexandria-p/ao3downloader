@@ -894,7 +894,8 @@ Each is a json file in `collections/custom/`, named `custom-` and ten letters an
 AO3 collection name never has a hyphen, so the two cannot clash), shaped like an AO3
 collection file - the same field names, `title`, `description`, `tags`, `maintainers`,
 `challenge_type`, the flags and dates - with `"custom": true`, `"link": null` and the works in
-`work_ids` and `external_ids`. Series cannot be added. The helper never reads that folder, so no run changes
+`work_ids` and `external_ids`. Series cannot be added: they can be ticked, to hide them, and
+adding with series ticked names them and asks before adding the rest. The helper never reads that folder, so no run changes
 these files, and `from_collections` in an index entry names AO3 collections only.
 
 ## Keeping ao3 happy

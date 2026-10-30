@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1645 python passed; 689 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1645 python passed; 698 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1927,8 +1927,21 @@ collection made in the page. What not to break:
   ao3's, and the next collection run would put it back anyway.
 - **Ticking acts on what the filters show** (`selectedShown`), so nothing hidden is added or
   removed unseen; the ticks reset when the listing's works change (`selected` is a
-  `linkedSignal` on `works`). Series cannot be ticked (`canCollect`): a collection holds works,
-  and a works id and an external work's are kept apart (`keyOf`, `itemsOf`).
+  `linkedSignal` on `works`). **Anything with a number can be ticked** (`canTick`) - series
+  too, so they hide with the rest - but **only works go in a collection** (`canCollect`): an add
+  that includes series names them first (`seriesWarning`: "we'll add everything else, but these
+  series will not be - is that okay?") and adds the rest only on yes; with only series ticked,
+  Add is disabled and its title says why. A work's id and an external work's are kept apart
+  (`keyOf`, `itemsOf`).
+- **An add is for an explicit list** (`addingWith`): the ticked works from the bar, or one
+  work from its own ⋯ menu. A menu add never touches the ticks (`addFromBar` decides whether a
+  finished add clears them). The add panel is a modal, so it is in view from a menu far down
+  the page.
+- **Each entry has a ⋯ menu** (`menuFor`, one open at a time) beside the eye button, offering
+  what the bar offers for that one: Hide or Unhide, and Add to a collection. For a series the
+  add item is greyed with **`aria-disabled`, not `disabled`**, so hovering still shows its title
+  saying why - a disabled button shows no tooltip in some browsers. A click elsewhere or Escape
+  shuts the menu (host listeners); the toggle stops its own click so it does not shut itself.
 - **Only where the page can write** (`CustomCollections.writable`, `Library.store`): a folder
   handed over as a file list, by a browser without a folder picker, offers no ticking.
 - A save updates `Library.collections` directly with what was written, flattened the way a

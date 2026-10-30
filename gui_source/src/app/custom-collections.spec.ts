@@ -333,10 +333,153 @@ describe('ticking works in the listing', () => {
     expect(element.textContent).toContain('25 ticked');
   });
 
-  it('gives a series no box to tick', async () => {
+  it('lets a series be ticked too, so it can be hidden with the rest', async () => {
     await listing([work('1'), work('7', 'series bookmark')]);
-    expect(element.querySelectorAll('input.pick').length).toBe(1);
+    expect(element.querySelectorAll('input.pick').length).toBe(2);
   });
+
+  it('names the ticked series before adding, and adds the rest once told it is okay', async () => {
+    const made = await custom.create('Mine', { works: [], externals: [] });
+    const series = { ...work('7', 'series bookmark'), title: 'A Long Series' };
+    await listing([work('1'), work('2'), series]);
+    button('Tick all').click();
+    await settle();
+
+    button('Add to a collection').click();
+    await settle();
+    const warning = element.querySelector('.series-warning')!;
+    expect(warning.textContent).toContain("We'll add everything else - 2 works");
+    expect(warning.textContent).toContain('Series 7');
+    expect(warning.textContent).toContain('A Long Series');
+    expect(warning.textContent).toContain('Is that okay?');
+    expect(element.querySelector('.add-panel')).toBeNull();
+
+    button('Add the rest').click();
+    await settle();
+    [...element.querySelectorAll('.add-panel button')].find((b) => b.textContent?.trim() === 'Add')!
+      .dispatchEvent(new MouseEvent('click'));
+    await settle();
+
+    expect(written(made.name!)['work_ids']).toEqual(['1', '2']);
+  });
+
+  it('adds nothing, and keeps the ticks, when the series warning is cancelled', async () => {
+    await custom.create('Mine', { works: [], externals: [] });
+    await listing([work('1'), work('7', 'series bookmark')]);
+    button('Tick all').click();
+    await settle();
+
+    button('Add to a collection').click();
+    await settle();
+    button('Cancel').click();
+    await settle();
+
+    expect(element.querySelector('.series-warning')).toBeNull();
+    expect(element.querySelector('.add-panel')).toBeNull();
+    expect(element.querySelectorAll('input.pick:checked')).toHaveLength(2);
+  });
+
+  it('offers no add with only series ticked, and says why on hover', async () => {
+    await listing([work('1'), work('7', 'series bookmark')]);
+    await tick(1);
+
+    const add = button('Add to a collection');
+    expect(add.disabled).toBe(true);
+    expect(add.title).toContain('A series cannot be added to a collection');
+  });
+
+  // region each entry's own menu
+
+  function menuOf(at: number): HTMLElement {
+    return element.querySelectorAll<HTMLElement>('li.blurb')[at];
+  }
+
+  async function openMenu(at: number) {
+    menuOf(at).querySelector<HTMLButtonElement>('.entry-menu-toggle')!.click();
+    await settle();
+    return menuOf(at).querySelector('.entry-menu-items')!;
+  }
+
+  function item(menu: Element, text: string): HTMLButtonElement {
+    return [...menu.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(text))!;
+  }
+
+  it('gives each entry a menu offering what the bar does, for that one', async () => {
+    await listing([work('1')]);
+    const menu = await openMenu(0);
+    expect([...menu.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual([
+      'Hide',
+      'Add to a collection...',
+    ]);
+  });
+
+  it('greys out adding a series in its menu, and says why on hover', async () => {
+    await listing([work('7', 'series bookmark')]);
+    const menu = await openMenu(0);
+    const add = item(menu, 'Add to a collection');
+
+    expect(add.getAttribute('aria-disabled')).toBe('true');
+    expect(add.title).toContain('A series cannot be added to a collection');
+    add.click();
+    await settle();
+    expect(element.querySelector('.add-panel')).toBeNull();
+    expect(element.querySelector('app-collection-editor')).toBeNull();
+  });
+
+  it('adds just that work from its menu, leaving whatever else is ticked alone', async () => {
+    const made = await custom.create('Mine', { works: [], externals: [] });
+    await listing([work('1'), work('2'), work('3')]);
+    await tick(0);
+    await tick(2);
+
+    item(await openMenu(1), 'Add to a collection').click();
+    await settle();
+    expect(element.querySelector('.add-panel h2')?.textContent).toContain('Add Work 2 to a collection');
+    [...element.querySelectorAll('.add-panel button')].find((b) => b.textContent?.trim() === 'Add')!
+      .dispatchEvent(new MouseEvent('click'));
+    await settle();
+
+    expect(written(made.name!)['work_ids']).toEqual(['2']);
+    expect(element.querySelectorAll('input.pick:checked')).toHaveLength(2);
+  });
+
+  it('hides from the menu', async () => {
+    localStorage.setItem('ao3.hideWarningOff', 'off');
+    await listing([work('1'), work('2')]);
+
+    item(await openMenu(0), 'Hide').click();
+    await settle();
+
+    expect(library.hidden().has('individual work:1')).toBe(true);
+    localStorage.clear();
+  });
+
+  it('hides a ticked series from the bar, as it does a work', async () => {
+    localStorage.setItem('ao3.hideWarningOff', 'off');
+    await listing([work('1'), work('7', 'series bookmark')]);
+    await tick(1);
+
+    button('Hide').click();
+    await settle();
+
+    expect(library.hidden().has('series bookmark:7')).toBe(true);
+    localStorage.clear();
+  });
+
+  it('shuts the menu on a click anywhere else, and on Escape', async () => {
+    await listing([work('1')]);
+    await openMenu(0);
+    document.body.click();
+    await settle();
+    expect(element.querySelector('.entry-menu-items')).toBeNull();
+
+    await openMenu(0);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+    expect(element.querySelector('.entry-menu-items')).toBeNull();
+  });
+
+  // endregion
 
   it('takes ticked works out of the custom collection being shown', async () => {
     const made = await custom.create('Mine', { works: ['1', '2'], externals: [] });
