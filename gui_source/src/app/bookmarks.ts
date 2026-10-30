@@ -147,6 +147,11 @@ export interface Bookmark {
   from_series?: string[];
   /** the ao3 collections, by name, that hold it - set by a run's cleanup step */
   from_collections?: string[];
+  /**
+   * On an index reading made from the FicHub mirror rather than AO3 - a work AO3 would not
+   * give a run - with the formats that came from it. A reading from AO3 never carries it.
+   */
+  retrieved_from?: { site: string; downloaded?: string[] };
   /** on a work: the series it is part of, and where in each */
   series?: SeriesMembership[];
   /** on a series: how many works it holds, whether it is finished, and which works */

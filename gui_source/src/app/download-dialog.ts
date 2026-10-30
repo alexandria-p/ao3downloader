@@ -22,6 +22,7 @@ import {
   baselineOf,
   RunStep,
   QuestionName,
+  RescuedWork,
   RunInProgressError,
   StartRequest,
   WorkFailure,
@@ -255,6 +256,10 @@ export class DownloadDialog implements OnDestroy {
   protected readonly notRemoved = signal<WorkFailure[]>([]);
   /** on the duplicates question: how many older files there are across those works */
   protected readonly askedFiles = signal(0);
+  /** on the FicHub question: the work numbers AO3 would not give us */
+  protected readonly askedIds = signal<string[]>([]);
+  /** works AO3 would not give us that FicHub did */
+  protected readonly rescued = signal<RescuedWork[]>([]);
 
   /**
    * How many undated files the run has stopped to ask about, or 0 when it is not asking.
@@ -795,11 +800,12 @@ export class DownloadDialog implements OnDestroy {
    * Worked out from the workflow and its options the same way the helper decides whether
    * to ask: a run that downloads nothing has no copies to judge; one that overwrites has
    * already settled every undated copy; only a quick scan with no earlier scan to measure
-   * back to asks how far to go. Whether a question actually comes up depends on what is in
-   * the library - these are answers held ready, used only if it does.
+   * back to asks how far to go. Any run can fail to get a work from AO3, so every one may
+   * ask about FicHub. Whether a question actually comes up depends on what is in the
+   * library and on AO3 - these are answers held ready, used only if it does.
    */
   protected readonly backgroundQuestions = computed<QuestionName[]>(() => {
-    if (this.resuming()) return ['undated', 'duplicates'];
+    if (this.resuming()) return ['undated', 'duplicates', 'fichub'];
     const asked: QuestionName[] = [];
     if (this.action() === 'quick' && this.coverage() !== 'run' && this.coverage() !== 'dates') {
       asked.push('quick-floor');
@@ -809,6 +815,8 @@ export class DownloadDialog implements OnDestroy {
       if (!this.overwrites()) asked.push('undated');
       asked.push('duplicates');
     }
+    // a collections run that reads no works fetches none, so none can fail
+    if (this.picksFiletypes()) asked.push('fichub');
     return asked;
   });
 
@@ -817,6 +825,8 @@ export class DownloadDialog implements OnDestroy {
   protected readonly undatedDate = signal(today());
   /** what to do about older copies beside the newest - leave them, by default */
   protected readonly duplicatesAnswer = signal<'leave' | 'newest'>('leave');
+  /** whether to try FicHub for works AO3 would not give us - yes, by default */
+  protected readonly fichubAnswer = signal<'yes' | 'no'>('yes');
   /** how far back a quick scan goes with nothing to measure to - everything, by default */
   protected readonly quickFloorAnswer = signal<'full' | 'since'>('full');
 
@@ -830,6 +840,7 @@ export class DownloadDialog implements OnDestroy {
           : { choice: this.undatedAnswer() };
       }
       if (name === 'duplicates') answers.duplicates = { choice: this.duplicatesAnswer() };
+      if (name === 'fichub') answers.fichub = { choice: this.fichubAnswer() };
       if (name === 'quick-floor') answers['quick-floor'] = { choice: this.quickFloorAnswer() };
     }
     return answers;
@@ -1389,6 +1400,9 @@ export class DownloadDialog implements OnDestroy {
       case 'keptCopies':
         this.keptCopies.set(event.keptCopies ?? []);
         break;
+      case 'rescued':
+        this.rescued.set(event.rescued ?? []);
+        break;
       case 'steps':
         // everything starts waiting; the helper moves each one as it reaches it
         this.steps.set((event.steps ?? []).map((x) => ({ ...x, status: 'waiting' as const })));
@@ -1406,6 +1420,7 @@ export class DownloadDialog implements OnDestroy {
         this.askedDate.set(event.date ?? '');
         this.asking.set(event.count ?? 0);
         this.askedFiles.set(event.files ?? 0);
+        this.askedIds.set(event.ids ?? []);
         this.choosingDate.set(false);
         this.answering.set(false);
         break;
@@ -1615,6 +1630,16 @@ export class DownloadDialog implements OnDestroy {
   /** leave every copy where it is */
   protected leaveAllCopies(): void {
     void this.answerQuestion('leave');
+  }
+
+  /** ask FicHub for the works AO3 would not give us */
+  protected tryFicHub(): void {
+    void this.answerQuestion('yes');
+  }
+
+  /** leave the works AO3 would not give us as failures */
+  protected skipFicHub(): void {
+    void this.answerQuestion('no');
   }
 
   /** measure back to the day the index was last written */

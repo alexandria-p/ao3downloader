@@ -50,6 +50,8 @@ STEP_EARLIER = 'earlier'
 
 # works the run could not download, sent once at the end so the gaps can be named
 FAILURES = 'failures'
+# works ao3 would not give us that FicHub did, sent once at the end beside FAILURES
+RESCUED = 'rescued'
 # works whose new copy arrived but whose older copy could not be safely removed
 KEPT_COPIES = 'keptCopies'
 # bookmarks that were never works to begin with - a series, something hosted elsewhere, or
@@ -81,6 +83,8 @@ CHECKING_VERSIONS = 'checking_versions'
 # because each fic has to be read from ao3 before there is anything new to say about it.
 UPDATING = 'updating'
 DOWNLOADING = 'downloading'
+# asking FicHub for the works ao3 would not give us, at the end of a run
+FICHUB = 'fichub'
 
 
 def report(callback: ProgressCallback | None, kind: str, **fields: Any) -> None:

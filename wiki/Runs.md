@@ -42,8 +42,9 @@ Each run asks its options, then which file types, then your login.
 - **Undated files** - files saved before names carried a date. Give them a date (renamed, nothing downloaded), re-download them, or skip them.
 - **Older copies** - two copies of one work and format. Keep only the newest, or leave them.
 - **How far back to go** - a Quick Scan with no earlier scan, but an index already there.
+- **Try FicHub?** - at the end, when AO3 wouldn't give the run some works. Try FicHub, or leave them as failures.
 
-Closing the page or stopping takes the answer that changes nothing.
+Closing the page or stopping takes the answer that changes nothing - except for FicHub, where it is yes.
 
 ## Pause and Stop
 
@@ -64,9 +65,10 @@ Tick **Run as background task** on the login step to let the helper finish with 
 
 ## At the end
 
-Every run finishes with **Report any failures**:
+Every run finishes with **Try FicHub** (when anything failed), then **Report any failures**:
 
-- **Failures** - works that wouldn't download. A later run tries again.
+- **Try FicHub** - first, if AO3 wouldn't give the run some works, it asks whether to try [FicHub](https://fichub.net), a mirror that keeps copies of AO3 works, even some AO3 no longer has. **Yes if you don't answer** within 30 minutes. What FicHub has is indexed and downloaded in your file types (not AZW3), and marked **From FicHub** in your library. Never tried for external works or series.
+- **Failures** - works that wouldn't download. A later run tries again. A work FicHub couldn't give either says so.
 - **Bookmarks that are not works** - series, external works, deleted works. Nothing to retry.
 - **Copies to check by hand** - a new file saved, but an older copy couldn't be removed, or the save couldn't be confirmed.
 

@@ -2292,7 +2292,7 @@ def test_a_quick_scan_over_a_date_range_says_so_on_its_checklist():
 
     plan = dict(server.step_plan(job))
     assert [step for step, _ in server.step_plan(job)] == [
-        'login', 'bookmarked', 'index', 'series', 'check', 'download', 'cleanup', 'report']
+        'login', 'bookmarked', 'index', 'series', 'check', 'download', 'fichub', 'cleanup', 'report']
     assert plan['bookmarked'] == strings.STEP_INDEX_BOOKMARKED_WINDOW
     assert plan['index'] == strings.STEP_INDEX_UPDATED_WINDOW
 
@@ -2516,14 +2516,14 @@ def test_every_run_starts_by_logging_in_and_ends_by_reporting():
 
 def test_the_combined_run_lists_its_three_passes_in_order():
     assert plan_ids(server.ACTION_SYNC) == [
-        'login', 'index', 'series', 'check', 'download', 'update', 'gaps', 'cleanup', 'report']
+        'login', 'index', 'series', 'check', 'download', 'update', 'gaps', 'fichub', 'cleanup', 'report']
 
 
 def test_the_new_bookmarks_run_lists_only_the_pass_it_actually_does():
     # it is the combined run's first pass on its own, and `run_new` runs no gap pass - a
     # step on the checklist that nothing ever marks reads as one that silently failed
     assert plan_ids(server.ACTION_NEW) == [
-        'login', 'index', 'series', 'check', 'download', 'cleanup', 'report']
+        'login', 'index', 'series', 'check', 'download', 'fichub', 'cleanup', 'report']
 
 
 def test_the_runs_that_only_fetch_new_bookmarks_say_so_on_the_download_step():
@@ -2567,7 +2567,7 @@ def test_only_the_combined_run_has_a_gap_pass():
 
 def test_an_update_run_reads_before_it_checks_before_it_updates():
     assert plan_ids(server.ACTION_UPDATE) == [
-        'login', 'read', 'check', 'update', 'cleanup', 'report']
+        'login', 'read', 'check', 'update', 'fichub', 'cleanup', 'report']
 
 
 def test_a_metadata_only_run_lists_no_download_steps():
@@ -2822,7 +2822,7 @@ def test_a_date_window_says_so_on_its_checklist():
 
     ids = [step for step, _ in server.step_plan(job)]
 
-    assert ids == ['login', 'index', 'read', 'series', 'check', 'update', 'cleanup', 'report']
+    assert ids == ['login', 'index', 'read', 'series', 'check', 'update', 'fichub', 'cleanup', 'report']
     assert dict(server.step_plan(job))['read'] == strings.STEP_READ_WINDOW
     assert dict(server.step_plan(job))['index'] == strings.STEP_INDEX_WINDOW
 
@@ -2836,7 +2836,7 @@ def test_a_window_that_skips_indexing_still_lists_the_step_it_turned_off(fake_en
     job.steps = server.Steps(events.append, server.step_plan(job))
 
     assert [step for step, _ in server.step_plan(job)] == [
-        'login', 'index', 'read', 'series', 'check', 'update', 'cleanup', 'report']
+        'login', 'index', 'read', 'series', 'check', 'update', 'fichub', 'cleanup', 'report']
 
     ao3 = MagicMock()
     ao3.series_marked = {}

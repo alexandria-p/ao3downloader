@@ -762,6 +762,14 @@ never lose the copy you have until the one replacing it is confirmed on disk.
 A run does not stop because one fic will not come down - it may have been deleted, made
 restricted, or never existed in the format you asked for. Those are skipped, and when the
 run finishes it names them: how many, the first few with the reason, and a link to each.
+Before it ends, a run that could not get a work from ao3 **asks whether to try FicHub**
+(fichub.net), a mirror that keeps copies of ao3 works, naming how many and which. Unanswered
+for 30 minutes it tries - the works are missing anyway, and FicHub only adds. What FicHub has
+is indexed from what it says (with JSON) and downloaded in the file types asked for, named
+and checked as any download is - EPUB, HTML, MOBI and PDF, not AZW3. Its index reading
+carries `retrieved_from`, and the listing marks it **From FicHub**. Only ao3 works with a
+number are tried, never an external work or a series. A work neither has stays a failure,
+its reason naming both.
 One **Export all issues** button saves every list as a single plain text file, under a
 heading per kind - one work per line, with the work number, link and reason - so the numbers
 can be fed back in. A work is listed once however many formats failed for it.

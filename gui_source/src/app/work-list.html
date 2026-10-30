@@ -438,10 +438,16 @@
           </div>
 
           <div class="blurb-titles">
-            @if (isHidden(work) || originNote(work)) {
+            @if (isHidden(work) || originNote(work) || work.retrieved_from) {
               <p class="provenance">
                 @if (isHidden(work)) {
                   <span class="badge hidden-badge">Hidden</span>
+                }
+                @if (work.retrieved_from; as mirror) {
+                  <span class="badge mirror"
+                        [title]="'AO3 would not give us this work, so its index entry' + (mirror.downloaded?.length ? ' and ' + (mirror.downloaded ?? []).join(', ') : '') + ' came from FicHub'">
+                    From FicHub
+                  </span>
                 }
                 @if (originNote(work)) {
                   <span class="badge origin" [class]="'badge origin ' + originOf(work)" [title]="originTitle(work)">

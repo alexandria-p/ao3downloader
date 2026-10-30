@@ -76,6 +76,8 @@ class Ao3:
         # records them too, but a run that leaves gaps should be able to say which ones
         # without anyone having to read a log file to find out.
         self.failures: list[dict] = []
+        # works ao3 failed on that FicHub gave us instead: {id, link, title, downloaded}
+        self.rescued: list[dict] = []
         # new copies that arrived while the older copy they replace could not be removed.
         # nothing is lost, but there are now two copies, so the run names each one
         self.kept_copies: list[dict] = []
@@ -630,8 +632,16 @@ class Ao3:
 
 
     def download_one_indexed(self, record: dict, maximum: int, log: dict,
-                             done: int, total: int) -> None:
-        """Fetch one work's files straight from its work number."""
+                             done: int, total: int,
+                             fetch: Callable[[str], bytes] | None = None,
+                             arrived: list[str] | None = None) -> None:
+        """Fetch one work's files straight from its work number.
+
+        `fetch` gets one format's bytes from somewhere other than ao3 - FicHub, for a work
+        ao3 would not give us - and everything after it (the name, the checks on the saved
+        file, replacing an older copy) is the same. `arrived` is filled with the formats
+        that came down and were saved intact.
+        """
 
         work = str(record['id'])
         title = parse_soup.apply_name_pattern(
@@ -653,10 +663,11 @@ class Ao3:
                             link=record['link'], filetype=filetype,
                             phase=progress.DOWNLOADING, done=done, total=total)
             with self.one_format(filetype, failed):
-                content = self.repo.download_file(
+                content = fetch(filetype) if fetch else self.repo.download_file(
                     parse_text.get_direct_download_link(work, filetype), filetype)
                 self.save_download(record['link'], filetype,
                                    filename + parse_text.get_file_type(filetype), content)
+                if arrived is not None: arrived.append(filetype)
 
         # anything that did arrive is a download, even when a format beside it failed
         if len(failed) < len(self.filetypes): self.downloaded.add(work)
@@ -1466,7 +1477,8 @@ class Ao3:
              'error': strings.SKIPPED_UNREVEALED})
 
 
-    def save_metadata(self, document: dict, path: str | None = None) -> None:
+    def save_metadata(self, document: dict, path: str | None = None,
+                      from_mirror: bool = False) -> None:
         """Write one work to its own json file, in the indexing subfolder.
 
         Into the file its entry already has, found by the work number its name starts with
@@ -1475,6 +1487,10 @@ class Ao3:
         the same work beside the first.
         """
 
+        # a reading made from FicHub says so (`from_mirror`); every other one is ao3's own,
+        # and a record carried forward from a FicHub reading must not pass the mark on
+        if not from_mirror and strings.RETRIEVED_FROM_FIELD in document:
+            document = {k: v for k, v in document.items() if k != strings.RETRIEVED_FROM_FIELD}
         try:
             path = path or self.entry_path(document)
             # keep whatever readings the file already holds, and add this one only if it

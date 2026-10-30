@@ -1230,6 +1230,51 @@ describe('DownloadDialog', () => {
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'leave', date: '' }]);
   });
 
+  /** the FicHub question: works AO3 would not give the run */
+  async function askedAboutFicHub(ids = ['75354806']): Promise<void> {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'fichub', count: ids.length, ids,
+                 choices: ['yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+  }
+
+  it('asks whether to try FicHub, naming the works AO3 would not give', async () => {
+    await askedAboutFicHub();
+
+    const said = element.querySelector('.question')?.textContent ?? '';
+    expect(said).toContain('AO3 would not give us 1 work');
+    expect(said).toContain('FicHub');
+    expect(element.querySelector('.question a')?.getAttribute('href'))
+      .toBe('https://archiveofourown.org/works/75354806');
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+    expect(said).not.toContain('before file names carried a date');
+  });
+
+  it('tries FicHub when told to, and leaves the works when told not to', async () => {
+    await askedAboutFicHub();
+    button('Try FicHub')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'yes', date: '' }]);
+  });
+
+  it('leaves the works as failures when told not to try FicHub', async () => {
+    await askedAboutFicHub();
+    button('No, leave them')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
+  });
+
+  it('says how many works came from FicHub at the end', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'rescued', rescued: [{ id: '75354806', link: 'https://archiveofourown.org/works/75354806',
+                                             title: 'Wolfbird', downloaded: ['EPUB'] }] } as JobEvent);
+    jobs.push!({ type: 'finished' } as JobEvent);
+    await fixture.whenStable();
+    expect(element.querySelector('.rescued')?.textContent).toContain('1 work AO3 would not give us came');
+  });
+
   it('reports older copies marked for removal that are still there, and exports them', async () => {
     await open('bookmarks');
     await advanceTo('running');

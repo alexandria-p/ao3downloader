@@ -747,6 +747,11 @@
   color: #a6d8c2;
 }
 
+.badge.mirror {
+  border-color: #8a6f3a;
+  color: #e6c98a;
+}
+
 .badge.hidden-badge {
   border-color: #6b6b6b;
   color: var(--text-dim);

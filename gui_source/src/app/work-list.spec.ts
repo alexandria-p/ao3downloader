@@ -641,3 +641,21 @@ describe('WorkList, bookmarks of every kind', () => {
 
   // endregion
 });
+
+describe('WorkList provenance', () => {
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [WorkList] }).compileComponents();
+  });
+
+  it('marks a work whose entry came from FicHub, saying which formats did', async () => {
+    await listing([
+      { ...LIBRARY[0], retrieved_from: { site: 'fichub', downloaded: ['EPUB', 'PDF'] } },
+      LIBRARY[1],
+    ]);
+
+    const badges = element.querySelectorAll('.badge.mirror');
+    expect(badges).toHaveLength(1);
+    expect(badges[0].textContent).toContain('From FicHub');
+    expect(badges[0].getAttribute('title')).toContain('EPUB, PDF');
+  });
+});

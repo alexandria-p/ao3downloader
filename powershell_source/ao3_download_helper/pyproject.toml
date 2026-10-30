@@ -66,4 +66,5 @@ explicit = true
 [tool.pytest.ini_options]
 markers = [
     "ebook: exercises a downloaded ebook fixture file (auto-applied in conftest.py)",
+    "fichub: runs the real FicHub step (conftest.py skips it everywhere else)",
 ]

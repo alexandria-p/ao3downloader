@@ -287,6 +287,7 @@ AO3_INFO_STEP_SKIPPED = 'skipping the rest of this step at your request'
 # one fic on its own, by link or work number
 AO3_INFO_ONE_WORK = 'looking up work {}'
 AO3_INFO_ONE_WORK_INDEXED = 'index updated'
+AO3_INFO_ONE_WORK_UNREADABLE = 'AO3 would not show this work: {}'
 AO3_INFO_ONE_WORK_DONE = 'finished with work {}'
 # a custom run told to work from what is already indexed
 # the separate images pass, which costs a work page per fic on top of everything else
@@ -366,6 +367,35 @@ STEP_REPORT = 'Report any failures'
 STEP_SERIES = 'Index works in series marked for walkthrough'
 STEP_NON_BOOKMARKS = 'Check remaining non-bookmarks for updates'
 STEP_CLEANUP = 'Cleanup'
+# after everything ao3 was asked for, before the cleanup: the works ao3 would not give us,
+# asked for again from a mirror of it
+STEP_FICHUB = 'Try FicHub for works AO3 would not give us'
+
+# FicHub (fichub.net) keeps copies of ao3 works, including some ao3 no longer serves. its
+# api answers a work's link with the work's details and where each format can be fetched
+FICHUB_SITE = 'fichub'
+FICHUB_BASE_URL = 'https://fichub.net'
+FICHUB_API_URL = FICHUB_BASE_URL + '/api/v0/epub'
+# the formats FicHub makes. ao3's azw3 is not among them
+FICHUB_FORMATS = ('EPUB', 'HTML', 'MOBI', 'PDF')
+# on an index reading made from FicHub rather than ao3: {'site': 'fichub', 'downloaded':
+# [formats fetched from it]}. a reading from ao3 never carries it
+RETRIEVED_FROM_FIELD = 'retrieved_from'
+AO3_INFO_FICHUB_ASK = ('{} works could not be fetched from AO3 ({}). '
+                       'waiting for you to choose whether to try FicHub for them...')
+AO3_INFO_FICHUB_DECLINED = 'not trying FicHub'
+AO3_INFO_FICHUB_WORK = 'FicHub {} of {}: {}'
+AO3_INFO_FICHUB_INDEXED = '  indexed from FicHub'
+AO3_INFO_FICHUB_RESCUED = '{} works AO3 would not give us came from FicHub instead'
+AO3_INFO_FICHUB_FAILED_TOO = '  not on FicHub either: {}'
+ERROR_FICHUB_LOOKUP = 'FicHub could not find it ({})'
+ERROR_FICHUB_STATUS = 'FicHub answered {}'
+ERROR_FICHUB_NOT_JSON = 'FicHub answered with something that is not its usual reply'
+ERROR_FICHUB_WRONG_WORK = 'FicHub answered about a different work ({})'
+ERROR_FICHUB_NO_FORMAT = 'FicHub does not offer {}'
+ERROR_FICHUB_NOT_A_FILE = 'FicHub sent a page instead of the {} file ({})'
+ERROR_FICHUB_ELSEWHERE = 'FicHub pointed the {} download somewhere other than fichub.net'
+ERROR_AO3_AND_FICHUB = 'AO3: {} | FicHub: {}'
 AO3_INFO_DUPLICATES = ('{} works have more than one copy of the same format ({} older files). '
                        'the newest copy is the one every run goes by')
 AO3_INFO_DUPLICATE_FILE = '  {}: keeping {} - older copy {}'
@@ -604,7 +634,7 @@ AO3_INFO_RESUME_NO_STEP = 'before its first step'
 AO3_INFO_RESUME_ANSWER = 'using the answer the earlier attempt was given: {}'
 AO3_INFO_ABANDONED = 'this background run was left paused for {} minutes, so the helper has abandoned it. everything it saved is kept - resume it from the History tab, or start the same run again and it carries on from what is still missing.'
 AO3_INFO_BACKGROUND_ANSWER = 'using the answer given before this background run started: {}'
-AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it does what changes nothing: {}'
+AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it takes the default: {}'
 AO3_INFO_RESUME_SCOPE = ('the earlier attempt had finished indexing - checking and downloading '
                          'its {} works')
 AO3_INFO_RESUME_WALK_DONE = 'the earlier attempt finished this walk - taking its works from the index'

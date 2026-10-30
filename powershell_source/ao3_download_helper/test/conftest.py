@@ -41,6 +41,23 @@ def no_runs_left_over():
     with patch.dict(server.Handler.jobs, clear=True), \
          patch.object(server.Handler, 'updater', None):
         yield
+
+
+@pytest.fixture(autouse=True)
+def fichub_left_alone(request, monkeypatch):
+    """No run asks about FicHub, or reaches it, unless the test is about FicHub.
+
+    A run with any failure asks whether to try FicHub, and an unanswered question waits half
+    an hour - every test that drives a run with a failure in it would hang. The step is
+    skipped as a run with nothing for FicHub skips it. Tests marked `fichub` get the real
+    step, and stand in for FicHub's site themselves.
+    """
+
+    if request.node.get_closest_marker('fichub'): return
+    monkeypatch.setattr(server, 'rescue_with_fichub',
+                        lambda job, fileops, ao3, report: job.steps.skip('fichub'))
+
+
 EBOOK_DIR = os.path.join(FIXTURES_DIR, 'ebook')
 
 

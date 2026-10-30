@@ -996,6 +996,25 @@
                       </label>
                     </div>
                   }
+
+                  @if (backgroundQuestions().includes('fichub')) {
+                    <div class="answer" data-question="fichub">
+                      <p>
+                        <strong>Works AO3 will not give us</strong> - should the run try the
+                        FicHub mirror (fichub.net) for them?
+                      </p>
+                      <label class="check">
+                        <input type="radio" name="bg-fichub" [checked]="fichubAnswer() === 'yes'"
+                               (change)="fichubAnswer.set('yes')" />
+                        <span>Yes - index and download them from FicHub where it has them</span>
+                      </label>
+                      <label class="check">
+                        <input type="radio" name="bg-fichub" [checked]="fichubAnswer() === 'no'"
+                               (change)="fichubAnswer.set('no')" />
+                        <span>No - leave them listed as failures</span>
+                      </label>
+                    </div>
+                  }
                 </fieldset>
               }
             }
@@ -1168,8 +1187,44 @@
           </div>
         }
 
+        @if (asking() && question() === 'fichub') {
+          <div class="question">
+            <p class="question-text">
+              AO3 would not give us <strong>{{ asking() | number }}</strong>
+              {{ asking() === 1 ? 'work' : 'works' }} on this run. Would you like to try
+              getting {{ asking() === 1 ? 'it' : 'them' }} from FicHub, a mirror of AO3 that
+              keeps copies of works AO3 no longer serves?
+            </p>
+            @if (askedIds().length) {
+              <p class="hint">
+                @for (id of askedIds().slice(0, 10); track id; let last = $last) {
+                  <a [href]="'https://archiveofourown.org/works/' + id" target="_blank" rel="noopener">{{ id }}</a>@if (!last) {, }
+                }
+                @if (askedIds().length > 10) { and {{ askedIds().length - 10 | number }} more }
+              </p>
+            }
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="tryFicHub()">
+                Try FicHub
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="skipFicHub()">
+                No, leave them
+              </button>
+            </div>
+
+            <p class="hint">
+              Anything FicHub has is indexed from what it says and downloaded in the formats
+              this run asked for (FicHub makes no AZW3), and its index entry is marked as
+              coming from FicHub. Left unanswered, the run tries FicHub after 30 minutes.
+            </p>
+          </div>
+        }
+
         <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
-        @if (question() !== 'quick-floor' && question() !== 'duplicates') {
+        @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">
@@ -1465,6 +1520,14 @@
             {{ staleCount() === 1 ? 'work was' : 'works were' }} out of date and
             {{ staleCount() === 1 ? 'was' : 'were' }} fetched again. The copy each one
             replaced was removed only after the new file was confirmed saved.
+          </p>
+        }
+
+        @if (rescued().length) {
+          <p class="hint rescued">
+            <strong>{{ rescued().length | number }}</strong>
+            {{ rescued().length === 1 ? 'work AO3 would not give us came' : 'works AO3 would not give us came' }}
+            from FicHub instead.
           </p>
         }
 

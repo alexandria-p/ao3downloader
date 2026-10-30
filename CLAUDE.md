@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1649 python passed; 729 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1673 python passed; 735 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1775,6 +1775,46 @@ A test that drives `run_bookmarks`, `run_update` **or `run_quick`** for real **m
 index is non-empty and no run qualifies, which is why the existing no-floor tests pass
 without stubbing: their `downloadfolder` is an empty tmp path, so `read_index` returns
 nothing and the question is never asked.
+
+### What ao3 would not give, FicHub is asked for, at the end
+
+`source_code/fichub.py` and `server.rescue_with_fichub`. FicHub (fichub.net) keeps copies of
+ao3 works, some ao3 no longer serves. `finish_run` calls it before `cleanup`, so it is the
+`fichub` step (`STEP_FICHUB`) just before `cleanup` in **every** plan - a test over `ACTIONS`
+holds that - and is skipped when nothing failed. What not to break:
+
+- **Its question is the one whose default does something.** `FICHUB_QUESTION` defaults to
+  `yes`, on a timeout and on a background run with no answer, at the user's explicit request:
+  the works are missing already and FicHub only adds. Every other question still defaults
+  to what changes nothing. The page offers it up front on a background run (`fichub`) on
+  every workflow but a collection run not taking its works.
+- **Only ao3 works with a number** (`fichub_candidates`): `ao3.failures` whose link is a
+  `/works/<id>` on ao3. External works and series are in `skipped_works`, never failures,
+  and a deleted bookmark has no number to ask by.
+- **The same rules as a download from ao3.** `download_one_indexed` takes a `fetch` (the
+  bytes from somewhere else) and an `arrived` list; naming, `save_download`'s checks and
+  replacing an older copy are unchanged. What to fetch is `plan_downloads` +
+  `say_what_each_format_needs` on the FicHub entry - missing or behind, or all on an
+  overwriting run. `fichub.download` follows only https links on fichub.net, unzips the html
+  FicHub sends zipped, and refuses a page for a non-html format. No azw3 from FicHub.
+- **`fichub.entry_from` shapes FicHub's answer as a listing blurb would**, from its
+  `rawExtendedMeta` (ao3's own fields). An existing entry keeps everything and takes the
+  stats, plus whatever it had blank; it never sets `bookmarked`. The index is written only
+  when the run writes JSON, **after** the downloads, as a reading carrying
+  `retrieved_from: {site, downloaded}`.
+- **`retrieved_from` belongs to the reading, not the entry.** `save_metadata` drops it
+  unless `from_mirror=True`, so an ao3 pass that carries a flattened record forward (as
+  `refresh_one` does) does not pass the mark on. The page's *From FicHub* badge reads it.
+- **Rescued works leave `ao3.failures`** for `ao3.rescued` (a `rescued` event, and
+  `rescued` in the run record, listed in History). A work FicHub could not give (or not every
+  format of) stays a failure, `error` becoming `AO3: ... | FicHub: ...`.
+- **The single-fic run survives its own page failing**: `run_work` records the failure and
+  goes straight to `finish_run`, so FicHub can index and fetch a fic ao3 has taken down.
+- **`conftest.py` stubs the step out** (`fichub_left_alone`) for every test not marked
+  `fichub`: any run with a failure would otherwise wait half an hour on the question.
+  `test_fichub.py` is the real thing, against FicHub's real answer for 75354806
+  (`test/fixtures/fichub/wolfbird.json`). fichub.net was not reachable from where this was
+  built, so the first live call was the user's own.
 
 ### A run can be paused, and there are exactly two places it may pause
 
