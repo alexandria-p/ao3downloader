@@ -763,11 +763,11 @@
 }
 
 /* the entry's own actions sit in its bottom corner, away from the title and the date */
+/* a row of its own at the foot of the entry, so nothing later in the entry can cover it */
 .entry-actions {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
   display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
   gap: 4px;
   align-items: center;
 }

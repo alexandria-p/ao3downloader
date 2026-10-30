@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1684 python passed; 742 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1684 python passed; 743 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2063,7 +2063,12 @@ collection made in the page. What not to break:
   work from its own ⋯ menu. A menu add never touches the ticks (`addFromBar` decides whether a
   finished add clears them). The add panel is a modal, so it is in view from a menu far down
   the page.
-- **Each entry has a ⋯ menu** (`menuFor`, one open at a time) beside the eye button, offering
+- **Every entry with a number has the eye and a ⋯ menu** (`.entry-actions`) - works, external
+  works, series and placeholders alike - **on a row of their own at the end of the entry, in
+  the flow**. They were pinned to the bottom corner, where the *Bookmarked by* box (`.user`:
+  positioned, with a background, later in the page) painted over them on every bookmark of
+  yours, so only series showed them; a spec holds that they are the entry's last child.
+  The menu (`menuFor`, one open at a time) offers
   what the bar offers for that one: Hide or Unhide, and Add to a collection. For a series the
   add item is greyed with **`aria-disabled`, not `disabled`**, so hovering still shows its title
   saying why - a disabled button shows no tooltip in some browsers. A click elsewhere or Escape

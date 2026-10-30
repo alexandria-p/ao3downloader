@@ -137,6 +137,26 @@ describe('the listing, with works from elsewhere and works hidden', () => {
     library.store.set(store);
   });
 
+  it('gives every entry the eye and the menu, on a row of their own after the bookmark box', async () => {
+    const yours = work('6', { bookmarked: true, date_bookmarked: '02 Feb 2021', bookmark_notes: 'loved it' });
+    const external = work('7', {
+      bookmark_type: 'external work',
+      link: 'https://elsewhere.example/story',
+      date_bookmarked: '03 Mar 2022',
+    });
+    const stub = { ...work('8'), placeholder: true } as Bookmark;
+    await listing([yours, external, stub], true);
+
+    for (const entry of element.querySelectorAll<HTMLElement>('li.blurb')) {
+      const actions = entry.querySelector('.entry-actions');
+      expect(actions?.querySelector('button.hide-toggle')).toBeTruthy();
+      expect(actions?.querySelector('button.entry-menu-toggle')).toBeTruthy();
+      // last in the entry, so the 'Bookmarked by' box can never be drawn over them
+      expect(entry.lastElementChild).toBe(actions);
+    }
+    expect(blurb('Work 6').querySelector('.user')).toBeTruthy();
+  });
+
   it('marks a work that is not one of your bookmarks, and says where it came from', async () => {
     await listing([MINE, BY_LINK, IN_COLLECTION]);
 
