@@ -166,14 +166,12 @@ export class History {
     if (!store || this.readingLog()) return;
     this.readingLog.set(run.id);
     try {
-      const record = JSON.parse((await store.read(`runs/${run.file}`)) ?? '{}') as {
-        log?: string[];
-        logTrimmed?: number;
-      };
+      const record = JSON.parse((await store.read(`runs/${run.file}`)) ?? '{}') as LogRecord;
       const lines = Array.isArray(record.log) ? record.log : [];
       const head = [
         `# ${run.actionName}, started ${this.when(run.started)}`,
         `# ${this.outcome(run)}${run.finished ? `, ${this.when(run.finished)}` : ''}`,
+        ...this.runSettingsHead(run, record),
       ];
       if (record.logTrimmed) {
         head.push(`# the first ${record.logTrimmed} lines were dropped to keep the file small`);
@@ -184,6 +182,35 @@ export class History {
     } finally {
       this.readingLog.set('');
     }
+  }
+
+  /**
+   * What a run was asked to do and what it ran under, for the top of its saved log - read
+   * from the run's own file, so a log read on its own still says how the run was set up.
+   * Every option and every setting is listed as it was recorded, not only the ones the
+   * History entry puts into words: a log is read to explain a run, and a setting left out
+   * is the one that would have.
+   */
+  private runSettingsHead(run: RunHistory, record: LogRecord): string[] {
+    const head = ['#'];
+    const username = record.username ?? run.username;
+    if (username) head.push(`# AO3 account: ${username}`);
+    const links = String(record.url ?? run.url ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
+    if (links.length === 1) head.push(`# Link: ${links[0]}`);
+    if (links.length > 1) head.push(`# Links (${links.length}):`, ...links.map((x) => `#   ${x}`));
+    const filetypes = Array.isArray(record.filetypes) ? record.filetypes : run.filetypes;
+    head.push(`# File types: ${filetypes?.join(', ') || 'none'}`);
+    const options = record.options ?? run.options ?? {};
+    const said = this.settingsOf({ ...run, options });
+    if (said.length) head.push(`# Options: ${said.join(', ')}`);
+    if (record.background) head.push('# Ran in the background');
+    if (record.helper) head.push(`# Helper: ${record.helper}`);
+    head.push(...listed('Run options', options));
+    const settings = { ...(record.settings ?? {}) };
+    const file = settings['file'];
+    delete settings['file'];
+    head.push(...listed(`settings.ini${file ? ` (${file})` : ''}`, settings));
+    return head;
   }
 
   /** a run's start and id, for naming the files saved from it */
@@ -255,4 +282,32 @@ export class History {
   protected workLink(id: string): string {
     return `https://archiveofourown.org/works/${id}`;
   }
+}
+
+/** the parts of a run's history file its saved log is built from */
+interface LogRecord {
+  log?: string[];
+  logTrimmed?: number;
+  username?: string;
+  url?: string;
+  filetypes?: string[];
+  options?: Record<string, unknown>;
+  settings?: Record<string, unknown>;
+  background?: boolean;
+  helper?: string;
+}
+
+/** one `# key: value` line each, under a heading - nothing at all when there is nothing */
+function listed(title: string, values: Record<string, unknown>): string[] {
+  const keys = Object.keys(values).sort();
+  if (!keys.length) return [];
+  return [
+    `# ${title}:`,
+    ...keys.map((key) => {
+      const value = values[key];
+      const shown = value === null || value === undefined ? ''
+        : typeof value === 'object' ? JSON.stringify(value) : String(value);
+      return `#   ${key}: ${shown}`;
+    }),
+  ];
 }

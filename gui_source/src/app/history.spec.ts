@@ -588,6 +588,49 @@ describe('History', () => {
     click.mockRestore();
   });
 
+  it('puts what the run was asked to do, and the settings it ran under, above its log', async () => {
+    let saved: Blob | null = null;
+    Object.assign(URL, { createObjectURL: vi.fn((blob: Blob) => ((saved = blob), 'blob:x')),
+                         revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const read = vi.fn(async () => JSON.stringify({
+      username: 'Someone',
+      url: 'https://archiveofourown.org/works/1\nhttps://archiveofourown.org/works/2',
+      filetypes: ['HTML', 'JSON'],
+      options: { reindex: false, skipLogin: true },
+      settings: { file: '/x/settings.ini', extraWaitTime: 5, maxRetries: 30 },
+      background: true,
+      log: ['[2026-10-30 14:47:47] looking up work 1'],
+    }));
+    TestBed.inject(Library).store.set({ read } as never);
+    await show([aRun({ file: 'r.json', logLines: 1 })]);
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Download log'))!.click();
+    await fixture.whenStable();
+
+    const text = await saved!.text();
+    for (const line of [
+      '# AO3 account: Someone',
+      '# Links (2):',
+      '#   https://archiveofourown.org/works/2',
+      '# File types: HTML, JSON',
+      '# Options: no reindexing',
+      '# Ran in the background',
+      '# Run options:',
+      '#   skipLogin: true',
+      '# settings.ini (/x/settings.ini):',
+      '#   extraWaitTime: 5',
+      '#   maxRetries: 30',
+    ]) {
+      expect(text.split('\n')).toContain(line);
+    }
+    // the settings come before the log, and the log is still last
+    expect(text.indexOf('maxRetries')).toBeLessThan(text.indexOf('looking up work 1'));
+    expect(text.trim().split('\n').at(-1)).toBe('[2026-10-30 14:47:47] looking up work 1');
+    click.mockRestore();
+  });
+
   it('does not call a run running when the helper has not said it is', async () => {
     jobs.leaveRunning = true;
     await show([aRun({ status: 'running', finished: null })]);
