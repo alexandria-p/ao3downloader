@@ -3619,6 +3619,8 @@ def test_several_fics_have_their_own_checklist_wording():
 def a_stuck_run(tmp_path):
     from source_code import runs
     fileops = on_disk(MagicMock(), str(tmp_path / 'library'))
+    # a real folder: left a mock, the record would be written under the working directory
+    fileops.runsfolder = str(tmp_path / 'library' / 'runs')
     os.makedirs(fileops.runsfolder, exist_ok=True)
     job = server.Job(server.ACTION_WORK, ['JSON'], 'Someone', server.resolve_options({}),
                      url='https://archiveofourown.org/works/1')
