@@ -647,6 +647,11 @@ Opening a library makes sure it has these, creating any that are missing:
 | `collections/` | One json file per collection, if you have synced them. |
 | `runs/` | One json file per run - the history tab. |
 
+The page may also write `hidden-works.json` at the top: the works you hid from its listing
+(the eye button on a work). Hiding deletes nothing, and only the page reads that file. The
+listing also shows works that are not your AO3 bookmarks - downloaded by their link, or
+brought in by a collection - each with a badge saying where it came from.
+
 ## How files are named, and how they get linked together
 
 Every file - json, html, epub, pdf - is named the same way, and the naming is **not**
@@ -905,6 +910,25 @@ subcollections are each judged on their own count.
 The one case this cannot see is a collection that had one work added and another removed
 between runs, leaving the total unchanged. Delete that collection's json file to force a
 full crawl. A crawl that failed or was stopped is never mistaken for a complete one.
+
+### Your own collections
+
+You can also make collections of your own in the page: **+ New collection** on the
+Collections tab, or tick works in any listing and choose **Add to a collection** - one of
+yours, or **+ A new collection...** to start one with them (closing that window unsaved makes
+nothing, and the works stay ticked). A work is in a collection once; adding it again changes
+nothing. Inside one of your own, **Remove from this collection** takes ticked works out and
+**Edit collection** changes its name, description and tags - or, under **Show every field AO3
+collections have**, its maintainers, challenge, flags, multifandom and dates. They carry a
+gold star and a **Your collection** badge. A collection from AO3 is never changed here.
+
+Each is a json file in `collections/custom/`, named `custom-` and ten letters and digits (an
+AO3 collection name never has a hyphen, so the two cannot clash), shaped like an AO3
+collection file - the same field names, `title`, `description`, `tags`, `maintainers`,
+`challenge_type`, the flags and dates - with `"custom": true`, `"link": null` and the works in
+`work_ids` and `external_ids`. Series cannot be added: they can be ticked, to hide them, and
+adding with series ticked names them and asks before adding the rest. The helper never reads that folder, so no run changes
+these files, and `from_collections` in an index entry names AO3 collections only.
 
 ## Keeping ao3 happy
 

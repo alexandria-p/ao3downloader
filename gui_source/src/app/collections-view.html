@@ -4,6 +4,78 @@
     <button type="button" class="linklike" (click)="back()">&larr; All collections</button>
   </p>
 
+  @if (isCustom(collection)) {
+  <!-- one of your own: made here, so there is no ao3 page, reading history or challenge -->
+  <header class="collection-head">
+    <h2>
+      <span class="custom-mark" aria-hidden="true">&#9733;</span>
+      {{ collection.title }}
+    </h2>
+    <p class="flags"><span class="badge custom">Your collection</span></p>
+    @if (writable()) {
+      <p class="head-actions">
+        <button type="button" class="button" (click)="editing.set(collection)">Edit collection</button>
+      </p>
+    }
+  </header>
+
+  @if (collection.description) {
+    <blockquote class="summary">
+      @for (line of paragraphs(collection.description); track $index) {
+        <p>{{ line }}</p>
+      }
+    </blockquote>
+  }
+
+  @if (collection.tags.length) {
+    <ul class="tags">
+      @for (tag of collection.tags; track tag) {
+        <li><span class="tag">{{ tag }}</span></li>
+      }
+    </ul>
+  }
+
+  <dl class="facts">
+    <dt>Made in</dt>
+    <dd>this app - it is not on AO3</dd>
+    @if (collection.maintainers.length) {
+      <dt>Maintainers</dt>
+      <dd>{{ collection.maintainers.join(', ') }}</dd>
+    }
+    @if (collection.challenge_type && collection.challenge_type !== 'No Challenge') {
+      <dt>Challenge</dt>
+      <dd>{{ collection.challenge_type }}</dd>
+    }
+    @if (badges(collection).length) {
+      <dt>Shown as</dt>
+      <dd>{{ badges(collection).join(', ') }}</dd>
+    }
+    @if (collection.active_since) {
+      <dt>Active since</dt>
+      <dd>{{ collection.active_since }}</dd>
+    }
+    @if (collection.created) {
+      <dt>Created</dt>
+      <dd>{{ collection.created }}</dd>
+    }
+    <dt>Holds</dt>
+    <dd>{{ itemCount(collection) | number }}</dd>
+  </dl>
+
+  <p class="hint">
+    Tick works here to take them out, or on the Bookmarks tab to add more. It is saved in your
+    library, in <code>collections/custom</code>.
+  </p>
+
+  <app-work-list
+    [works]="openWorks()"
+    label="works in this collection"
+    [note]="note()"
+    [emptyMessage]="emptyMessage()"
+    [selectable]="true"
+    [collection]="collection"
+  />
+  } @else {
   <header class="collection-head">
     <h2>
       <a [href]="link(collection)" target="_blank" rel="noopener">{{ collection.title }}</a>
@@ -125,17 +197,28 @@
     [label]="tab() === 'works' ? 'works in this collection' : 'bookmarked items in this collection'"
     [note]="note()"
     [emptyMessage]="emptyMessage()"
+    [selectable]="true"
+    [collection]="collection"
   />
+  }
 } @else {
   <!-- the listing of collections -->
-  <p class="listing-heading">
-    {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
-  </p>
+  <div class="listing-top">
+    <p class="listing-heading">
+      {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
+    </p>
+    @if (writable()) {
+      <button type="button" class="button primary" (click)="editing.set('new')">+ New collection</button>
+    }
+  </div>
 
   <ol class="collections">
     @for (collection of visible(); track collection.name) {
-      <li class="collection">
+      <li class="collection" [class.custom]="isCustom(collection)">
         <h4 class="heading">
+          @if (isCustom(collection)) {
+            <span class="custom-mark" title="Your own collection, made in this app">&#9733;</span>
+          }
           <button type="button" class="title linklike" (click)="show(collection)">
             {{ collection.title }}
           </button>
@@ -148,9 +231,13 @@
         </h4>
 
         <p class="flags">
-          <span class="badge challenge">{{ collection.challenge_type }}</span>
-          @for (badge of badges(collection); track badge) {
-            <span class="badge">{{ badge }}</span>
+          @if (isCustom(collection)) {
+            <span class="badge custom">Your collection</span>
+          } @else {
+            <span class="badge challenge">{{ collection.challenge_type }}</span>
+            @for (badge of badges(collection); track badge) {
+              <span class="badge">{{ badge }}</span>
+            }
           }
         </p>
 
@@ -169,10 +256,15 @@
         }
 
         <dl class="stats">
+          @if (isCustom(collection)) {
+            <dt>Works:</dt>
+            <dd>{{ itemCount(collection) | number }}</dd>
+          } @else {
           <dt>Works:</dt>
           <dd>{{ collection.work_ids.length | number }}</dd>
           <dt>Bookmarked items:</dt>
           <dd>{{ bookmarkedCount(collection) | number }}</dd>
+          }
           @if (collection.subcollections.length) {
             <dt>Subcollections:</dt>
             <dd>{{ collection.subcollections.length | number }}</dd>
@@ -182,7 +274,8 @@
     } @empty {
       <li class="notice">
         No collections in this folder yet. Use <strong>Index my collections</strong> above to
-        fetch your own, or <strong>Index collection by URL</strong> for any other.
+        fetch your own, or <strong>Index collection by URL</strong> for any other. To make one
+        of your own, tick works on the Bookmarks tab and choose <strong>Add to a collection</strong>.
       </li>
     }
   </ol>
@@ -212,4 +305,9 @@
       </button>
     </nav>
   }
+}
+
+@if (editing()) {
+  <app-collection-editor [collection]="editorCollection()" (saved)="editorSaved($event)"
+                         (cancelled)="editing.set(null)" />
 }

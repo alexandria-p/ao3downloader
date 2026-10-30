@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1647 python passed; 656 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1649 python passed; 729 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1884,6 +1884,141 @@ and entries parsed have a real total and fill the bar. Progress is set through t
 own generation check, so switching library mid-read never leaves the old read's bar up, and
 it is cleared once the library is on screen. A local folder is read in the page itself,
 fast enough to need only the plain notice.
+
+### The Bookmarks tab lists the whole index, saying where each came from
+
+It used to list only `isBookmarkEntry` (`bookmarked !== false`), so a fic downloaded by its link
+or found through a collection was on disk and in the index but nowhere in the page.
+`isListedEntry` now lists every entry but two, both still shown elsewhere: a work only a
+bookmarked series brought in (in that series' card - `from_series`, **or** a bookmarked series'
+`work_ids` listing it, since an entry can lack `from_series`), and a series you did not
+bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `other` for the
+badge and the **Came from** filter. An entry with no `bookmarked` at all still counts as a
+bookmark, for the same reason `isBookmarkEntry` says so: it came off your bookmarks before
+the field existed.
+
+### Hiding a work is the page's, in one file at the library's top
+
+`Library.hidden` (by `hiddenKey`, `kind:id`) is kept in `HIDDEN_FILE`, `hidden-works.json` at
+the library root, so a Dropbox library hides the same works everywhere. **Nothing else reads or
+moves it**: a run only looks at files named for a work, and setup only moves loose works. The
+local read meets it among all the json and drops it by shape (no `id`, no `title`). Dropbox
+reads it only when the listing shows it exists, so a library with nothing hidden costs no
+extra download (the Dropbox specs count downloads). `saveHidden` shows the change at once and
+puts it back if the write fails. Hidden works are left out before any filter (`visibleWorks`),
+not counted as a filter - the heading says how many are hidden - and **Show hidden works**
+brings them back dimmed with **Unhide**. The warning before hiding says what it does and how
+to undo it, and can be turned off (`ao3.hideWarningOff`, per browser).
+
+**Ticked works hide and unhide together**, from the selection bar, which offers only what
+applies (`tickedShowing` / `tickedHidden`): Hide or Unhide for one ticked work, Hide all when
+all are showing, Unhide all when all are hidden, and **both** for a mix - each acting only on
+the ticked works it names. `Library.hide`/`unhide` take a list and write the file once. Hiding
+several goes through the same warning (`confirmingHide` holds a list); unhiding asks nothing,
+since it loses nothing. Hidden works can only be ticked while Show hidden works is on, as they
+are not in the listing otherwise.
+
+### Filtering by tag reads the index already in memory
+
+`tags.ts` and `app-tag-filter` give the listing's Filter panel ao3's Include/Exclude by tag. What
+not to break:
+
+- **Nothing is fetched or stored for it.** Every tag is in the index the page has already read,
+  so `Library.tagIndex` (every entry's tags, by kind, most-used first) is a `computed` over
+  `worksById`/`seriesById`/`externalsById`: built once per read and again only when the works
+  change. A cache in the browser would be a second copy of the index that could fall behind.
+- **It is kept cheap, and was measured** (10,000 works, 33,000 distinct tags): the index builds
+  in about half a second, **only once someone types** (`suggestions` reads it only for a
+  non-empty box) or opens Filter (the tag halves render only while `filtersOpen`, and
+  `listingTags` counts the listing's own works for the folds). A keystroke is under a
+  millisecond: each tag's lower-case name is kept (`lower`), and `suggestTags` stops once it has
+  enough that start with the text, since the index is most-used first. Filtering is ~13ms: a
+  work's tag keys are worked out once and kept in a `WeakMap` (`keysOf`), so a refreshed entry,
+  a new object, never answers with old tags.
+- **Every included tag, no excluded one, matched within its kind** (`tagKey` is
+  `kind:lower-case name`), as ao3 does. A tag chosen in one half is disabled in the other.
+- **Suggestions come from the whole library; the folds count this listing.** One finds any tag
+  you have; the other says what ticking it will narrow here.
+
+### The listing takes in what a run changed
+
+Before this the listing only changed when the library was opened again. Now `DownloadDialog`
+notes every path a run **writes, deletes or renames** (`changedPaths`, both ends of a rename) -
+each goes through the page, so it sees them all - and `finishUp` hands them to
+`Library.refreshAfterRun` once `storageQueue` has drained, with the run's own store. It
+re-reads only the changed index files (`indexing/`, `collections/`), swaps them in for the
+entries and collections they hold (`entries`, kept by `publish`), and lists `works/` again only
+if the run touched it (`listCopies`). A different library now on screen, a later read
+(`generation`), or a failure leaves the listing as it was. An index file deleted outside a run
+keeps its entry until the next full read; runs never delete one. A **background** run answers
+storage itself, so the page sees none of its changes - its results show on the next read.
+
+### Every downloaded format has a button beside the title
+
+`Library.copies` holds each work's newest copy in **every** format ao3 offers (`OPENABLE`:
+html, pdf, epub, mobi, azw3), by the date in its name; `htmlFiles`/`pdfFiles` are computed views
+of it. The title opens the html; `formatsOf` puts one button per other format beside it, in that
+order. **Only html and pdf open in a tab** (`viewableInBrowser`): no browser shows an e-book, and
+a tab handed a blob of one only saves it under a made-up name - so `saveCopy` saves it under its
+own file name (`copyName`) for an e-reader. Specs set copies with `copies.update`, since a
+computed cannot be set.
+
+### Custom collections are the page's, and the helper never sees them
+
+`custom-collections.ts` (`CustomCollections`) lets works ticked in any listing be put in a
+collection made in the page. What not to break:
+
+- **They live in `collections/custom/`, a folder inside `collections/`.** Every helper read
+  of `collections/` (`collection_links`, `indexed_work_ids`) lists that folder's own files
+  only (`list_files`, non-recursive), so a custom collection is never linked into
+  `from_collections`, never makes the new-bookmarks walk doubt a work, and can never be
+  overwritten by a collection run. The page reads the whole folder and routes by shape, so
+  it finds them. `test_a_collection_made_in_the_page_is_never_read_as_one_from_ao3` holds the
+  helper side. Don't move them up a level.
+- **`custom: true` says so, rather than a missing link.** An older ao3 file can lack `link`
+  too, and `collectionLink` builds one from its name; for a custom one it answers `''`.
+  `isCustomCollection` is the one test.
+- **Names can never collide with ao3's**: `custom-` and ten hex digits, and ao3 collection
+  names have no hyphen. The name is the file name, so retitling would move nothing.
+- **An ao3 collection is never changed**: `CustomCollections.add`/`remove` refuse one
+  whatever asked, the add panel lists custom collections only (`targets`), and Remove is
+  offered only inside a custom one (`removableFrom`). What ao3 says a collection holds is
+  ao3's, and the next collection run would put it back anyway.
+- **Ticking acts on what the filters show** (`selectedShown`), so nothing hidden is added or
+  removed unseen; the ticks reset when the listing's works change (`selected` is a
+  `linkedSignal` on `works`). **Anything with a number can be ticked** (`canTick`) - series
+  too, so they hide with the rest - but **only works go in a collection** (`canCollect`): an add
+  that includes series names them first (`seriesWarning`: "we'll add everything else, but these
+  series will not be - is that okay?") and adds the rest only on yes; with only series ticked,
+  Add is disabled and its title says why. A work's id and an external work's are kept apart
+  (`keyOf`, `itemsOf`).
+- **An add is for an explicit list** (`addingWith`): the ticked works from the bar, or one
+  work from its own ⋯ menu. A menu add never touches the ticks (`addFromBar` decides whether a
+  finished add clears them). The add panel is a modal, so it is in view from a menu far down
+  the page.
+- **Each entry has a ⋯ menu** (`menuFor`, one open at a time) beside the eye button, offering
+  what the bar offers for that one: Hide or Unhide, and Add to a collection. For a series the
+  add item is greyed with **`aria-disabled`, not `disabled`**, so hovering still shows its title
+  saying why - a disabled button shows no tooltip in some browsers. A click elsewhere or Escape
+  shuts the menu (host listeners); the toggle stops its own click so it does not shut itself.
+- **Only where the page can write** (`CustomCollections.writable`, `Library.store`): a folder
+  handed over as a file list, by a browser without a folder picker, offers no ticking.
+- A save updates `Library.collections` directly with what was written, flattened the way a
+  read would, rather than rereading the library.
+- **A work is in a custom collection once**, by its number. `add` filters out what the
+  collection holds already and answers `Added` (`added`, `already`), so the page can say how
+  many were already there; `documentOf` dedupes on every save, so a hand-edited file heals.
+- **One window makes and edits them** (`collection-editor.ts`), opened from **+ New
+  collection**, from **+ A new collection...** in the add panel (with the ticked works as
+  `items`), and from **Edit collection**. **Nothing is written until Create/Save**: Cancel,
+  the cross, Escape and the backdrop all emit `cancelled`, the opener drops its
+  `creatingWith`/`editing` and changes nothing else - so the works stay ticked and the add
+  panel stays open. Bare by default (name, description, tags); **Show every field** adds the
+  rest of what an ao3 collection records (`CollectionFields`), written in ao3's own shape by
+  `documentFields`, flags included, so a custom one renders exactly as an ao3 one does. Tags
+  and maintainers are kept as typed and split only on save, or the box would be rewritten
+  under the cursor. With no custom collection to add to, **Add to a collection** opens the
+  window straight away.
 
 ### Bookmarks vs collections are told apart by shape
 

@@ -288,6 +288,11 @@ export class DownloadDialog implements OnDestroy {
    * not answered, so the same request can arrive twice; it is done once.
    */
   private readonly handledStorage = new Set<string>();
+  /**
+   * Every path this run wrote, deleted or renamed - each of them through this page - so that
+   * once it ends the listing can take in just those, rather than the whole library read again.
+   */
+  private readonly changedPaths = new Set<string>();
   /** requests are done one after another, in the order the run asked for them */
   private storageQueue: Promise<void> = Promise.resolve();
   private stop: (() => void) | null = null;
@@ -1182,6 +1187,7 @@ export class DownloadDialog implements OnDestroy {
     // page is switched to another one meanwhile - a run half in each would be no use
     this.runStore = this.library.store();
     this.handledStorage.clear();
+    this.changedPaths.clear();
     // a background run does not need this page, so leaving it is not worth a warning
     if (!this.runningInBackground()) this.holdUnloadGuard();
     this.stop = this.jobs.stream(
@@ -1271,6 +1277,10 @@ export class DownloadDialog implements OnDestroy {
     const store = this.runStore;
     if (!jobId || !store || this.handledStorage.has(request.id)) return;
     this.handledStorage.add(request.id);
+    if (request.op === 'write' || request.op === 'delete' || request.op === 'rename') {
+      if (request.path) this.changedPaths.add(request.path);
+      if (request.to) this.changedPaths.add(request.to);
+    }
     this.storageQueue = this.storageQueue.then(() =>
       this.jobs.answerStorage(jobId, request, store),
     );
@@ -1544,6 +1554,14 @@ export class DownloadDialog implements OnDestroy {
     this.releaseUnloadGuard();
     // the banner and the run buttons go by what the helper says is running
     void this.jobs.refreshActiveRuns();
+    // what the run wrote is in the listing once its last write has landed - new fics, their
+    // tags, and their downloaded files - without opening the library again
+    const changed = [...this.changedPaths];
+    const store = this.runStore;
+    this.changedPaths.clear();
+    if (changed.length) {
+      void this.storageQueue.then(() => this.library.refreshAfterRun(changed, store));
+    }
   }
 
   private append(text: string): void {

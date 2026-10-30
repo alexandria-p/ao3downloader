@@ -362,6 +362,29 @@ describe('DownloadDialog', () => {
     ]);
   });
 
+  it('brings the listing up to date with just what the run changed, once it ends', async () => {
+    const store = fakeStore('My Fics');
+    const library = TestBed.inject(Library);
+    library.store.set(store);
+    const refreshed: { paths: string[]; store: unknown }[] = [];
+    library.refreshAfterRun = async (paths, used) => {
+      refreshed.push({ paths: [...paths].sort(), store: used });
+    };
+    await open('bookmarks');
+    await advanceTo('running');
+
+    jobs.push!({ type: 'storage', id: 'w1', op: 'write', path: 'indexing/1 A.json' } as unknown as JobEvent);
+    jobs.push!({ type: 'storage', id: 'r1', op: 'read', path: 'indexing/2 B.json' } as unknown as JobEvent);
+    jobs.push!({ type: 'storage', id: 'm1', op: 'rename', path: 'works/1 A.html', to: 'works/1 A 2025-01-01.html' } as unknown as JobEvent);
+    jobs.push!({ type: 'finished' } as JobEvent);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // reads change nothing, so only the write and both ends of the rename are taken in
+    expect(refreshed).toEqual([
+      { paths: ['indexing/1 A.json', 'works/1 A 2025-01-01.html', 'works/1 A.html'], store },
+    ]);
+  });
+
   it('says what unticking the rest buys, where the choice is made', async () => {
     await open('bookmarks');
     await advanceTo('filetypes');

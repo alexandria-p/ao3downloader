@@ -1,9 +1,11 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   Bookmark,
   BookmarksExport,
+  bookmarkTypeOf,
   flattenRecord,
   isBookmarkEntry,
+  isListedEntry,
   isNewerCopy,
   isWorkEntry,
   workIdFromFilename,
@@ -15,6 +17,7 @@ import { isRunRecord } from './jobs';
 import { LibrarySetup, SetupTarget, WORKS_FOLDER } from './library-setup';
 import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
 import { unzip } from './unzip';
+import { buildTagIndex } from './tags';
 
 /**
  * A downloaded work that can be opened from the listing: a file already in hand for a
@@ -28,16 +31,50 @@ export interface DropboxCopy {
   modified: number;
 }
 
-/** the downloaded copies the listing can open, by work number, for each format it offers */
-export interface Copies {
-  html: Map<string, LocalCopy>;
-  pdf: Map<string, LocalCopy>;
+/**
+ * Every format ao3 offers a download in, as the listing knows its files - in the order the
+ * listing shows their buttons. The title opens the html, so html has no button of its own.
+ */
+const OPENABLE = {
+  html: /\.html?$/i,
+  pdf: /\.pdf$/i,
+  epub: /\.epub$/i,
+  mobi: /\.mobi$/i,
+  azw3: /\.azw3$/i,
+} as const;
+export type OpenableFormat = keyof typeof OPENABLE;
+export const OPENABLE_FORMATS = Object.keys(OPENABLE) as OpenableFormat[];
+
+/** the downloaded copies the listing can open, by work number, for each format */
+export type Copies = Record<OpenableFormat, Map<string, LocalCopy>>;
+
+export function emptyCopies(): Copies {
+  return Object.fromEntries(OPENABLE_FORMATS.map((f) => [f, new Map()])) as Copies;
 }
 
-/** the formats the listing opens, and how a tab is told to show each */
-const OPENABLE = { html: /\.html?$/i, pdf: /\.pdf$/i } as const;
-export type OpenableFormat = keyof typeof OPENABLE;
-const SHOWN_AS: Record<OpenableFormat, string> = { html: 'text/html', pdf: 'application/pdf' };
+/** how a tab is told to show each format, or a saved file to be typed */
+const SHOWN_AS: Record<OpenableFormat, string> = {
+  html: 'text/html',
+  pdf: 'application/pdf',
+  epub: 'application/epub+zip',
+  mobi: 'application/x-mobipocket-ebook',
+  azw3: 'application/vnd.amazon.ebook',
+};
+
+/**
+ * Whether a browser can show the format itself. Html and pdf open in a tab; an e-book has no
+ * viewer in any browser - a tab handed one only saves it under a made-up name - so those are
+ * saved, under the file's own name, for an e-reader to open.
+ */
+export function viewableInBrowser(format: OpenableFormat): boolean {
+  return format === 'html' || format === 'pdf';
+}
+
+/** a downloaded copy's own file name, to save it under */
+export function copyName(copy: LocalCopy): string {
+  if (copy instanceof Blob) return (copy as File).name ?? 'work';
+  return copy.dropboxPath.split('/').pop() ?? 'work';
+}
 
 /** the folders whose json is the index, read in one zip each */
 const INDEX_FOLDERS = ['indexing', 'collections'];
@@ -133,9 +170,11 @@ export class Library {
   readonly collections = signal<Collection[]>([]);
   readonly sourceName = signal('');
   readonly folderName = signal('');
-  readonly htmlFiles = signal<Map<string, LocalCopy>>(new Map());
+  /** each work's newest downloaded copy in every format, by work number */
+  readonly copies = signal<Copies>(emptyCopies());
+  readonly htmlFiles = computed(() => this.copies().html);
   /** each work's newest downloaded PDF, by work number - what the listing's PDF button opens */
-  readonly pdfFiles = signal<Map<string, LocalCopy>>(new Map());
+  readonly pdfFiles = computed(() => this.copies().pdf);
   /**
    * Every work in the index by work number - including works that are there only because a
    * series you bookmarked holds them, which the bookmarks listing leaves out. A series' card
@@ -152,6 +191,14 @@ export class Library {
    * are numbered separately, so a collection's external works are never matched to a work.
    */
   readonly externalsById = signal<Map<string, Bookmark>>(new Map());
+  /**
+   * Every tag in the library, by kind and most-used first - what the tag filter suggests from.
+   * Built from the works already in memory: once per read, and again only when the works change
+   * (a run's refresh, another library), never on a keystroke.
+   */
+  readonly tagIndex = computed(() =>
+    buildTagIndex([...this.worksById().values(), ...this.seriesById().values(), ...this.externalsById().values()]),
+  );
   readonly error = signal('');
   readonly loading = signal(false);
   /** while a Dropbox library is being read, how far it has got; null otherwise */
@@ -178,6 +225,21 @@ export class Library {
    * have the old library land on top of the new one.
    */
   private generation = 0;
+  /**
+   * Every entry the index holds, as last read - bookmarks and the works a series or a
+   * collection brought in alike. Kept so a refresh after a run can swap in only what the run
+   * rewrote, rather than reading the whole library again.
+   */
+  private entries: Bookmark[] = [];
+  /**
+   * The works hidden from the listing, by `hiddenKey` - kept in the library itself
+   * (`HIDDEN_FILE`), so a library in Dropbox hides the same works on every device. Hiding
+   * touches nothing else: the files and the index entry stay exactly as they were.
+   */
+  readonly hidden = signal<Map<string, HiddenWork>>(new Map());
+
+  /** the folder on this computer being shown, to list its works/ again after a run */
+  private localHandle: DirectoryHandle | null = null;
 
   readonly canPickFolder = this.folders.supported();
 
@@ -235,26 +297,14 @@ export class Library {
       const indexFiles = files.filter(
         (f) => /\.json$/i.test(f.name) && INDEX_FOLDERS.includes(inside(f)[0]?.toLowerCase()),
       );
-      const copies: Copies = { html: new Map(), pdf: new Map() };
-      for (const file of files) {
-        const format = openableFormat(file.name);
-        if (!format) continue;
-        // works/ and nowhere else - the same place a run looks
-        if (inside(file)[0]?.toLowerCase() !== WORKS_FOLDER) continue;
-        const id = workIdFromFilename(file.name);
-        if (!id) continue;
-        const map = copies[format];
-        const existing = map.get(id) as DropboxCopy | undefined;
-        // the newest version by the date in its name, as a run would judge it
-        if (!existing || isNewerCopy(file.name, file.modified,
-            { name: existing.dropboxPath, modified: existing.modified })) {
-          map.set(id, { dropboxPath: file.path, modified: file.modified });
-        }
-      }
+      const copies = dropboxCopies(files, folder.path);
 
       const jsonFiles = await this.readDropboxIndex(folder.path, indexFiles, note);
       if (generation !== this.generation) return;
       await this.ingestRecords(jsonFiles, copies, false, note);
+      // the listing says whether there is one, so a library with nothing hidden costs no download
+      const hiddenPath = `${folder.path}/${HIDDEN_FILE}`.toLowerCase();
+      await this.readHidden(generation, files.some((f) => f.path.toLowerCase() === hiddenPath));
     } catch (error) {
       if (generation !== this.generation) return;
       this.error.set(
@@ -338,8 +388,9 @@ export class Library {
     this.data.set(null);
     this.collections.set([]);
     this.sourceName.set('');
-    this.htmlFiles.set(new Map());
-    this.pdfFiles.set(new Map());
+    this.copies.set(emptyCopies());
+    this.hidden.set(new Map());
+    this.entries = [];
     this.worksById.set(new Map());
     this.seriesById.set(new Map());
     this.externalsById.set(new Map());
@@ -424,6 +475,7 @@ export class Library {
       }
       if (!current()) return;
       this.store.set(new LocalLibraryStore(handle));
+      this.localHandle = handle;
       // the index can be anywhere it has ever been written, so all of it is read for json;
       // works only ever come from works/
       const everything = await this.folders.read(handle);
@@ -432,6 +484,7 @@ export class Library {
       // not strict: this folder has just been set up as a library, so an empty one is new,
       // not the wrong folder
       await this.ingestRecords(jsonOf(everything), this.mapCopies(works), false);
+      await this.readHidden(generation);
     } catch {
       if (current()) this.error.set(`Could not read ${handle.name}.`);
     } finally {
@@ -451,6 +504,12 @@ export class Library {
       return parts.length === 1 || parts[1]?.toLowerCase() === WORKS_FOLDER;
     });
     await this.ingestRecords(jsonOf(files), this.mapCopies(works), true);
+    // nothing can be written to a folder handed over this way, but what was hidden still is
+    const hidden = files.find((f) => {
+      const parts = relativePath(f).split(/[\\/]/);
+      return parts.length <= 2 && baseName(f).toLowerCase() === HIDDEN_FILE;
+    });
+    this.hidden.set(hidden ? readHiddenFile(await hidden.text()) : new Map());
   }
 
   private localTarget(handle: DirectoryHandle): SetupTarget {
@@ -515,48 +574,174 @@ export class Library {
         return;
       }
 
-      // no listing order is kept: the works list sorts by when each was bookmarked
-      collections.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-      this.collections.set(collections);
-      this.htmlFiles.set(copies.html);
-      this.pdfFiles.set(copies.pdf);
-      const byId = new Map<string, Bookmark>();
-      const seriesById = new Map<string, Bookmark>();
-      const externalsById = new Map<string, Bookmark>();
-      for (const entry of works) {
-        if (!entry.id) continue;
-        if (isWorkEntry(entry)) byId.set(entry.id, entry);
-        else if (entry.bookmark_type === 'series bookmark') seriesById.set(entry.id, entry);
-        else if (entry.bookmark_type === 'external work') externalsById.set(entry.id, entry);
-      }
-      this.worksById.set(byId);
-      this.seriesById.set(seriesById);
-      this.externalsById.set(externalsById);
-
-      // the listing is your bookmarks: works, series and external works you bookmarked,
-      // but not a work that is only here because a series holds it - that is in its card
-      const bookmarks = works.filter(isBookmarkEntry);
-      if (bookmarks.length === 0) {
-        // collections synced but nothing indexed yet: the collections page still works
-        this.data.set(null);
-        this.sourceName.set(`${collections.length} collections`);
-        return;
-      }
-
-      this.data.set({
-        source: works.find((w) => w.source)?.source ?? '',
-        // newer files record when they were last checked; older ones a single retrieval
-        retrieved:
-          works.find((w) => w.last_indexed)?.last_indexed ??
-          works.find((w) => w.retrieved)?.retrieved ??
-          '',
-        count: bookmarks.length,
-        works: bookmarks,
-      });
-      this.sourceName.set(`${bookmarks.length} bookmarks`);
+      this.publish(works, collections, copies);
     } finally {
       this.loading.set(false);
     }
+  }
+
+  /**
+   * Bring the listing up to date with what a run just wrote, without reading the whole
+   * library again - which, for a large library in Dropbox, is minutes.
+   *
+   * `changed` is every path the run wrote, deleted or renamed (the page made each of those
+   * changes for it, so it knows them all). The index files among them are read again and
+   * swapped in for the entries and collections they hold; works/ is listed again if anything
+   * in it changed, since a download can replace or rename an older copy. Everything else is
+   * kept as it was. An index file the run deleted leaves its entry until the library is next
+   * opened - runs do not delete index entries, so that is only ever a file removed by hand.
+   */
+  async refreshAfterRun(changed: Iterable<string>, store: LibraryStore | null = this.store()): Promise<void> {
+    // the run's library is not the one on screen any more: nothing here to bring up to date
+    if (!store || store !== this.store()) return;
+    const generation = this.generation;
+    const paths = [...new Set(changed)].map((p) => p.replace(/^\/+/, ''));
+    const top = (path: string) => path.split('/')[0]?.toLowerCase() ?? '';
+    const indexPaths = paths.filter((p) => /\.json$/i.test(p) && INDEX_FOLDERS.includes(top(p)));
+    const worksChanged = paths.some((p) => top(p) === WORKS_FOLDER);
+    if (!indexPaths.length && !worksChanged) return;
+
+    try {
+      const read = await Promise.all(
+        indexPaths.map(async (path) => {
+          const text = await store.read(path).catch(() => null);
+          return text === null ? null : new File([text], path.split('/').pop() ?? path);
+        }),
+      );
+      const { works, collections } = await this.readRecords(read.filter((f): f is File => !!f));
+      const copies = worksChanged ? await this.listCopies() : this.copies();
+      if (generation !== this.generation || store !== this.store()) return;
+
+      const key = (entry: Bookmark) => `${bookmarkTypeOf(entry)}:${entry.id}`;
+      const fresh = new Map(works.filter((w) => w.id).map((w) => [key(w), w]));
+      const merged = this.entries.map((entry) => (entry.id && fresh.get(key(entry))) || entry);
+      const known = new Set(this.entries.filter((e) => e.id).map(key));
+      merged.push(...works.filter((w) => !w.id || !known.has(key(w))));
+
+      const freshCollections = new Map(collections.map((c) => [c.name, c]));
+      const keptCollections = this.collections().filter((c) => !freshCollections.has(c.name));
+      this.publish(merged, [...keptCollections, ...collections], copies ?? this.copies());
+    } catch {
+      // the listing stays as it was: still right about everything but what the run changed,
+      // and the next time the library is opened reads it all again
+    }
+  }
+
+  /**
+   * Hide works from the listing - one, or every one ticked - in a single write. Their files and
+   * index entries are left as they are; one already hidden keeps when it was hidden.
+   */
+  async hide(given: Bookmark | Bookmark[]): Promise<void> {
+    const works = (Array.isArray(given) ? given : [given]).filter((w) => w.id);
+    const next = new Map(this.hidden());
+    const now = new Date().toISOString();
+    for (const work of works) {
+      if (next.has(hiddenKey(work))) continue;
+      next.set(hiddenKey(work), {
+        key: hiddenKey(work),
+        id: work.id!,
+        kind: bookmarkTypeOf(work),
+        title: work.title ?? '',
+        authors: work.authors ?? [],
+        hidden_on: now,
+      });
+    }
+    if (next.size !== this.hidden().size) await this.saveHidden(next);
+  }
+
+  /** Show works in the listing again - one, or every one ticked - in a single write. */
+  async unhide(given: Bookmark | Bookmark[]): Promise<void> {
+    const next = new Map(this.hidden());
+    for (const work of Array.isArray(given) ? given : [given]) next.delete(hiddenKey(work));
+    if (next.size !== this.hidden().size) await this.saveHidden(next);
+  }
+
+  /** shown at once and written to the library; if the write fails the change is undone */
+  private async saveHidden(next: Map<string, HiddenWork>): Promise<void> {
+    const store = this.store();
+    if (!store) throw new Error('this library can only be read, so nothing can be hidden in it');
+    const before = this.hidden();
+    this.hidden.set(next);
+    try {
+      const document = { hidden: [...next.values()] };
+      await store.write(HIDDEN_FILE, new Response(JSON.stringify(document, null, 2) + '\n'));
+    } catch (error) {
+      this.hidden.set(before);
+      throw error;
+    }
+  }
+
+  private async readHidden(generation: number, exists = true): Promise<void> {
+    const store = this.store();
+    if (!store || !exists) {
+      this.hidden.set(new Map());
+      return;
+    }
+    try {
+      const text = await store.read(HIDDEN_FILE);
+      if (generation === this.generation) this.hidden.set(readHiddenFile(text ?? ''));
+    } catch {
+      // unreadable: nothing is hidden, and the next hide writes a good file
+      if (generation === this.generation) this.hidden.set(new Map());
+    }
+  }
+
+  /** works/ listed again, for the copies a run downloaded, replaced or renamed */
+  private async listCopies(): Promise<Copies | null> {
+    if (this.showing === 'dropbox') {
+      const folder = this.dropbox.folder();
+      if (!folder) return null;
+      return dropboxCopies(await this.dropbox.listFiles(`${folder.path}/${WORKS_FOLDER}`, true), folder.path);
+    }
+    if (!this.localHandle) return null;
+    return this.mapCopies(await this.folders.readSubfolder(this.localHandle, WORKS_FOLDER));
+  }
+
+  /** Show `works` and `collections` as the library, with `copies` as its downloaded files. */
+  private publish(works: Bookmark[], collections: Collection[], copies: Copies): void {
+    this.entries = works;
+    // no listing order is kept: the works list sorts by when each was bookmarked
+    collections.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    this.collections.set(collections);
+    this.copies.set(copies);
+    const byId = new Map<string, Bookmark>();
+    const seriesById = new Map<string, Bookmark>();
+    const externalsById = new Map<string, Bookmark>();
+    for (const entry of works) {
+      if (!entry.id) continue;
+      if (isWorkEntry(entry)) byId.set(entry.id, entry);
+      else if (entry.bookmark_type === 'series bookmark') seriesById.set(entry.id, entry);
+      else if (entry.bookmark_type === 'external work') externalsById.set(entry.id, entry);
+    }
+    this.worksById.set(byId);
+    this.seriesById.set(seriesById);
+    this.externalsById.set(externalsById);
+
+    // the listing is your bookmarks, and every other work in the index marked with where it
+    // came from - but not a work that is only here because a series holds it (that is in its
+    // card), nor a series you did not bookmark
+    const inBookmarkedSeries = new Set(
+      [...seriesById.values()].filter(isBookmarkEntry).flatMap((series) => series.work_ids ?? []),
+    );
+    const bookmarks = works.filter((entry) => isListedEntry(entry, inBookmarkedSeries));
+    if (bookmarks.length === 0) {
+      // collections synced but nothing indexed yet: the collections page still works
+      this.data.set(null);
+      this.sourceName.set(`${collections.length} collections`);
+      return;
+    }
+
+    this.data.set({
+      source: works.find((w) => w.source)?.source ?? '',
+      // newer files record when they were last checked; older ones a single retrieval
+      retrieved:
+        works.find((w) => w.last_indexed)?.last_indexed ??
+        works.find((w) => w.retrieved)?.retrieved ??
+        '',
+      count: bookmarks.length,
+      works: bookmarks,
+    });
+    this.sourceName.set(`${bookmarks.length} bookmarks`);
   }
 
   /**
@@ -612,16 +797,16 @@ export class Library {
     return { works, collections };
   }
 
-  /** each work's newest HTML and PDF, from the files in works/ */
+  /** each work's newest copy in every format, from the files in works/ */
   private mapCopies(files: File[]): Copies {
-    const copies = { html: new Map<string, File>(), pdf: new Map<string, File>() };
+    const copies = emptyCopies();
     for (const file of files) {
       const format = openableFormat(baseName(file));
       if (!format) continue;
       const id = workIdFromFilename(baseName(file));
       if (!id) continue;
       const map = copies[format];
-      const existing = map.get(id);
+      const existing = map.get(id) as File | undefined;
       // the newest version by the date in its name, as a run would judge it - not whichever
       // file was touched last, which a copy or a sync tool can change
       if (!existing || isNewerCopy(baseName(file), file.lastModified,
@@ -651,4 +836,59 @@ function baseName(file: File): string {
 
 function jsonOf(files: File[]): File[] {
   return files.filter((f) => /\.json$/i.test(baseName(f)));
+}
+
+/**
+ * Each work's newest copy in every format, from a Dropbox listing - works/ and nowhere else,
+ * the same place a run looks, and newest by the date in its name, as a run would judge it.
+ */
+function dropboxCopies(files: DropboxFile[], root: string): Copies {
+  const copies = emptyCopies();
+  for (const file of files) {
+    const format = openableFormat(file.name);
+    if (!format) continue;
+    const inside = file.path.slice(root.length).split('/').filter(Boolean);
+    if (inside[0]?.toLowerCase() !== WORKS_FOLDER) continue;
+    const id = workIdFromFilename(file.name);
+    if (!id) continue;
+    const map = copies[format];
+    const existing = map.get(id) as DropboxCopy | undefined;
+    if (!existing || isNewerCopy(file.name, file.modified,
+        { name: existing.dropboxPath, modified: existing.modified })) {
+      map.set(id, { dropboxPath: file.path, modified: file.modified });
+    }
+  }
+  return copies;
+}
+
+/**
+ * The page's list of hidden works, at the top of the library. The helper never reads it - a run
+ * only looks for files named for a work - and setting up a library only moves loose works, so
+ * nothing else touches it.
+ */
+export const HIDDEN_FILE = 'hidden-works.json';
+
+/** one hidden work, with enough said about it to recognise it in the file by hand */
+export interface HiddenWork {
+  key: string;
+  id: string;
+  kind: string;
+  title: string;
+  authors: string[];
+  hidden_on: string;
+}
+
+/** a work and an external work can share a number, so the kind is part of the key */
+export function hiddenKey(work: Bookmark): string {
+  return `${bookmarkTypeOf(work)}:${work.id}`;
+}
+
+function readHiddenFile(text: string): Map<string, HiddenWork> {
+  try {
+    const parsed = JSON.parse(text) as { hidden?: unknown };
+    const list = Array.isArray(parsed?.hidden) ? (parsed.hidden as HiddenWork[]) : [];
+    return new Map(list.filter((h) => h && typeof h.key === 'string').map((h) => [h.key, h]));
+  } catch {
+    return new Map();
+  }
 }

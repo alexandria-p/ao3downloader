@@ -486,6 +486,28 @@ def test_a_collection_file_is_not_an_index_entry_either(tmp_path):
     assert shared.indexed_work_ids(with_folder(tmp_path)) == set()
 
 
+def test_a_collection_made_in_the_page_is_never_read_as_one_from_ao3(tmp_path):
+    # the page keeps the collections people make themselves in collections/custom, and every
+    # helper read of collections/ lists that folder's own files only - so a work in a custom
+    # collection is not held back as doubtful, and no run links it into from_collections
+    collections = tmp_path / strings.COLLECTIONS_FOLDER_NAME
+    (collections / 'custom').mkdir(parents=True)
+    (collections / 'yuletide.json').write_text(
+        json.dumps({'name': 'yuletide', 'title': 'Yuletide', 'work_ids': ['111']}), encoding='utf-8')
+    (collections / 'custom' / 'custom-ab12.json').write_text(
+        json.dumps({'name': 'custom-ab12', 'custom': True, 'title': 'Mine', 'work_ids': ['222']}), encoding='utf-8')
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '111 In Yuletide - Cal.json'))
+    make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '222 Mine - Cal.json'))
+    fileops = with_folder(tmp_path)
+    fileops.load_json.side_effect = lambda path: json.loads(
+        (tmp_path / path).read_text(encoding='utf-8')) if (tmp_path / path).is_file() else {}
+
+    known = shared.indexed_work_ids(fileops)
+
+    assert '111' in known.doubtful
+    assert '222' not in known.doubtful
+
+
 def test_a_file_in_the_index_folder_that_is_not_json_is_ignored(tmp_path):
     make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '111 stray.html'))
     make_file(tmp_path, os.path.join(strings.INDEXING_FOLDER_NAME, '222 real - Cal.json'))
@@ -514,6 +536,18 @@ def test_scan_finds_works_by_the_number_their_name_starts_with(tmp_path):
     assert sorted(found) == ['34816549', '99']
     assert found['34816549']['HTML']['date'] == '2024-12-14'
     assert found['99']['EPUB']['date'] == '2020-01-02'
+
+
+def test_the_pages_list_of_hidden_works_is_never_taken_for_a_work(tmp_path):
+    # the page keeps the works hidden from its listing in hidden-works.json at the top of the
+    # library. a run must pass it over: it is json, and json is a requested file type
+    (tmp_path / 'hidden-works.json').write_text('{"hidden": [{"key": "individual work:111"}]}')
+    make_file(tmp_path, '111 Hidden But Still Here 2024-12-14.html')
+
+    found = shared.scan_downloaded_works(str(tmp_path), ['HTML', 'JSON'])
+
+    assert sorted(found) == ['111']
+    assert 'JSON' not in found['111']
 
 
 def test_scan_reports_an_undated_file_as_having_no_date(tmp_path):

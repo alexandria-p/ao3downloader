@@ -347,3 +347,55 @@
     margin-top: 6px;
   }
 }
+
+/* a collection made in this app: a gold star and its own badge, so it never reads as ao3's */
+.custom-mark {
+  margin-right: 6px;
+  color: #e2b45a;
+}
+
+.collection.custom {
+  border-left: 3px solid #e2b45a;
+}
+
+.badge.custom {
+  border-color: #7a6331;
+  background: #3a3020;
+  color: #f0d79c;
+}
+
+.listing-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.head-actions {
+  margin: 8px 0 0;
+}
+
+.button {
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #3a3a3a;
+}
+
+.button.primary {
+  border-color: #5a7f9a;
+  background: #33566b;
+}
+
+.button.primary:hover {
+  background: #3d6580;
+}
