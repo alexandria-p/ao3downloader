@@ -22,6 +22,7 @@ import {
   baselineOf,
   RunStep,
   QuestionName,
+  RescuedWork,
   RunInProgressError,
   StartRequest,
   WorkFailure,
@@ -59,6 +60,28 @@ const COLLECTION_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/collections\/(
 
 /** any chapter or page of a work will do, so this only asks that digits follow /works/ */
 const WORK_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/works\/(\d+)/i;
+
+/** the most fics one 'several fics' run takes - the helper's MAX_WORK_LINKS */
+export const MAX_WORKS = 500;
+
+/**
+ * The works in a paste of links or work numbers, and whatever in it was neither.
+ *
+ * Separated by anything people separate a list with - new lines, commas, spaces,
+ * semicolons, in any mix. The same work twice is one work. The helper reads the paste again
+ * by the same rule (`work_links`) and refuses what this would.
+ */
+export function parseWorkList(text: string): { ids: string[]; unknown: string[] } {
+  const ids: string[] = [];
+  const unknown: string[] = [];
+  for (const piece of text.split(/[\s,;]+/)) {
+    if (!piece) continue;
+    const id = /^\d+$/.test(piece) ? piece : WORK_URL.exec(piece)?.[2];
+    if (!id) unknown.push(piece);
+    else if (!ids.includes(id)) ids.push(id);
+  }
+  return { ids, unknown };
+}
 
 /**
  * The index's own file type, which is not a copy of a work like the others.
@@ -255,6 +278,10 @@ export class DownloadDialog implements OnDestroy {
   protected readonly notRemoved = signal<WorkFailure[]>([]);
   /** on the duplicates question: how many older files there are across those works */
   protected readonly askedFiles = signal(0);
+  /** on the FicHub question: the work numbers AO3 would not give us */
+  protected readonly askedIds = signal<string[]>([]);
+  /** works AO3 would not give us that FicHub did */
+  protected readonly rescued = signal<RescuedWork[]>([]);
 
   /**
    * How many undated files the run has stopped to ask about, or 0 when it is not asking.
@@ -312,6 +339,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Download new bookmarks and update incomplete fics';
       case 'work':
         return 'Download/update a specific fic';
+      case 'works':
+        return 'Download/update several fics';
       case 'custom':
         return 'Custom run';
       case 'quick':
@@ -335,6 +364,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Three passes: your new bookmarks, then the fics your index last saw unfinished, then any finished fic missing a format you asked for.';
       case 'work':
         return 'Indexes one fic and downloads it, in whichever formats you pick. Use it for a single work you want now, or to repair one copy.';
+      case 'works':
+        return 'The same as downloading a specific fic, for a whole list at once: paste their links or work numbers, and each is indexed, then all are downloaded.';
       case 'custom':
         return 'A full scan with its parts made optional - choose the pages to cover, or skip reading AO3 entirely and work from what is already indexed.';
       case 'quick':
@@ -386,7 +417,7 @@ export class DownloadDialog implements OnDestroy {
    */
   protected readonly picksSeries = computed(
     () =>
-      (['bookmarks', 'quick', 'custom', 'work'] as JobAction[]).includes(this.action()) ||
+      (['bookmarks', 'quick', 'custom', 'work', 'works'] as JobAction[]).includes(this.action()) ||
       // a collections run meets works only when it was asked to index them
       (this.picksCollectionWorks() && this.collectionWorks()),
   );
@@ -456,10 +487,26 @@ export class DownloadDialog implements OnDestroy {
     () => !this.picksCollectionWorks() || this.collectionWorks(),
   );
   protected readonly needsLink = computed(
-    () => this.action() === 'collection' || this.action() === 'work',
+    () => this.action() === 'collection' || this.action() === 'work' || this.action() === 'works',
   );
   /** the link step asks for a fic rather than a collection */
   protected readonly wantsWork = computed(() => this.action() === 'work');
+  /** the link step asks for a list of fics */
+  protected readonly wantsWorks = computed(() => this.action() === 'works');
+  /** what the pasted list holds, as it is typed */
+  protected readonly workList = computed(() => parseWorkList(this.collectionUrl()));
+  protected readonly maxWorks = MAX_WORKS;
+
+  /**
+   * Whether to go without an AO3 login: the runs pointed at fics by hand alone, since every
+   * other one reads your own bookmarks or collections. Off unless ticked, and warned about.
+   */
+  protected readonly picksSkipLogin = computed(
+    () => this.action() === 'work' || this.action() === 'works',
+  );
+  protected readonly skipLogin = signal(false);
+  /** whether this run will log in at all */
+  protected readonly logsIn = computed(() => !(this.picksSkipLogin() && this.skipLogin()));
 
   /**
    * Which runs say what they cannot do before anyone logs in for them.
@@ -516,6 +563,10 @@ export class DownloadDialog implements OnDestroy {
   /** whether what has been typed is something this run can act on */
   protected readonly linkIsValid = computed(() => {
     const typed = this.collectionUrl().trim();
+    if (this.wantsWorks()) {
+      const { ids, unknown } = this.workList();
+      return ids.length > 0 && unknown.length === 0 && ids.length <= MAX_WORKS;
+    }
     if (!this.wantsWork()) return COLLECTION_URL.test(typed);
     // a bare work number says the same thing as the whole url, and is what you get from
     // the address bar most easily
@@ -786,7 +837,10 @@ export class DownloadDialog implements OnDestroy {
 
   /** whether the run replaces every copy anyway, which decides the undated question for it */
   private readonly overwrites = computed(
-    () => this.action() === 'work' || (this.picksOverwrite() && this.overwrite()),
+    () =>
+      this.action() === 'work' ||
+      this.action() === 'works' ||
+      (this.picksOverwrite() && this.overwrite()),
   );
 
   /**
@@ -795,11 +849,12 @@ export class DownloadDialog implements OnDestroy {
    * Worked out from the workflow and its options the same way the helper decides whether
    * to ask: a run that downloads nothing has no copies to judge; one that overwrites has
    * already settled every undated copy; only a quick scan with no earlier scan to measure
-   * back to asks how far to go. Whether a question actually comes up depends on what is in
-   * the library - these are answers held ready, used only if it does.
+   * back to asks how far to go. Any run can fail to get a work from AO3, so every one may
+   * ask about FicHub. Whether a question actually comes up depends on what is in the
+   * library and on AO3 - these are answers held ready, used only if it does.
    */
   protected readonly backgroundQuestions = computed<QuestionName[]>(() => {
-    if (this.resuming()) return ['undated', 'duplicates'];
+    if (this.resuming()) return ['undated', 'duplicates', 'fichub'];
     const asked: QuestionName[] = [];
     if (this.action() === 'quick' && this.coverage() !== 'run' && this.coverage() !== 'dates') {
       asked.push('quick-floor');
@@ -809,6 +864,8 @@ export class DownloadDialog implements OnDestroy {
       if (!this.overwrites()) asked.push('undated');
       asked.push('duplicates');
     }
+    // a collections run that reads no works fetches none, so none can fail
+    if (this.picksFiletypes()) asked.push('fichub');
     return asked;
   });
 
@@ -817,6 +874,8 @@ export class DownloadDialog implements OnDestroy {
   protected readonly undatedDate = signal(today());
   /** what to do about older copies beside the newest - leave them, by default */
   protected readonly duplicatesAnswer = signal<'leave' | 'newest'>('leave');
+  /** whether to try FicHub for works AO3 would not give us - yes, by default */
+  protected readonly fichubAnswer = signal<'yes' | 'no'>('yes');
   /** how far back a quick scan goes with nothing to measure to - everything, by default */
   protected readonly quickFloorAnswer = signal<'full' | 'since'>('full');
 
@@ -830,6 +889,7 @@ export class DownloadDialog implements OnDestroy {
           : { choice: this.undatedAnswer() };
       }
       if (name === 'duplicates') answers.duplicates = { choice: this.duplicatesAnswer() };
+      if (name === 'fichub') answers.fichub = { choice: this.fichubAnswer() };
       if (name === 'quick-floor') answers['quick-floor'] = { choice: this.quickFloorAnswer() };
     }
     return answers;
@@ -1128,11 +1188,14 @@ export class DownloadDialog implements OnDestroy {
 
   protected async submit(event: Event): Promise<void> {
     event.preventDefault();
-    if (!this.username().trim() || !this.password()) return;
+    if (this.logsIn() && (!this.username().trim() || !this.password())) return;
 
     // only the username is ours to keep. the password is left to the browser's own
     // password manager, which stores it in the OS keychain rather than in page storage.
-    if (this.remember()) {
+    // a run that does not log in leaves whatever was remembered alone
+    if (!this.logsIn()) {
+      // nothing typed is used, so nothing typed is kept
+    } else if (this.remember()) {
       safeSet(REMEMBER_KEY, 'true');
       safeSet(USERNAME_KEY, this.username().trim());
     } else {
@@ -1261,9 +1324,12 @@ export class DownloadDialog implements OnDestroy {
         floorRun: this.picksFloorRun() ? this.floorRun() : '',
         // the helper takes everything else from that run's own record
         resume: resumed ? resumed.id : '',
+        // only a run pointed at fics by hand can go without a login
+        skipLogin: !this.logsIn(),
       } satisfies JobOptions,
-      username: this.username().trim(),
-      password: this.password(),
+      // nothing is sent for a run that will not log in, whatever is in the boxes
+      username: this.logsIn() ? this.username().trim() : '',
+      password: this.logsIn() ? this.password() : '',
       url: this.needsLink() ? this.collectionUrl().trim() : undefined,
     };
   }
@@ -1389,6 +1455,9 @@ export class DownloadDialog implements OnDestroy {
       case 'keptCopies':
         this.keptCopies.set(event.keptCopies ?? []);
         break;
+      case 'rescued':
+        this.rescued.set(event.rescued ?? []);
+        break;
       case 'steps':
         // everything starts waiting; the helper moves each one as it reaches it
         this.steps.set((event.steps ?? []).map((x) => ({ ...x, status: 'waiting' as const })));
@@ -1406,6 +1475,7 @@ export class DownloadDialog implements OnDestroy {
         this.askedDate.set(event.date ?? '');
         this.asking.set(event.count ?? 0);
         this.askedFiles.set(event.files ?? 0);
+        this.askedIds.set(event.ids ?? []);
         this.choosingDate.set(false);
         this.answering.set(false);
         break;
@@ -1615,6 +1685,16 @@ export class DownloadDialog implements OnDestroy {
   /** leave every copy where it is */
   protected leaveAllCopies(): void {
     void this.answerQuestion('leave');
+  }
+
+  /** ask FicHub for the works AO3 would not give us */
+  protected tryFicHub(): void {
+    void this.answerQuestion('yes');
+  }
+
+  /** leave the works AO3 would not give us as failures */
+  protected skipFicHub(): void {
+    void this.answerQuestion('no');
   }
 
   /** measure back to the day the index was last written */

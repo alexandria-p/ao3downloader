@@ -152,7 +152,9 @@ legend {
   font-size: 0.82rem;
 }
 
-.field input {
+.field input,
+.field textarea {
+  box-sizing: border-box;
   width: 100%;
   padding: 7px 9px;
   border: 1px solid var(--border-strong);
@@ -162,7 +164,12 @@ legend {
   font: inherit;
 }
 
-.field input:focus {
+.field textarea {
+  resize: vertical;
+}
+
+.field input:focus,
+.field textarea:focus {
   outline: 2px solid #5a7f9a;
   outline-offset: -1px;
 }

@@ -40,6 +40,9 @@ the page  --POST-->  feedback Worker (Cloudflare)  --checks-->  Turnstile
    - the token;
    - the page's version;
    - whether it is the hosted page or a copy on someone's computer;
+   - where the open library lives (`storageKind`): `Dropbox`, `a folder on this computer`
+     (`(read only)` for a folder handed over as files), or `no library open` - the kind
+     only, never a folder's name, since a folder can be named for its owner;
    - the browser's user agent.
 5. **The Worker** (`feedback_worker/worker.js`):
    - refuses a page whose origin is not in `ALLOWED_ORIGINS`;
@@ -55,7 +58,7 @@ the page  --POST-->  feedback Worker (Cloudflare)  --checks-->  Turnstile
      Failures include Cloudflare refusing the request, GitHub refusing the issue, being
      offline, no answer within 30 seconds, or the bot check not loading. The page then:
      - keeps what was typed, and gets a fresh bot check for another try;
-     - offers **Download what I wrote**, a text file with the message, name, version and any
+     - offers **Download what I wrote**, a text file with the message, name, version, library kind and any
        attached log, so nothing is lost;
      - links **Submit it on GitHub instead**, which opens GitHub's new-issue page in a new tab
        with the title and message filled in. That way needs a GitHub account. The log is not
@@ -65,7 +68,8 @@ The issue's title is `Feedback (positive|negative): <first line of the message>`
 holds:
 
 - the message;
-- the name, version, which copy it came from and the browser;
+- the name, version, which copy it came from, where the library lives (**Library:**) and the
+  browser;
 - the log, if attached, folded away under **Latest run log**.
 
 ### Which copies show the tab

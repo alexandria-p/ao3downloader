@@ -146,6 +146,8 @@ AO3_INFO_LOGIN = 'logging in'
 # the web ui shows the console output as the run's log, and logging in is the first thing
 # it does. without a line here the modal opens on an empty log and looks like it hung
 AO3_INFO_LOGGING_IN = 'logging in as {}'
+AO3_INFO_NOT_LOGGING_IN = ('not logging in to AO3, as asked. works only logged-in users can see will '
+                           'fail, and FicHub is offered for them at the end')
 AO3_INFO_LOGGED_IN = 'successfully logged in'
 AO3_INFO_DOWNLOADING = 'downloading works'
 AO3_INFO_FILE_TYPE = 'added {} to list of download types'
@@ -287,7 +289,10 @@ AO3_INFO_STEP_SKIPPED = 'skipping the rest of this step at your request'
 # one fic on its own, by link or work number
 AO3_INFO_ONE_WORK = 'looking up work {}'
 AO3_INFO_ONE_WORK_INDEXED = 'index updated'
+AO3_INFO_ONE_WORK_UNREADABLE = 'AO3 would not show this work: {}'
 AO3_INFO_ONE_WORK_DONE = 'finished with work {}'
+AO3_INFO_MANY_WORKS = '{} fics to look up'
+AO3_INFO_MANY_WORK = 'fic {} of {}: looking up work {}'
 # a custom run told to work from what is already indexed
 # the separate images pass, which costs a work page per fic on top of everything else
 AO3_INFO_IMAGES_START = 'now fetching each work page for the images embedded in it - this is the slow part'
@@ -327,6 +332,7 @@ ACTION_NAME_COLLECTION = 'Index collection by URL'
 ACTION_NAME_NEW = 'Just download newly added bookmarks'
 ACTION_NAME_SYNC = 'Download new bookmarks and update incomplete fics'
 ACTION_NAME_WORK = 'Download/update a specific fic'
+ACTION_NAME_WORKS = 'Download/update several fics'
 ACTION_NAME_CUSTOM = 'Custom run'
 ACTION_NAME_QUICK = 'Quick Scan'
 
@@ -340,6 +346,7 @@ STEP_INDEX_SINCE = 'Index works AO3 has updated since your last run'
 STEP_INDEX_BOOKMARKED_WINDOW = 'Index bookmarks added in that date range'
 STEP_INDEX_UPDATED_WINDOW = 'Index works AO3 updated in that date range'
 STEP_INDEX_ONE = 'Index this fic'
+STEP_INDEX_MANY = 'Index these fics'
 STEP_INDEX_COLLECTIONS = 'Index your collections'
 STEP_INDEX_COLLECTION = 'Index this collection'
 # the same crawl, told to index each work it meets as well - see Ao3.collect_work_ids
@@ -352,6 +359,7 @@ STEP_CHECK_FILES = 'Read your existing downloaded files'
 STEP_DOWNLOAD = 'Download or update works as necessary'
 # the single-fic run always replaces what you have, so nothing about it is conditional
 STEP_DOWNLOAD_ONE = 'Download this fic'
+STEP_DOWNLOAD_MANY = 'Download these fics'
 # the runs that only ever fetch bookmarks added since last time say so, because on those
 # 'the works' would read as the whole library
 STEP_DOWNLOAD_NEW = 'Download newly added works'
@@ -366,6 +374,35 @@ STEP_REPORT = 'Report any failures'
 STEP_SERIES = 'Index works in series marked for walkthrough'
 STEP_NON_BOOKMARKS = 'Check remaining non-bookmarks for updates'
 STEP_CLEANUP = 'Cleanup'
+# after everything ao3 was asked for, before the cleanup: the works ao3 would not give us,
+# asked for again from a mirror of it
+STEP_FICHUB = 'Try FicHub for works AO3 would not give us'
+
+# FicHub (fichub.net) keeps copies of ao3 works, including some ao3 no longer serves. its
+# api answers a work's link with the work's details and where each format can be fetched
+FICHUB_SITE = 'fichub'
+FICHUB_BASE_URL = 'https://fichub.net'
+FICHUB_API_URL = FICHUB_BASE_URL + '/api/v0/epub'
+# the formats FicHub makes. ao3's azw3 is not among them
+FICHUB_FORMATS = ('EPUB', 'HTML', 'MOBI', 'PDF')
+# on an index reading made from FicHub rather than ao3: {'site': 'fichub', 'downloaded':
+# [formats fetched from it]}. a reading from ao3 never carries it
+RETRIEVED_FROM_FIELD = 'retrieved_from'
+AO3_INFO_FICHUB_ASK = ('{} works could not be fetched from AO3 ({}). '
+                       'waiting for you to choose whether to try FicHub for them...')
+AO3_INFO_FICHUB_DECLINED = 'not trying FicHub'
+AO3_INFO_FICHUB_WORK = 'FicHub {} of {}: {}'
+AO3_INFO_FICHUB_INDEXED = '  indexed from FicHub'
+AO3_INFO_FICHUB_RESCUED = '{} works AO3 would not give us came from FicHub instead'
+AO3_INFO_FICHUB_FAILED_TOO = '  not on FicHub either: {}'
+ERROR_FICHUB_LOOKUP = 'FicHub could not find it ({})'
+ERROR_FICHUB_STATUS = 'FicHub answered {}'
+ERROR_FICHUB_NOT_JSON = 'FicHub answered with something that is not its usual reply'
+ERROR_FICHUB_WRONG_WORK = 'FicHub answered about a different work ({})'
+ERROR_FICHUB_NO_FORMAT = 'FicHub does not offer {}'
+ERROR_FICHUB_NOT_A_FILE = 'FicHub sent a page instead of the {} file ({})'
+ERROR_FICHUB_ELSEWHERE = 'FicHub pointed the {} download somewhere other than fichub.net'
+ERROR_AO3_AND_FICHUB = 'AO3: {} | FicHub: {}'
 AO3_INFO_DUPLICATES = ('{} works have more than one copy of the same format ({} older files). '
                        'the newest copy is the one every run goes by')
 AO3_INFO_DUPLICATE_FILE = '  {}: keeping {} - older copy {}'
@@ -580,6 +617,11 @@ ERROR_UPDATE_DURING_RUN = 'A run is in progress. Updating restarts the app, whic
 ERROR_RUN_DURING_UPDATE = 'The app is updating itself, and will restart in a moment. Start the run once it is back.'
 ERROR_RUN_IN_PROGRESS = 'A run is already in progress. Wait until it is complete to start a new one - the History tab shows it.'
 ERROR_BACKGROUND_NEEDS_DROPBOX = 'A background run needs a library in Dropbox, and this request came without a Dropbox sign-in. Sign in to Dropbox and try again.'
+ERROR_NOT_WORK_LINKS = ('These are not AO3 works: {}. Paste work links like '
+                        'https://archiveofourown.org/works/34816549, or work numbers, separated by '
+                        'new lines, commas, spaces or semicolons.')
+ERROR_NO_WORK_LINKS = 'Paste at least one AO3 work link or work number.'
+ERROR_TOO_MANY_WORK_LINKS = 'That is {} fics - one run takes at most {}. Split them into smaller runs.'
 ERROR_NOT_A_WORK_LINK = 'That is not an ao3 work. Paste a link like https://archiveofourown.org/works/34816549, or just the work number.'
 ERROR_COLLECTION_PROFILE = 'Problem reading a collection profile page'
 ERROR_COLLECTION_ITEMS = 'Problem reading the items in a collection'
@@ -604,7 +646,7 @@ AO3_INFO_RESUME_NO_STEP = 'before its first step'
 AO3_INFO_RESUME_ANSWER = 'using the answer the earlier attempt was given: {}'
 AO3_INFO_ABANDONED = 'this background run was left paused for {} minutes, so the helper has abandoned it. everything it saved is kept - resume it from the History tab, or start the same run again and it carries on from what is still missing.'
 AO3_INFO_BACKGROUND_ANSWER = 'using the answer given before this background run started: {}'
-AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it does what changes nothing: {}'
+AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it takes the default: {}'
 AO3_INFO_RESUME_SCOPE = ('the earlier attempt had finished indexing - checking and downloading '
                          'its {} works')
 AO3_INFO_RESUME_WALK_DONE = 'the earlier attempt finished this walk - taking its works from the index'

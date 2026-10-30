@@ -23,6 +23,8 @@ export type JobAction =
   | 'sync'
   /** one fic, by link or work number */
   | 'work'
+  /** several fics, pasted as links or work numbers */
+  | 'works'
   /** the full scan with its parts made optional */
   | 'custom'
   /** a full scan that stops at the works ao3 has not touched since the last run */
@@ -68,6 +70,11 @@ export interface ServerConfig {
 
 /** the questions the console menu asks after the file types */
 export interface JobOptions {
+  /**
+   * Go without logging in to AO3. Only the runs pointed at fics by hand offer it; works only
+   * a login can see then fail, and FicHub is offered for them at the end.
+   */
+  skipLogin?: boolean;
   /** page to begin on; 1 is the start of the listing */
   start: number;
   /** page to stop on; 0 means every page */
@@ -144,8 +151,11 @@ export type QuickFloorChoice = 'since' | 'full';
 /** what to do about older copies of a work beside the newest one */
 export type DuplicatesChoice = 'newest' | 'leave';
 
+/** whether to ask FicHub for the works AO3 would not give us - yes, by default */
+export type FicHubChoice = 'yes' | 'no';
+
 /** anything a run may be answered with; the run only reads its own question's replies */
-export type AnswerChoice = UndatedChoice | QuickFloorChoice | DuplicatesChoice;
+export type AnswerChoice = UndatedChoice | QuickFloorChoice | DuplicatesChoice | FicHubChoice;
 
 /** one older copy a run marked for removal, and what became of it */
 export interface RunRemoval {
@@ -233,6 +243,8 @@ export interface RunHistory {
   skipped: WorkFailure[];
   /** new copies downloaded while the old copy could not be deleted - absent on older runs */
   keptCopies?: WorkFailure[];
+  /** works AO3 would not give us that FicHub did - absent on older runs */
+  rescued?: RescuedWork[];
   /** older copies marked for removal, and what became of each - absent on older runs */
   removals?: RunRemoval[];
   error: string;
@@ -295,6 +307,14 @@ export function isRunRecord(parsed: unknown): boolean {
 }
 
 /** a work the run could not download */
+/** a work AO3 would not give us that FicHub did, and the formats that came from it */
+export interface RescuedWork {
+  id: string;
+  link: string;
+  title: string;
+  downloaded: string[];
+}
+
 export interface WorkFailure {
   /** the ao3 work number, when the link had one in it */
   id: string | null;
@@ -352,6 +372,10 @@ export interface JobEvent {
   skipped?: WorkFailure[];
   /** on a `keptCopies` event: new copies downloaded while the old copy could not be deleted */
   keptCopies?: WorkFailure[];
+  /** on a `rescued` event: works AO3 would not give us that FicHub did */
+  rescued?: RescuedWork[];
+  /** on a `question` event: the work numbers it is about, where it names them */
+  ids?: string[];
   /** on a `steps` event: the checklist this run intends to work through */
   steps?: { id: string; label: string }[];
   /** on a `step` event: which step changed, and to what */
@@ -405,7 +429,7 @@ export interface StartRequest {
 }
 
 /** the questions a run can stop to ask, by the name the helper gives them */
-export type QuestionName = 'undated' | 'quick-floor' | 'duplicates';
+export type QuestionName = 'undated' | 'quick-floor' | 'duplicates' | 'fichub';
 
 /** answers given before a background run starts, since nobody will be there to give them */
 export type BackgroundAnswers = Partial<Record<QuestionName, { choice: AnswerChoice; date?: string }>>;

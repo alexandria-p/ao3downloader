@@ -340,6 +340,8 @@ The **Bookmarks** tab has:
 Behind **Advanced options**:
 
 - **Download/update a specific fic** - paste a work link or just the work number. Indexes that one fic and downloads it in the formats you pick. A link to any chapter works.
+- **Download/update several fics** - the same for a list: paste work links or numbers, one per line or separated by commas, spaces or semicolons (up to 500). Each is indexed in turn, then all are downloaded. One AO3 will not show is passed over, and FicHub is offered once at the end for every fic that failed.
+- Both offer **Skip AO3 login?** - unticked by default, and **not recommended**: without a login, fics their authors restricted to AO3 users can't be reached, and the run may have to fall back on FicHub for them. Ticked, the login page asks for nothing and the run never logs in.
 - **Custom run** - a full scan with its parts made optional. It covers one of three things, which it asks first: **all bookmarks**, a **slice** of your listing by page number, or a **date range**. On top of that it can skip reading AO3 at all and work from what is already indexed. That last one costs no requests to decide anything, but judges everything against however old your index is. This is the one run that asks its options *before* the file types, because skipping the indexing decides one of them: JSON is the index, so a run that does not index does not write it, and the JSON box is ticked or unticked to match and locked either way.
 
 Behind **Advanced options**, only when the debug tools are on:
@@ -511,6 +513,16 @@ If a download fails, is cut short, or is stopped partway, the old file stays exa
 A run does not stop because one fic will not come down - a work can have been deleted, made restricted, or never existed in the format you asked for. Those are skipped and the run carries on.
 
 When it finishes, it **names them**: how many there were, the first few with the reason each one failed, and a link to look each up on AO3. Everything else in that run was still saved.
+
+#### Trying FicHub for works AO3 would not give us
+
+Before it ends, a run that failed to get any work from AO3 **asks whether to try FicHub** (fichub.net), a mirror that keeps copies of AO3 works - including some AO3 no longer serves. It says how many works and lists their numbers. Left unanswered for 30 minutes it **tries FicHub** - the one question whose default does something, because the works are already missing and FicHub only adds. A background run does the same unless told otherwise up front.
+
+For each work FicHub has, the run writes its index entry from what FicHub says (when the run writes JSON) and downloads the file types you asked for, named and checked exactly as a download from AO3 is. FicHub makes EPUB, HTML, MOBI and PDF, but not AZW3. The index reading made from FicHub carries `retrieved_from` (`{"site": "fichub", "downloaded": [...]}`), and the listing marks the work **From FicHub**. A later reading from AO3 does not carry it.
+
+**Where it helps most:** a fic this app indexed while it was on AO3 that has since been deleted - the index still has its work number, so the next scan's re-read or download fails and FicHub is asked for it by that number - and a single fic fetched by link or work number. A bookmark AO3 already lists only as deleted, with no number, can't be looked up; that is why indexing your library while the works are still there matters.
+
+It only tries AO3 works it has a number for - never an external work, a series, or a deleted bookmark with nothing to look up. A work FicHub cannot give either stays a failure, its reason naming both: `AO3: ... | FicHub: ...`. Downloading a single fic by link goes the same way: a fic AO3 will not show is handed to FicHub rather than ending the run.
 
 One **Export all issues** button at the end of the run saves a single plain text file covering every list below, with a heading for each kind and one work per line under it - the work number, the link and the reason, tab separated - so you can look them over or feed the numbers back in. A work is listed once however many formats failed for it.
 

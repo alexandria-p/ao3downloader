@@ -21,7 +21,7 @@ the same thing in conversation.
 - **Origin** [came from, where it came from] - where a listed work came from (`originOf`): `bookmarks` (your AO3 bookmarks, or an entry from before `bookmarked` was recorded), `collection` (not bookmarked, held by an indexed collection: `from_collections`), or `other` (not bookmarked, in no collection - downloaded by its link, or imported). The Bookmarks tab lists every entry `isListedEntry` allows - all but a work only a bookmarked series brought in, and a series you did not bookmark - with a badge on the non-bookmarks and a **Came from** filter.
 - **Hidden work** [hide, unhide] - a work hidden from the listings with the eye button (`Library.hide`), kept by `hiddenKey` (`kind:id`) in `hidden-works.json` at the top of the library. Nothing is deleted. Left out unless **Show hidden works** is ticked in the Filter; then shown dimmed and marked Hidden, with **Unhide**. A warning comes first unless turned off (`ao3.hideWarningOff`). Ticked works can be hidden or unhidden together from the selection bar, which offers only what applies: **Hide**/**Unhide** for one ticked work, **Hide all** when every ticked work is showing, **Unhide all** when every one is hidden, both for a mix (`tickedShowing`, `tickedHidden`).
 - **Ticking works** [multi-select, selection] - the checkboxes on each blurb in a listing, when the library can be written to - works, external works and series alike (`canTick`). **Tick all** ticks everything the filters show, on every page; an action acts only on ticked works the filters still show. Series can be hidden with the rest but not added to a collection: an add with series ticked names them first and asks whether to add the rest (`seriesWarning`).
-- **Entry menu** [⋯ menu, per-fic menu] - the ⋯ button in each entry's bottom corner, beside the eye: Hide or Unhide, and Add to a collection for that entry alone (greyed for a series, with a hover note saying why). Adding from it leaves the ticks alone.
+- **Entry menu** [⋯ menu, per-fic menu] - the ⋯ button on a row of its own at the foot of every entry with a number (works, external works, series, and works a collection lists that are not indexed), beside the eye: Hide or Unhide, and Add to a collection for that entry alone (greyed for a series, with a hover note saying why). Adding from it leaves the ticks alone.
 
 ## Index properties
 
@@ -30,13 +30,16 @@ the same thing in conversation.
 - **Non-bookmark** - an individual work in the index with `bookmarked: false`: there because a run was led to it some other way, usually through another work's series or a collection.
 - **From series** [from_series] - the series a work was found through; added to, never replaced.
 - **From collections** [from_collections] - the collections that hold a work or external work, by short name; set by the cleanup step of every workflow but the debug ones, from the collection files in the library; added to, never replaced.
+- **Retrieved from** [retrieved_from, from FicHub] - on an index reading made from FicHub rather than AO3: `{site: 'fichub', downloaded: [formats fetched from it]}`. Part of that reading, not of the entry: a later reading from AO3 leaves it out, so the newest reading says where the entry's details came from. The listing marks such a work *From FicHub*.
 
 ## Reading AO3
 
+- **Skip AO3 login** [skipLogin, logged out] - a run pointed at fics by hand (`work`, `works`) told not to log in (`SKIP_LOGIN_ACTIONS`). Every other run always logs in.
 - **Run** [job] - one use of a workflow, from pressing Start to its report.
 - **Step** [checklist item] - one stage of a run, shown ticked, skipped, failed, or *done in the earlier run* (a resumed run's step its earlier attempt finished) in the run window.
 - **Option** [checkbox, configuration] - a choice made before a run starts.
-- **Question** - something a run stops to ask part-way through (undated files, older copies, how far back to go).
+- **Question** - something a run stops to ask part-way through (undated files, older copies, how far back to go, whether to try FicHub). Unanswered, each takes its default after 30 minutes - the one that changes nothing, except FicHub's, which is *yes*.
+- **FicHub** [the mirror, fichub.net] - a site keeping copies of AO3 works, including some AO3 no longer serves. A run asks it, at the end, for the works AO3 would not give it (`source_code/fichub.py`).
 - **Scan** - can be used either to describe a scan workflow (full or quick), or to describe reading the library's existing files (the check step).
 - **Cleanup** - the step that removes older copies you chose to remove.
 - **Report** - the end-of-run lists of what failed, was skipped, or needs checking.
@@ -147,7 +150,7 @@ the same thing in conversation.
 
 **Every workflow** also offers, on its login step:
 
-- *Run as background task* - only on the hosted copy (the page's helper not on this computer - not shown at all in the bundle or the Windows, Mac and Linux apps); only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), and *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range. A workflow that downloads nothing (a collection run not taking its works, or JSON only) asks none. Its steps are the workflow's own, unchanged.
+- *Run as background task* - only on the hosted copy (the page's helper not on this computer - not shown at all in the bundle or the Windows, Mac and Linux apps); only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range, and *whether to try FicHub* (default yes) on every workflow but a collection run not taking its works. A collection run not taking its works asks none; a JSON-only run asks only about FicHub. Its steps are the workflow's own, unchanged.
 
 ## Quick scan
 
@@ -167,8 +170,9 @@ the same thing in conversation.
   5. Check remaining non-bookmarks for updates (only when chosen)
   6. Read your existing downloaded files
   7. Download or update works as necessary
-  8. Cleanup
-  9. Report any failures
+  8. Try FicHub for works AO3 would not give us
+  9. Cleanup
+  10. Report any failures
 
 With a date range, steps 2 and 3 read "…in that date range".
 
@@ -188,8 +192,9 @@ With a date range, steps 2 and 3 read "…in that date range".
   4. Check remaining non-bookmarks for updates (only when chosen)
   5. Read your existing downloaded files
   6. Download or update works as necessary
-  7. Cleanup
-  8. Report any failures
+  7. Try FicHub for works AO3 would not give us
+  8. Cleanup
+  9. Report any failures
 
 ## Download/update a specific fic
 
@@ -199,14 +204,37 @@ With a date range, steps 2 and 3 read "…in that date range".
   - *Get all works from encountered series*
   - File types
   - Always replaces the fic's own files; no overwrite checkbox
+  - A fic AO3 will not show (deleted, hidden, locked) is a failure of the fic, not of the run: the run goes straight to the FicHub step
+  - *Skip AO3 login?* [`skipLogin`] - off unless ticked; ticking it shows a warning that this is not recommended, that fics restricted to AO3 users are harder to reach, and that the run may have to fall back on FicHub. The run then never logs in: its *Log in to AO3* step is marked skipped, the login page asks for no username or password, and nothing typed is sent. A fic AO3 shows only to a login fails like any other and goes to the FicHub step. A failure never triggers the lapsed-login check, since there is no session.
 - **Steps:**
-  1. Log in to AO3
+  1. Log in to AO3 (skipped with *Skip AO3 login?*)
   2. Index this fic
   3. Index works in series marked for walkthrough
   4. Read your existing downloaded files
   5. Download this fic
-  6. Cleanup
-  7. Report any failures
+  6. Try FicHub for works AO3 would not give us
+  7. Cleanup
+  8. Report any failures
+
+## Download/update several fics
+
+- **Programmatic name:** `works`
+- The single-fic run over a list. Under **Advanced options**, beside *Download/update a specific fic*.
+- **Options:**
+  - The fics: work links or work numbers pasted into one box, separated by new lines, commas, spaces or semicolons in any mix (`parseWorkList` on the page, `work_links` in the helper). A link to any chapter counts; the same fic twice is one fic. Anything that is neither is named and the run will not start; at most 500 fics a run (`MAX_WORK_LINKS`). The run keeps them as its `url`, one link to a line, which History lists.
+  - *Get all works from encountered series*
+  - *Skip AO3 login?* - as on the single-fic run
+  - File types
+  - Always replaces the listed fics' own files; no overwrite checkbox
+- **Steps:**
+  1. Log in to AO3 (skipped with *Skip AO3 login?*)
+  2. Index these fics - each in turn, from its own page; one AO3 will not show is recorded as a failure and passed over
+  3. Index works in series marked for walkthrough
+  4. Read your existing downloaded files
+  5. Download these fics
+  6. Try FicHub for works AO3 would not give us - asked **once**, about every fic that failed, after all have been tried
+  7. Cleanup
+  8. Report any failures
 
 ## Custom run
 
@@ -227,8 +255,9 @@ With a date range, steps 2 and 3 read "…in that date range".
   5. Read your existing downloaded files
   6. Download or update works as necessary
   7. Save embedded images separately (only when chosen)
-  8. Cleanup
-  9. Report any failures
+  8. Try FicHub for works AO3 would not give us
+  9. Cleanup
+  10. Report any failures
 - **Steps (a date range):**
   1. Log in to AO3
   2. Index works AO3 has updated since that date (shown skipped when skipping indexing)
@@ -237,8 +266,9 @@ With a date range, steps 2 and 3 read "…in that date range".
   5. Check remaining non-bookmarks for updates (only when chosen)
   6. Read your existing downloaded files
   7. Download or update each fic as necessary
-  8. Cleanup
-  9. Report any failures
+  8. Try FicHub for works AO3 would not give us
+  9. Cleanup
+  10. Report any failures
 
 ## Index my collections / Index collection by URL
 
@@ -252,16 +282,18 @@ With a date range, steps 2 and 3 read "…in that date range".
 - **Steps (collections only):**
   1. Log in to AO3
   2. Index your collections / Index this collection
-  3. Cleanup
-  4. Report any failures
+  3. Try FicHub for works AO3 would not give us
+  4. Cleanup
+  5. Report any failures
 - **Steps (with their works):**
   1. Log in to AO3
   2. Index your collections and the works in them / Index this collection and the works in it
   3. Index works in series marked for walkthrough (only when chosen)
   4. Read your existing downloaded files (only when downloading)
   5. Download or update works as necessary (only when downloading)
-  6. Cleanup
-  7. Report any failures
+  6. Try FicHub for works AO3 would not give us
+  7. Cleanup
+  8. Report any failures
 - Resumable (**Resume**, [EXPERIMENTAL]): a checkpoint after every page of each collection's works and bookmarked-items listings, and when each collection is saved. A resumed run skips finished collections, carries each unfinished listing on from its last saved page (read again, in case works moved), and re-reads the earlier pages if a resumed works listing comes up short of the collection's count. A `collection` run from before the link was saved cannot be resumed. See `RESUMING.md`.
 - The run's link is saved as its `url`, shown in History, and reused when a `collection` run is resumed.
 
@@ -358,6 +390,15 @@ Used by: custom run, when chosen.
 - Opens each downloaded work's page and saves its images to `images/`: one extra request per work.
 - Runs last, after the files are down.
 
+### Try FicHub for works AO3 would not give us
+Used by: every workflow.
+- Programmatic name `fichub`; runs after everything the run asked AO3 for, before the cleanup.
+- Skipped when nothing failed. Otherwise asks *whether to try FicHub* (`fichub`), naming how many works and their numbers; unanswered for 30 minutes - or on a background run with no answer given - it takes **yes**.
+- Most useful for a fic indexed while it was on AO3 and deleted since (the index keeps its number, so a later run's re-read or download fails and FicHub is asked by it), and for a single fic fetched by link or number. A bookmark AO3 already lists as deleted has no number to ask by.
+- Tries only AO3 works with a number: the run's failures (a download, an update's re-read, a single fic's own page). Never an external work, a series, or a deleted bookmark with no number.
+- For each: one request to FicHub's api for the work's details, then one per format to fetch. With JSON, writes the index entry from what FicHub says - the stats for a work already indexed (its bookmark fields are kept), everything for a new one - as a reading carrying `retrieved_from`. Downloads the run's file types that are missing or behind (or every one, on a run that overwrites), named and checked as a download from AO3 is. FicHub makes EPUB, HTML, MOBI and PDF - not AZW3.
+- A work it gets is taken off the failures and listed as *fetched from FicHub*. One it cannot get (or not every format of) stays a failure, its reason naming both: `AO3: ... | FicHub: ...`.
+
 ### Cleanup
 Used by: every workflow.
 - Removes the older copies you chose to remove at the older-copies question.
@@ -370,7 +411,7 @@ Used by: every workflow.
 
 ### Report any failures
 Used by: every workflow.
-- Lists works that would not download, bookmarks that are not works, copies that need checking by hand, and older copies marked for removal but not removed.
+- Lists works FicHub gave us instead of AO3, works that would not download, bookmarks that are not works, copies that need checking by hand, and older copies marked for removal but not removed.
 - Everything it lists can be exported as one text file.
 
 ### Steps used only by other workflows

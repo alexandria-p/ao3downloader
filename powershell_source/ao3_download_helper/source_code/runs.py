@@ -234,6 +234,8 @@ class RunRecord:
         self.data['downloaded'] = sorted(ao3.downloaded)
         self.data['updated'] = sorted(ao3.updated)
         self.data['failures'] = list(ao3.failures)
+        rescued = getattr(ao3, 'rescued', None)
+        self.data['rescued'] = list(rescued) if isinstance(rescued, list) else []
         self.data['skipped'] = list(ao3.skipped_works)
         kept = getattr(ao3, 'kept_copies', None)
         self.data['keptCopies'] = list(kept) if isinstance(kept, list) else []

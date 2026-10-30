@@ -83,3 +83,9 @@ class PausedException(Ao3DownloaderException):
     is thrown away, the run waits, and then the *same* request is made again from the start.
     Nothing has reached disk at that point, so there is nothing to undo."""
     pass
+
+
+class FicHubException(Ao3DownloaderException):
+    """Raised when FicHub cannot give us a work ao3 would not: not there, not in that format,
+    or an answer that is not the one its api gives."""
+    pass

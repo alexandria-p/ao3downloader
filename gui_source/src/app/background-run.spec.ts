@@ -249,7 +249,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['undated', 'duplicates']);
+    expect(questionsOffered()).toEqual(['undated', 'duplicates', 'fichub']);
   });
 
   it('also asks a quick scan how far back to go with nothing to measure to', async () => {
@@ -258,7 +258,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['quick-floor', 'undated', 'duplicates']);
+    expect(questionsOffered()).toEqual(['quick-floor', 'undated', 'duplicates', 'fichub']);
   });
 
   it('does not ask about undated files on a run that fetches every copy again anyway', async () => {
@@ -267,7 +267,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['duplicates']);
+    expect(questionsOffered()).toEqual(['duplicates', 'fichub']);
   });
 
   it('asks nothing of a run that downloads no works', async () => {
@@ -290,6 +290,8 @@ describe('Running in the background', () => {
       'quick-floor': { choice: 'full' },
       undated: { choice: 'skip' },
       duplicates: { choice: 'leave' },
+      // the one that does something: the works it asks about are missing anyway
+      fichub: { choice: 'yes' },
     });
   });
 
@@ -304,12 +306,14 @@ describe('Running in the background', () => {
     date.value = '2024-05-06';
     date.dispatchEvent(new Event('input'));
     checkbox('Keep the newest')!.click();
+    checkbox('No - leave them listed as failures')!.click();
     await fixture.whenStable();
     await startIt();
 
     expect(jobs.started[0].answers).toEqual({
       undated: { choice: 'stamp', date: '2024-05-06' },
       duplicates: { choice: 'newest' },
+      fichub: { choice: 'no' },
     });
   });
 

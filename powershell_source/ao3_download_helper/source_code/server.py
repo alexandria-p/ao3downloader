@@ -16,6 +16,7 @@ import io
 import json
 import os
 import queue
+import re
 import socket
 import sys
 import threading
@@ -27,7 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
 
-from source_code import access, dropbox_library, exceptions, settings_file, indexing, parse_soup, parse_text, progress, runs, strings, updater as updates
+from source_code import access, dropbox_library, exceptions, fichub, settings_file, indexing, parse_soup, parse_text, progress, runs, strings, updater as updates
 from source_code.actions import shared
 from source_code.ao3 import Ao3
 from source_code.fileio import FileOps
@@ -64,6 +65,8 @@ ACTION_NEW = 'new'
 ACTION_SYNC = 'sync'
 # one fic, by link or work number
 ACTION_WORK = 'work'
+# several fics, pasted as links or work numbers - the single-fic run over a list
+ACTION_WORKS = 'works'
 # the full scan with its parts made optional
 ACTION_CUSTOM = 'custom'
 # a full scan's shape, but stopping at the works ao3 has not touched since the last run
@@ -117,12 +120,22 @@ DUPLICATES_NEWEST = 'newest'
 DUPLICATES_LEAVE = 'leave'
 DUPLICATES_CHOICES = (DUPLICATES_NEWEST, DUPLICATES_LEAVE)
 
+# Whether to ask FicHub for the works ao3 would not give us. Asked once the run has tried
+# everything on ao3, before the cleanup. **The one question whose default does something**:
+# the person who set this up asked for yes, because the works in question are already
+# missing and FicHub only adds - nothing on disk is lost by trying, and a run nobody is
+# watching (a background run, a closed tab) should still come back with what it can get.
+FICHUB_QUESTION = 'fichub'
+FICHUB_YES = 'yes'
+FICHUB_NO = 'no'
+FICHUB_CHOICES = (FICHUB_YES, FICHUB_NO)
+
 # every choice any question may be answered with. the run reads only the answer to the
 # question it actually asked, so one list is enough to keep nonsense out at the door
-ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES
+ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES + FICHUB_CHOICES
 # which choices belong to which question - a background run is answered up front, by name
 CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
-               DUPLICATES_QUESTION: DUPLICATES_CHOICES}
+               DUPLICATES_QUESTION: DUPLICATES_CHOICES, FICHUB_QUESTION: FICHUB_CHOICES}
 
 # a background run keeps every event for a page that reattaches, but not every line it
 # printed: hours of 'new download:' would be megabytes replayed to a page that shows the
@@ -130,10 +143,17 @@ CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
 BACKGROUND_KEPT_MESSAGES = 1000
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
-           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_CUSTOM, ACTION_QUICK)
+           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_WORKS, ACTION_CUSTOM, ACTION_QUICK)
 
 # actions that need a link from the caller rather than working it out from the username
-ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK)
+ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK, ACTION_WORKS)
+
+# the runs pointed at fics by hand, which may be told not to log in (`skipLogin`). Every
+# other run reads your own bookmarks or collections, which only a login can see
+SKIP_LOGIN_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+
+# the most fics one 'several fics' run takes. a paste of a whole library belongs to a scan
+MAX_WORK_LINKS = 500
 
 # the two collection runs. On their own they write only the collections' files; asked to
 # (`collectionWorks`) they index every work they meet as well, and download those
@@ -248,6 +268,8 @@ def resolve_options(requested) -> dict:
         # both: one picks works by where they sit in the listing and the other by when ao3
         # last touched them, and a run cannot be walking a listing and not walking it.
         'dates': bool(given.get('dates')),
+        # a run pointed at fics by hand may go without logging in - see SKIP_LOGIN_ACTIONS
+        'skipLogin': bool(given.get('skipLogin')),
         'dateFrom': parse_text.get_date_stamp(given.get('dateFrom') or ''),
         'dateTo': parse_text.get_date_stamp(given.get('dateTo') or ''),
         # a quick scan told which earlier scan to measure back to, by that run's id. only the
@@ -427,7 +449,7 @@ class Job:
         paused on a question the user has walked away from must still be stoppable, and a
         closed tab must not leave a thread waiting for an answer that can never come. A
         stop, or an answer that says nothing, both give back the default - which is always
-        the option that changes nothing.
+        the option that changes nothing - except FicHub's, see `FICHUB_QUESTION`.
         """
 
         prior = self.prior_answers.get(str(question.get('name') or ''))
@@ -439,7 +461,7 @@ class Job:
             return dict(prior)
         if self.background:
             # nobody is there to answer, so waiting would stall the run for half an hour and
-            # then take the default anyway. the default is always the one that changes nothing
+            # then take the default anyway
             print(strings.AO3_INFO_BACKGROUND_DEFAULT.format(default.get('choice')))
             return dict(default)
 
@@ -633,6 +655,7 @@ def action_name(action: str) -> str:
         ACTION_NEW: strings.ACTION_NAME_NEW,
         ACTION_SYNC: strings.ACTION_NAME_SYNC,
         ACTION_WORK: strings.ACTION_NAME_WORK,
+        ACTION_WORKS: strings.ACTION_NAME_WORKS,
         ACTION_CUSTOM: strings.ACTION_NAME_CUSTOM,
         ACTION_QUICK: strings.ACTION_NAME_QUICK,
     }.get(action, action)
@@ -678,12 +701,14 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         if works and downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD))
-    elif job.action == ACTION_WORK:
-        plan.append(('index', strings.STEP_INDEX_ONE))
+    elif job.action in (ACTION_WORK, ACTION_WORKS):
+        one = job.action == ACTION_WORK
+        plan.append(('index', strings.STEP_INDEX_ONE if one else strings.STEP_INDEX_MANY))
         plan.append(('series', strings.STEP_SERIES))
         if downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
-            plan.append(('download', strings.STEP_DOWNLOAD_ONE))
+            plan.append(('download', strings.STEP_DOWNLOAD_ONE if one
+                         else strings.STEP_DOWNLOAD_MANY))
     elif job.action == ACTION_UPDATE:
         plan.append(('read', strings.STEP_READ_INDEX))
         if downloads: plan.append(('check', strings.STEP_CHECK_FILES))
@@ -725,6 +750,7 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
                 window.append(('nonbookmarks', strings.STEP_NON_BOOKMARKS))
             window.extend([('check', strings.STEP_CHECK_FILES),
                            ('update', strings.STEP_UPDATE_WINDOW),
+                           ('fichub', strings.STEP_FICHUB),
                            ('cleanup', strings.STEP_CLEANUP),
                            ('report', strings.STEP_REPORT)])
             return window
@@ -753,8 +779,11 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         if job.options['images'] and job.action == ACTION_CUSTOM:
             plan.append(('images', strings.STEP_IMAGES))
 
-    # every run can end with files to tidy away, and every run reports - in that order, so
-    # anything the cleanup could not remove is in the report
+    # every run can fail to get a work from ao3, and FicHub is asked for those before the
+    # end. every run can end with files to tidy away, and every run reports - in that order,
+    # so a work FicHub gave us is linked to its collections, and anything the cleanup could
+    # not remove is in the report
+    plan.append(('fichub', strings.STEP_FICHUB))
     plan.append(('cleanup', strings.STEP_CLEANUP))
     plan.append(('report', strings.STEP_REPORT))
     return plan
@@ -844,9 +873,11 @@ def run_job(job: Job, password: str) -> None:
 
                 # announced separately so the ui can show it is waiting, and say whether
                 # the credentials worked before anything else starts
-                job.steps.start('login')
-                progress.report(report, progress.PHASE, name=progress.AUTHENTICATING)
-                print(strings.AO3_INFO_LOGGING_IN.format(job.username))
+                skip_login = bool(job.options.get('skipLogin'))
+                if not skip_login:
+                    job.steps.start('login')
+                    progress.report(report, progress.PHASE, name=progress.AUTHENTICATING)
+                    print(strings.AO3_INFO_LOGGING_IN.format(job.username))
                 # written here rather than at the end: a run killed mid-flight cannot write
                 # its own epitaph, so a record still saying 'running' is how the history
                 # page recognises one that was interrupted.
@@ -864,11 +895,19 @@ def run_job(job: Job, password: str) -> None:
                                             url=job.url, username=job.username)
                 # the issues and fic lists go into every save, not only the last one
                 job.record.source = lambda: job.ao3
-                repo.login(job.username, password)
-                print(strings.AO3_INFO_LOGGED_IN)
-                begin_record(job, fileops)
-                progress.report(report, progress.AUTHENTICATED, username=job.username)
-                job.steps.done('login')
+                if skip_login:
+                    # asked for, on a run pointed at fics by hand: everything goes on as it
+                    # would, and what ao3 shows only to a login fails and goes to FicHub
+                    print(strings.AO3_INFO_NOT_LOGGING_IN)
+                    repo.logged_in = False
+                    begin_record(job, fileops)
+                    job.steps.skip('login')
+                else:
+                    repo.login(job.username, password)
+                    print(strings.AO3_INFO_LOGGED_IN)
+                    begin_record(job, fileops)
+                    progress.report(report, progress.AUTHENTICATED, username=job.username)
+                    job.steps.done('login')
 
                 runners()[job.action](job, fileops, repo, report)
                 # every runner ends by calling report_failures, so by the time it returns
@@ -1792,7 +1831,21 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     # an entry it already has keeps everything the listing gave it; only the stats change
     existing = next((x for x in shared.read_index(fileops)
                      if str(x.get('id') or '') == work), None)
-    record = ao3.index_one_work(link, existing)
+    try:
+        record = ao3.index_one_work(link, existing)
+    except (exceptions.CancelledException, exceptions.SessionExpiredException):
+        raise
+    except Exception as e:
+        # a work ao3 will not show us - deleted, hidden, locked - is a failure of this one
+        # work rather than of the run: FicHub may still have it, and is asked at the end
+        ao3.record_failure(link, e)
+        ao3.log_error({'link': link}, e)
+        print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
+        job.steps.fail_current()
+        # nothing to walk or download from ao3 now - said, rather than left waiting
+        for step in ('series', 'check', 'download'): job.steps.skip(step)
+        finish_run(job, fileops, ao3, report)
+        return
     print(strings.AO3_INFO_ONE_WORK_INDEXED)
     ao3.mark_series_of(record)
     job.steps.done('index')
@@ -1803,6 +1856,67 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     download_planned(job, fileops, ao3, records, downloadtypes, report,
                      overwrite=[record.get('link') or link])
     print(strings.AO3_INFO_ONE_WORK_DONE.format(work))
+    finish_run(job, fileops, ao3, report)
+
+
+def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """The single-fic run over a list: index each fic, then download them all.
+
+    Every fic is looked up before anything is downloaded, as a scan indexes before it
+    downloads, and one that ao3 will not show is recorded and passed over rather than ending
+    the run. FicHub is asked about all of those **once, at the end** (`finish_run`), not
+    after each fic - a question per fic would hold the run up at every one.
+
+    It replaces the copies of the fics named, as the single-fic run does, and only those -
+    the rest of a series it goes on to walk is fetched where it is missing or behind.
+    """
+
+    downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    links = [x for x in job.url.split('\n') if x.strip()]
+    if not links:
+        raise exceptions.InvalidLinkException(strings.ERROR_NO_WORK_LINKS)
+
+    job.options['overwrite'] = True
+    ao3 = Ao3(repo, fileops, downloadtypes, None, job.options['series'], job.options['images'],
+              progress=report, cancelled=job.cancel.is_set)
+    job.ao3 = ao3
+
+    job.steps.start('index')
+    progress.report(report, progress.PHASE, name=progress.INDEXING)
+    print(strings.AO3_INFO_MANY_WORKS.format(len(links)))
+    index = {str(x.get('id') or ''): x for x in shared.read_index(fileops)}
+
+    records: list[dict] = []
+    asked: list[str] = []
+    for done, link in enumerate(links, start=1):
+        if job.cancel.is_set(): break
+        if job.skipping():
+            print(strings.AO3_INFO_STEP_SKIPPED)
+            break
+        work = parse_text.get_work_number(link) or ''
+        print(strings.AO3_INFO_MANY_WORK.format(done, len(links), work))
+        progress.report(report, progress.WORK, title=link, link=link, done=done,
+                        total=len(links), phase=progress.INDEXING)
+        try:
+            record = ao3.index_one_work(link, index.get(work))
+        except (exceptions.CancelledException, exceptions.SessionExpiredException):
+            raise
+        except Exception as e:
+            # one fic ao3 will not show is that fic's failure, never the run's
+            ao3.record_failure(link, e)
+            ao3.log_error({'link': link}, e)
+            print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
+            continue
+        ao3.mark_series_of(record)
+        records.append(record)
+        asked.append(record.get('link') or link)
+    if job.cancel.is_set():
+        finish_run(job, fileops, ao3, report)
+        return
+    job.steps.done('index')
+
+    records = merge_by_work(records, index_marked_series(job, ao3, report))
+    download_planned(job, fileops, ao3, records, downloadtypes, report, overwrite=asked)
     finish_run(job, fileops, ao3, report)
 
 
@@ -2184,6 +2298,24 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     finish_run(job, fileops, ao3, report)
 
 
+def work_links(text: str) -> tuple[list[str], list[str]]:
+    """Every work in a paste of links or work numbers, and whatever in it was neither.
+
+    Separated by anything people separate a list with - new lines, commas, spaces,
+    semicolons, in any mix. Each one goes through `work_link`, so a link to any chapter and a
+    bare number both count; the same work twice is one work, kept where it first appeared.
+    """
+
+    links: list[str] = []
+    unknown: list[str] = []
+    for piece in re.split(r'[\s,;]+', text or ''):
+        if not piece: continue
+        link = work_link(piece)
+        if link is None: unknown.append(piece)
+        elif link not in links: links.append(link)
+    return links, unknown
+
+
 def work_link(value: str) -> str | None:
     """A work link from either a link or a bare work number.
 
@@ -2367,7 +2499,7 @@ def cleanup(job: Job, fileops: FileOps, ao3) -> None:
 
 # the runs whose cleanup notes which collections hold the works they covered: every
 # workflow but the debug ones (the combined run, new bookmarks only, update incomplete)
-LINKING_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM, ACTION_WORK,
+LINKING_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM, ACTION_WORK, ACTION_WORKS,
                    ACTION_COLLECTIONS, ACTION_COLLECTION)
 
 
@@ -2578,9 +2710,150 @@ def report_not_removed(job: Job, report) -> None:
     progress.report(report, progress.NOT_REMOVED, notRemoved=left)
 
 
-def finish_run(job: Job, fileops: FileOps, ao3, report) -> None:
-    """How every run ends: the cleanup step, then the report of anything left undone."""
+def fichub_candidates(ao3) -> list[dict]:
+    """The failures FicHub could help with: ao3 works, by number.
 
+    A bookmark that was never a work (an external work, a series) is in `skipped_works`, not
+    here, and a work a listing showed only as deleted has no number to ask about - FicHub
+    is asked by the work's link. A series is left to ao3: FicHub makes one book of a whole
+    series, which is not how this library keeps one.
+    """
+
+    found = []
+    for failure in list(getattr(ao3, 'failures', None) or []):
+        work = str(failure.get('id') or '')
+        link = str(failure.get('link') or '')
+        if not work or parse_text.get_work_number(link) != work: continue
+        if strings.AO3_DOMAIN not in link.lower(): continue
+        found.append(failure)
+    return found
+
+
+def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
+    """Ask FicHub for the works ao3 would not give us, once the person running it says yes.
+
+    Every run comes through here, after everything it asked ao3 for, so anything it failed
+    on - a download, a re-read for an update, a single fic's own page - gets a second
+    chance. A work FicHub has is indexed from what it says (when the run writes json) and
+    downloaded in the formats the run asked for, by the same rules a download from ao3
+    follows: only what is missing or behind, named the same way, checked the same way. Its
+    reading in the index carries `retrieved_from`, so it can be told apart.
+
+    A work FicHub does not have either stays in the failures, with both reasons. Asked as
+    a question, defaulting to yes - see `FICHUB_QUESTION`.
+    """
+
+    candidates = fichub_candidates(ao3)
+    if not candidates or job.cancel.is_set():
+        job.steps.skip('fichub')
+        return
+
+    works = [str(x['id']) for x in candidates]
+    print(strings.AO3_INFO_FICHUB_ASK.format(len(works), ', '.join(works)))
+    answer = job.ask({'name': FICHUB_QUESTION, 'count': len(works), 'ids': works,
+                      'choices': list(FICHUB_CHOICES)},
+                     {'choice': FICHUB_YES})
+    choice = answer.get('choice') if answer.get('choice') in FICHUB_CHOICES else FICHUB_YES
+    if job.record:
+        job.record.choice({'question': FICHUB_QUESTION, 'count': len(works), 'works': works,
+                           'choice': choice})
+    if choice != FICHUB_YES or job.cancel.is_set():
+        print(strings.AO3_INFO_FICHUB_DECLINED)
+        job.steps.skip('fichub')
+        return
+
+    job.steps.start('fichub')
+    progress.report(report, progress.PHASE, name=progress.FICHUB)
+    filetypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
+    indexes = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
+    wanted = set(works)
+    entries = {str(x.get('id')): x for x in shared.read_index(fileops)
+               if str(x.get('id') or '') in wanted}
+    existing = shared.scan_downloaded_works(fileops.worksfolder, filetypes,
+                                            storage=fileops.storage) if filetypes else {}
+    maximum = fileops.get_ini_value_integer(
+        strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+    overwrite = bool(job.options.get('overwrite'))
+
+    for done, failure in enumerate(candidates, start=1):
+        if job.cancel.is_set(): break
+        if job.skipping():
+            print(strings.AO3_INFO_STEP_SKIPPED)
+            job.steps.skip('fichub')
+            return
+        rescue_one(ao3, failure, entries.get(str(failure['id'])), existing, filetypes,
+                   indexes, maximum, overwrite, done, len(candidates))
+
+    if job.cancel.is_set(): return
+    job.steps.done('fichub')
+
+
+def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes: list[str],
+               indexes: bool, maximum: int, overwrite: bool, done: int, total: int) -> None:
+    """One work from FicHub: look it up, download what is missing or behind, index it.
+
+    The index is written after the downloads, so its FicHub reading can say which formats
+    came from FicHub. A work counts as rescued only when nothing it was asked for failed;
+    otherwise it stays in the failures, its ao3 reason beside FicHub's.
+    """
+
+    link = failure['link']
+    title = (entry or {}).get('title') or link
+    print(strings.AO3_INFO_FICHUB_WORK.format(done, total, title))
+    progress.report(ao3.progress, progress.WORK, title=title, link=link, done=done,
+                    total=total, phase=progress.FICHUB)
+    log: dict = {'link': link, 'source': strings.FICHUB_SITE}
+    arrived: list[str] = []
+
+    try:
+        answer = fichub.lookup(ao3.repo, link)
+        record = fichub.entry_from(answer, link, entry)
+        title = record.get('title') or title
+
+        problem: Exception | None = None
+        if filetypes:
+            plan = shared.plan_downloads([record], existing, filetypes, overwrite=overwrite)
+            plan['overwrite'] = overwrite
+            fetching = say_what_each_format_needs(record, existing, filetypes, plan)
+            if fetching:
+                ao3.superseded = plan['superseded']
+                try:
+                    fetch_formats(ao3, record, fetching, maximum, log, done, total,
+                                  fetch=lambda filetype: fichub.download(ao3.repo, answer, filetype),
+                                  arrived=arrived)
+                except (exceptions.CancelledException, exceptions.SessionExpiredException):
+                    raise
+                except Exception as e:
+                    problem = e
+
+        if indexes:
+            ao3.save_metadata({**record, strings.RETRIEVED_FROM_FIELD:
+                               {'site': strings.FICHUB_SITE, 'downloaded': arrived}},
+                              from_mirror=True)
+            print(strings.AO3_INFO_FICHUB_INDEXED)
+        if problem is not None: raise problem
+    except exceptions.CancelledException:
+        print(strings.INFO_CANCELLED)
+        raise
+    except exceptions.SessionExpiredException:
+        raise
+    except Exception as e:
+        failure['error'] = strings.ERROR_AO3_AND_FICHUB.format(failure.get('error') or '', e)
+        failure['fichub'] = str(e)
+        print(strings.AO3_INFO_FICHUB_FAILED_TOO.format(e))
+        ao3.log_error(log, e)
+        return
+
+    ao3.failures[:] = [x for x in ao3.failures if x is not failure]
+    ao3.rescued.append({'id': failure['id'], 'link': link, 'title': title,
+                        'downloaded': arrived})
+
+
+def finish_run(job: Job, fileops: FileOps, ao3, report) -> None:
+    """How every run ends: FicHub for what ao3 would not give us, the cleanup step, then
+    the report of anything left undone."""
+
+    rescue_with_fichub(job, fileops, ao3, report)
     cleanup(job, fileops, ao3)
     report_failures(ao3, report)
     report_not_removed(job, report)
@@ -3094,7 +3367,7 @@ def say_what_each_format_needs(record: dict, existing: dict, filetypes: list[str
 
 
 def fetch_formats(ao3: Ao3, record: dict, wanted: list[str], maximum: int, log: dict,
-                  done: int, total: int) -> int:
+                  done: int, total: int, **source) -> int:
     """Download exactly the formats named, and leave the downloader as it was found.
 
     `download_one_indexed` fetches whatever `ao3.filetypes` holds, so asking it for one
@@ -3106,7 +3379,7 @@ def fetch_formats(ao3: Ao3, record: dict, wanted: list[str], maximum: int, log: 
     keep = ao3.filetypes
     try:
         ao3.filetypes = wanted
-        ao3.download_one_indexed(record, maximum, log, done, total)
+        ao3.download_one_indexed(record, maximum, log, done, total, **source)
     finally:
         ao3.filetypes = keep
     return 1
@@ -3208,6 +3481,11 @@ def report_failures(ao3: Ao3, report) -> None:
         print(strings.AO3_INFO_KEPT_COPIES.format(len({x['id'] for x in kept})))
         progress.report(report, progress.KEPT_COPIES, keptCopies=kept)
 
+    rescued = getattr(ao3, 'rescued', None)
+    if isinstance(rescued, list) and rescued:
+        print(strings.AO3_INFO_FICHUB_RESCUED.format(len(rescued)))
+        progress.report(report, progress.RESCUED, rescued=rescued)
+
     if not ao3.failures: return
     print(strings.AO3_INFO_FAILED_WORKS.format(len(ao3.failures)))
     progress.report(report, progress.FAILURES, failures=ao3.failures)
@@ -3233,6 +3511,7 @@ def runners() -> dict:
         ACTION_NEW: run_new,
         ACTION_SYNC: run_sync,
         ACTION_WORK: run_work,
+        ACTION_WORKS: run_works,
         ACTION_CUSTOM: run_custom,
         ACTION_QUICK: run_quick,
     }
@@ -3449,11 +3728,16 @@ class Handler(BaseHTTPRequestHandler):
         except access.AccessError as e:
             self.send_json(400, {'error': str(e)})
             return
-        if not username or not password:
+        options = resolve_options(body.get('options'))
+        # only a run pointed at fics by hand may go without a login; any other always logs in
+        if action not in SKIP_LOGIN_ACTIONS: options['skipLogin'] = False
+        if options['skipLogin']:
+            # whatever was typed is not used, so it is not kept either
+            username, password = '', ''
+        elif not username or not password:
             self.send_json(400, {'error': 'username and password are required'})
             return
 
-        options = resolve_options(body.get('options'))
         # the option only means anything on the runs that offer it. the ui never sends it
         # otherwise, but the rule belongs here, where what arrives in a request is turned
         # into what a run may actually do - a stray flag must not make a routine run
@@ -3495,6 +3779,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # normalised now, so the run is handed a link rather than whatever was pasted
             url = link
+        elif action == ACTION_WORKS:
+            links, unknown = work_links(url)
+            problem = (strings.ERROR_NOT_WORK_LINKS.format(', '.join(unknown[:10]))
+                       if unknown else strings.ERROR_NO_WORK_LINKS if not links
+                       else strings.ERROR_TOO_MANY_WORK_LINKS.format(len(links), MAX_WORK_LINKS)
+                       if len(links) > MAX_WORK_LINKS else '')
+            if problem:
+                self.send_json(400, {'error': problem})
+                return
+            # one link to a line, which is also how the history file shows them
+            url = '\n'.join(links)
         elif action in ACTIONS_NEEDING_URL:
             if strings.AO3_BASE_URL not in url or not parse_text.get_collection_name(url):
                 self.send_json(400, {'error': strings.ERROR_NOT_A_COLLECTION})

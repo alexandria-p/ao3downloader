@@ -289,7 +289,7 @@ def test_the_plan_downloads_what_the_crawl_indexed(action):
     ids = [step for step, _ in server.step_plan(job_for(action, collectionWorks=True))]
 
     assert ids[1] in ('collections', 'collection')
-    assert ids[2:] == ['check', 'download', 'cleanup', 'report']
+    assert ids[2:] == ['check', 'download', 'fichub', 'cleanup', 'report']
 
 
 def test_the_plan_walks_series_only_when_asked_to():
@@ -301,7 +301,7 @@ def test_the_plan_walks_series_only_when_asked_to():
 def test_the_plan_of_a_collections_run_on_its_own_is_unchanged():
     ids = [step for step, _ in server.step_plan(job_for())]
 
-    assert ids == ['login', 'collections', 'cleanup', 'report']
+    assert ids == ['login', 'collections', 'fichub', 'cleanup', 'report']
 
 
 def test_a_metadata_only_run_indexes_the_works_without_downloading_them():

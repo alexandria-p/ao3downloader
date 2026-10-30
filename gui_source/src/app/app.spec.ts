@@ -173,7 +173,7 @@ describe('App', () => {
     expect(advanced?.querySelector('summary')?.textContent?.trim()).toBe('Advanced options');
     expect(
       Array.from(advanced!.querySelectorAll('button')).map((b) => b.textContent?.trim()),
-    ).toEqual(['Download/update a specific fic', 'Custom run']);
+    ).toEqual(['Download/update a specific fic', 'Download/update several fics', 'Custom run']);
   });
 
   // they are the passes the two runs above are built from, kept for working on the app

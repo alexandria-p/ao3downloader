@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DownloadDialog } from './download-dialog';
+import { DownloadDialog, parseWorkList } from './download-dialog';
 import { Library } from './library';
 import { LibraryStore, StorageRequest } from './library-store';
 import {
@@ -197,21 +197,26 @@ async function advanceTo(target: 'options' | 'filetypes' | 'credentials' | 'runn
     // the two link actions cannot go on without one, so the walker supplies a valid one
     if (at === 'link') {
       const field = element.querySelector<HTMLInputElement>(
-        'input[name="work"], input[name="collection"]',
+        'input[name="work"], input[name="collection"], textarea[name="works"]',
       )!;
       field.value =
         field.name === 'work'
           ? 'https://archiveofourown.org/works/34816549'
-          : 'https://archiveofourown.org/collections/yuletide2024';
+          : field.name === 'works'
+            ? '34816549\n75354806'
+            : 'https://archiveofourown.org/collections/yuletide2024';
       field.dispatchEvent(new Event('input'));
       await fixture.whenStable();
     }
 
     if (at === 'credentials') {
-      const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
-      password.value = 'a-password';
-      password.dispatchEvent(new Event('input'));
-      await fixture.whenStable();
+      // a run told not to log in has no password box
+      const password = element.querySelector<HTMLInputElement>('input[name="password"]');
+      if (password) {
+        password.value = 'a-password';
+        password.dispatchEvent(new Event('input'));
+        await fixture.whenStable();
+      }
       button('Start download')!.click();
       await fixture.whenStable();
       continue;
@@ -713,6 +718,7 @@ describe('DownloadDialog', () => {
       floorRun: '',
       // only a custom run picking up an earlier run sends one
       resume: '',
+      skipLogin: false,
       // the collection runs' alone
       collectionWorks: false,
       subcollections: false,
@@ -1228,6 +1234,51 @@ describe('DownloadDialog', () => {
     button('Leave them all')!.click();
     await fixture.whenStable();
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'leave', date: '' }]);
+  });
+
+  /** the FicHub question: works AO3 would not give the run */
+  async function askedAboutFicHub(ids = ['75354806']): Promise<void> {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'fichub', count: ids.length, ids,
+                 choices: ['yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+  }
+
+  it('asks whether to try FicHub, naming the works AO3 would not give', async () => {
+    await askedAboutFicHub();
+
+    const said = element.querySelector('.question')?.textContent ?? '';
+    expect(said).toContain('AO3 would not give us 1 work');
+    expect(said).toContain('FicHub');
+    expect(element.querySelector('.question a')?.getAttribute('href'))
+      .toBe('https://archiveofourown.org/works/75354806');
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+    expect(said).not.toContain('before file names carried a date');
+  });
+
+  it('tries FicHub when told to, and leaves the works when told not to', async () => {
+    await askedAboutFicHub();
+    button('Try FicHub')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'yes', date: '' }]);
+  });
+
+  it('leaves the works as failures when told not to try FicHub', async () => {
+    await askedAboutFicHub();
+    button('No, leave them')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
+  });
+
+  it('says how many works came from FicHub at the end', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'rescued', rescued: [{ id: '75354806', link: 'https://archiveofourown.org/works/75354806',
+                                             title: 'Wolfbird', downloaded: ['EPUB'] }] } as JobEvent);
+    jobs.push!({ type: 'finished' } as JobEvent);
+    await fixture.whenStable();
+    expect(element.querySelector('.rescued')?.textContent).toContain('1 work AO3 would not give us came');
   });
 
   it('reports older copies marked for removal that are still there, and exports them', async () => {
@@ -2180,6 +2231,76 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
 
     expect(button('Continue')?.disabled).toBe(false);
+  });
+
+  it('reads a pasted list of fics whatever separates them, and counts them', async () => {
+    expect(parseWorkList('1\nhttps://archiveofourown.org/works/2/chapters/9, 3; 1  4')).toEqual({
+      ids: ['1', '2', '3', '4'],
+      unknown: [],
+    });
+    expect(parseWorkList('1 https://archiveofourown.org/series/5').unknown).toEqual([
+      'https://archiveofourown.org/series/5',
+    ]);
+
+    await open('works');
+    const box = element.querySelector<HTMLTextAreaElement>('textarea[name="works"]')!;
+    box.value = '34816549\n75354806, 34816549';
+    box.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    expect(element.querySelector('.work-count')?.textContent).toContain('2 fics');
+    expect(button('Continue')?.disabled).toBe(false);
+
+    box.value = '34816549 not-a-fic';
+    box.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    expect(button('Continue')?.disabled).toBe(true);
+    expect(element.querySelector('.error')?.textContent).toContain('not-a-fic');
+  });
+
+  it('starts several fics with the paste as it was typed', async () => {
+    await open('works');
+    await advanceTo('running');
+    expect(jobs.started[0].action).toBe('works');
+    expect(jobs.started[0].url).toBe('34816549\n75354806');
+    expect(jobs.started[0].options.skipLogin).toBe(false);
+  });
+
+  for (const action of ['work', 'works'] as JobAction[]) {
+    it(`offers skipping the login on ${action}, unticked, warning when ticked`, async () => {
+      await open(action);
+      const box = checkbox('Skip AO3 login?')!;
+      expect(box.checked).toBe(false);
+      expect(element.querySelector('.skip-login-warning')).toBeNull();
+
+      box.click();
+      await fixture.whenStable();
+      const warning = element.querySelector('.skip-login-warning')?.textContent ?? '';
+      expect(warning).toContain('not recommended');
+      expect(warning).toContain('restricted');
+      expect(warning).toContain('FicHub');
+    });
+  }
+
+  it('starts without a login when told to skip it, sending no credentials', async () => {
+    await open('work');
+    checkbox('Skip AO3 login?')!.click();
+    await fixture.whenStable();
+    await advanceTo('credentials');
+    expect(element.querySelector('input[name="password"]')).toBeNull();
+    expect(element.querySelector('.not-logging-in')?.textContent).toContain('Not logging in');
+
+    await advanceTo('running');
+    expect(jobs.started[0].options.skipLogin).toBe(true);
+    expect(jobs.started[0].username).toBe('');
+    expect(jobs.started[0].password).toBe('');
+  });
+
+  it('never offers skipping the login on a run that reads your bookmarks', async () => {
+    await open('bookmarks');
+    expect(checkbox('Skip AO3 login?')).toBeUndefined();
+    await open('collection');
+    expect(checkbox('Skip AO3 login?')).toBeUndefined();
   });
 
   it('offers skipping the indexing only on a custom run', async () => {

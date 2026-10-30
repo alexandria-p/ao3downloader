@@ -325,6 +325,24 @@ describe('History', () => {
     expect(said).toContain('the run ended before its cleanup step');
   });
 
+  it('says whether a run tried FicHub, and lists what came from it', async () => {
+    await show([
+      aRun({
+        choices: [{ at: '2026-09-13T12:05:00', question: 'fichub', choice: 'yes', count: 2,
+                    works: ['75354806', '1'] }],
+        rescued: [{ id: '75354806', link: 'https://archiveofourown.org/works/75354806',
+                    title: 'Wolfbird', downloaded: ['EPUB', 'HTML'] }],
+      }),
+    ]);
+
+    const said = element.querySelector('.run')?.textContent ?? '';
+    expect(said).toContain('AO3 would not give us 2 works');
+    expect(said).toContain('to try FicHub');
+    expect(said).toContain('Fetched from FicHub instead of AO3');
+    expect(said).toContain('Wolfbird');
+    expect(said).toContain('EPUB, HTML');
+  });
+
   it('describes the quick scan question as what it was, not as undated files', async () => {
     await show([
       aRun({

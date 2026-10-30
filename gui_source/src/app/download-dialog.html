@@ -53,7 +53,48 @@
       <form class="body" (submit)="$event.preventDefault(); fromLink()">
         <p>{{ blurb() }}</p>
 
-        @if (wantsWork()) {
+        @if (wantsWorks()) {
+          <label class="field">
+            <span>Work links or work numbers</span>
+            <textarea
+              name="works"
+              rows="6"
+              placeholder="https://archiveofourown.org/works/34816549&#10;75354806, 123456; 7890"
+              [value]="collectionUrl()"
+              (input)="setCollectionUrl($any($event.target).value)"
+            ></textarea>
+          </label>
+
+          @if (workList().unknown.length) {
+            <p class="error">
+              {{ workList().unknown.length === 1 ? 'This is not an AO3 work' : 'These are not AO3 works' }}:
+              <code>{{ workList().unknown.slice(0, 10).join(', ') }}</code>@if (workList().unknown.length > 10) { and {{ workList().unknown.length - 10 }} more}.
+              Each should be a work link like <code>https://archiveofourown.org/works/34816549</code>,
+              or just the number.
+            </p>
+          } @else if (workList().ids.length > maxWorks) {
+            <p class="error">
+              That is {{ workList().ids.length | number }} fics - one run takes at most
+              {{ maxWorks }}. Split them into smaller runs.
+            </p>
+          } @else if (workList().ids.length) {
+            <p class="hint work-count">
+              <strong>{{ workList().ids.length | number }}</strong>
+              {{ workList().ids.length === 1 ? 'fic' : 'fics' }} to fetch.
+            </p>
+          }
+
+          <p class="hint">
+            Put them on separate lines, or separate them with commas, spaces or semicolons -
+            any mix. A link to any chapter works, and the same fic twice is fetched once.
+          </p>
+          <p class="hint">Saved to <code>{{ folder() }}</code>, like any other download.</p>
+          <p class="hint">
+            <strong>This always replaces the copies you have</strong> of these fics, in every
+            format you pick. Every fic is looked up first; any AO3 will not give is offered to
+            FicHub once, at the end.
+          </p>
+        } @else if (wantsWork()) {
           <label class="field">
             <span>Work link or work number</span>
             <input
@@ -106,6 +147,29 @@
             link copied straight out of the address bar works.
           </p>
           <p class="hint">Saved to <code>{{ folder() }}</code>, alongside your own collections.</p>
+        }
+
+        @if (picksSkipLogin()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="skipLogin"
+              [checked]="skipLogin()"
+              (change)="skipLogin.set($any($event.target).checked)"
+            />
+            <span>Skip AO3 login?</span>
+          </label>
+          @if (skipLogin()) {
+            <div class="warning skip-login-warning">
+              <p><strong>This is not recommended.</strong></p>
+              <p>
+                Without logging in, fics their authors have restricted to AO3 users are much
+                harder to reach - AO3 will not show them to this run. Anything it cannot get from
+                AO3 while logged out, the run may have to fall back on fetching from FicHub
+                instead.
+              </p>
+            </div>
+          }
         }
       </form>
       <footer>
@@ -837,6 +901,12 @@
     <!-- step 2: who you are -->
     @if (step() === 'credentials') {
       <form class="body" (submit)="submit($event)">
+        @if (!logsIn()) {
+          <p class="not-logging-in">
+            <strong>Not logging in to AO3</strong>, as you chose. Fics only logged-in users can
+            see will fail, and the run will offer to try FicHub for them at the end.
+          </p>
+        } @else {
         <p>Log in to AO3 so restricted works and your own bookmarks are visible.</p>
 
         <label class="field">
@@ -877,6 +947,7 @@
           in and is never stored here - let your browser's password manager keep it if you want
           it filled in next time.
         </p>
+        }
 
         @if (offersBackground()) {
           <div class="background-choice" [class.blocked]="backgroundBlocked()">
@@ -993,6 +1064,25 @@
                         <input type="radio" name="bg-duplicates" [checked]="duplicatesAnswer() === 'newest'"
                                (change)="duplicatesAnswer.set('newest')" />
                         <span>Keep the newest and remove the older ones (they go to the Dropbox trash)</span>
+                      </label>
+                    </div>
+                  }
+
+                  @if (backgroundQuestions().includes('fichub')) {
+                    <div class="answer" data-question="fichub">
+                      <p>
+                        <strong>Works AO3 will not give us</strong> - should the run try the
+                        FicHub mirror (fichub.net) for them?
+                      </p>
+                      <label class="check">
+                        <input type="radio" name="bg-fichub" [checked]="fichubAnswer() === 'yes'"
+                               (change)="fichubAnswer.set('yes')" />
+                        <span>Yes - index and download them from FicHub where it has them</span>
+                      </label>
+                      <label class="check">
+                        <input type="radio" name="bg-fichub" [checked]="fichubAnswer() === 'no'"
+                               (change)="fichubAnswer.set('no')" />
+                        <span>No - leave them listed as failures</span>
                       </label>
                     </div>
                   }
@@ -1168,8 +1258,44 @@
           </div>
         }
 
+        @if (asking() && question() === 'fichub') {
+          <div class="question">
+            <p class="question-text">
+              AO3 would not give us <strong>{{ asking() | number }}</strong>
+              {{ asking() === 1 ? 'work' : 'works' }} on this run. Would you like to try
+              getting {{ asking() === 1 ? 'it' : 'them' }} from FicHub, a mirror of AO3 that
+              keeps copies of works AO3 no longer serves?
+            </p>
+            @if (askedIds().length) {
+              <p class="hint">
+                @for (id of askedIds().slice(0, 10); track id; let last = $last) {
+                  <a [href]="'https://archiveofourown.org/works/' + id" target="_blank" rel="noopener">{{ id }}</a>@if (!last) {, }
+                }
+                @if (askedIds().length > 10) { and {{ askedIds().length - 10 | number }} more }
+              </p>
+            }
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="tryFicHub()">
+                Try FicHub
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="skipFicHub()">
+                No, leave them
+              </button>
+            </div>
+
+            <p class="hint">
+              Anything FicHub has is indexed from what it says and downloaded in the formats
+              this run asked for (FicHub makes no AZW3), and its index entry is marked as
+              coming from FicHub. Left unanswered, the run tries FicHub after 30 minutes.
+            </p>
+          </div>
+        }
+
         <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
-        @if (question() !== 'quick-floor' && question() !== 'duplicates') {
+        @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">
@@ -1465,6 +1591,14 @@
             {{ staleCount() === 1 ? 'work was' : 'works were' }} out of date and
             {{ staleCount() === 1 ? 'was' : 'were' }} fetched again. The copy each one
             replaced was removed only after the new file was confirmed saved.
+          </p>
+        }
+
+        @if (rescued().length) {
+          <p class="hint rescued">
+            <strong>{{ rescued().length | number }}</strong>
+            {{ rescued().length === 1 ? 'work AO3 would not give us came' : 'works AO3 would not give us came' }}
+            from FicHub instead.
           </p>
         }
 

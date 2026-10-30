@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1649 python passed; 729 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1684 python passed; 743 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -485,6 +485,8 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   workflow sets from `vars`. `readPageConfig` drops a half-set pair too. They are not
   settings.ini keys, because that file is the user's own and only ever added to. A bundle
   built here has neither, and so no tab.
+- **The library is described by kind, never by name** (`storageKind`: Dropbox, a folder on
+  this computer, read only, or none) - a local folder's name can be its owner's.
 - **No email field, and the log loses the AO3 username before it is shown.** The issue is
   public. `redactLog` replaces every username the page knows, case-insensitively: the newest
   record's `username`, `Jobs.config().username`, and `ao3.username` in localStorage. It also
@@ -1776,6 +1778,71 @@ index is non-empty and no run qualifies, which is why the existing no-floor test
 without stubbing: their `downloadfolder` is an empty tmp path, so `read_index` returns
 nothing and the question is never asked.
 
+### What ao3 would not give, FicHub is asked for, at the end
+
+`source_code/fichub.py` and `server.rescue_with_fichub`. FicHub (fichub.net) keeps copies of
+ao3 works, some ao3 no longer serves. **It earns its keep in two cases**: a fic this app
+indexed that ao3 has since deleted (its entry holds the number, so a later scan's re-read or
+download fails and FicHub is asked by it), and a single fic fetched by link or number. A
+bookmark ao3 already shows as deleted on a listing has no number, so FicHub cannot be asked
+about it - an index made before the deletion is what makes it findable. `finish_run` calls it before `cleanup`, so it is the
+`fichub` step (`STEP_FICHUB`) just before `cleanup` in **every** plan - a test over `ACTIONS`
+holds that - and is skipped when nothing failed. What not to break:
+
+- **Its question is the one whose default does something.** `FICHUB_QUESTION` defaults to
+  `yes`, on a timeout and on a background run with no answer, at the user's explicit request:
+  the works are missing already and FicHub only adds. Every other question still defaults
+  to what changes nothing. The page offers it up front on a background run (`fichub`) on
+  every workflow but a collection run not taking its works.
+- **Only ao3 works with a number** (`fichub_candidates`): `ao3.failures` whose link is a
+  `/works/<id>` on ao3. External works and series are in `skipped_works`, never failures,
+  and a deleted bookmark has no number to ask by.
+- **The same rules as a download from ao3.** `download_one_indexed` takes a `fetch` (the
+  bytes from somewhere else) and an `arrived` list; naming, `save_download`'s checks and
+  replacing an older copy are unchanged. What to fetch is `plan_downloads` +
+  `say_what_each_format_needs` on the FicHub entry - missing or behind, or all on an
+  overwriting run. `fichub.download` follows only https links on fichub.net, unzips the html
+  FicHub sends zipped, and refuses a page for a non-html format. No azw3 from FicHub.
+- **`fichub.entry_from` shapes FicHub's answer as a listing blurb would**, from its
+  `rawExtendedMeta` (ao3's own fields). An existing entry keeps everything and takes the
+  stats, plus whatever it had blank; it never sets `bookmarked`. The index is written only
+  when the run writes JSON, **after** the downloads, as a reading carrying
+  `retrieved_from: {site, downloaded}`.
+- **`retrieved_from` belongs to the reading, not the entry.** `save_metadata` drops it
+  unless `from_mirror=True`, so an ao3 pass that carries a flattened record forward (as
+  `refresh_one` does) does not pass the mark on. The page's *From FicHub* badge reads it.
+- **Rescued works leave `ao3.failures`** for `ao3.rescued` (a `rescued` event, and
+  `rescued` in the run record, listed in History). A work FicHub could not give (or not every
+  format of) stays a failure, `error` becoming `AO3: ... | FicHub: ...`.
+- **The single-fic run survives its own page failing**: `run_work` records the failure and
+  goes straight to `finish_run`, so FicHub can index and fetch a fic ao3 has taken down.
+- **`conftest.py` stubs the step out** (`fichub_left_alone`) for every test not marked
+  `fichub`: any run with a failure would otherwise wait half an hour on the question.
+  `test_fichub.py` is the real thing, against FicHub's real answer for 75354806
+  (`test/fixtures/fichub/wolfbird.json`). fichub.net was not reachable from where this was
+  built, so the first live call was the user's own.
+
+### Several fics at once, and fic runs without a login
+
+`ACTION_WORKS` (`run_works`) is the single-fic run over a pasted list. `work_links` reads the
+paste - any mix of new lines, commas, spaces and semicolons, links or bare numbers, the same
+work once - and `do_POST` refuses it whole, naming what is not a work, rather than starting a
+run that silently skips a typo; at most `MAX_WORK_LINKS` (500). The page's `parseWorkList`
+follows the same rule so the box can say so as it is typed. The run's `url` is the links one
+to a line, which History lists. Every fic is indexed before any is downloaded, a fic ao3 will
+not show is a recorded failure and passed over, and **FicHub is asked once, at the end**
+(`finish_run`) - never per fic. It overwrites exactly the fics listed, as `run_work` does.
+
+**`skipLogin` belongs to `SKIP_LOGIN_ACTIONS` (`work`, `works`) alone** - `do_POST` clamps it
+off for every other run, since they read your own bookmarks. With it, the credentials are
+neither required nor kept (`username`/`password` emptied), `run_job` skips the login step
+(marked `skipped`, no `authenticated` event) and sets `repo.logged_in = False`, and
+`Ao3.check_session` returns early on that - a logged-out run would otherwise take its first
+failure for a lapsed session and end. `logged_in` is `None` until known, so a mocked or
+console `Repository` keeps the old behaviour. The page's checkbox is unticked by default and
+shows a warning when ticked; its credentials step then asks for nothing, and a hosted page
+seals an empty login.
+
 ### A run can be paused, and there are exactly two places it may pause
 
 Both are inside the request path, and both are before anything reaches disk:
@@ -1996,7 +2063,12 @@ collection made in the page. What not to break:
   work from its own ⋯ menu. A menu add never touches the ticks (`addFromBar` decides whether a
   finished add clears them). The add panel is a modal, so it is in view from a menu far down
   the page.
-- **Each entry has a ⋯ menu** (`menuFor`, one open at a time) beside the eye button, offering
+- **Every entry with a number has the eye and a ⋯ menu** (`.entry-actions`) - works, external
+  works, series and placeholders alike - **on a row of their own at the end of the entry, in
+  the flow**. They were pinned to the bottom corner, where the *Bookmarked by* box (`.user`:
+  positioned, with a background, later in the page) painted over them on every bookmark of
+  yours, so only series showed them; a spec holds that they are the entry's last child.
+  The menu (`menuFor`, one open at a time) offers
   what the bar offers for that one: Hide or Unhide, and Add to a collection. For a series the
   add item is greyed with **`aria-disabled`, not `disabled`**, so hovering still shows its title
   saying why - a disabled button shows no tooltip in some browsers. A click elsewhere or Escape

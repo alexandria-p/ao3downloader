@@ -7,6 +7,7 @@ A **run** is one press of a button: it logs in to AO3, indexes, downloads, and r
 | **Quick Scan** | Bookmarks | Everyday use: new bookmarks, and anything AO3 updated since your last scan | Small |
 | **(Full scan) Reindex & Update All** | Bookmarks | Repairing the index, or catching a finished fic that was added to | Reads everything - hours on a large library |
 | **Download/update a specific fic** | Advanced options | One fic, by link or work number. Always re-downloads it | One fic |
+| **Download/update several fics** | Advanced options | A pasted list of links or work numbers (any separators, up to 500). Always re-downloads them | One fic each |
 | **Custom run** | Advanced options | A slice of pages, a date range, or working from the index without reading AO3 | Depends |
 | **Index my collections** | Collections | Your own collections | 1 request per 20 works |
 | **Index collection by URL** | Collections | Any collection, from a link | 1 request per 20 works |
@@ -36,14 +37,16 @@ Each run asks its options, then which file types, then your login.
 - **Save embedded images separately** - custom run only. Usually unnecessary: images are already inside the downloaded work.
 - **Index and download encountered works** - collection runs only. Off: just records which works the collection holds. On: indexes and downloads them too.
 - **Include subcollections / parent collections** - collection runs only. Follows the family, each collection once, up to 200.
+- **Skip AO3 login?** - the fic runs only, off by default. Not recommended: fics restricted to AO3 users can't be reached logged out, and may have to come from FicHub instead.
 
 ## Questions a run may stop to ask
 
 - **Undated files** - files saved before names carried a date. Give them a date (renamed, nothing downloaded), re-download them, or skip them.
 - **Older copies** - two copies of one work and format. Keep only the newest, or leave them.
 - **How far back to go** - a Quick Scan with no earlier scan, but an index already there.
+- **Try FicHub?** - at the end, when AO3 wouldn't give the run some works. Try FicHub, or leave them as failures.
 
-Closing the page or stopping takes the answer that changes nothing.
+Closing the page or stopping takes the answer that changes nothing - except for FicHub, where it is yes.
 
 ## Pause and Stop
 
@@ -64,9 +67,10 @@ Tick **Run as background task** on the login step to let the helper finish with 
 
 ## At the end
 
-Every run finishes with **Report any failures**:
+Every run finishes with **Try FicHub** (when anything failed), then **Report any failures**:
 
-- **Failures** - works that wouldn't download. A later run tries again.
+- **Try FicHub** - first, if AO3 wouldn't give the run some works, it asks whether to try [FicHub](https://fichub.net), a mirror that keeps copies of AO3 works, even some AO3 no longer has. **Yes if you don't answer** within 30 minutes. What FicHub has is indexed and downloaded in your file types (not AZW3), and marked **From FicHub** in your library. Never tried for external works or series. Most useful for a fic you indexed before AO3 deleted it (the index keeps its number) and for a single fic fetched by link or number.
+- **Failures** - works that wouldn't download. A later run tries again. A work FicHub couldn't give either says so.
 - **Bookmarks that are not works** - series, external works, deleted works. Nothing to retry.
 - **Copies to check by hand** - a new file saved, but an older copy couldn't be removed, or the save couldn't be confirmed.
 

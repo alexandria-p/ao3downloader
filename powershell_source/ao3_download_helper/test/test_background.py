@@ -262,7 +262,7 @@ def test_a_background_run_never_waits_on_a_question_nobody_will_answer(capsys):
     assert got == {'choice': 'leave'}
     # the ordinary wait is half an hour
     assert time.monotonic() - began < 1
-    assert 'changes nothing' in capsys.readouterr().out
+    assert 'takes the default: leave' in capsys.readouterr().out
     assert not any(e.get('type') == progress.QUESTION for e in job.history)
 
 # endregion

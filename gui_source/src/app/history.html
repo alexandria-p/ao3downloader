@@ -73,8 +73,11 @@
           @if (run.finished) { &ndash; {{ when(run.finished) }} }
         </p>
         @if (run.url) {
+          <!-- a several-fics run keeps one link to a line -->
           <p class="hint run-link">
-            <a [href]="run.url" target="_blank" rel="noopener">{{ run.url }}</a>
+            @for (link of run.url.split('\n'); track $index; let last = $last) {
+              <a [href]="link" target="_blank" rel="noopener">{{ link }}</a>@if (!last) {<br />}
+            }
           </p>
         }
 
@@ -226,6 +229,12 @@
                   {{ choice.count === 1 ? 'work' : 'works' }}, and chose to
                   <strong>{{ choice.choice === 'newest' ? 'keep only the newest' : 'leave them all' }}</strong>.
                 </p>
+              } @else if (choice.question === 'fichub') {
+                <p>
+                  AO3 would not give us <strong>{{ choice.count | number }}</strong>
+                  {{ choice.count === 1 ? 'work' : 'works' }}, and chose
+                  <strong>{{ choice.choice === 'no' ? 'not to try FicHub' : 'to try FicHub' }}</strong>.
+                </p>
               } @else if (choice.question === 'quick-floor') {
                 <p>
                   No completed scan to measure back to, with
@@ -314,6 +323,25 @@
                   <a [href]="workLink(item.id)" target="_blank" rel="noopener">{{ item.id }}</a>
                   <span class="reason">
                     {{ item.file }} &middot; {{ item.error || 'the run ended before its cleanup step' }}
+                  </span>
+                </li>
+              }
+            </ul>
+          </details>
+        }
+
+        @if (run.rescued?.length) {
+          <details class="ids">
+            <summary>
+              Fetched from FicHub instead of AO3
+              <span class="ids-count">{{ run.rescued!.length | number }}</span>
+            </summary>
+            <ul class="reason-list">
+              @for (item of run.rescued; track $index) {
+                <li>
+                  <a [href]="item.link" target="_blank" rel="noopener">{{ item.id }}</a>
+                  <span class="reason">
+                    {{ item.title }}@if (item.downloaded.length) { &middot; {{ item.downloaded.join(', ') }}}
                   </span>
                 </li>
               }

@@ -24,7 +24,7 @@
  *   TURNSTILE_SECRET  the Turnstile widget's secret key                (secret)
  */
 
-export const LIMITS = { message: 5000, name: 100, log: 60000, version: 40, copy: 60, browser: 300 };
+export const LIMITS = { message: 5000, name: 100, log: 60000, version: 40, copy: 60, storage: 60, browser: 300 };
 export const SENTIMENTS = ['positive', 'negative'];
 const SITEVERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const GITHUB_API = 'https://api.github.com';
@@ -88,6 +88,7 @@ export function readForm(raw) {
       log: scrubPasswords(log),
       version: text(raw.version).slice(0, LIMITS.version),
       copy: text(raw.copy).slice(0, LIMITS.copy),
+      storage: text(raw.storage).slice(0, LIMITS.storage),
       browser: text(raw.browser).slice(0, LIMITS.browser),
       token: text(raw.turnstileToken),
     },
@@ -114,6 +115,7 @@ export function issueFor(form) {
     `- **Version:** ${form.version || '(built on their own computer)'}`,
   ];
   if (form.copy) lines.push(`- **Copy:** ${form.copy}`);
+  if (form.storage) lines.push(`- **Library:** ${form.storage}`);
   if (form.browser) lines.push(`- **Browser:** ${form.browser}`);
   if (form.log) {
     const mark = fence(form.log);
