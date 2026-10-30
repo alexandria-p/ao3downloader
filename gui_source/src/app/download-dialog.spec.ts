@@ -95,7 +95,11 @@ class FakeJobs extends Jobs {
   /** set by a test that needs settings.ini to say something other than the default */
   settingsOverride: ServerConfig['settings'] | null = null;
 
+  /** set by a test that needs to see the window before the helper's config has come back */
+  configGate: Promise<void> | null = null;
+
   override async loadConfig(): Promise<ServerConfig | null> {
+    if (this.configGate) await this.configGate;
     const config = this.settingsOverride
       ? { ...CONFIG, settings: this.settingsOverride }
       : CONFIG;
@@ -241,6 +245,46 @@ describe('DownloadDialog', () => {
     localStorage.clear();
     TestBed.configureTestingModule({ providers: [{ provide: Jobs, useValue: jobs }] });
   });
+
+  // region opening
+
+  for (const action of ['quick', 'bookmarks', 'custom', 'sync', 'work', 'collection'] as JobAction[]) {
+    it(`shows a spinner, not a step it would jump from, until it knows where a ${action} run opens`, async () => {
+      // the page already knows the helper is there, so the window does not wait on that
+      jobs.available.set(true);
+      let release!: () => void;
+      jobs.configGate = new Promise<void>((done) => (release = done));
+      fixture = TestBed.createComponent(DownloadDialog);
+      fixture.componentRef.setInput('action', action);
+      fixture.detectChanges();
+      element = fixture.nativeElement as HTMLElement;
+
+      expect(currentStep()).toBe('preparing');
+      expect(element.querySelector('.preparing .spinner')).not.toBeNull();
+      expect(element.querySelector('input[type="checkbox"]')).toBeNull();
+
+      release();
+      // the config arrives, init picks the step, and the window draws it
+      await new Promise((done) => setTimeout(done));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(currentStep()).not.toBe('preparing');
+      expect(element.querySelector('.preparing')).toBeNull();
+    });
+  }
+
+  it('says the helper is not running rather than spinning when it does not answer', async () => {
+    jobs.loadConfig = async () => {
+      jobs.available.set(false);
+      return null;
+    };
+    await open('quick');
+
+    expect(element.querySelector('.preparing')).toBeNull();
+    expect(element.textContent).toContain("isn't running");
+  });
+
+  // endregion
 
   // region file types
 

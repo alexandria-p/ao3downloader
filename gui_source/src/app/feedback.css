@@ -1,0 +1,296 @@
+/*
+ * The tab sits on the right edge of every page, most of it tucked out of sight, and slides out
+ * on hover. The form wears the same modal shell as passcode-gate.css and the run window, and
+ * sits above all of them (z-index 200): feedback is worth being able to give in the middle of a
+ * run, or while a passcode window waits.
+ */
+
+.feedback-tab {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  z-index: 110;
+  padding: 14px 8px 14px 9px;
+  border: 1px solid #5a7f9a;
+  border-right: none;
+  border-radius: 5px 0 0 5px;
+  background: #33566b;
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: translate(6px, -50%);
+  box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition: transform 0.18s ease-out, background 0.18s ease-out;
+}
+
+.feedback-tab:hover,
+.feedback-tab:focus-visible {
+  background: #3d6580;
+  transform: translate(0, -50%);
+  padding-right: 14px;
+}
+
+.feedback-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feedback-tab {
+    transition: none;
+  }
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(88vh, 820px);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.close {
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  color: var(--text-strong);
+}
+
+.body {
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.body p {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+}
+
+footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.hint {
+  color: var(--text-dim);
+  font-size: 0.82rem !important;
+}
+
+em {
+  color: var(--text-dim);
+  font-style: normal;
+  font-size: 0.82rem;
+}
+
+.sentiment {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: none;
+}
+
+.sentiment legend {
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.sentiment label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.sentiment label.chosen {
+  border-color: #5a7f9a;
+  background: #2b4352;
+}
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.field > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.field input,
+.field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text-strong);
+  font: inherit;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field input:focus,
+.field textarea:focus {
+  outline: 2px solid #5a7f9a;
+  outline-offset: -1px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.check.unavailable {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.log {
+  margin-bottom: 8px;
+}
+
+.log summary {
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.log pre {
+  max-height: 200px;
+  margin: 6px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.check-widget {
+  min-height: 65px;
+  margin: 12px 0;
+}
+
+.problem {
+  padding: 10px 12px;
+  border: 1px solid #6b4a4a;
+  border-radius: 3px;
+  background: #2f1e1e;
+}
+
+.failed p {
+  margin: 0 0 8px;
+}
+
+.failed .reason {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.failed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+a.button {
+  display: inline-block;
+  color: var(--text-strong);
+  text-decoration: none;
+}
+
+.button {
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #3a3a3a;
+}
+
+.button.primary {
+  border-color: #5a7f9a;
+  background: #33566b;
+}
+
+.button.primary:hover {
+  background: #3d6580;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

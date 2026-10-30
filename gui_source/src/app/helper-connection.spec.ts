@@ -60,6 +60,22 @@ describe('readPageConfig', () => {
     expect(readPageConfig({ requirePasscode: 'true' }).requirePasscode).toBe(false);
     expect(readPageConfig({ requirePasscode: true }).requirePasscode).toBe(true);
   });
+
+  it('offers feedback only with an https address and its bot check key both', () => {
+    const both = { feedbackUrl: 'https://f.example.workers.dev/', turnstileSiteKey: '0x4AAA' };
+    expect(readPageConfig(both)).toEqual(
+      expect.objectContaining({ feedbackUrl: 'https://f.example.workers.dev', turnstileSiteKey: '0x4AAA' }),
+    );
+    for (const half of [
+      { feedbackUrl: both.feedbackUrl },
+      { turnstileSiteKey: both.turnstileSiteKey },
+      { ...both, feedbackUrl: 'http://f.example.workers.dev' },
+    ]) {
+      expect(readPageConfig(half)).toEqual(
+        expect.objectContaining({ feedbackUrl: '', turnstileSiteKey: '' }),
+      );
+    }
+  });
 });
 
 describe('HelperConnection.loadPageConfig', () => {

@@ -294,4 +294,59 @@ describe('the run history, read out of the library', () => {
   it('is empty for a library nothing has been run in', async () => {
     expect(await readRunHistory(new LocalLibraryStore(new MemoryFolder('Fics')))).toEqual([]);
   });
+
+  /** a library whose every read takes a while, as a Dropbox download does, counting how many overlap */
+  function slowStore(names: string[], text: (name: string) => string, delay: (i: number) => number) {
+    const watch = { reading: 0, most: 0, reads: 0 };
+    const nothing = async () => {
+      throw new Error('not used here');
+    };
+    const store: LibraryStore = {
+      label: 'Dropbox', check: async () => {}, list: async () => names.map((n) => `runs/${n}`),
+      read: async (path: string) => {
+        const name = path.split('/').pop()!;
+        watch.reads++;
+        watch.most = Math.max(watch.most, ++watch.reading);
+        await new Promise((done) => setTimeout(done, delay(names.indexOf(name))));
+        watch.reading--;
+        return text(name);
+      },
+      write: nothing, size: nothing, delete: nothing, rename: nothing, mkdir: nothing,
+    } as unknown as LibraryStore;
+    return { store, watch };
+  }
+
+  const named = (count: number) =>
+    Array.from({ length: count }, (_, i) => `2026-01-01T${String(i).padStart(6, '0')}-r${i}.json`);
+  const runText = (name: string) =>
+    JSON.stringify({ id: name.split('-').pop()!.replace('.json', ''), status: 'success' });
+
+  it('reads several records at once rather than one after another, a handful at a time', async () => {
+    const { store, watch } = slowStore(named(20), runText, () => 5);
+    await readRunHistory(store);
+
+    expect(watch.most).toBeGreaterThan(1);
+    expect(watch.most).toBeLessThanOrEqual(6);
+    expect(watch.reads).toBe(20);
+  });
+
+  it('keeps the history newest first however the reads come back', async () => {
+    // the newest is the slowest to arrive
+    const { store } = slowStore(named(8), runText, (i) => i * 3);
+    const history = await readRunHistory(store);
+
+    expect(history.map((x) => x.id)).toEqual(['r7', 'r6', 'r5', 'r4', 'r3', 'r2', 'r1', 'r0']);
+  });
+
+  it('still lists a hundred runs when some of the newest cannot be read, and reads no further', async () => {
+    const names = named(130);
+    const unreadable = new Set(names.slice(-5));
+    const { store, watch } = slowStore(names, (n) => (unreadable.has(n) ? 'not json' : runText(n)), () => 0);
+    const history = await readRunHistory(store);
+
+    expect(history).toHaveLength(100);
+    expect(history[0].id).toBe('r124');
+    // the hundred, the five that could not be read, and nothing past them
+    expect(watch.reads).toBe(105);
+  });
 });

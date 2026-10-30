@@ -164,6 +164,16 @@ For a hosted copy the deploy workflow writes **every** setting in `settings.ini`
 variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TIME`,
 `HelperUrl` from `HELPER_URL`), so you never edit it by hand. HOSTING.md lists them all.
 
+## Feedback
+
+The hosted page and the Windows, Mac and Linux apps have a **Feedback** tab on the right edge
+of the page. It opens a short form: positive or negative, a message, and optionally a name
+and the log of your latest run, with your AO3 username taken out of it. Sending it opens a
+public GitHub issue in this repository, labelled `feedback`, with no GitHub account needed. The
+page links the issue as soon as it exists. It goes through a small Cloudflare Worker, not
+through the helper. [FEEDBACK.md](FEEDBACK.md) covers how it works and the one-time Cloudflare
+setup. A bundle built on your own computer has no Feedback tab.
+
 ## Running in the background
 
 **Only on the hosted copy** (the page on GitHub Pages, with its helper on a server). The

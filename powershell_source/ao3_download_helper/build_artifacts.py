@@ -288,6 +288,32 @@ def write_config(config_dir: Path, python_home: Path) -> tuple[list[str], list[s
     return created, added
 
 
+# the feedback form's two public settings, from the GitHub variables of the same names. Not in
+# settings.ini: that file is the user's, and only ever added to, so a value kept there would go
+# stale in every install - the build is what knows where its feedback goes. FEEDBACK.md is the setup
+ENV_FEEDBACK_URL = 'FEEDBACK_URL'
+ENV_TURNSTILE_SITE_KEY = 'TURNSTILE_SITE_KEY'
+
+
+def feedback_config(environ) -> dict:
+    """The page's `feedbackUrl` and `turnstileSiteKey`: both, or neither.
+
+    Neither (a bundle built on this computer, or a deployment that has not set feedback up)
+    leaves the page with no feedback tab. One without the other is a form that could never send,
+    and an address that is not https is one an https page may not post to - so both fail the
+    build rather than ship that.
+    """
+
+    url = (environ.get(ENV_FEEDBACK_URL) or '').strip().rstrip('/')
+    key = (environ.get(ENV_TURNSTILE_SITE_KEY) or '').strip()
+    if bool(url) != bool(key):
+        raise ValueError(f'set both {ENV_FEEDBACK_URL} and {ENV_TURNSTILE_SITE_KEY} for the '
+                         'feedback form, or neither')
+    if url and not url.startswith('https://'):
+        raise ValueError(f'{ENV_FEEDBACK_URL} must be an https address, not {url}')
+    return {'feedbackUrl': url, 'turnstileSiteKey': key}
+
+
 def write_page_config(build_dir: Path, version: str = '', repository: str = '') -> Path | None:
     """Point the bundled page at the helper settings.ini names.
 
@@ -298,7 +324,8 @@ def write_page_config(build_dir: Path, version: str = '', repository: str = '') 
 
     `version` and `repository` say what this page is and where a newer release would be - the
     Windows app's build passes both; a bundle built on this computer has neither, and its page
-    then never looks for an update.
+    then never looks for an update. The feedback form's settings come from the environment
+    (`feedback_config`), as the app builds are given them.
 
     A bundle never carries a public key: it runs on this computer and sends the login to a
     helper on this computer. The hosted copy's page, which does, is built by the deploy
@@ -318,7 +345,8 @@ def write_page_config(build_dir: Path, version: str = '', repository: str = '') 
     path = web / PAGE_CONFIG_FILE
     path.write_text(json.dumps({'helperUrl': helper_url.strip().rstrip('/'),
                                 'requirePasscode': require, 'publicKey': '',
-                                'version': version, 'releasesRepo': repository}, indent=2) + '\n',
+                                'version': version, 'releasesRepo': repository,
+                                **feedback_config(os.environ)}, indent=2) + '\n',
                     encoding='utf-8')
     return path
 
@@ -410,6 +438,10 @@ this section is for this folder.
 
 A deployment gives everything it builds one version, and that page checks GitHub for a newer
 release each time it opens. A bundle built here has no version, so its page never checks.
+
+The hosted page and the apps also have a **Feedback** tab, which opens a public GitHub issue
+through a small Cloudflare Worker (FEEDBACK.md in the project root). A bundle built here has
+no Feedback tab, because it has no address for that Worker.
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/). Node is *not*
 needed - the web app is already compiled.

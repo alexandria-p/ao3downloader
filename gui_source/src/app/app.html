@@ -412,6 +412,12 @@
       page). If a run went wrong, attach its log: <strong>History</strong>, then
       <strong>Download log</strong>.
     </p>
+    @if (feedbackOffered()) {
+      <p class="hint">
+        No GitHub account? Use the <strong>Feedback</strong> tab on the right edge of the page -
+        it opens an issue for you, and can attach your latest run's log.
+      </p>
+    }
   </section>
 } @else {
   <app-faq />
@@ -446,3 +452,6 @@
 @if (passcodeWanted()) {
   <app-passcode-gate (unlocked)="unlocked()" />
 }
+
+<!-- last, so its tab and its window sit above everything - a run window and the passcode included -->
+<app-feedback />

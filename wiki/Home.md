@@ -15,7 +15,8 @@ A fork of [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader) th
 - [[Settings]] - every line in `settings.ini`.
 - [[Updating and versions]] - new releases, and what happens to your settings.
 - [[Hosting your own copy]] - the page on GitHub Pages and the helper on Render, for one person.
+- [[Feedback]] - the Feedback tab, and setting up the Cloudflare side that turns it into GitHub issues.
 - [[Developing]] - building, testing and how it fits together.
 - [[Glossary]] - the words used here.
 
-Found a bug? [Open an issue](https://github.com/alexandria-p/ao3downloader/issues).
+Found a bug? Use the **Feedback** tab on the right edge of the app, or [open an issue](https://github.com/alexandria-p/ao3downloader/issues).

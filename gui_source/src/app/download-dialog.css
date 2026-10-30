@@ -237,6 +237,15 @@ legend {
   color: #9fd4ab;
 }
 
+/* the window's first moment, while it works out which step to open on */
+.preparing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 120px;
+  color: var(--text-dim);
+}
+
 .spinner {
   flex: none;
   width: 15px;

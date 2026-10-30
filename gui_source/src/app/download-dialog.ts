@@ -34,6 +34,13 @@ import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-sto
 import { RunIssues, issueCount, issuesReport } from './issues';
 
 type Step =
+  /**
+   * Before the first real step is known. Which step a run opens on depends on the helper's
+   * config and the run's own options (a link, the options, an acknowledgement, the file types),
+   * and the config is asked for again as the window opens - so the window starts here, not on a
+   * step it may jump away from a moment later.
+   */
+  | 'preparing'
   | 'link'
   | 'filetypes'
   | 'options'
@@ -92,7 +99,7 @@ export class DownloadDialog implements OnDestroy {
   readonly attachTo = input<ActiveRun | null>(null);
   readonly closed = output<void>();
 
-  protected readonly step = signal<Step>('filetypes');
+  protected readonly step = signal<Step>('preparing');
   protected readonly config = this.jobs.config;
   protected readonly available = this.jobs.available;
 

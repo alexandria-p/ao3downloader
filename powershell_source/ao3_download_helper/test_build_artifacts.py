@@ -399,7 +399,9 @@ def test_build_leaves_the_web_folder_alone_when_skipping_it(fake_root):
 
     assert (web / 'index.html').exists()
 
-def test_the_page_is_pointed_at_the_helper_settings_ini_names(fake_root):
+def test_the_page_is_pointed_at_the_helper_settings_ini_names(fake_root, monkeypatch):
+    monkeypatch.delenv(build_artifacts.ENV_FEEDBACK_URL, raising=False)
+    monkeypatch.delenv(build_artifacts.ENV_TURNSTILE_SITE_KEY, raising=False)
     web = bundle(fake_root) / build_artifacts.WEB_FOLDER
     web.mkdir(parents=True)
     config_dir(fake_root).mkdir(parents=True)
@@ -411,7 +413,23 @@ def test_the_page_is_pointed_at_the_helper_settings_ini_names(fake_root):
     written = json.loads((web / build_artifacts.PAGE_CONFIG_FILE).read_text(encoding='utf-8'))
     # a bundle built on this computer has no version, so its page never looks for a newer one
     assert written == {'helperUrl': 'http://127.0.0.1:4500', 'requirePasscode': True,
-                       'publicKey': '', 'version': '', 'releasesRepo': ''}
+                       'publicKey': '', 'version': '', 'releasesRepo': '',
+                       'feedbackUrl': '', 'turnstileSiteKey': ''}
+
+
+def test_the_feedback_form_needs_both_its_address_and_its_bot_check_key_or_neither():
+    assert build_artifacts.feedback_config({}) == {'feedbackUrl': '', 'turnstileSiteKey': ''}
+    both = {'FEEDBACK_URL': ' https://f.example.workers.dev/ ', 'TURNSTILE_SITE_KEY': '0x4AAA'}
+    assert build_artifacts.feedback_config(both) == {
+        'feedbackUrl': 'https://f.example.workers.dev', 'turnstileSiteKey': '0x4AAA'}
+    with pytest.raises(ValueError, match='neither'):
+        build_artifacts.feedback_config({'TURNSTILE_SITE_KEY': '0x4AAA'})
+
+
+def test_the_feedback_form_is_only_sent_over_https():
+    with pytest.raises(ValueError, match='https'):
+        build_artifacts.feedback_config(
+            {'FEEDBACK_URL': 'http://f.example.workers.dev', 'TURNSTILE_SITE_KEY': '0x4AAA'})
 
 
 def test_a_settings_ini_without_the_keys_points_the_page_at_this_computer(fake_root):

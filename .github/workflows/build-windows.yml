@@ -91,6 +91,11 @@ jobs:
       - name: build the app
         working-directory: powershell_source/ao3_download_helper
         shell: bash
+        env:
+          # the feedback tab's Worker and its bot check (FEEDBACK.md) - both public, and both
+          # unset leaves the app with no feedback tab. it is not the hosted helper
+          FEEDBACK_URL: ${{ vars.FEEDBACK_URL }}
+          TURNSTILE_SITE_KEY: ${{ vars.TURNSTILE_SITE_KEY }}
         # its page says which version it is, and checks the releases for a newer one
         run: |
           uv run --no-sync python package_app.py --settings windows-settings.ini \
