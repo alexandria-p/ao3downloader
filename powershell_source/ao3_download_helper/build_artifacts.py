@@ -766,6 +766,15 @@ replaces is removed, but only when all of this holds:
 A download that fails or is stopped partway leaves the old file exactly where it is. You
 never lose the copy you have until the one replacing it is confirmed on disk.
 
+Every retry after an error from ao3 is said in the run's log, and Stop works during the wait.
+When ao3 shows its maintenance page, the run checks twice more, 30 seconds apart, then stops
+asking ao3 for the rest of the run - every fic after that fails at once, and those with a work
+number are offered to FicHub at the end. A run that has to log in fails at the login instead.
+
+Stop and Pause act at once, even mid-request: whatever was in flight is dropped (nothing is
+written until a whole file has arrived), and Resume asks for it again. A run that will not stop
+can be ended from History with **Force stop**, which records it as Stopped with its log.
+
 A run does not stop because one fic will not come down - it may have been deleted, made
 restricted, or never existed in the format you asked for. Those are skipped, and when the
 run finishes it names them: how many, the first few with the reason, and a link to each.

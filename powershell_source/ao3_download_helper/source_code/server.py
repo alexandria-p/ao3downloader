@@ -1252,6 +1252,55 @@ def find_anchor(ao3: Ao3, link: str, page: int, anchor: dict) -> int | None:
     return None
 
 
+def force_stop(job: Job) -> dict | None:
+    """End a run at once, as a stop would, without waiting for its thread to notice.
+
+    A stop sets a flag the run reads at its next gate; a run whose thread never reaches one -
+    stuck in a request, waiting on a page that has gone - stays 'running', and holds the
+    helper so nothing else can start. This does what the end of a stop does, here and now:
+    the record says `stopped` with the reason, keeps its log and issues, and is **frozen**
+    so the thread cannot write over it if it wakes; the run is marked done, so the helper
+    takes a new one; and a page still listening is told it finished.
+
+    The record goes back to the page to write rather than being saved here. A run that is
+    not in the background writes its history through the page that started it, and when that
+    page has gone - the usual reason to be here - a save would wait on nobody. The page
+    asking holds the library, so it writes it. Returns `{file, data}`, or None when the run
+    had no record yet (it never reached the login) or had already ended.
+
+    A thread that wakes later unwinds at its next gate, since `cancel` is set; it may finish
+    what it was in the middle of first.
+    """
+
+    job.cancel.set()
+    job.held.clear()
+    if job.done.is_set(): return None
+
+    written = None
+    record = job.record
+    if record is not None:
+        try:
+            record.collect(job.ao3)
+        except Exception:
+            pass
+        try:
+            record.data['log'].append(strings.AO3_INFO_FORCE_STOPPED)
+        except Exception:
+            pass
+        record.data['status'] = runs.STATUS_STOPPED
+        record.data['error'] = strings.ERROR_FORCE_STOPPED
+        record.data['finished'] = runs.now()
+        record.frozen = True
+        written = {'file': os.path.basename(record.path), 'data': json.loads(json.dumps(record.data))}
+
+    job.emit({'type': progress.MESSAGE, 'text': strings.AO3_INFO_FORCE_STOPPED})
+    job.emit({'type': progress.FINISHED, 'cancelled': True, 'forced': True})
+    job.library = None
+    job.finished_at = time.monotonic()
+    job.done.set()
+    return written
+
+
 def close_record(job: Job, status: str, error: str = '') -> None:
     """Finish this run's history file, whatever happened to the run.
 
@@ -1841,12 +1890,13 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         ao3.record_failure(link, e)
         ao3.log_error({'link': link}, e)
         print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
+        print(strings.AO3_INFO_ONE_WORK_NOT_INDEXED.format(work))
         job.steps.fail_current()
         # nothing to walk or download from ao3 now - said, rather than left waiting
         for step in ('series', 'check', 'download'): job.steps.skip(step)
         finish_run(job, fileops, ao3, report)
         return
-    print(strings.AO3_INFO_ONE_WORK_INDEXED)
+    say_indexed(ao3, work)
     ao3.mark_series_of(record)
     job.steps.done('index')
 
@@ -1857,6 +1907,21 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
                      overwrite=[record.get('link') or link])
     print(strings.AO3_INFO_ONE_WORK_DONE.format(work))
     finish_run(job, fileops, ao3, report)
+
+
+def say_indexed(ao3, work: str) -> None:
+    """Say whether a fic's index entry was written, by its number.
+
+    Read off what was saved (`reindexed`), not assumed from the lookup having worked: a save
+    that failed is swallowed and logged by `save_metadata`, and the run must not claim it.
+    """
+
+    try:
+        written = str(work) in ao3.reindexed
+    except Exception:
+        written = False
+    print((strings.AO3_INFO_ONE_WORK_INDEXED if written
+           else strings.AO3_INFO_ONE_WORK_NOT_INDEXED).format(work))
 
 
 def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -1906,7 +1971,9 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             ao3.record_failure(link, e)
             ao3.log_error({'link': link}, e)
             print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
+            print(strings.AO3_INFO_ONE_WORK_NOT_INDEXED.format(work))
             continue
+        say_indexed(ao3, work)
         ao3.mark_series_of(record)
         records.append(record)
         asked.append(record.get('link') or link)
@@ -2763,6 +2830,7 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
         return
 
     job.steps.start('fichub')
+    print(strings.AO3_INFO_FICHUB_TRYING.format(len(works), ', '.join(works)))
     progress.report(report, progress.PHASE, name=progress.FICHUB)
     filetypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
     indexes = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
@@ -2799,7 +2867,7 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
 
     link = failure['link']
     title = (entry or {}).get('title') or link
-    print(strings.AO3_INFO_FICHUB_WORK.format(done, total, title))
+    print(strings.AO3_INFO_FICHUB_WORK.format(done, total, failure['id'], title))
     progress.report(ao3.progress, progress.WORK, title=title, link=link, done=done,
                     total=total, phase=progress.FICHUB)
     log: dict = {'link': link, 'source': strings.FICHUB_SITE}
@@ -2809,6 +2877,11 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         answer = fichub.lookup(ao3.repo, link)
         record = fichub.entry_from(answer, link, entry)
         title = record.get('title') or title
+        print(strings.AO3_INFO_FICHUB_FOUND.format(failure['id'], title))
+
+        def from_fichub(filetype: str) -> bytes:
+            print(strings.AO3_INFO_FICHUB_FETCHING.format(filetype, failure['id']))
+            return fichub.download(ao3.repo, answer, filetype)
 
         problem: Exception | None = None
         if filetypes:
@@ -2819,7 +2892,7 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
                 ao3.superseded = plan['superseded']
                 try:
                     fetch_formats(ao3, record, fetching, maximum, log, done, total,
-                                  fetch=lambda filetype: fichub.download(ao3.repo, answer, filetype),
+                                  fetch=from_fichub,
                                   arrived=arrived)
                 except (exceptions.CancelledException, exceptions.SessionExpiredException):
                     raise
@@ -2827,10 +2900,12 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
                     problem = e
 
         if indexes:
+            print(strings.AO3_INFO_FICHUB_INDEXING.format(failure['id']))
             ao3.save_metadata({**record, strings.RETRIEVED_FROM_FIELD:
                                {'site': strings.FICHUB_SITE, 'downloaded': arrived}},
                               from_mirror=True)
-            print(strings.AO3_INFO_FICHUB_INDEXED)
+            print((strings.AO3_INFO_FICHUB_INDEXED if str(failure['id']) in ao3.reindexed
+                   else strings.AO3_INFO_FICHUB_NOT_INDEXED).format(failure['id']))
         if problem is not None: raise problem
     except exceptions.CancelledException:
         print(strings.INFO_CANCELLED)
@@ -3687,6 +3762,10 @@ class Handler(BaseHTTPRequestHandler):
             self.cancel_job(self.path.split('/')[3])
             return
 
+        if self.path.startswith('/api/jobs/') and self.path.endswith('/force-stop'):
+            self.force_stop_job(self.path.split('/')[3])
+            return
+
         if self.path.startswith('/api/jobs/') and self.path.endswith('/answer'):
             self.answer_job(self.path.split('/')[3])
             return
@@ -3869,6 +3948,21 @@ class Handler(BaseHTTPRequestHandler):
         # the run notices at its next checkpoint and unwinds, keeping what it has saved
         job.cancel.set()
         self.send_json(202, {'cancelling': True})
+
+    def force_stop_job(self, job_id: str) -> None:
+        """End a run now, from the History tab, whatever its thread is doing.
+
+        The last resort for a run that will not stop - its page gone, its thread stuck where
+        no stop is noticed. See `force_stop`. Answers with the record as it now stands, for
+        the page to write into the library.
+        """
+
+        with Handler.jobs_lock:
+            job = Handler.jobs.get(job_id)
+        if not job:
+            self.send_json(404, {'error': 'no such job'})
+            return
+        self.send_json(200, {'stopped': True, 'record': force_stop(job)})
 
     def skip_step(self, job_id: str) -> None:
         """Abandon the step a run is on and let it go to the next.

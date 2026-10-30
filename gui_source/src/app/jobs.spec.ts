@@ -99,3 +99,44 @@ describe('Jobs.settleInterrupted', () => {
     expect(await new Jobs().settleInterrupted(null)).toBe(0);
   });
 });
+
+describe('Jobs.forceStop', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function helperForceStops(record: object | null, status = 200) {
+    const fetching = vi.fn(async (url: string) =>
+      String(url).endsWith('/force-stop')
+        ? new Response(JSON.stringify({ stopped: true, record }), { status })
+        : new Response(JSON.stringify({ jobs: [] })));
+    vi.stubGlobal('fetch', fetching);
+    return fetching;
+  }
+
+  it('writes the record the helper hands back over the one in the library', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'running') });
+    const fetching = helperForceStops({
+      file: 'a.json',
+      data: { ...run('a', 'stopped'), error: 'Force stopped from the History tab', log: ['bye'] },
+    });
+
+    await new Jobs().forceStop('a', store);
+
+    expect(String(fetching.mock.calls[0][0])).toContain('/api/jobs/a/force-stop');
+    expect(statusOf(store, 'a.json')).toBe('stopped');
+    expect(JSON.parse(store.files.get('runs/a.json')!).log).toEqual(['bye']);
+  });
+
+  it('never writes a run that is not in this library', async () => {
+    const store = runsFolder({});
+    helperForceStops({ file: 'elsewhere.json', data: run('x', 'stopped') });
+
+    await new Jobs().forceStop('x', store);
+
+    expect(store.files.size).toBe(0);
+  });
+
+  it('says so when the helper will not', async () => {
+    helperForceStops(null, 404);
+    await expect(new Jobs().forceStop('gone', runsFolder({}))).rejects.toThrow();
+  });
+});

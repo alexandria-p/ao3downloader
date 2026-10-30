@@ -394,7 +394,9 @@ With indexing skipped it reads no listing at all, and a fic whose index entry is
 
 While a run is in progress the dialog shows a progress bar, the file types and options you chose, the folder being written to, and the name of the fic being fetched right now along with the format it is being fetched in. The line beside the bar names what is happening *now* rather than what last finished - while indexing it reads `fetching page 4 of 80`, and only says `page 4 of 80 - 76 works so far` once that page is actually in. A message appears if ao3 asks the script to slow down. **Leave the tab open while a download runs** - refreshing or closing it interrupts the run.
 
-There is a **Stop** button throughout. Stopping is safe: the run finishes what it is writing and unwinds, so everything already saved is kept. It is not a rollback.
+There is a **Stop** button throughout, and it acts at once - even while a request to AO3 is still waiting for an answer, or between retries. Stopping is safe: nothing is written until a whole file has arrived, so whatever was in flight is simply dropped, and everything already saved is kept. It is not a rollback. **Pause** acts at once the same way, and on Resume asks again for whatever it dropped.
+
+If a run will not stop - its window closed, say - **History** offers **Force stop** on the run pinned at the top. It ends the run there and then, records it as *Stopped* with its log and issues, and frees the helper for the next run.
 
 There is also a **Pause** button, and it takes effect straight away. If a file is coming down when you press it - a large PDF, say - that transfer is abandoned where it is, and when you press **Resume** the file is fetched again from the beginning. The same goes for a page of the index: the page is dropped and read again on resume.
 
@@ -507,6 +509,10 @@ When a fic is re-downloaded its name changes, because the date in the name chang
 - the name really did change - if it did not, the new file simply replaced the old one where it stood, and there is nothing to remove
 
 If a download fails, is cut short, or is stopped partway, the old file stays exactly where it is. The rule is that you never lose the copy you have until the copy that replaces it is confirmed on disk.
+
+#### When AO3 is down, or keeps answering with errors
+
+Every time AO3 answers a request with an error and the run tries again, it says so in the run's log - which page, what AO3 said, how long until the next try, and which attempt it is - and **Stop works during the wait**. When AO3 shows its *The archive is down for maintenance* page, the run checks twice more, 30 seconds apart, then stops asking AO3 for the rest of the run: every fic after that fails at once with *AO3 is down for maintenance*, instead of each one retrying for minutes, and the ones with a work number are offered to FicHub at the end. A run that has to log in fails at the login instead. Start it again once AO3 is back.
 
 #### Works that would not download
 

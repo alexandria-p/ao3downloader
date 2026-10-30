@@ -51,6 +51,7 @@ the same thing in conversation.
   - **Abandoned** - see below. Record status `abandoned`.
   - **Failed** - an error ended it early (login refused, login lapsed, library unreachable); the reason is on the entry. Record status `failed`.
   - **Interrupted** - see below. Record status `interrupted`.
+- **Force stop** - History's last resort for a run that will not stop (its window gone, its thread stuck): ends it at once, records it *Stopped* with the log and issues as they stood plus a line saying so (`Force stopped from the History tab`), and frees the helper for the next run. Offered on the run pinned at the top of History.
 - **Interrupted** - a run that never wrote its ending (the page closed, the helper stopped, crashed or restarted - a deploy included). The page marks its history file `interrupted` once the helper confirms it is not working on it. Its log and issues go up to its last save, at most about two minutes behind.
 - **Resume** [pick up where it left off, re-attempt] - carry on a stopped, failed, abandoned or interrupted scan or collection run as that same workflow, with its settings. See `RESUMING.md`. [EXPERIMENTAL]
 - **Baseline** - the moment a run's AO3 login succeeded; a resumed run keeps its first attempt's. What a quick scan measures back to.

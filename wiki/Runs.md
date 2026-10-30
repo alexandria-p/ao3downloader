@@ -50,8 +50,9 @@ Closing the page or stopping takes the answer that changes nothing - except for 
 
 ## Pause and Stop
 
-- **Pause** takes effect at once. A file part-way down is dropped and fetched again on Resume - nothing is ever half-written. It stays paused until you press Resume.
-- **Stop** ends at the next safe point and keeps everything saved.
+- **Pause** takes effect at once - even while AO3 is still thinking about a request. Whatever was in flight is dropped and asked for again on Resume (the same fic looked up, or the same file fetched); nothing is ever half-written. It stays paused until you press Resume.
+- **Stop** takes effect at once too, the same way, and keeps everything already saved.
+- **Force stop** - in **History**, on the run pinned at the top - is the last resort for a run that will not stop or whose window has gone. It ends the run straight away, records it as *Stopped* with its log and issues, and lets another run start.
 - A long pause can let your AO3 login expire. If works start failing after Resume, stop and start again.
 
 ## Background runs

@@ -3612,3 +3612,80 @@ def test_several_fics_have_their_own_checklist_wording():
     assert plan['download'] == strings.STEP_DOWNLOAD_MANY
 
 # endregion
+
+
+# region force stop from the History tab
+
+def a_stuck_run(tmp_path):
+    from source_code import runs
+    fileops = on_disk(MagicMock(), str(tmp_path / 'library'))
+    # a real folder: left a mock, the record would be written under the working directory
+    fileops.runsfolder = str(tmp_path / 'library' / 'runs')
+    os.makedirs(fileops.runsfolder, exist_ok=True)
+    job = server.Job(server.ACTION_WORK, ['JSON'], 'Someone', server.resolve_options({}),
+                     url='https://archiveofourown.org/works/1')
+    job.record = runs.RunRecord(fileops, job.id, job.action, 'Download/update a specific fic',
+                                job.filetypes, job.options, username='Someone',
+                                printed=['looking up work 1'])
+    job.record.save()
+    job.ao3 = MagicMock(failures=[{'id': '1', 'link': 'x', 'error': 'gone'}], skipped_works=[],
+                        reindexed=set(), downloaded=set(), updated=set(), rescued=[],
+                        kept_copies=[])
+    return job, fileops
+
+
+def test_a_force_stop_ends_a_stuck_run_at_once_with_its_log_and_issues(tmp_path):
+    job, fileops = a_stuck_run(tmp_path)
+
+    written = server.force_stop(job)
+
+    assert job.done.is_set() and job.cancel.is_set()
+    assert written['file'] == os.path.basename(job.record.path)
+    data = written['data']
+    assert data['status'] == 'stopped'
+    assert data['error'] == strings.ERROR_FORCE_STOPPED
+    assert data['finished']
+    assert data['log'][-1] == strings.AO3_INFO_FORCE_STOPPED
+    assert data['failures'] == [{'id': '1', 'link': 'x', 'error': 'gone'}]
+    assert any(e['type'] == progress.FINISHED and e.get('forced') for e in job.history)
+
+
+def test_a_thread_waking_after_a_force_stop_cannot_write_over_the_record(tmp_path):
+    job, fileops = a_stuck_run(tmp_path)
+    server.force_stop(job)
+    on_disk_before = open(job.record.path, encoding='utf-8').read()
+
+    # the stuck thread wakes and finishes the way a run ends
+    server.close_record(job, 'success')
+
+    assert open(job.record.path, encoding='utf-8').read() == on_disk_before
+
+
+def test_a_force_stopped_run_frees_the_helper_for_the_next_one(tmp_path):
+    job, _ = a_stuck_run(tmp_path)
+    server.Handler.jobs[job.id] = job
+    server.force_stop(job)
+
+    sent, jobs, _ = start_request(server.ACTION_WORK, '2')
+    assert sent['status'] == 202
+
+
+def test_force_stopping_a_run_already_over_writes_nothing(tmp_path):
+    job, _ = a_stuck_run(tmp_path)
+    job.done.set()
+    assert server.force_stop(job) is None
+
+
+def test_the_force_stop_endpoint_answers_with_the_record_or_404(tmp_path):
+    job, _ = a_stuck_run(tmp_path)
+    sent = {}
+    handler = MagicMock()
+    handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
+    with patch.dict(server.Handler.jobs, {job.id: job}):
+        server.Handler.force_stop_job(handler, job.id)
+    assert sent['status'] == 200 and sent['body']['record']['data']['status'] == 'stopped'
+
+    server.Handler.force_stop_job(handler, 'nope')
+    assert sent['status'] == 404
+
+# endregion

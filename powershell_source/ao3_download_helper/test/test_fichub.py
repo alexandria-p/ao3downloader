@@ -354,3 +354,50 @@ def test_a_single_fic_ao3_will_not_show_is_handed_to_fichub_rather_than_ending_t
     assert ao3.failures[0]['id'] == '75354806'
 
 # endregion
+
+
+@pytest.mark.fichub
+def test_fichub_says_what_it_is_about_to_do_before_each_thing(library, monkeypatch, capsys):
+    monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
+    monkeypatch.setattr(server.fichub, 'download', lambda repo, answer, filetype: b'bytes')
+    job, ao3, _ = a_run(library, ['JSON', 'EPUB'], ao3_failed())
+
+    server.rescue_with_fichub(job, library, ao3, MagicMock())
+
+    said = [x.strip() for x in capsys.readouterr().out.splitlines() if x.strip()]
+    order = [
+        'trying FicHub for 1 works: 75354806',
+        f'FicHub 1 of 1: asking FicHub about work 75354806 ({LINK})...',
+        'FicHub has work 75354806: Wolfbird',
+        'fetching EPUB of work 75354806 from FicHub...',
+        'writing the index entry for work 75354806 from what FicHub says...',
+        'index updated for work 75354806 from FicHub',
+    ]
+    places = [said.index(line) for line in order]
+    assert places == sorted(places)
+
+
+def test_a_fic_run_names_the_work_whose_index_it_did_or_did_not_update(library, monkeypatch, capsys):
+    ao3 = MagicMock()
+    ao3.failures = []
+    ao3.reindexed = {'1'}
+    ao3.index_one_work.side_effect = lambda link, existing: (
+        {'id': link.rsplit('/', 1)[1], 'link': link} if not link.endswith('/2')
+        else (_ for _ in ()).throw(exceptions.DeletedException('deleted')))
+    monkeypatch.setattr(server, 'Ao3', MagicMock(return_value=ao3))
+    monkeypatch.setattr(server.shared, 'read_index', lambda fileops: [])
+    monkeypatch.setattr(server, 'index_marked_series', lambda *a: [])
+    monkeypatch.setattr(server, 'download_planned', MagicMock())
+    monkeypatch.setattr(server, 'finish_run', MagicMock())
+    links = [f'https://archiveofourown.org/works/{n}' for n in (1, 2, 3)]
+    job = server.Job(server.ACTION_WORKS, ['JSON'], 'Someone', server.resolve_options({}),
+                     url='\n'.join(links))
+
+    server.run_works(job, library, MagicMock(), MagicMock())
+
+    said = capsys.readouterr().out
+    assert 'index updated for work 1' in said
+    # ao3 would not show it
+    assert 'index not updated for work 2' in said
+    # read, but its entry was not written - a save that failed is not claimed
+    assert 'index not updated for work 3' in said

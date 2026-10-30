@@ -411,6 +411,57 @@ describe('History', () => {
     expect(pinned.textContent).toContain('only in the window that started it');
   });
 
+  it('force stops a run that will not stop, after saying what that means', async () => {
+    jobs.activeRuns.set([{ ...going, background: false }]);
+    const forced = vi.spyOn(jobs, 'forceStop').mockImplementation(async () => {
+      jobs.activeRuns.set([]);
+      jobs.runs = [aRun({ id: 'job-7', status: 'stopped', error: 'Force stopped from the History tab' })];
+    });
+    await show([aRun({ id: 'job-7', status: 'running' })]);
+    const button = (text: string) =>
+      Array.from(element.querySelectorAll('button')).find((b) => b.textContent?.trim() === text);
+
+    button('Force stop')!.click();
+    await fixture.whenStable();
+    const confirm = element.querySelector('.force-stop-confirm')?.textContent ?? '';
+    expect(confirm).toContain('without waiting for it to reach a safe point');
+    expect(confirm).toContain('already saved is kept');
+    expect(forced).not.toHaveBeenCalled();
+
+    button('Force stop')!.click();
+    for (let i = 0; i < 5; i++) {
+      await fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(forced).toHaveBeenCalledWith('job-7', null);
+    expect(element.querySelector('[data-active-run]')).toBeNull();
+    expect(element.querySelector('.run')?.textContent).toContain('Stopped');
+  });
+
+  it('keeps the run going when the force stop is called off, and says why one failed', async () => {
+    jobs.activeRuns.set([going]);
+    vi.spyOn(jobs, 'forceStop').mockRejectedValue(new Error('the helper would not stop it (500)'));
+    await show([]);
+    const button = (text: string) =>
+      Array.from(element.querySelectorAll('button')).find((b) => b.textContent?.trim() === text);
+
+    button('Force stop')!.click();
+    await fixture.whenStable();
+    button('Keep it running')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('.force-stop-confirm')).toBeNull();
+
+    button('Force stop')!.click();
+    await fixture.whenStable();
+    button('Force stop')!.click();
+    for (let i = 0; i < 5; i++) {
+      await fixture.whenStable();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(element.querySelector('.force-stop-confirm .error')?.textContent).toContain('would not stop it');
+  });
+
   it('pins nothing when no run is going', async () => {
     await show([aRun()]);
     expect(element.querySelector('[data-active-run]')).toBeNull();
