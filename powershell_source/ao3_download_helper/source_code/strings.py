@@ -555,6 +555,7 @@ MESSAGE_RETRY = 'Retrying {} request. Attempt {}. {} seconds until next attempt.
 # said in the run itself, so a request ao3 keeps refusing reads as retries rather than a hang
 MESSAGE_RETRYING = 'AO3 answered {} for {} - trying again in {}s (attempt {} of {})'
 MESSAGE_RETRYING_UNLIMITED = 'AO3 answered {} for {} - trying again in {}s (attempt {}, no limit set)'
+MESSAGE_STILL_WAITING = 'still waiting for AO3 to answer {} ({}s so far)'
 MESSAGE_TIMED_OUT_RETRYING = 'AO3 did not answer {} in time - trying again in {}s (timeout {} of {})'
 # ao3's own maintenance page, which it serves in place of whatever was asked for
 AO3_DOWN_MARKER = 'the archive is down for maintenance'

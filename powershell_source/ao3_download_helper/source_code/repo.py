@@ -5,7 +5,7 @@ import threading
 import traceback
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
-from time import sleep
+from time import monotonic, sleep
 
 import requests
 from bs4 import BeautifulSoup
@@ -30,6 +30,8 @@ class Repository:
     retry_statuses = frozenset([500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530])
     # how long a cancellable pause waits before checking whether it has been stopped
     pause_slice = 1
+    # how often a run says it is still waiting on a request ao3 has not answered
+    waiting_note = 15
     # how much of a response body to take at a time. small enough that a pause is noticed
     # promptly on a slow line, large enough not to spin through a fast one.
     chunk_size = 64 * 1024
@@ -115,7 +117,8 @@ class Repository:
         return response
 
 
-    def abandonable(self, method: str, call: Callable[[], requests.Response]) -> requests.Response:
+    def abandonable(self, method: str, call: Callable[[], requests.Response],
+                    url: str = '') -> requests.Response:
         """Make one request in a way that a stop or a pause can walk away from at once.
 
         Stop and pause used to be noticed only between a body's chunks and before a request
@@ -130,6 +133,13 @@ class Repository:
         finish or time out on its own; it reads no further than its next chunk, because
         `read_body` checks the same stop and pause. A POST is only abandoned for a stop - a
         login form sent twice is not the same as a page asked for twice.
+
+        **`timeout` is a limit on the whole request here**, not only on silence: requests'
+        own timeout fires only when the connection says nothing for that long, so a server
+        that holds it open, or trickles a byte at a time, kept a request going for many
+        minutes while the run said nothing. Past `timeout` this raises `TimeoutException`,
+        which `my_request` retries and counts toward `MaxTimeouts` like any other. Every
+        `waiting_note` seconds until then the run says it is still waiting, and on what.
         """
 
         if self.cancelled is None and self.held is None: return call()
@@ -146,10 +156,18 @@ class Repository:
                 finished.set()
 
         threading.Thread(target=run, daemon=True).start()
+        began = monotonic()
+        said = 0
         while not finished.wait(self.pause_slice):
             self.check_cancelled()
             if method.upper() == 'GET' and self.held is not None and self.held():
                 raise exceptions.PausedException()
+            waited = monotonic() - began
+            if waited >= self.timeout:
+                raise exceptions.TimeoutException(strings.ERROR_TIMEOUT.format(self.timeout))
+            if waited >= (said + 1) * self.waiting_note:
+                said += 1
+                print(strings.MESSAGE_STILL_WAITING.format(url, said * self.waiting_note))
         if 'error' in result: raise result['error']
         return result['response']
 
@@ -310,7 +328,7 @@ class Repository:
 
             try:
                 try:
-                    response = self.abandonable(method, lambda: self.fetch(method, url, data))
+                    response = self.abandonable(method, lambda: self.fetch(method, url, data), url)
                 except requests.exceptions.Timeout as e: # raw timeout exceptions are way too verbose
                     raise exceptions.TimeoutException(strings.ERROR_TIMEOUT.format(self.timeout)) from e
             except exceptions.PausedException:

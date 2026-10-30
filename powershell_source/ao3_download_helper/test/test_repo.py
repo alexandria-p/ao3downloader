@@ -313,6 +313,31 @@ def test_a_pause_walks_away_from_a_slow_request_and_asks_again_on_resume(mock_re
     first.set()
 
 
+def test_a_request_ao3_holds_open_gives_up_at_the_timeout_saying_it_is_waiting(mock_repo, capsys):
+    # requests' own timeout fires only on silence; a connection held open got past it
+    import threading
+    never = threading.Event()
+    mock_repo.pause_slice = 0.01
+    mock_repo.waiting_note = 0.05
+    mock_repo.timeout = 0.2
+    mock_repo.max_timeouts = 2
+    mock_repo.cancelled = lambda: False
+
+    def held_open(*args, **kwargs):
+        never.wait(5)
+        return make_response(status_code=200, text='too late')
+
+    mock_repo.session.request.side_effect = held_open
+    with pytest.raises(exceptions.TimeoutException):
+        mock_repo.my_request('GET', AO3_URL)
+
+    said = capsys.readouterr().out
+    assert f'still waiting for AO3 to answer {AO3_URL}' in said
+    assert 'did not answer' in said          # the retry after the first timeout, said
+    assert mock_repo.session.request.call_count == 2
+    never.set()
+
+
 def test_my_request_unlimited_retries_when_max_retries_zero(mock_repo):
     mock_repo.max_retries = 0
     responses = [make_response(status_code=502)] * 5 + [make_response(status_code=200, text='ok')]

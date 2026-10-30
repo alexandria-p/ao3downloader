@@ -8,6 +8,7 @@ These run the real helper code over a real library folder, with only ao3 faked b
 bookmarks page from the fixtures.
 """
 
+import re
 import json
 import os
 from unittest.mock import MagicMock, patch
@@ -293,7 +294,8 @@ def log_of_a_new_run(root: str, action: str) -> list[str]:
     before = set(records(root))
     run(root, action)
     [record] = [r for i, r in records(root).items() if i not in before]
-    return record['log']
+    # each line starts with when it was said; these tests are about what was said
+    return [re.sub(r'^\[[^\]]*\] ', '', x) for x in record['log']]
 
 
 def test_the_cleanup_says_it_is_linking_and_how_many_works_it_linked(bookmarked):
@@ -317,8 +319,9 @@ def test_a_collection_run_says_it_too(bookmarked, works):
     run_collection(bookmarked, works=works)
     [record] = [r for i, r in records(bookmarked).items() if i not in before]
 
-    assert strings.AO3_INFO_COLLECTIONS_LINKING in record['log']
-    assert any(x.endswith('linked to your collections') for x in record['log'])
+    log = [re.sub(r'^\[[^\]]*\] ', '', x) for x in record['log']]
+    assert strings.AO3_INFO_COLLECTIONS_LINKING in log
+    assert any(x.endswith('linked to your collections') for x in log)
 
 
 def test_nothing_to_link_says_nothing_about_linking(bookmarked):

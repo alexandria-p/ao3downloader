@@ -55,6 +55,17 @@ def now() -> str:
     return datetime.datetime.now().replace(microsecond=0).isoformat()
 
 
+def stamped(text: str) -> str:
+    """One line of a run's log as it is kept: the moment it was said, then what was said.
+
+    Stamped when the line is said, not when it is saved - a log is saved in batches, and a
+    line held until the record exists would otherwise carry the record's time. Local time,
+    like every other date in a record, written with a space so the log reads as a log.
+    """
+
+    return f'[{now().replace("T", " ")}] {text}'
+
+
 class RunRecord:
     """What one run did, written as it happens.
 
@@ -126,7 +137,8 @@ class RunRecord:
             # written the moment they are marked, so a run that dies first still says which
             'removals': [],
             # everything the run printed, in order - the same account the modal shows,
-            # kept because the modal is gone once the tab is closed
+            # kept because the modal is gone once the tab is closed. every line starts with
+            # when it was said (`stamped`); `printed` arrives stamped already, by `run_job`
             'log': list(printed or []),
             # how many lines had to be dropped to stay under the ceiling, so a trimmed log
             # says so rather than silently beginning in the middle
@@ -189,7 +201,7 @@ class RunRecord:
 
         try:
             log = self.data['log']
-            log.append(text)
+            log.append(stamped(text))
             if len(log) > LOG_MAX_LINES:
                 # the end is where whatever went wrong is, so the start is what gives way
                 dropped = len(log) - LOG_MAX_LINES
