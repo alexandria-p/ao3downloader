@@ -92,7 +92,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1645 python passed; 683 gui passed**, on Windows and on Linux alike - the hosted
+Current: **1645 python passed; 689 gui passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1850,6 +1850,14 @@ puts it back if the write fails. Hidden works are left out before any filter (`v
 not counted as a filter - the heading says how many are hidden - and **Show hidden works**
 brings them back dimmed with **Unhide**. The warning before hiding says what it does and how
 to undo it, and can be turned off (`ao3.hideWarningOff`, per browser).
+
+**Ticked works hide and unhide together**, from the selection bar, which offers only what
+applies (`tickedShowing` / `tickedHidden`): Hide or Unhide for one ticked work, Hide all when
+all are showing, Unhide all when all are hidden, and **both** for a mix - each acting only on
+the ticked works it names. `Library.hide`/`unhide` take a list and write the file once. Hiding
+several goes through the same warning (`confirmingHide` holds a list); unhiding asks nothing,
+since it loses nothing. Hidden works can only be ticked while Show hidden works is on, as they
+are not in the listing otherwise.
 
 ### Filtering by tag reads the index already in memory
 

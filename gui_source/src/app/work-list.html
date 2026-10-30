@@ -203,6 +203,13 @@
             Remove from this collection
           </button>
         }
+        <!-- only what applies: Hide for what is showing, Unhide for what is hidden, both for a mix -->
+        @if (tickedShowing().length) {
+          <button type="button" class="button" [disabled]="busy()" (click)="hideTicked()">{{ hideLabel() }}</button>
+        }
+        @if (tickedHidden().length) {
+          <button type="button" class="button" [disabled]="busy()" (click)="unhideTicked()">{{ unhideLabel() }}</button>
+        }
       }
     </p>
 
@@ -251,16 +258,20 @@
   <p class="error" role="alert">Not saved: {{ hideProblem() }}</p>
 }
 
-@if (confirmingHide(); as work) {
+@if (confirmingHide(); as works) {
   <div class="hide-modal">
     <div class="backdrop" (click)="cancelHide()"></div>
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="hide-title">
-      <header><h2 id="hide-title">Hide this from the list?</h2></header>
+      <header><h2 id="hide-title">{{ works.length === 1 ? 'Hide this from the list?' : 'Hide these ' + works.length + ' works from the list?' }}</h2></header>
       <section class="body">
-        <p><strong>{{ work.title }}</strong> will no longer show in your lists.</p>
+        @if (works.length === 1) {
+          <p><strong>{{ works[0].title }}</strong> will no longer show in your lists.</p>
+        } @else {
+          <p>The <strong>{{ works.length | number }} works</strong> you ticked will no longer show in your lists.</p>
+        }
         <p>
-          Nothing is deleted: its downloaded files and its index entry stay in your library just
-          as they are, and runs carry on keeping it up to date.
+          Nothing is deleted: their downloaded files and index entries stay in your library just
+          as they are, and runs carry on keeping them up to date.
         </p>
         <p class="hint">
           To find it again, open <strong>Filter</strong> and tick <strong>Show hidden works</strong>.
@@ -274,7 +285,7 @@
       </section>
       <footer>
         <button type="button" class="button" (click)="cancelHide()">Cancel</button>
-        <button type="button" class="button primary" (click)="confirmHide()">Hide it</button>
+        <button type="button" class="button primary" (click)="confirmHide()">{{ works.length === 1 ? 'Hide it' : 'Hide them' }}</button>
       </footer>
     </div>
   </div>

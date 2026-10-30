@@ -104,9 +104,10 @@ describe('the listing, with works from elsewhere and works hidden', () => {
     fixture.detectChanges();
   }
 
-  async function listing(works: Bookmark[]) {
+  async function listing(works: Bookmark[], selectable = false) {
     fixture = TestBed.createComponent(WorkList);
     fixture.componentRef.setInput('works', works);
+    fixture.componentRef.setInput('selectable', selectable);
     await settle();
     element = fixture.nativeElement as HTMLElement;
   }
@@ -244,6 +245,114 @@ describe('the listing, with works from elsewhere and works hidden', () => {
     await listing([MINE]);
     expect(element.querySelector('button.hide-toggle')).toBeNull();
   });
+
+  // region hiding and unhiding ticked works
+
+  async function showHidden() {
+    const show = element.querySelector<HTMLInputElement>('input[name="showHidden"]')!;
+    show.checked = true;
+    show.dispatchEvent(new Event('change'));
+    await settle();
+  }
+
+  async function tick(...titlesToTick: string[]) {
+    for (const title of titlesToTick) {
+      blurb(title).querySelector<HTMLInputElement>('input.pick')!.dispatchEvent(new Event('change'));
+    }
+    await settle();
+  }
+
+  /** what the ticked-works bar offers for hiding, by label */
+  function offered(): string[] {
+    return [...element.querySelectorAll('.selection-bar button')]
+      .map((b) => b.textContent?.trim() ?? '')
+      .filter((label) => /hide/i.test(label));
+  }
+
+  it('offers Hide for one showing work, and Unhide for one hidden work', async () => {
+    await library.hide(BY_LINK);
+    await listing([MINE, BY_LINK], true);
+    await showHidden();
+
+    await tick('Work 1');
+    expect(offered()).toEqual(['Hide']);
+
+    await tick('Work 1', 'Work 3');
+    expect(offered()).toEqual(['Unhide']);
+  });
+
+  it('offers Hide all when every ticked work is showing, Unhide all when every one is hidden', async () => {
+    await library.hide([BY_LINK, IN_COLLECTION]);
+    await listing([MINE, OLD, BY_LINK, IN_COLLECTION], true);
+    await showHidden();
+
+    await tick('Work 1', 'Work 2');
+    expect(offered()).toEqual(['Hide all']);
+
+    await tick('Work 1', 'Work 2', 'Work 3', 'Work 4');
+    expect(offered()).toEqual(['Unhide all']);
+  });
+
+  it('offers both Hide all and Unhide all when the ticked works are a mix', async () => {
+    await library.hide(BY_LINK);
+    await listing([MINE, OLD, BY_LINK], true);
+    await showHidden();
+
+    await tick('Work 1', 'Work 3');
+
+    expect(offered()).toEqual(['Hide all', 'Unhide all']);
+  });
+
+  it('hides every ticked work after one warning, in a single write', async () => {
+    await listing([MINE, OLD, BY_LINK], true);
+    let writes = 0;
+    const write = store.write.bind(store);
+    store.write = async (path, body) => {
+      writes++;
+      return write(path, body);
+    };
+    await tick('Work 1', 'Work 2');
+
+    [...element.querySelectorAll<HTMLButtonElement>('.selection-bar button')].find((b) => b.textContent?.trim() === 'Hide all')!.click();
+    await settle();
+    expect(element.querySelector('.hide-modal h2')?.textContent).toContain('Hide these 2 works');
+    button('Hide them').click();
+    await settle();
+
+    expect(writtenHidden().sort()).toEqual(['individual work:1', 'individual work:2']);
+    expect(writes).toBe(1);
+    expect(titles()).toEqual(['Work 3']);
+    expect(element.textContent).toContain('Hid 2 works.');
+  });
+
+  it('keeps the works ticked and hides nothing when the warning is cancelled', async () => {
+    await listing([MINE, OLD], true);
+    await tick('Work 1', 'Work 2');
+
+    [...element.querySelectorAll<HTMLButtonElement>('.selection-bar button')].find((b) => b.textContent?.trim() === 'Hide all')!.click();
+    await settle();
+    button('Cancel').click();
+    await settle();
+
+    expect(store.files.has(HIDDEN_FILE)).toBe(false);
+    expect(element.querySelectorAll('input.pick:checked')).toHaveLength(2);
+  });
+
+  it('unhides only the ticked works that were hidden, with no warning', async () => {
+    await library.hide([BY_LINK, IN_COLLECTION]);
+    await listing([MINE, BY_LINK, IN_COLLECTION], true);
+    await showHidden();
+    await tick('Work 1', 'Work 3');
+
+    [...element.querySelectorAll<HTMLButtonElement>('.selection-bar button')].find((b) => b.textContent?.trim() === 'Unhide all')!.click();
+    await settle();
+
+    expect(element.querySelector('.hide-modal')).toBeNull();
+    expect(writtenHidden()).toEqual(['individual work:4']);
+    expect(element.textContent).toContain('Unhid 1 work.');
+  });
+
+  // endregion
 
   it('reads back what was hidden when the library is opened again', async () => {
     await library.hide(BY_LINK);

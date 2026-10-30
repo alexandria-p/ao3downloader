@@ -293,8 +293,8 @@ export class WorkList {
   /** hiding is saved in the library, so only where the page can write to it */
   protected readonly canHide = computed(() => !!this.library.store());
 
-  /** the work the 'are you sure' is about, while it is up */
-  protected readonly confirmingHide = signal<Bookmark | null>(null);
+  /** the works the 'are you sure' is about, while it is up - one, or every one ticked */
+  protected readonly confirmingHide = signal<Bookmark[] | null>(null);
   protected readonly dontWarnAgain = signal(false);
   protected readonly hideProblem = signal('');
 
@@ -325,24 +325,27 @@ export class WorkList {
   /** the warning first, unless it has been turned off - then straight to hiding */
   protected askHide(work: Bookmark): void {
     this.hideProblem.set('');
+    this.hidingTicked = false;
     if (safeGet(HIDE_WARNING_KEY) === 'off') {
-      void this.doHide(work);
+      void this.doHide([work]);
       return;
     }
     this.dontWarnAgain.set(false);
-    this.confirmingHide.set(work);
+    this.confirmingHide.set([work]);
   }
 
   protected async confirmHide(): Promise<void> {
-    const work = this.confirmingHide();
-    if (!work) return;
+    const works = this.confirmingHide();
+    if (!works) return;
     if (this.dontWarnAgain()) safeSet(HIDE_WARNING_KEY, 'off');
     this.confirmingHide.set(null);
-    await this.doHide(work);
+    await this.doHide(works);
   }
 
+  /** nothing is hidden, and anything ticked stays ticked */
   protected cancelHide(): void {
     this.confirmingHide.set(null);
+    this.hidingTicked = false;
   }
 
   protected async unhide(work: Bookmark): Promise<void> {
@@ -354,13 +357,67 @@ export class WorkList {
     }
   }
 
-  private async doHide(work: Bookmark): Promise<void> {
+  /** whether the hide waiting on the warning is the ticked works, so a hide can clear them */
+  private hidingTicked = false;
+
+  private async doHide(works: Bookmark[]): Promise<void> {
     try {
-      await this.library.hide(work);
+      await this.library.hide(works);
+      if (this.hidingTicked) {
+        this.selected.set(new Set());
+        this.outcome.set(`Hid ${worksCount(works.length)}. Tick Show hidden works under Filter to see them again.`);
+      }
+    } catch (error) {
+      this.hideProblem.set(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.hidingTicked = false;
+    }
+  }
+
+  // region hiding and unhiding what is ticked
+
+  /**
+   * The ticked works that are hidden and that are showing - which decides what the bar offers:
+   * one ticked work is offered Hide or Unhide; several all showing, Hide all; several all
+   * hidden, Unhide all; and a mix, both. Hidden works can only be ticked while Show hidden
+   * works is on, since otherwise they are not in the listing at all.
+   */
+  protected readonly tickedHidden = computed(() => this.selectedShown().filter((w) => this.isHidden(w)));
+  protected readonly tickedShowing = computed(() => this.selectedShown().filter((w) => !this.isHidden(w)));
+  protected readonly hideLabel = computed(() => (this.selectedShown().length === 1 ? 'Hide' : 'Hide all'));
+  protected readonly unhideLabel = computed(() => (this.selectedShown().length === 1 ? 'Unhide' : 'Unhide all'));
+
+  /** hide every ticked work that is showing - after the same warning a single hide has */
+  protected hideTicked(): void {
+    const works = this.tickedShowing();
+    if (!works.length || this.busy()) return;
+    this.hideProblem.set('');
+    this.outcome.set('');
+    this.hidingTicked = true;
+    if (safeGet(HIDE_WARNING_KEY) === 'off') {
+      void this.doHide(works);
+      return;
+    }
+    this.dontWarnAgain.set(false);
+    this.confirmingHide.set(works);
+  }
+
+  /** show every ticked hidden work again - nothing is lost by it, so no warning */
+  protected async unhideTicked(): Promise<void> {
+    const works = this.tickedHidden();
+    if (!works.length || this.busy()) return;
+    this.hideProblem.set('');
+    this.outcome.set('');
+    try {
+      await this.library.unhide(works);
+      this.selected.set(new Set());
+      this.outcome.set(`Unhid ${worksCount(works.length)}.`);
     } catch (error) {
       this.hideProblem.set(error instanceof Error ? error.message : String(error));
     }
   }
+
+  // endregion
 
   // endregion
 
@@ -676,4 +733,9 @@ function countOf(items: { works: string[]; externals: string[] }): string {
   if (!items.externals.length) return say(items.works.length, 'work');
   if (!items.works.length) return say(items.externals.length, 'external work');
   return `${say(items.works.length, 'work')} and ${say(items.externals.length, 'external work')}`;
+}
+
+/** '1 work', '3 works' */
+function worksCount(n: number): string {
+  return `${n.toLocaleString()} ${n === 1 ? 'work' : 'works'}`;
 }

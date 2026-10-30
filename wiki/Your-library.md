@@ -58,7 +58,7 @@ A collection's file records what it holds, by number: `work_ids`, `bookmark_ids`
 
 **Not just your bookmarks.** The Bookmarks list shows every fic in your index. One that isn't an AO3 bookmark of yours - downloaded by its link, or brought in by a collection - has a badge saying so, and **Came from** in the Filter narrows by it.
 
-**Hiding a fic.** The eye button hides it from your lists; its files stay. To get it back, tick **Show hidden works** in the Filter and press **Unhide**.
+**Hiding a fic.** The eye button hides it from your lists; its files stay. To get it back, tick **Show hidden works** in the Filter and press **Unhide**. Ticked fics can be hidden or unhidden together: the bar offers **Hide**/**Unhide** for one, **Hide all**/**Unhide all** for several, and both when they're a mix.
 
 **Filtering the list.** The **Filter** panel narrows by title, author, dates and bookmark type, and by tag: **Include** and **Exclude**, each with a fold per kind (Ratings, Warnings, Categories, Fandoms, Characters, Relationships, Additional Tags) and a box that suggests any tag in your library as you type. Every included tag must be on a work, and no excluded one. When a run you're watching ends, the list updates itself.
 

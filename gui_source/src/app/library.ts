@@ -627,25 +627,33 @@ export class Library {
     }
   }
 
-  /** Hide a work from the listing. Its files and its index entry are left as they are. */
-  async hide(work: Bookmark): Promise<void> {
-    if (!work.id) return;
+  /**
+   * Hide works from the listing - one, or every one ticked - in a single write. Their files and
+   * index entries are left as they are; one already hidden keeps when it was hidden.
+   */
+  async hide(given: Bookmark | Bookmark[]): Promise<void> {
+    const works = (Array.isArray(given) ? given : [given]).filter((w) => w.id);
     const next = new Map(this.hidden());
-    next.set(hiddenKey(work), {
-      key: hiddenKey(work),
-      id: work.id,
-      kind: bookmarkTypeOf(work),
-      title: work.title ?? '',
-      authors: work.authors ?? [],
-      hidden_on: new Date().toISOString(),
-    });
-    await this.saveHidden(next);
+    const now = new Date().toISOString();
+    for (const work of works) {
+      if (next.has(hiddenKey(work))) continue;
+      next.set(hiddenKey(work), {
+        key: hiddenKey(work),
+        id: work.id!,
+        kind: bookmarkTypeOf(work),
+        title: work.title ?? '',
+        authors: work.authors ?? [],
+        hidden_on: now,
+      });
+    }
+    if (next.size !== this.hidden().size) await this.saveHidden(next);
   }
 
-  async unhide(work: Bookmark): Promise<void> {
+  /** Show works in the listing again - one, or every one ticked - in a single write. */
+  async unhide(given: Bookmark | Bookmark[]): Promise<void> {
     const next = new Map(this.hidden());
-    next.delete(hiddenKey(work));
-    await this.saveHidden(next);
+    for (const work of Array.isArray(given) ? given : [given]) next.delete(hiddenKey(work));
+    if (next.size !== this.hidden().size) await this.saveHidden(next);
   }
 
   /** shown at once and written to the library; if the write fails the change is undone */
