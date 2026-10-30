@@ -1,0 +1,157 @@
+/* laid out as ao3's own Sort and Filter panel: a fold per kind, then a box to type into */
+
+.tag-filter {
+  position: relative;
+  min-width: 0;
+}
+
+h4 {
+  margin: 0 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.kind {
+  border-bottom: 1px solid var(--border);
+}
+
+.kind summary {
+  padding: 5px 0;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.kind ul {
+  margin: 0 0 6px;
+  padding: 0 0 0 4px;
+  list-style: none;
+}
+
+.kind li label {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.kind li label.unavailable {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.count,
+.kind-label,
+.none {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.other {
+  display: block;
+  margin-top: 8px;
+}
+
+.other span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.other input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.other input:focus {
+  outline: 2px solid #5a7f9a;
+  outline-offset: -1px;
+}
+
+.suggestions {
+  position: absolute;
+  z-index: 5;
+  right: 0;
+  left: 0;
+  max-height: 320px;
+  margin: 2px 0 0;
+  padding: 2px 0;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  list-style: none;
+}
+
+.suggestions li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.suggestions li.active,
+.suggestions li:hover {
+  background: var(--surface-2);
+}
+
+.suggestions strong {
+  color: var(--text-strong);
+}
+
+.none {
+  margin: 4px 0 0;
+}
+
+.chosen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.78rem;
+}
+
+.chip-kind {
+  color: var(--text-dim);
+}
+
+.chip-remove {
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chip-remove:hover {
+  color: var(--text-strong);
+}

@@ -303,9 +303,19 @@ The helper exists because a web page cannot do this work itself. Ao3 sends no CO
 
 The page has four tabs. **Bookmarks** and **Collections** each carry the buttons that fill them; **History** lists what past runs did, read back from the `runs` folder inside your downloads folder - one json file per run, holding which button, the settings and file types it ran with, which fics it touched, and anything it could not get; **FAQ** covers what does and does not survive a download, how indexing works, and the file naming rule.
 
-The listing has a **Filter** panel above it, collapsed until you want it. You can narrow by title, by author, by when AO3 last updated the work, and by when you bookmarked it. Title and author are case-insensitive and match any part of the name; both date ranges count their end days, and either end can be left empty. Everything filled in has to match. You can also sort by date bookmarked or date created, newest or oldest first; works with no date for that field go last either way. Date created is usually empty, because it is only recorded by a per-fic lookup this app does not run, and the panel says so when a sort has nothing to work with. This reads what is already in your folder, so it costs no requests and works with the helper stopped - and the heading says `(filtered from N)` while a filter is on, so a short listing is never mistaken for a small library. A work whose date AO3 never recorded is left out of a date range, because there is nothing to compare it against. The same panel appears on the works inside a collection.
+The listing has a **Filter** panel above it, collapsed until you want it. You can narrow by title, by author, by when AO3 last updated the work, and by when you bookmarked it. Title and author are case-insensitive and match any part of the name; both date ranges count their end days, and either end can be left empty. Everything filled in has to match. You can also sort by date bookmarked, date updated on AO3 or date created, newest or oldest first; works with no date for that field go last either way. Date created is usually empty, because it is only recorded by a per-fic lookup this app does not run, and the panel says so when a sort has nothing to work with. This reads what is already in your folder, so it costs no requests and works with the helper stopped - and the heading says `(filtered from N)` while a filter is on, so a short listing is never mistaken for a small library. A work whose date AO3 never recorded is left out of a date range, because there is nothing to compare it against. The same panel appears on the works inside a collection.
 
-The **Bookmarks** tab lists your indexed bookmarks and has:
+The panel also filters by tag, laid out like AO3's own Sort and Filter: an **Include** half and an **Exclude** half, side by side. Each has a fold per kind of tag - Ratings, Warnings, Categories, Fandoms, Characters, Relationships, Additional Tags - offering the listing's ten most-used tags of that kind to tick, with how many works carry each. Below them, **Other tags to include** (or exclude) suggests any tag in your library as you type, those starting with what you typed first, each labelled with its kind; pick one with a click, or the arrow keys and Enter. A work is shown only if it has **every** included tag and **none** of the excluded ones, and a tag is matched within its own kind, so a character is never mistaken for a fandom of the same name. Tags are read from your index, which is already loaded, so nothing is fetched and it is quick even on a large library.
+
+When a run you are watching ends, the listing takes in what it changed - new and updated fics, their tags, their downloaded files - without reopening the library. A run left going in the background shows up the next time the library is opened.
+
+A work's title opens its downloaded html, or the work on AO3 when there is none. Beside the title is a button for each other format downloaded for it - **PDF**, **EPUB**, **MOBI**, **AZW3**. PDF opens in a new tab. A browser cannot show an e-book, so EPUB, MOBI and AZW3 are saved under their own file name instead, for your e-reader to open.
+
+The **Bookmarks** tab lists your indexed bookmarks, and every other fic in your index too - one downloaded by its link, or one an indexed collection brought in - so everything in your library can be found in one place. Those that are not your AO3 bookmarks carry a badge saying where they came from (**Not in your AO3 bookmarks**, or **From the collection ...**), and the Filter panel's **Came from** narrows to your AO3 bookmarks, an AO3 collection, or imported or other. A fic in the index only because a bookmarked series holds it is still shown in that series' card rather than on its own.
+
+The eye button in a fic's bottom corner **hides** it from your lists. Nothing is deleted - its files and index entry stay exactly as they are, and runs keep it up to date - and the page warns you of that first (a box turns the warning off). To find a hidden fic again, open **Filter** and tick **Show hidden works**: hidden fics are then shown dimmed and marked **Hidden**, with an **Unhide** button. The heading says how many are hidden. Ticked fics can be hidden or unhidden together too: the bar above the list offers only what applies - **Hide** or **Unhide** for one fic, **Hide all** when every ticked fic is showing, **Unhide all** when every one is hidden, and both when they are a mix. Hiding several asks once, and unhiding never asks, since nothing is lost by it. Which fics are hidden is kept in `hidden-works.json` in your library, so a library in Dropbox hides the same fics on every device.
+
+The **Bookmarks** tab has:
 
 - **Quick Scan** - a full scan that stops early. It indexes in two walks, both back to the day your last qualifying scan started: first your bookmarks **sorted by date bookmarked**, stopping at the first one you bookmarked before that day - which catches old fics you have only just bookmarked - then your bookmarks **sorted by when AO3 last updated each work**, stopping at the first one last updated before that day - which catches fics you bookmarked long ago that have changed since. It then reads your existing files and downloads or updates whatever either walk found, each fic once. A fic bookmarked or updated on that day itself is still indexed. With no earlier scan to measure from, the first walk reads everything and the second is skipped.
 
@@ -400,6 +410,7 @@ Inside your downloads folder:
 | the folder itself | The works: html, epub, pdf and so on. |
 | `<!--CHECK-->images<!--IMAGE_FOLDER_NAME-->/` | Images embedded in works, if you asked for them. |
 | `<!--CHECK-->collections<!--COLLECTIONS_FOLDER_NAME-->/` | One json file per collection, if you have synced them. |
+| `hidden-works.json` | The works you hid from the listing in the page, if any. Only the page reads it. |
 
 ### How files are named
 
@@ -624,6 +635,67 @@ collection yuletide2024 still has 4021 works, so the saved ones are kept
 Works, bookmarked items and subcollections are each judged on their own count, so a collection whose works are unchanged but which has gained a bookmark only re-walks the bookmarks.
 
 The one case this cannot see is a collection that had one work added and another removed between runs, leaving the total unchanged. **Delete that collection's json file to force a full crawl.** A crawl that failed or was stopped is never mistaken for a complete one: nothing is written for a collection you stopped on, and a failed listing is stored as an empty list, which is always re-fetched.
+
+#### Your own collections
+
+Besides the collections indexed from AO3, you can make your own in the page:
+
+- **+ New collection** on the Collections tab makes an empty one.
+- Tick works in any listing - your bookmarks, or the works in a collection - and choose
+  **Add to a collection**: pick one of yours, or **+ A new collection...** to make one that
+  starts with what you ticked. Closing that window without saving makes nothing, and your works
+  stay ticked.
+- A work is in a collection once. Adding it again leaves it where it is, and the page says how
+  many were already there.
+- Inside one of your own, tick works and choose **Remove from this collection** to take them
+  out, or **Edit collection** to change what it says about itself.
+
+The collection window asks for a name (required), a description and tags. **Show every field
+AO3 collections have** adds maintainers, the kind of challenge, Closed, Moderated, Unrevealed,
+Anonymous, Multifandom, and when it was created and active since. Your collections are marked
+with a gold star and a **Your collection** badge on the Collections tab.
+
+Only your own collections can be changed. A collection from AO3 shows what AO3 says it holds,
+so nothing is added to it or taken from it here, and it is never offered as a place to add to.
+
+Each one is a json file in `collections/custom/`, named for an id the page gives it
+(`custom-` and ten letters and digits; AO3 collection names never have a hyphen, so the two
+cannot clash). It is shaped like an AO3 collection file and says `"custom": true`:
+
+```json
+{
+  "name": "custom-3fa91c07d2",
+  "custom": true,
+  "link": null,
+  "title": "Comfort reads",
+  "description": "",
+  "tags": ["fluff"],
+  "maintainers": [],
+  "challenge_type": "No Challenge",
+  "closed": false,
+  "moderated": false,
+  "unrevealed": false,
+  "anonymous": false,
+  "multifandom": null,
+  "flags": ["Open", "Unmoderated"],
+  "created": "2026-10-29",
+  "active_since": "",
+  "work_ids": ["34816549", "99"],
+  "bookmark_ids": [],
+  "external_ids": [],
+  "last_modified": "2026-10-29T14:02:11.000Z"
+}
+```
+
+Works and external works can be added; series cannot. Series can still be ticked - to hide
+them with the rest - and adding with series ticked first names them and asks whether to add
+everything else without them. Each fic also has a **⋯** menu in its bottom corner, offering the
+same for that fic alone: Hide or Unhide, and Add to a collection (greyed out for a series, with
+a note on hover saying why). The helper never reads
+`collections/custom/`, so a run never changes these files, and a work in one is not recorded
+as being in that collection in its own index entry (`from_collections` is for AO3 collections
+only). Ticking works needs a library the page can write to - a folder opened with Chrome or
+Edge, or Dropbox.
 
 ## Getting Rate Limited
 

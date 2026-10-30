@@ -388,6 +388,7 @@
       [owner]="owner()"
       label="Bookmarks"
       [note]="retrieved() ? 'Last indexed ' + retrieved() + '.' : ''"
+      [selectable]="true"
     />
   } @else if ((!isEmpty() || mode() === 'dropbox') && !loading()) {
     <p class="notice">

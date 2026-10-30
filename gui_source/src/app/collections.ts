@@ -50,6 +50,20 @@ export interface Collection {
   external_ids: string[];
   /** present when the crawl could not read part of the collection */
   error?: string;
+  /**
+   * True for a collection made in this app rather than read from ao3 (`custom-collections.ts`).
+   * Absent on every collection ao3 gave us, which is all of them before custom ones existed.
+   * Said outright rather than implied by a missing link: an older ao3 file can lack `link`
+   * too, and `collectionLink` builds one from its name.
+   */
+  custom?: boolean;
+  /** when a custom collection was last changed in this app; ao3's have `last_indexed` */
+  last_modified?: string;
+}
+
+/** whether a collection was made in this app, and so can be added to or taken from */
+export function isCustomCollection(collection: Collection): boolean {
+  return collection.custom === true;
 }
 
 /**
@@ -109,7 +123,9 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+/** the collection on ao3 - or '' for a custom one, which ao3 has never heard of */
 export function collectionLink(collection: Collection): string {
+  if (isCustomCollection(collection)) return '';
   return collection.link || `${AO3_BASE_URL}/collections/${collection.name ?? ''}`;
 }
 

@@ -4,10 +4,11 @@ Your library is one folder - on your computer, or `/Apps/ao3-downloader` in Drop
 
 | Folder | Holds |
 | --- | --- |
-| `works/` | Downloaded fics: html, epub, pdf... |
+| `works/` | Downloaded fics: html, epub, pdf... The listing shows a button per format beside each title: PDF opens in a tab, EPUB, MOBI and AZW3 are saved for your e-reader. |
 | `indexing/` | The index: one JSON file per work, plus `series/` and `external/` |
 | `collections/` | One JSON file per collection |
 | `runs/` | One JSON file per run - the History tab |
+| `hidden-works.json` | The fics you hid from the list (only the page reads it) |
 | `images/` | Images saved separately, if you asked for them |
 
 ## File names
@@ -54,5 +55,13 @@ Each fic's JSON keeps a history: a new reading is added only when something chan
 ## Collection files
 
 A collection's file records what it holds, by number: `work_ids`, `bookmark_ids`, `external_ids` (external works have their own numbering) and `series_ids`. Opening a collection in the page shows the works you have indexed in full, and the rest by number with a link to AO3.
+
+**Not just your bookmarks.** The Bookmarks list shows every fic in your index. One that isn't an AO3 bookmark of yours - downloaded by its link, or brought in by a collection - has a badge saying so, and **Came from** in the Filter narrows by it.
+
+**Hiding a fic.** The eye button hides it from your lists; its files stay. To get it back, tick **Show hidden works** in the Filter and press **Unhide**. Each fic has a **⋯** menu too, with Hide/Unhide and Add to a collection for that fic. Series can be ticked and hidden, but not added to a collection - adding with one ticked tells you which series will be left out and asks first. Ticked fics can be hidden or unhidden together: the bar offers **Hide**/**Unhide** for one, **Hide all**/**Unhide all** for several, and both when they're a mix.
+
+**Filtering the list.** The **Filter** panel narrows by title, author, dates and bookmark type, and by tag: **Include** and **Exclude**, each with a fold per kind (Ratings, Warnings, Categories, Fandoms, Characters, Relationships, Additional Tags) and a box that suggests any tag in your library as you type. Every included tag must be on a work, and no excluded one. When a run you're watching ends, the list updates itself.
+
+**Your own collections.** Make one with **+ New collection** on the Collections tab, or tick works in any listing and choose **Add to a collection** (one of yours, or **+ A new collection...**; closing that window unsaved makes nothing and keeps your ticks). A work is only ever in a collection once. Inside one of yours, **Remove from this collection** takes ticked works out and **Edit collection** changes its name, description and tags - **Show every field AO3 collections have** offers the rest. They have a gold star and a **Your collection** badge, and live in `collections/custom/` with `"custom": true`. Collections from AO3 can't be changed. Ticking needs a library the page can save to: a folder opened in Chrome or Edge, or Dropbox.
 
 Re-indexing a collection whose counts haven't changed costs two requests, not hundreds. The one thing that misses is a work added and another removed between runs - delete the collection's JSON to force a full read.

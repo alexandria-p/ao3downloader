@@ -150,7 +150,7 @@ describe('App', () => {
     await TestBed.configureTestingModule({ imports: [App] }).compileComponents();
     TestBed.inject(Library).data.set(null);
     TestBed.inject(Library).collections.set([]);
-    TestBed.inject(Library).htmlFiles.set(new Map());
+    TestBed.inject(Library).copies.update((c) => ({ ...c, html: new Map() }));
   });
 
   it('leads with the everyday run and then the thorough one', async () => {
@@ -592,7 +592,7 @@ describe('App', () => {
   it('links a title to its downloaded copy when the folder has one', async () => {
     const library = TestBed.inject(Library);
     library.data.set(exportOf(1));
-    library.htmlFiles.set(new Map([['1', new File(['<html></html>'], '1 Work 1 - Writer.html')]]));
+    library.copies.update((c) => ({ ...c, html: new Map([['1', new File(['<html></html>'], '1 Work 1 - Writer.html')]]) }));
 
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();

@@ -2,6 +2,8 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { Library } from './library';
 import { WorkList } from './work-list';
+import { CollectionEditor } from './collection-editor';
+import { CustomCollections } from './custom-collections';
 import { Bookmark, pageItems, paragraphs, placeholderExternal, placeholderWork } from './bookmarks';
 import {
   Collection,
@@ -9,6 +11,7 @@ import {
   collectionLink,
   collectionNameFromLink,
   historyLength,
+  isCustomCollection,
 } from './collections';
 
 const PER_PAGE = 20;
@@ -26,7 +29,7 @@ type Tab = 'works' | 'bookmarks';
  */
 @Component({
   selector: 'app-collections-view',
-  imports: [DecimalPipe, WorkList],
+  imports: [DecimalPipe, WorkList, CollectionEditor],
   styleUrl: './collections-view.css',
   templateUrl: './collections-view.html',
 })
@@ -34,6 +37,13 @@ export class CollectionsView {
   private readonly library = inject(Library);
 
   protected readonly collections = this.library.collections;
+  /** whether collections of your own can be made or changed: a library the page can write to */
+  protected readonly writable = inject(CustomCollections).writable;
+  /**
+   * The collection window, when it is open: 'new' to make one, or the custom collection
+   * being edited. Closing it without saving changes nothing.
+   */
+  protected readonly editing = signal<'new' | Collection | null>(null);
 
   /** the open collection, by ao3 name; null while the listing is showing */
   protected readonly openName = signal<string | null>(null);
@@ -80,7 +90,9 @@ export class CollectionsView {
     const byId = this.worksById();
     const works = this.openIds().map((id) => byId.get(id) ?? placeholderWork(id));
     const collection = this.open();
-    if (!collection || this.tab() !== 'bookmarks') return works;
+    // a collection of your own is one list - it has no works-versus-bookmarks split to show
+    const withExternals = !!collection && (isCustomCollection(collection) || this.tab() === 'bookmarks');
+    if (!collection || !withExternals) return works;
     // external works after the works: looked up among external works only, since the two
     // are numbered separately and external work 1 is not work 1
     const externals = this.library.externalsById();
@@ -89,6 +101,11 @@ export class CollectionsView {
       ...collection.external_ids.map((id) => externals.get(id) ?? placeholderExternal(id)),
     ];
   });
+
+  /** everything a custom collection holds: works, and external works */
+  protected itemCount(collection: Collection): number {
+    return collection.work_ids.length + collection.external_ids.length;
+  }
 
   /** everything among a collection's bookmarked items: works, and external works */
   protected bookmarkedCount(collection: Collection): number {
@@ -109,11 +126,15 @@ export class CollectionsView {
     );
   });
 
-  protected readonly emptyMessage = computed(() =>
-    this.tab() === 'works'
+  protected readonly emptyMessage = computed(() => {
+    const collection = this.open();
+    if (collection && isCustomCollection(collection)) {
+      return 'Nothing in this collection yet. Tick works on the Bookmarks tab, then Add to a collection.';
+    }
+    return this.tab() === 'works'
       ? 'No works were recorded for this collection.'
-      : 'No bookmarked items were recorded for this collection.',
-  );
+      : 'No bookmarked items were recorded for this collection.';
+  });
 
   // template helpers
   protected readonly paragraphs = paragraphs;
@@ -121,11 +142,24 @@ export class CollectionsView {
   protected readonly link = collectionLink;
   protected readonly nameFromLink = collectionNameFromLink;
   protected readonly historyLength = historyLength;
+  protected readonly isCustom = isCustomCollection;
 
   protected show(collection: Collection): void {
     this.openName.set(collection.name);
     this.tab.set('works');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  protected editorCollection(): Collection | null {
+    const editing = this.editing();
+    return editing === 'new' ? null : editing;
+  }
+
+  /** a new one is opened at once, to put works in; an edit stays where it was */
+  protected editorSaved(collection: Collection): void {
+    const wasNew = this.editing() === 'new';
+    this.editing.set(null);
+    if (wasNew) this.show(collection);
   }
 
   protected back(): void {

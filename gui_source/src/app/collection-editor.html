@@ -1,0 +1,107 @@
+<div class="backdrop" (click)="cancel()"></div>
+
+<form class="dialog" role="dialog" aria-modal="true" aria-labelledby="collection-editor-title" (submit)="save($event)">
+  <header>
+    <h2 id="collection-editor-title">{{ editing() ? 'Edit collection' : 'New collection' }}</h2>
+    <button type="button" class="close" aria-label="Close" [disabled]="busy()" (click)="cancel()">&times;</button>
+  </header>
+
+  <section class="body">
+    @if (!editing() && holding()) {
+      <p class="holding">
+        It will start with the {{ holding() }} {{ holding() === 1 ? 'work' : 'works' }} you ticked.
+      </p>
+    }
+
+    <label class="field">
+      <span>Name <em>(required)</em></span>
+      <input name="title" type="text" required [maxLength]="titleLimit" [value]="fields().title"
+        (input)="set('title', $any($event.target).value)" />
+    </label>
+
+    <label class="field">
+      <span>Description</span>
+      <textarea name="description" rows="3" [value]="fields().description"
+        (input)="set('description', $any($event.target).value)"></textarea>
+    </label>
+
+    <label class="field">
+      <span>Tags <em>(separated by commas)</em></span>
+      <input name="tags" type="text" [value]="tagsText()" (input)="tagsText.set($any($event.target).value)" />
+    </label>
+
+    <button type="button" class="linklike" [attr.aria-expanded]="advanced()" (click)="advanced.set(!advanced())">
+      {{ advanced() ? 'Hide the other fields' : 'Show every field AO3 collections have' }}
+    </button>
+
+    @if (advanced()) {
+      <div class="advanced">
+        <label class="field">
+          <span>Maintainers <em>(separated by commas)</em></span>
+          <input name="maintainers" type="text" [value]="maintainersText()"
+            (input)="maintainersText.set($any($event.target).value)" />
+        </label>
+
+        <label class="field">
+          <span>Challenge</span>
+          <select name="challengeType" [value]="fields().challenge_type"
+            (change)="set('challenge_type', $any($event.target).value)">
+            @for (type of challengeTypes; track type) {
+              <option [value]="type">{{ type }}</option>
+            }
+          </select>
+        </label>
+
+        <fieldset class="flags">
+          <legend>Shown as</legend>
+          <label><input type="checkbox" name="closed" [checked]="fields().closed"
+            (change)="set('closed', $any($event.target).checked)" /> Closed</label>
+          <label><input type="checkbox" name="moderated" [checked]="fields().moderated"
+            (change)="set('moderated', $any($event.target).checked)" /> Moderated</label>
+          <label><input type="checkbox" name="unrevealed" [checked]="fields().unrevealed"
+            (change)="set('unrevealed', $any($event.target).checked)" /> Unrevealed</label>
+          <label><input type="checkbox" name="anonymous" [checked]="fields().anonymous"
+            (change)="set('anonymous', $any($event.target).checked)" /> Anonymous</label>
+        </fieldset>
+
+        <label class="field">
+          <span>Multifandom</span>
+          <select name="multifandom" [value]="multifandomValue()" (change)="setMultifandom($any($event.target).value)">
+            <option value="">Not said</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+
+        <div class="dates">
+          <label class="field">
+            <span>Created</span>
+            <input name="created" type="date" [value]="fields().created"
+              (input)="set('created', $any($event.target).value)" />
+          </label>
+          <label class="field">
+            <span>Active since</span>
+            <input name="activeSince" type="date" [value]="fields().active_since"
+              (input)="set('active_since', $any($event.target).value)" />
+          </label>
+        </div>
+
+        <p class="hint">
+          How many works and fandoms it holds is counted from what you put in it, so there is
+          nothing to fill in for those.
+        </p>
+      </div>
+    }
+
+    @if (problem()) {
+      <p class="problem" role="alert">Not saved: {{ problem() }}</p>
+    }
+  </section>
+
+  <footer>
+    <button type="button" class="button" [disabled]="busy()" (click)="cancel()">Cancel</button>
+    <button type="submit" class="button primary" [disabled]="!canSave()">
+      {{ busy() ? 'Saving...' : editing() ? 'Save' : 'Create' }}
+    </button>
+  </footer>
+</form>

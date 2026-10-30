@@ -1,6 +1,12 @@
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
-import { Library, LocalCopy, OpenableFormat } from './library';
+import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, hiddenKey, viewableInBrowser } from './library';
+import { safeGet, safeSet } from './storage';
+import { Collection, isCustomCollection } from './collections';
+import { CollectionItems, CustomCollections, canCollect, canTick, itemsOf } from './custom-collections';
+import { CollectionEditor } from './collection-editor';
+import { TagFilter } from './tag-filter';
+import { TagChoice, buildTagIndex, matchesTags } from './tags';
 import {
   Bookmark,
   BookmarkType,
@@ -10,6 +16,9 @@ import {
   dateStamp,
   isEntryComplete,
   isWorkEntry,
+  ORIGINS,
+  Origin,
+  originOf,
   pageItems,
   paragraphs,
   placeholderWork,
@@ -20,7 +29,21 @@ import {
 const PER_PAGE = 20;
 
 /** the orderings the filter panel offers; '' is the order the folder was read in */
-export type WorkSort = '' | 'created-desc' | 'created-asc' | 'bookmarked-desc' | 'bookmarked-asc';
+export type WorkSort =
+  | ''
+  | 'created-desc'
+  | 'created-asc'
+  | 'bookmarked-desc'
+  | 'bookmarked-asc'
+  | 'updated-desc'
+  | 'updated-asc';
+
+/** the date each sort orders by */
+function sortField(sort: WorkSort): 'date_created' | 'date_bookmarked' | 'date_updated' {
+  if (sort.startsWith('created')) return 'date_created';
+  if (sort.startsWith('updated')) return 'date_updated';
+  return 'date_bookmarked';
+}
 
 /**
  * How the works are listed until someone asks otherwise: most recently bookmarked first,
@@ -37,7 +60,8 @@ export const DEFAULT_SORT: WorkSort = 'bookmarked-desc';
  */
 @Component({
   selector: 'app-work-list',
-  imports: [DecimalPipe, NgTemplateOutlet],
+  host: { '(document:click)': 'closeMenu()', '(document:keydown.escape)': 'closeMenu()' },
+  imports: [DecimalPipe, NgTemplateOutlet, CollectionEditor, TagFilter],
   styleUrl: './work-list.css',
   templateUrl: './work-list.html',
 })
@@ -52,9 +76,15 @@ export class WorkList {
   readonly emptyMessage = input('This export has no works in it.');
   /** shown under the heading, above the listing */
   readonly note = input('');
+  /** whether works can be ticked and put in a custom collection */
+  readonly selectable = input(false);
+  /** the collection being shown, when it is one: a custom one can have works taken out */
+  readonly collection = input<Collection | null>(null);
+
+  private readonly custom = inject(CustomCollections);
 
   protected readonly htmlFiles = this.library.htmlFiles;
-  protected readonly pdfFiles = this.library.pdfFiles;
+  private readonly copies = this.library.copies;
 
   // What to narrow the listing to. All four are 'no opinion' when empty, so an untouched
   // panel shows everything - the filters are for finding something, not for hiding things
@@ -67,6 +97,20 @@ export class WorkList {
   protected readonly bookmarkedTo = signal('');
   /** one kind of bookmark only - works, series or external works - or '' for all of them */
   protected readonly typeFilter = signal<'' | BookmarkType>('');
+  /** where a work came from - your bookmarks, a collection, anything else - or '' for all */
+  protected readonly originFilter = signal<'' | Origin>('');
+  /** hidden works are left out unless this is ticked - and then shown, marked as hidden */
+  protected readonly showHidden = signal(false);
+  /** tags a work must carry, every one of them, and tags it must not carry - as on ao3 */
+  protected readonly includeTags = signal<TagChoice[]>([]);
+  protected readonly excludeTags = signal<TagChoice[]>([]);
+  /**
+   * Whether the Filter panel is open. The tag filters are only drawn while it is, so a listing
+   * nobody filters never counts its tags.
+   */
+  protected readonly filtersOpen = signal(false);
+  /** this listing's tags by kind, for the folds to tick from - rebuilt only when the works change */
+  protected readonly listingTags = computed(() => buildTagIndex(this.works()));
 
   /**
    * The parts lists that are open. A series card is keyed by the series id; a work's
@@ -95,7 +139,10 @@ export class WorkList {
         this.updatedTo() ||
         this.bookmarkedFrom() ||
         this.bookmarkedTo() ||
-        this.typeFilter()
+        this.typeFilter() ||
+        this.originFilter() ||
+        this.includeTags().length ||
+        this.excludeTags().length
       ),
   );
 
@@ -121,9 +168,14 @@ export class WorkList {
     const bookmarkedFrom = this.bookmarkedFrom();
     const bookmarkedTo = this.bookmarkedTo();
     const type = this.typeFilter();
+    const include = this.includeTags();
+    const exclude = this.excludeTags();
+    const origin = this.originFilter();
 
-    return this.works().filter((work) => {
+    return this.visibleWorks().filter((work) => {
       if (type && bookmarkTypeOf(work) !== type) return false;
+      if (origin && originOf(work) !== origin) return false;
+      if (!matchesTags(work, include, exclude)) return false;
       if (title && !(work.title ?? '').toLowerCase().includes(title)) return false;
       if (author && !(work.authors ?? []).some((name) =>
         name.toLowerCase().includes(author))) return false;
@@ -159,7 +211,7 @@ export class WorkList {
     const works = this.filtered();
     if (!sort) return works;
 
-    const field = sort.startsWith('created') ? 'date_created' : 'date_bookmarked';
+    const field = sortField(sort);
     const ascending = sort.endsWith('asc');
     return works
       .map((work, at) => ({ work, at, stamp: dateStamp(work[field] ?? '') }))
@@ -187,7 +239,7 @@ export class WorkList {
     // the default is not something anyone chose, so it is not worth a note that it does
     // nothing - a collection of works you never bookmarked has no bookmark dates at all
     if (!sort || sort === DEFAULT_SORT) return false;
-    const field = sort.startsWith('created') ? 'date_created' : 'date_bookmarked';
+    const field = sortField(sort);
     return this.filtered().length > 0 &&
       !this.filtered().some((work) => dateStamp(work[field] ?? ''));
   });
@@ -199,7 +251,7 @@ export class WorkList {
 
   protected readonly total = computed(() => this.filtered().length);
   /** how many there were before any filter, so the listing can say what it is hiding */
-  protected readonly totalUnfiltered = computed(() => this.works().length);
+  protected readonly totalUnfiltered = computed(() => this.visibleWorks().length);
   protected readonly totalPages = computed(() => Math.max(1, Math.ceil(this.total() / PER_PAGE)));
   protected readonly pages = computed(() => pageItems(this.page(), this.totalPages()));
 
@@ -219,6 +271,417 @@ export class WorkList {
     return this.filtered().filter((work) => isWorkEntry(work) && work.id && files.has(work.id)).length;
   });
 
+  // region where a work came from, and hiding works
+
+  protected readonly origins = ORIGINS;
+  protected readonly originOf = originOf;
+
+  /**
+   * The works this listing shows at all, before any filter: everything but what was hidden -
+   * unless 'Show hidden works' is ticked. Hiding is not a filter someone set just now, so it
+   * is not counted as one; the heading says how many are hidden instead.
+   */
+  private readonly visibleWorks = computed(() => {
+    if (this.showHidden()) return this.works();
+    const hidden = this.library.hidden();
+    return hidden.size ? this.works().filter((w) => !w.id || !hidden.has(hiddenKey(w))) : this.works();
+  });
+  /** how many of this listing's works are hidden, said in the heading */
+  protected readonly hiddenCount = computed(() => {
+    const hidden = this.library.hidden();
+    return hidden.size ? this.works().filter((w) => w.id && hidden.has(hiddenKey(w))).length : 0;
+  });
+  /** hiding is saved in the library, so only where the page can write to it */
+  protected readonly canHide = computed(() => !!this.library.store());
+
+  /** the works the 'are you sure' is about, while it is up - one, or every one ticked */
+  protected readonly confirmingHide = signal<Bookmark[] | null>(null);
+  protected readonly dontWarnAgain = signal(false);
+  protected readonly hideProblem = signal('');
+
+  protected isHidden(work: Bookmark): boolean {
+    return !!work.id && this.library.hidden().has(hiddenKey(work));
+  }
+
+  /** what to call where a work came from, on its badge - nothing for your own bookmarks */
+  protected originNote(work: Bookmark): string {
+    switch (originOf(work)) {
+      case 'collection': {
+        const names = work.from_collections ?? [];
+        return `From ${names.length === 1 ? 'the collection ' + names[0] : names.length + ' collections'}`;
+      }
+      case 'other':
+        return 'Not in your AO3 bookmarks';
+      default:
+        return '';
+    }
+  }
+
+  protected originTitle(work: Bookmark): string {
+    return originOf(work) === 'collection'
+      ? `Not in your AO3 bookmarks - it is here because an indexed collection holds it: ${(work.from_collections ?? []).join(', ')}`
+      : 'Not in your AO3 bookmarks - indexed another way, such as downloading it by its link, or brought in with an imported index';
+  }
+
+  /** the warning first, unless it has been turned off - then straight to hiding */
+  protected askHide(work: Bookmark): void {
+    this.hideProblem.set('');
+    this.hidingTicked = false;
+    if (safeGet(HIDE_WARNING_KEY) === 'off') {
+      void this.doHide([work]);
+      return;
+    }
+    this.dontWarnAgain.set(false);
+    this.confirmingHide.set([work]);
+  }
+
+  protected async confirmHide(): Promise<void> {
+    const works = this.confirmingHide();
+    if (!works) return;
+    if (this.dontWarnAgain()) safeSet(HIDE_WARNING_KEY, 'off');
+    this.confirmingHide.set(null);
+    await this.doHide(works);
+  }
+
+  /** nothing is hidden, and anything ticked stays ticked */
+  protected cancelHide(): void {
+    this.confirmingHide.set(null);
+    this.hidingTicked = false;
+  }
+
+  protected async unhide(work: Bookmark): Promise<void> {
+    this.hideProblem.set('');
+    try {
+      await this.library.unhide(work);
+    } catch (error) {
+      this.hideProblem.set(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** whether the hide waiting on the warning is the ticked works, so a hide can clear them */
+  private hidingTicked = false;
+
+  private async doHide(works: Bookmark[]): Promise<void> {
+    try {
+      await this.library.hide(works);
+      if (this.hidingTicked) {
+        this.selected.set(new Set());
+        this.outcome.set(`Hid ${worksCount(works.length)}. Tick Show hidden works under Filter to see them again.`);
+      }
+    } catch (error) {
+      this.hideProblem.set(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.hidingTicked = false;
+    }
+  }
+
+  // region each entry's own menu
+
+  /** the entry whose ⋯ menu is open, by its key; null when none is */
+  protected readonly menuFor = signal<string | null>(null);
+
+  protected menuKey(work: Bookmark): string {
+    return keyOf(work);
+  }
+
+  protected toggleMenu(work: Bookmark, event: Event): void {
+    // the click that opens it must not reach the document and shut it again
+    event.stopPropagation();
+    this.menuFor.set(this.menuFor() === keyOf(work) ? null : keyOf(work));
+  }
+
+  /** a click anywhere else, or Escape, shuts an open menu */
+  protected closeMenu(): void {
+    if (this.menuFor()) this.menuFor.set(null);
+  }
+
+  protected menuHide(work: Bookmark): void {
+    this.menuFor.set(null);
+    this.askHide(work);
+  }
+
+  protected menuUnhide(work: Bookmark): void {
+    this.menuFor.set(null);
+    void this.unhide(work);
+  }
+
+  /** a series cannot go in a collection: the item is there, greyed, and says why */
+  protected menuAdd(work: Bookmark): void {
+    if (!canCollect(work)) return;
+    this.startAdd([work], false);
+  }
+
+  // endregion
+
+  // region hiding and unhiding what is ticked
+
+  /**
+   * The ticked works that are hidden and that are showing - which decides what the bar offers:
+   * one ticked work is offered Hide or Unhide; several all showing, Hide all; several all
+   * hidden, Unhide all; and a mix, both. Hidden works can only be ticked while Show hidden
+   * works is on, since otherwise they are not in the listing at all.
+   */
+  protected readonly tickedHidden = computed(() => this.selectedShown().filter((w) => this.isHidden(w)));
+  protected readonly tickedShowing = computed(() => this.selectedShown().filter((w) => !this.isHidden(w)));
+  protected readonly hideLabel = computed(() => (this.selectedShown().length === 1 ? 'Hide' : 'Hide all'));
+  protected readonly unhideLabel = computed(() => (this.selectedShown().length === 1 ? 'Unhide' : 'Unhide all'));
+
+  /** hide every ticked work that is showing - after the same warning a single hide has */
+  protected hideTicked(): void {
+    const works = this.tickedShowing();
+    if (!works.length || this.busy()) return;
+    this.hideProblem.set('');
+    this.outcome.set('');
+    this.hidingTicked = true;
+    if (safeGet(HIDE_WARNING_KEY) === 'off') {
+      void this.doHide(works);
+      return;
+    }
+    this.dontWarnAgain.set(false);
+    this.confirmingHide.set(works);
+  }
+
+  /** show every ticked hidden work again - nothing is lost by it, so no warning */
+  protected async unhideTicked(): Promise<void> {
+    const works = this.tickedHidden();
+    if (!works.length || this.busy()) return;
+    this.hideProblem.set('');
+    this.outcome.set('');
+    try {
+      await this.library.unhide(works);
+      this.selected.set(new Set());
+      this.outcome.set(`Unhid ${worksCount(works.length)}.`);
+    } catch (error) {
+      this.hideProblem.set(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // endregion
+
+  // endregion
+
+  // region picking works for a custom collection
+
+  /** ticking only means something where it can be saved: a library that can be written to */
+  protected readonly canSelect = computed(() => this.selectable() && this.custom.writable());
+  /** a different listing is a different set of works, so it starts with nothing ticked */
+  protected readonly selected = linkedSignal<Bookmark[], ReadonlySet<string>>({
+    source: this.works,
+    computation: () => new Set(),
+  });
+  /** what can be ticked among what the filters leave showing - series included */
+  private readonly selectableShown = computed(() => this.filtered().filter(canTick));
+  /**
+   * The ticked works the filters still show. Narrowing the listing narrows what an action
+   * acts on, so nothing hidden is added or taken out unseen.
+   */
+  protected readonly selectedShown = computed(() => {
+    const picked = this.selected();
+    return this.selectableShown().filter((work) => picked.has(keyOf(work)));
+  });
+  protected readonly allShownSelected = computed(
+    () => this.selectableShown().length > 0 && this.selectedShown().length === this.selectableShown().length,
+  );
+  /** the open collection, when it is one of the person's own and so can be taken from */
+  protected readonly removableFrom = computed(() => {
+    const collection = this.collection();
+    return collection && isCustomCollection(collection) ? collection : null;
+  });
+  /** where ticked works can go: every custom collection but the one being shown */
+  protected readonly targets = computed(() =>
+    this.custom.all().filter((c) => c.name !== this.collection()?.name),
+  );
+
+  protected readonly adding = signal(false);
+  /**
+   * The works an add is for, while one is under way: the ticked works, from the bar, or one
+   * work, from its own menu. Kept apart from the ticks so adding one work from its menu
+   * neither needs nor disturbs whatever else is ticked. Series are already left out.
+   */
+  protected readonly addingWith = signal<Bookmark[] | null>(null);
+  /** whether the add under way came from the bar, and so clears the ticks once it is done */
+  private addFromBar = false;
+  /**
+   * The series an add was asked to include, which cannot go in a collection - said before
+   * anything is added, with the works that will be, until the person says to go on or not.
+   */
+  protected readonly seriesWarning = signal<{ series: Bookmark[]; rest: Bookmark[]; fromBar: boolean } | null>(null);
+  /** among what is ticked, what can go in a collection - not a series */
+  protected readonly tickedCollectable = computed(() => this.selectedShown().filter(canCollect));
+  /** the custom collection to add to, by name - '' until one is chosen */
+  protected readonly target = signal('');
+  /**
+   * The works a new collection is being made for, while its window is open. Taken when the
+   * window opens, so what it starts with is what was ticked then; null when it is shut.
+   */
+  protected readonly creatingWith = signal<CollectionItems | null>(null);
+  protected readonly busy = signal(false);
+  protected readonly outcome = signal('');
+  protected readonly problem = signal('');
+
+  protected readonly canAdd = computed(
+    () => !this.busy() && (this.addingWith() ?? []).length > 0 && !!this.target(),
+  );
+
+  protected canCollect(work: Bookmark): boolean {
+    return canCollect(work);
+  }
+
+  protected canTick(work: Bookmark): boolean {
+    return canTick(work);
+  }
+
+  protected isSelected(work: Bookmark): boolean {
+    return this.selected().has(keyOf(work));
+  }
+
+  protected toggleSelected(work: Bookmark): void {
+    const picked = new Set(this.selected());
+    const key = keyOf(work);
+    if (picked.has(key)) picked.delete(key);
+    else picked.add(key);
+    this.selected.set(picked);
+  }
+
+  /** every work the filters show, across every page - or none, when they all are already */
+  protected toggleAllShown(): void {
+    if (this.allShownSelected()) {
+      this.selected.set(new Set());
+      return;
+    }
+    this.selected.set(new Set([...this.selected(), ...this.selectableShown().map(keyOf)]));
+  }
+
+  protected clearSelection(): void {
+    this.selected.set(new Set());
+  }
+
+  /** Add to a collection, from the bar: everything ticked that can go in one */
+  protected openAdd(): void {
+    this.startAdd(this.selectedShown(), true);
+  }
+
+  /**
+   * Begin an add for `works`. A series cannot go in a collection, so any among them are named
+   * in a warning first - the rest are added only once the person says that is all right.
+   */
+  protected startAdd(works: Bookmark[], fromBar: boolean): void {
+    this.outcome.set('');
+    this.problem.set('');
+    this.menuFor.set(null);
+    const rest = works.filter(canCollect);
+    if (!rest.length) return;
+    const series = works.filter((w) => bookmarkTypeOf(w) === 'series bookmark');
+    if (series.length) {
+      this.seriesWarning.set({ series, rest, fromBar });
+      return;
+    }
+    this.proceedAdd(rest, fromBar);
+  }
+
+  /** the series were named and the person said go on: add the rest */
+  protected addWithoutSeries(): void {
+    const warning = this.seriesWarning();
+    this.seriesWarning.set(null);
+    if (warning) this.proceedAdd(warning.rest, warning.fromBar);
+  }
+
+  /** not now: nothing is added, and whatever was ticked stays ticked */
+  protected cancelSeriesWarning(): void {
+    this.seriesWarning.set(null);
+  }
+
+  private proceedAdd(works: Bookmark[], fromBar: boolean): void {
+    this.addingWith.set(works);
+    this.addFromBar = fromBar;
+    // the last one added to stays chosen; otherwise the first, so Add is never waiting on a click
+    if (!this.targets().some((c) => c.name === this.target())) this.target.set(this.targets()[0]?.name ?? '');
+    // with none of your own to add to, the only answer is a new one - so ask that straight away
+    if (this.targets().length === 0) {
+      this.newCollection();
+      return;
+    }
+    this.adding.set(true);
+  }
+
+  /** the add panel shut without adding: nothing changes */
+  protected closeAdd(): void {
+    this.adding.set(false);
+    this.addingWith.set(null);
+  }
+
+  /** open the new-collection window, to start with the works the add is for */
+  protected newCollection(): void {
+    this.outcome.set('');
+    this.problem.set('');
+    this.creatingWith.set(itemsOf(this.addingWith() ?? []));
+  }
+
+  /** the new collection was made, with the works already in it */
+  protected collectionCreated(collection: Collection): void {
+    const items = this.creatingWith() ?? { works: [], externals: [] };
+    this.creatingWith.set(null);
+    this.adding.set(false);
+    this.addingWith.set(null);
+    this.target.set(collection.name ?? '');
+    if (this.addFromBar) this.selected.set(new Set());
+    this.outcome.set(`Made ${collection.title}, with ${countOf(items)} in it.`);
+  }
+
+  /**
+   * Closed without saving: no collection was made, and nothing else changes - the works stay
+   * ticked and the add panel stays as it was, so the person can pick another way. Opened
+   * straight from Add (there being no collection of their own yet), there is no panel to go
+   * back to, so the add is over.
+   */
+  protected collectionCancelled(): void {
+    this.creatingWith.set(null);
+    if (!this.adding()) this.addingWith.set(null);
+  }
+
+  protected async addSelected(): Promise<void> {
+    if (!this.canAdd()) return;
+    const items = itemsOf(this.addingWith() ?? []);
+    const clear = this.addFromBar;
+    await this.act(async () => {
+      const { collection, added, already } = await this.custom.add(this.target(), items);
+      this.adding.set(false);
+      this.addingWith.set(null);
+      const count = added.works.length + added.externals.length;
+      // a work is in a collection once: those already there are said, not added again
+      const skipped = already ? ` ${already.toLocaleString()} ${already === 1 ? 'was' : 'were'} already in it.` : '';
+      return count
+        ? `Added ${countOf(added)} to ${collection.title}.${skipped}`
+        : `${items.works.length + items.externals.length === 1 ? 'That was' : 'Everything ticked was'} already in ${collection.title}.`;
+    }, clear);
+  }
+
+  protected async removeSelected(): Promise<void> {
+    const collection = this.removableFrom();
+    if (!collection?.name || this.busy() || this.selectedShown().length === 0) return;
+    const items = itemsOf(this.selectedShown());
+    await this.act(async () => {
+      await this.custom.remove(collection.name!, items);
+      return `Took ${countOf(items)} out of ${collection.title}.`;
+    });
+  }
+
+  private async act(change: () => Promise<string>, clearTicks = true): Promise<void> {
+    this.busy.set(true);
+    this.problem.set('');
+    this.outcome.set('');
+    try {
+      this.outcome.set(await change());
+      if (clearTicks) this.selected.set(new Set());
+    } catch (error) {
+      this.problem.set(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  // endregion
+
   protected clearFilters(): void {
     this.titleQuery.set('');
     this.authorQuery.set('');
@@ -227,6 +690,9 @@ export class WorkList {
     this.bookmarkedFrom.set('');
     this.bookmarkedTo.set('');
     this.typeFilter.set('');
+    this.originFilter.set('');
+    this.includeTags.set([]);
+    this.excludeTags.set([]);
     this.sortBy.set(DEFAULT_SORT);
   }
 
@@ -290,16 +756,46 @@ export class WorkList {
     if (work.link) window.open(work.link, '_blank', 'noopener');
   }
 
-  /** whether this folder holds a downloaded PDF of the work */
-  protected hasPdf(work: Bookmark): boolean {
-    return isWorkEntry(work) && !!work.id && this.pdfFiles().has(work.id);
+  /**
+   * The formats this folder holds a downloaded copy of the work in, besides the html its title
+   * opens - each one a button beside the title. A series' or an external work's id is not a
+   * work number, so they never get one.
+   */
+  protected formatsOf(work: Bookmark): OpenableFormat[] {
+    if (!isWorkEntry(work) || !work.id) return [];
+    const copies = this.copies();
+    return OPENABLE_FORMATS.filter((format) => format !== 'html' && copies[format].has(work.id!));
   }
 
-  /** Open the work's newest downloaded PDF in a new tab. */
-  protected openPdf(work: Bookmark, event: Event): void {
+  protected readonly viewable = viewableInBrowser;
+
+  /**
+   * Open the work's newest copy in that format: in a new tab where a browser can show it (a
+   * pdf), and otherwise saved under its own name, for an e-reader - no browser shows an epub,
+   * mobi or azw3, and a tab handed one only saves it under a made-up name.
+   */
+  protected openFormat(work: Bookmark, format: OpenableFormat, event: Event): void {
     event.preventDefault();
-    const copy = isWorkEntry(work) && work.id ? this.pdfFiles().get(work.id) : undefined;
-    if (copy) this.openCopy(copy, 'pdf', null);
+    const copy = isWorkEntry(work) && work.id ? this.copies()[format].get(work.id) : undefined;
+    if (!copy) return;
+    if (viewableInBrowser(format)) this.openCopy(copy, format, null);
+    else this.saveCopy(copy, format);
+  }
+
+  private saveCopy(copy: LocalCopy, format: OpenableFormat): void {
+    void this.library.readCopy(copy, format).then(
+      (blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = copyName(copy);
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      },
+      () => {
+        // the file has gone since the folder was read; the button stays, nothing is saved
+      },
+    );
   }
 
   /**
@@ -326,4 +822,25 @@ export class WorkList {
       },
     );
   }
+}
+
+/** set once someone ticks 'do not warn me again' before hiding a work */
+const HIDE_WARNING_KEY = 'ao3.hideWarningOff';
+
+/** a work and an external work can share a number, so the kind is part of the key */
+function keyOf(work: Bookmark): string {
+  return `${bookmarkTypeOf(work)}:${work.id}`;
+}
+
+/** '1 work', '3 works', '2 works and 1 external work' */
+function countOf(items: { works: string[]; externals: string[] }): string {
+  const say = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? '' : 's'}`;
+  if (!items.externals.length) return say(items.works.length, 'work');
+  if (!items.works.length) return say(items.externals.length, 'external work');
+  return `${say(items.works.length, 'work')} and ${say(items.externals.length, 'external work')}`;
+}
+
+/** '1 work', '3 works' */
+function worksCount(n: number): string {
+  return `${n.toLocaleString()} ${n === 1 ? 'work' : 'works'}`;
 }

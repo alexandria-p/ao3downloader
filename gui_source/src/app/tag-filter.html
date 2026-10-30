@@ -1,0 +1,64 @@
+<section class="tag-filter">
+  <h4>{{ label() }}</h4>
+
+  @if (chosen().length) {
+    <ul class="chosen" [attr.aria-label]="label() + 'd tags'">
+      @for (tag of chosen(); track tag.kind + tag.name) {
+        <li class="chip" [class]="'chip ' + tag.kind">
+          <span class="chip-kind">{{ kindLabel(tag.kind) }}:</span> {{ tag.name }}
+          <button type="button" class="chip-remove" [attr.aria-label]="'Remove ' + tag.name" (click)="remove(tag)">
+            &times;
+          </button>
+        </li>
+      }
+    </ul>
+  }
+
+  @for (kind of kinds; track kind.kind) {
+    @if (top(kind.kind).length) {
+      <details class="kind">
+        <summary>{{ kind.label }}</summary>
+        <ul>
+          @for (tag of top(kind.kind); track tag.name) {
+            <li>
+              <label [class.unavailable]="isElsewhere(tag)">
+                <input type="checkbox" [checked]="isChosen(tag)" [disabled]="isElsewhere(tag)"
+                  (change)="toggle(tag)" />
+                {{ tag.name }} <span class="count">({{ tag.count | number }})</span>
+              </label>
+            </li>
+          }
+        </ul>
+      </details>
+    }
+  }
+
+  <label class="other">
+    <span>Other tags to {{ label().toLowerCase() }}</span>
+    <input
+      type="text"
+      role="combobox"
+      autocomplete="off"
+      [attr.name]="label().toLowerCase() + 'Tag'"
+      [attr.aria-expanded]="suggestions().length > 0"
+      [value]="typed()"
+      placeholder="Start typing for suggestions"
+      (input)="onType($any($event.target).value)"
+      (keydown)="onKey($event)"
+    />
+  </label>
+  @if (suggestions().length) {
+    <ul class="suggestions" role="listbox">
+      @for (tag of suggestions(); track tag.kind + tag.name; let at = $index) {
+        <li role="option" [attr.aria-selected]="at === active()" [class.active]="at === active()"
+          (mousedown)="$event.preventDefault()" (click)="add(tag)">
+          @let parts = highlight(tag.name, typed());
+          <span class="name">{{ parts.before }}<strong>{{ parts.match }}</strong>{{ parts.after }}</span>
+          <span class="kind-label">{{ kindLabel(tag.kind) }} &middot; {{ tag.count | number }}</span>
+        </li>
+      }
+    </ul>
+  } @else if (typed().trim()) {
+    <p class="none">No tag in your library matches that.</p>
+  }
+</section>

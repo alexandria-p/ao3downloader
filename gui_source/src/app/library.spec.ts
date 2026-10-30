@@ -82,7 +82,7 @@ class FakeFolderStore extends FolderStore {
   }
   /** works/ holds the html and pdfs among `files` - the tests list a folder's files flat */
   override async readSubfolder(_handle: DirectoryHandle, name: string): Promise<File[]> {
-    return name === 'works' ? this.files.filter((f) => /\.(html?|pdf)$/i.test(f.name)) : [];
+    return name === 'works' ? this.files.filter((f) => /\.(html?|pdf|epub|mobi|azw3)$/i.test(f.name)) : [];
   }
 
   /** a library already set up, unless a test says otherwise */
@@ -569,6 +569,24 @@ describe('Library, choosing which copy of a work to open', () => {
 
     expect((library.pdfFiles().get('111') as File).name).toBe('111 Work - X 2025-06-01.pdf');
     expect((library.htmlFiles().get('111') as File).name).toBe('111 Work - X 2025-06-01.html');
+  });
+
+  it('finds every other format ao3 offers too, newest first by the date in its name', async () => {
+    store.files = [
+      recordFile('111', 1),
+      copy('111 Work - X 2024-01-01.epub', 9000),
+      copy('111 Work - X 2025-06-01.epub', 1000),
+      copy('111 Work - X 2025-06-01.mobi', 1000),
+      copy('111 Work - X 2025-06-01.azw3', 1000),
+    ];
+    store.recalled = handle();
+
+    await library.restore();
+
+    const copies = library.copies();
+    expect((copies.epub.get('111') as File).name).toBe('111 Work - X 2025-06-01.epub');
+    expect((copies.mobi.get('111') as File).name).toBe('111 Work - X 2025-06-01.mobi');
+    expect((copies.azw3.get('111') as File).name).toBe('111 Work - X 2025-06-01.azw3');
   });
 
   it('falls back to the one changed last only between copies with the same date', async () => {

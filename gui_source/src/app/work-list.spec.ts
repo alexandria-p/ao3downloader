@@ -255,6 +255,20 @@ describe('WorkList filtering', () => {
     expect(shownTitles()).toEqual(['Oldest', 'Middle', 'Newest']);
   });
 
+  it('sorts by the date AO3 last updated a work, in either of the forms AO3 writes it', async () => {
+    await listing([
+      work({ id: '1', title: 'Middle', updated: '10 Jun 2020' }),
+      work({ id: '2', title: 'Newest', updated: '2024-01-01' }),
+      work({ id: '3', title: 'Oldest', updated: '01 Jan 2010' }),
+    ]);
+
+    await sortBy('updated-desc');
+    expect(shownTitles()).toEqual(['Newest', 'Middle', 'Oldest']);
+
+    await sortBy('updated-asc');
+    expect(shownTitles()).toEqual(['Oldest', 'Middle', 'Newest']);
+  });
+
   // putting blanks first on an ascending sort would bury every dated work under them
   it('puts works without the date last, whichever way it sorts', async () => {
     await listing([
@@ -353,10 +367,10 @@ describe('WorkList, bookmarks of every kind', () => {
     library.worksById.set(new Map([['111', partOne], ['222', partTwo], ['555', single]]));
     // a downloaded copy of part one - and a file whose number happens to be the external
     // work's id, which must not be taken for its copy
-    library.htmlFiles.set(new Map([
+    library.copies.update((c) => ({ ...c, html: new Map([
       ['111', new File(['<p>one</p>'], '111 Part One.html')],
       ['1', new File(['<p>work 1</p>'], '1 Some Other Work.html')],
-    ]));
+    ]) }));
   });
 
   async function showTypes(value: string) {
@@ -525,10 +539,54 @@ describe('WorkList, bookmarks of every kind', () => {
 
   // endregion
 
-  // region downloaded PDFs
+  // region downloaded PDFs, and every other format
+
+  it('offers a button for each format downloaded, in AO3s order, and none for html', async () => {
+    TestBed.inject(Library).copies.update((c) => ({
+      ...c,
+      html: new Map([['555', new File(['<html>'], '555 On Its Own.html')]]),
+      azw3: new Map([['555', new File(['x'], '555 On Its Own.azw3')]]),
+      epub: new Map([['555', new File(['x'], '555 On Its Own.epub')]]),
+      pdf: new Map([['555', new File(['%PDF'], '555 On Its Own.pdf')]]),
+    }));
+    await listing([single]);
+
+    const labels = Array.from(element.querySelectorAll('button.format')).map((b) => b.textContent?.trim());
+    expect(labels).toEqual(['PDF', 'EPUB', 'AZW3']);
+    expect(element.querySelector('button.epub')?.getAttribute('aria-label'))
+      .toBe('Save the downloaded EPUB of On Its Own');
+  });
+
+  it('saves an e-book under its own name rather than opening a tab no browser can show', async () => {
+    const epub = new File(['PK'], '555 On Its Own - Writer 2025-06-01.epub');
+    TestBed.inject(Library).copies.update((c) => ({ ...c, epub: new Map([['555', epub]]) }));
+    const realOpen = window.open;
+    const realCreate = URL.createObjectURL;
+    const realClick = HTMLAnchorElement.prototype.click;
+    const opened: string[] = [];
+    const saved: { name: string; type: string }[] = [];
+    let blob: Blob | null = null;
+    window.open = ((url?: string) => { opened.push(url ?? ''); return null; }) as typeof window.open;
+    URL.createObjectURL = ((b: Blob) => { blob = b; return 'blob:the-epub'; }) as typeof URL.createObjectURL;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      saved.push({ name: this.download, type: blob?.type ?? '' });
+    };
+    try {
+      await listing([single]);
+      element.querySelector<HTMLButtonElement>('button.epub')!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(opened).toEqual([]);
+      expect(saved).toEqual([{ name: '555 On Its Own - Writer 2025-06-01.epub', type: 'application/epub+zip' }]);
+    } finally {
+      window.open = realOpen;
+      URL.createObjectURL = realCreate;
+      HTMLAnchorElement.prototype.click = realClick;
+    }
+  });
 
   it('offers a PDF button on a work that has a downloaded PDF, and only then', async () => {
-    TestBed.inject(Library).pdfFiles.set(new Map([['555', new File(['%PDF'], '555 On Its Own.pdf')]]));
+    TestBed.inject(Library).copies.update((c) => ({ ...c, pdf: new Map([['555', new File(['%PDF'], '555 On Its Own.pdf')]]) }));
     await listing([single, { ...work({ id: '666', title: 'No PDF' }) } as Bookmark]);
 
     const buttons = Array.from(element.querySelectorAll<HTMLButtonElement>('button.pdf'));
@@ -537,17 +595,17 @@ describe('WorkList, bookmarks of every kind', () => {
   });
 
   it('never offers a series or an external work a PDF, whatever file shares its id', async () => {
-    TestBed.inject(Library).pdfFiles.set(new Map([
+    TestBed.inject(Library).copies.update((c) => ({ ...c, pdf: new Map([
       ['15213', new File(['%PDF'], '15213 x.pdf')],
       ['1', new File(['%PDF'], '1 x.pdf')],
-    ]));
+    ]) }));
     await listing([series, external]);
     expect(element.querySelector('button.pdf')).toBeNull();
   });
 
   it('opens the PDF in a new tab, as a PDF', async () => {
     const pdf = new File(['%PDF-1.7'], '555 On Its Own 2025-06-01.pdf');
-    TestBed.inject(Library).pdfFiles.set(new Map([['555', pdf]]));
+    TestBed.inject(Library).copies.update((c) => ({ ...c, pdf: new Map([['555', pdf]]) }));
     const tab = { location: { href: '' }, close: () => {} };
     const opened: string[] = [];
     const realOpen = window.open;
@@ -571,7 +629,7 @@ describe('WorkList, bookmarks of every kind', () => {
   });
 
   it('offers the PDF on each part of a series that has one', async () => {
-    TestBed.inject(Library).pdfFiles.set(new Map([['111', new File(['%PDF'], '111 Part One.pdf')]]));
+    TestBed.inject(Library).copies.update((c) => ({ ...c, pdf: new Map([['111', new File(['%PDF'], '111 Part One.pdf')]]) }));
     await listing([series]);
     element.querySelector<HTMLButtonElement>('.series-toggle')!.click();
     await fixture.whenStable();
