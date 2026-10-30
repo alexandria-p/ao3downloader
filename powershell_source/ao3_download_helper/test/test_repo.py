@@ -188,6 +188,85 @@ def test_my_request_exhausts_max_retries_and_raises_invalid_status(mock_repo):
     assert mock_repo.session.request.call_count == 3
 
 
+MAINTENANCE = ('<html><head><title>Archive of Our Own</title></head><body><h2>The archive is '
+               'down for maintenance.</h2><p>Check our status page.</p></body></html>')
+
+
+def test_a_retry_is_said_in_the_run_rather_than_waited_out_silently(mock_repo, capsys):
+    mock_repo.max_retries = 5
+    mock_repo.session.request.side_effect = [make_response(status_code=503),
+                                             make_response(status_code=200, text='ok')]
+
+    mock_repo.my_request('GET', AO3_URL)
+
+    said = capsys.readouterr().out
+    assert 'AO3 answered 503' in said
+    assert 'attempt 1 of 5' in said
+
+
+def test_a_stop_lands_during_a_retry_wait_instead_of_after_it(mock_repo):
+    # this was a plain sleep: a run retrying ao3's error pages could not be stopped for
+    # a quarter of an hour, and sat saying 'stopping' the whole time
+    stopped = {'yes': False}
+    mock_repo.cancelled = lambda: stopped['yes']
+    mock_repo.max_retries = 30
+
+    def answer(*args, **kwargs):
+        stopped['yes'] = True  # the stop arrives while ao3 is failing
+        return make_response(status_code=503)
+
+    mock_repo.session.request.side_effect = answer
+
+    with pytest.raises(exceptions.CancelledException):
+        mock_repo.my_request('GET', AO3_URL)
+    assert mock_repo.session.request.call_count == 1
+
+
+def test_the_maintenance_page_is_asked_about_twice_then_given_up_on(mock_repo, capsys):
+    mock_repo.session.request.return_value = make_response(status_code=503, text=MAINTENANCE)
+
+    with pytest.raises(exceptions.Ao3DownException):
+        mock_repo.my_request('GET', AO3_URL)
+
+    # the first answer and two more, not MaxRetries' thirty
+    assert mock_repo.session.request.call_count == 1 + Repository.maintenance_retries
+    assert 'down for maintenance' in capsys.readouterr().out
+    assert mock_repo.ao3_down is True
+
+
+def test_the_maintenance_page_counts_even_when_ao3_says_200(mock_repo):
+    mock_repo.session.request.return_value = make_response(status_code=200, text=MAINTENANCE)
+    with pytest.raises(exceptions.Ao3DownException):
+        mock_repo.my_request('GET', AO3_URL)
+
+
+def test_once_ao3_is_down_every_later_request_to_it_fails_at_once(mock_repo):
+    mock_repo.ao3_down = True
+
+    with pytest.raises(exceptions.Ao3DownException):
+        mock_repo.my_request('GET', AO3_URL)
+    mock_repo.session.request.assert_not_called()
+
+    # anywhere else - FicHub - is still asked
+    mock_repo.session.request.return_value = make_response(status_code=200, text='ok')
+    assert mock_repo.my_request('GET', 'https://fichub.net/api/v0/epub?q=x').status_code == 200
+
+
+def test_ao3_coming_back_mid_retry_carries_on(mock_repo):
+    mock_repo.session.request.side_effect = [make_response(status_code=503, text=MAINTENANCE),
+                                             make_response(status_code=200, text='ok')]
+    assert mock_repo.my_request('GET', AO3_URL).text == 'ok'
+    assert mock_repo.ao3_down is False
+
+
+def test_a_work_quoting_the_maintenance_sentence_is_not_mistaken_for_it():
+    work = make_response(text='<div id="workskin"><p>The archive is down for maintenance.</p></div>')
+    epub = make_response(content_type='application/epub+zip', text='the archive is down for maintenance')
+    assert Repository.is_maintenance_response(work) is False
+    assert Repository.is_maintenance_response(epub) is False
+    assert Repository.is_maintenance_response(make_response(text=MAINTENANCE)) is True
+
+
 def test_my_request_unlimited_retries_when_max_retries_zero(mock_repo):
     mock_repo.max_retries = 0
     responses = [make_response(status_code=502)] * 5 + [make_response(status_code=200, text='ok')]

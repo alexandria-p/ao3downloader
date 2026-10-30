@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1684 python passed; 743 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1691 python passed; 743 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1507,6 +1507,23 @@ back to the same request and earned another break of the same length, forever. E
 in the request path (`extra_wait`, retry backoff, the 429 pause) goes through `wait`, and
 there is a cancel check at the top of the request loop. When `cancelled is None` (the
 console, which has no stop button) `wait` does one plain sleep - some tests depend on that.
+
+### Retries are said, stoppable, and give up on ao3's maintenance page
+
+`retry_or_raise` (a 5xx or a Cloudflare page) **waits through `wait`, never a plain `sleep`** -
+it slept, so a run retrying ao3's error pages (up to `MaxRetries` 30, doubling to 30s, about a
+quarter of an hour per request) could not be stopped and sat saying *Stopping...*. Every retry
+and every timeout retry is **printed** (`MESSAGE_RETRYING`, `MESSAGE_TIMED_OUT_RETRYING`), so a
+run doing nothing but retrying reads as that rather than as a hang; the debug log entry stays.
+
+**ao3's maintenance page** (`is_maintenance_response`: html carrying `AO3_DOWN_MARKER`, never
+a page with `workskin` on it, never a non-html file) is recognised whatever its status. A
+request asks again `maintenance_retries` (2) times, `maintenance_delay` (30s) apart, saying so,
+then raises `Ao3DownException` and sets `Repository.ao3_down`: **every later request to ao3 on
+that run fails at once** with the same reason, while requests elsewhere (FicHub) go on. So a
+fic run during an outage fails each fic quickly and offers them all to FicHub at the end; a run
+that logs in fails at the login with `ERROR_AO3_DOWN`. Ao3 coming back between checks carries
+on as if nothing happened.
 
 ### Whether a fic is bookmarked is only written when something actually knows
 

@@ -508,6 +508,10 @@ When a fic is re-downloaded its name changes, because the date in the name chang
 
 If a download fails, is cut short, or is stopped partway, the old file stays exactly where it is. The rule is that you never lose the copy you have until the copy that replaces it is confirmed on disk.
 
+#### When AO3 is down, or keeps answering with errors
+
+Every time AO3 answers a request with an error and the run tries again, it says so in the run's log - which page, what AO3 said, how long until the next try, and which attempt it is - and **Stop works during the wait**. When AO3 shows its *The archive is down for maintenance* page, the run checks twice more, 30 seconds apart, then stops asking AO3 for the rest of the run: every fic after that fails at once with *AO3 is down for maintenance*, instead of each one retrying for minutes, and the ones with a work number are offered to FicHub at the end. A run that has to log in fails at the login instead. Start it again once AO3 is back.
+
 #### Works that would not download
 
 A run does not stop because one fic will not come down - a work can have been deleted, made restricted, or never existed in the format you asked for. Those are skipped and the run carries on.

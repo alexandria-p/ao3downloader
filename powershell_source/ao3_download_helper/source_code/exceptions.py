@@ -76,6 +76,15 @@ class SavedFileException(Ao3DownloaderException):
     pass
 
 
+class Ao3DownException(Ao3DownloaderException):
+    """Raised when ao3 answers with its maintenance page, and goes on doing so.
+
+    Every request to ao3 fails the same way until it is back, so once one has given up the
+    rest of the run does not ask again (`Repository.ao3_down`) - each of them failing after
+    the same minutes of retries would hold a run up for hours saying nothing new."""
+    pass
+
+
 class PausedException(Ao3DownloaderException):
     """Raised when a pause arrives while a response body is still coming down.
 

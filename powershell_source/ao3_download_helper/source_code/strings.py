@@ -540,6 +540,15 @@ MESSAGE_INCOMPLETE_FIC = 'found incomplete fic'
 MESSAGE_FIC_FILE = 'found fic file'
 MESSAGE_SERIES_FILE = 'found work in series'
 MESSAGE_RETRY = 'Retrying {} request. Attempt {}. {} seconds until next attempt.'
+# said in the run itself, so a request ao3 keeps refusing reads as retries rather than a hang
+MESSAGE_RETRYING = 'AO3 answered {} for {} - trying again in {}s (attempt {} of {})'
+MESSAGE_RETRYING_UNLIMITED = 'AO3 answered {} for {} - trying again in {}s (attempt {}, no limit set)'
+MESSAGE_TIMED_OUT_RETRYING = 'AO3 did not answer {} in time - trying again in {}s (timeout {} of {})'
+# ao3's own maintenance page, which it serves in place of whatever was asked for
+AO3_DOWN_MARKER = 'the archive is down for maintenance'
+MESSAGE_AO3_DOWN_RETRY = 'AO3 says it is down for maintenance - checking again in {}s ({} of {})'
+ERROR_AO3_DOWN = ('AO3 is down for maintenance, so nothing more can be fetched from it on this run. '
+                  'Try again once it is back - https://status.archiveofourown.org')
 MESSAGE_SUCCESS = 'Successful {} request with status code {}'
 MESSAGE_WELCOME = 'welcome to ao3downloader!\nthe script has been initialized in the following directory:\n\t{}\nif you would like to change any settings, you may do so by entering\n\'{}\' to quit this menu and then editing the file \'{}\'\n(located at the above folder path) before running the script again.\n'
 MESSAGE_DOWNLOAD_FOLDER = 'downloads will be saved to:\n\t{}\n'

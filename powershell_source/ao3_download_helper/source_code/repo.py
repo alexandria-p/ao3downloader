@@ -15,6 +15,12 @@ from source_code.fileio import FileOps
 from source_code.progress import ProgressCallback
 
 
+def seconds(value: float) -> str:
+    """A wait as a person reads it: whole seconds, or one decimal under one."""
+
+    return f'{value:.1f}' if value < 1 else f'{value:.0f}'
+
+
 class Repository:
 
     headers = {'user-agent': 'ao3downloader +nianeyna@gmail.com'}
@@ -28,6 +34,11 @@ class Repository:
     chunk_size = 64 * 1024
     retry_initial_delay = 0.1
     retry_max_delay = 30
+    # how many times a request is asked again once ao3 says it is down for maintenance, and
+    # how long apart. maintenance is usually minutes or hours, not seconds, so the full
+    # MaxRetries would only spend a quarter of an hour per request learning nothing new
+    maintenance_retries = 2
+    maintenance_delay = 30
 
 
     def __init__(self, fileops: FileOps, progress: ProgressCallback | None = None,
@@ -44,6 +55,9 @@ class Repository:
         self.max_timeouts = fileops.get_ini_value_integer(strings.INI_MAX_TIMEOUTS, 3)
         # True once logged in, False for a run told not to, None until either is known
         self.logged_in: bool | None = None
+        # set once a request has given up on ao3's maintenance page: every later request to
+        # ao3 fails at once with the same answer, rather than retrying its way to it again
+        self.ao3_down = False
 
 
     def __enter__(self):
@@ -230,10 +244,15 @@ class Repository:
 
         attempt = 0
         timeouts = 0
+        maintenance = 0
+        to_ao3 = strings.AO3_DOMAIN in url.lower()
 
         while True:
             # a stop asked for while this was retrying or waiting must not start it again
             self.check_cancelled()
+            # ao3 already said it is down on this run: nothing to gain by asking again
+            if to_ao3 and self.ao3_down:
+                raise exceptions.Ao3DownException(strings.ERROR_AO3_DOWN)
             # and a pause holds here, before the request, rather than anywhere it could
             # catch a transfer in progress
             self.hold_if_asked()
@@ -264,6 +283,9 @@ class Repository:
                 if should_retry and not timeout_capped:
                     attempt += 1
                     self.log_error(url, strings.MESSAGE_RETRY.format(method, attempt, retry_delay), e)
+                    if isinstance(e, exceptions.TimeoutException):
+                        print(strings.MESSAGE_TIMED_OUT_RETRYING.format(
+                            url, seconds(retry_delay), timeouts, self.max_timeouts or 'no limit'))
                     self.wait(retry_delay)
                     continue
                 else:
@@ -271,6 +293,18 @@ class Repository:
                     raise
 
             timeouts = 0
+
+            # ao3's maintenance page comes back in place of whatever was asked for, whatever
+            # its status. asked about a couple of times, out loud, then given up on for the run
+            if to_ao3 and self.is_maintenance_response(response):
+                maintenance += 1
+                if maintenance > self.maintenance_retries:
+                    self.ao3_down = True
+                    raise exceptions.Ao3DownException(strings.ERROR_AO3_DOWN)
+                print(strings.MESSAGE_AO3_DOWN_RETRY.format(
+                    self.maintenance_delay, maintenance, self.maintenance_retries))
+                self.wait(self.maintenance_delay)
+                continue
 
             if response.status_code in self.retry_statuses:
                 if self.retry_or_raise(should_retry, attempt, method, url, retry_delay,
@@ -377,15 +411,44 @@ class Repository:
     def retry_or_raise(self, should_retry: bool, attempt: int, method: str, url: str,
                        retry_delay: float, error: str, exc: Exception) -> bool:
         """Retry the request if possible, otherwise raise the given exception.
-        Returns True if the caller should continue the retry loop."""
+        Returns True if the caller should continue the retry loop.
+
+        The wait goes through `wait`, so a stop lands during it - this was a plain sleep, and
+        a run retrying ao3's error pages could not be stopped for a quarter of an hour. Each
+        retry is said in the run, or a run doing nothing but retrying looks hung.
+        """
         if should_retry:
             if self.debug:
                 self.fileops.write_log(
                     {'link': url, 'message': strings.MESSAGE_RETRY.format(method, attempt + 1, retry_delay),
                      'error': error, 'level': 'debug'})
-            sleep(retry_delay)
+            if self.max_retries:
+                print(strings.MESSAGE_RETRYING.format(error, url, seconds(retry_delay),
+                                                      attempt + 1, self.max_retries))
+            else:
+                print(strings.MESSAGE_RETRYING_UNLIMITED.format(error, url, seconds(retry_delay),
+                                                                attempt + 1))
+            self.wait(retry_delay)
             return True
         raise exc
+
+
+    @staticmethod
+    def is_maintenance_response(response: requests.Response) -> bool:
+        """Whether this is ao3's 'The archive is down for maintenance' page.
+
+        A small html page carrying that sentence. A work's own text could quote it, so a page
+        with a work on it (`workskin`) never counts, and nor does anything that is not html -
+        a downloaded epub or pdf is never mistaken for it.
+        """
+
+        content_type = (response.headers.get('Content-Type') or '').lower()
+        if not content_type.startswith('text/html'): return False
+        try:
+            text = response.text.lower()
+        except Exception:
+            return False
+        return strings.AO3_DOWN_MARKER in text and 'id="workskin"' not in text
 
 
     @staticmethod
