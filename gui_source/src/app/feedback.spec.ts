@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Feedback, Turnstile, USERNAME_REMOVED, failureReason, readLatestLog, redactLog } from './feedback';
 import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
 import { Library } from './library';
-import { LibraryStore } from './library-store';
+import { DirectoryHandle } from './folder-store';
+import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
 
 const WORKER = 'https://feedback.example.workers.dev';
 
@@ -182,6 +183,8 @@ describe('Feedback', () => {
       message: 'The quick scan stopped',
       name: 'Sam',
       log: '',
+      // nothing is open in this spec; a folder's own name is never sent
+      storage: 'no library open',
       turnstileToken: 'token-1',
     });
     const link = element.querySelector('a[href="https://github.com/o/r/issues/12"]');
@@ -294,6 +297,22 @@ describe('Feedback', () => {
 
     expect(element.querySelector('[role="dialog"]')).toBeNull();
     expect(turnstile.removed).toEqual(['widget-1']);
+  });
+
+  it('says whether the library is in Dropbox or on this computer, never the folder', async () => {
+    const fetching = answering(201, { ok: true, number: 4, url: 'https://github.com/o/r/issues/4' });
+    const local = new LocalLibraryStore({ name: 'Sams fics' } as unknown as DirectoryHandle);
+    TestBed.inject(Library).store.set(local);
+    await make();
+    await openForm();
+    await fill('positive', 'Nice');
+    await send();
+
+    expect(sentBody(fetching)['storage']).toBe('a folder on this computer');
+    expect(JSON.stringify(sentBody(fetching))).not.toContain('Sams fics');
+
+    TestBed.inject(Library).store.set(Object.create(DropboxLibraryStore.prototype) as DropboxLibraryStore);
+    expect((fixture.componentInstance as unknown as { storageKind(): string }).storageKind()).toBe('Dropbox');
   });
 
   it('offers to attach a log only with a library open', async () => {

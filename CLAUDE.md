@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1673 python passed; 735 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1673 python passed; 736 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -485,6 +485,8 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   workflow sets from `vars`. `readPageConfig` drops a half-set pair too. They are not
   settings.ini keys, because that file is the user's own and only ever added to. A bundle
   built here has neither, and so no tab.
+- **The library is described by kind, never by name** (`storageKind`: Dropbox, a folder on
+  this computer, read only, or none) - a local folder's name can be its owner's.
 - **No email field, and the log loses the AO3 username before it is shown.** The issue is
   public. `redactLog` replaces every username the page knows, case-insensitively: the newest
   record's `username`, `Jobs.config().username`, and `ao3.username` in localStorage. It also
@@ -1779,7 +1781,11 @@ nothing and the question is never asked.
 ### What ao3 would not give, FicHub is asked for, at the end
 
 `source_code/fichub.py` and `server.rescue_with_fichub`. FicHub (fichub.net) keeps copies of
-ao3 works, some ao3 no longer serves. `finish_run` calls it before `cleanup`, so it is the
+ao3 works, some ao3 no longer serves. **It earns its keep in two cases**: a fic this app
+indexed that ao3 has since deleted (its entry holds the number, so a later scan's re-read or
+download fails and FicHub is asked by it), and a single fic fetched by link or number. A
+bookmark ao3 already shows as deleted on a listing has no number, so FicHub cannot be asked
+about it - an index made before the deletion is what makes it findable. `finish_run` calls it before `cleanup`, so it is the
 `fichub` step (`STEP_FICHUB`) just before `cleanup` in **every** plan - a test over `ACTIONS`
 holds that - and is skipped when nothing failed. What not to break:
 

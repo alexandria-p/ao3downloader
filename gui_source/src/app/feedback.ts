@@ -14,7 +14,7 @@ import { HelperConnection } from './helper-connection';
 import { Jobs } from './jobs';
 import { Library } from './library';
 import { saveText } from './issues';
-import { LibraryStore } from './library-store';
+import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
 import { safeGet } from './storage';
 
 /**
@@ -280,6 +280,7 @@ export class Feedback implements OnDestroy {
           log: this.attachLog() ? this.logPreview() : '',
           version: this.helper.settings().version,
           copy: this.helper.isLocal() ? 'on their own computer' : 'the hosted page',
+          storage: this.storageKind(),
           browser: navigator.userAgent,
           turnstileToken: this.token(),
         }),
@@ -304,6 +305,19 @@ export class Feedback implements OnDestroy {
     }
   }
 
+  /**
+   * Where the library the page has open lives - Dropbox or this computer - and nothing more.
+   * Never the folder's name: the issue is public, and a folder can be named for its owner.
+   */
+  protected storageKind(): string {
+    const store = this.library.store();
+    if (store instanceof DropboxLibraryStore) return 'Dropbox';
+    if (store instanceof LocalLibraryStore) return 'a folder on this computer';
+    // a browser without a folder picker hands a folder over as files, which can be read only
+    if (this.library.data()) return 'a folder on this computer (read only)';
+    return 'no library open';
+  }
+
   /** everything that was written, as a file, so a failed send never loses it */
   protected downloadAttempt(): void {
     const lines = [
@@ -312,6 +326,7 @@ export class Feedback implements OnDestroy {
       `Sentiment: ${this.sentiment() || '(not chosen)'}`,
       `Name: ${this.name().trim() || '(none given)'}`,
       `Version: ${this.helper.settings().version || '(built on this computer)'}`,
+      `Library: ${this.storageKind()}`,
       `Written: ${new Date().toISOString()}`,
       '',
       '## Feedback',

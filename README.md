@@ -518,6 +518,8 @@ Before it ends, a run that failed to get any work from AO3 **asks whether to try
 
 For each work FicHub has, the run writes its index entry from what FicHub says (when the run writes JSON) and downloads the file types you asked for, named and checked exactly as a download from AO3 is. FicHub makes EPUB, HTML, MOBI and PDF, but not AZW3. The index reading made from FicHub carries `retrieved_from` (`{"site": "fichub", "downloaded": [...]}`), and the listing marks the work **From FicHub**. A later reading from AO3 does not carry it.
 
+**Where it helps most:** a fic this app indexed while it was on AO3 that has since been deleted - the index still has its work number, so the next scan's re-read or download fails and FicHub is asked for it by that number - and a single fic fetched by link or work number. A bookmark AO3 already lists only as deleted, with no number, can't be looked up; that is why indexing your library while the works are still there matters.
+
 It only tries AO3 works it has a number for - never an external work, a series, or a deleted bookmark with nothing to look up. A work FicHub cannot give either stays a failure, its reason naming both: `AO3: ... | FicHub: ...`. Downloading a single fic by link goes the same way: a fic AO3 will not show is handed to FicHub rather than ending the run.
 
 One **Export all issues** button at the end of the run saves a single plain text file covering every list below, with a heading for each kind and one work per line under it - the work number, the link and the reason, tab separated - so you can look them over or feed the numbers back in. A work is listed once however many formats failed for it.

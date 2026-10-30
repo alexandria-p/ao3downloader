@@ -372,6 +372,7 @@ Used by: custom run, when chosen.
 Used by: every workflow.
 - Programmatic name `fichub`; runs after everything the run asked AO3 for, before the cleanup.
 - Skipped when nothing failed. Otherwise asks *whether to try FicHub* (`fichub`), naming how many works and their numbers; unanswered for 30 minutes - or on a background run with no answer given - it takes **yes**.
+- Most useful for a fic indexed while it was on AO3 and deleted since (the index keeps its number, so a later run's re-read or download fails and FicHub is asked by it), and for a single fic fetched by link or number. A bookmark AO3 already lists as deleted has no number to ask by.
 - Tries only AO3 works with a number: the run's failures (a download, an update's re-read, a single fic's own page). Never an external work, a series, or a deleted bookmark with no number.
 - For each: one request to FicHub's api for the work's details, then one per format to fetch. With JSON, writes the index entry from what FicHub says - the stats for a work already indexed (its bookmark fields are kept), everything for a new one - as a reading carrying `retrieved_from`. Downloads the run's file types that are missing or behind (or every one, on a run that overwrites), named and checked as a download from AO3 is. FicHub makes EPUB, HTML, MOBI and PDF - not AZW3.
 - A work it gets is taken off the failures and listed as *fetched from FicHub*. One it cannot get (or not every format of) stays a failure, its reason naming both: `AO3: ... | FicHub: ...`.

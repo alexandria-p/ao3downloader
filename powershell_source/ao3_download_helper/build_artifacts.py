@@ -769,7 +769,8 @@ is indexed from what it says (with JSON) and downloaded in the file types asked 
 and checked as any download is - EPUB, HTML, MOBI and PDF, not AZW3. Its index reading
 carries `retrieved_from`, and the listing marks it **From FicHub**. Only ao3 works with a
 number are tried, never an external work or a series. A work neither has stays a failure,
-its reason naming both.
+its reason naming both. It helps most with a fic this app indexed before ao3 deleted it - the
+index keeps its number - and with a single fic fetched by link or number.
 One **Export all issues** button saves every list as a single plain text file, under a
 heading per kind - one work per line, with the work number, link and reason - so the numbers
 can be fed back in. A work is listed once however many formats failed for it.

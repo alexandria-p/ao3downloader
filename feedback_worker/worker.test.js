@@ -19,6 +19,7 @@ const FORM = {
   log: 'logging in\nnew download: 1 A.html',
   version: '1.0.2',
   copy: 'Windows app',
+  storage: 'Dropbox',
   browser: 'Chrome 140',
   turnstileToken: 'token-1',
 };
@@ -59,6 +60,8 @@ describe('sending feedback', () => {
     assert.deepEqual(sent.labels, ['feedback', 'positive']);
     assert.equal(sent.title, 'Feedback (positive): The quick scan is great.');
     assert.equal(issue.init.headers.Authorization, 'Bearer a-token');
+    // where the library lives - the kind, never a folder's name
+    assert.match(sent.body, /- \*\*Library:\*\* Dropbox/);
   });
 
   it('lets the page that sent it read the answer', async () => {
