@@ -1020,7 +1020,8 @@ from what is still missing.
 
 Every run in the History tab has **Download issues** when it reported anything: one text file
 of what failed, what to check by hand, and the bookmarks that are not works. **Download log**
-saves the whole account the run gave in its window. Both are saved as the run goes - at every
+saves the whole account the run gave in its window, each line starting with the time it was
+said. Both are saved as the run goes - at every
 checkpoint, and when it prints a line at least two minutes after the last save - so a run cut off by a crash keeps everything up to about its last two minutes.
 
 ## What the History tab says about a run

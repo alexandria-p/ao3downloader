@@ -3645,7 +3645,7 @@ def test_a_force_stop_ends_a_stuck_run_at_once_with_its_log_and_issues(tmp_path)
     assert data['status'] == 'stopped'
     assert data['error'] == strings.ERROR_FORCE_STOPPED
     assert data['finished']
-    assert data['log'][-1] == strings.AO3_INFO_FORCE_STOPPED
+    assert data['log'][-1].endswith('] ' + strings.AO3_INFO_FORCE_STOPPED)
     assert data['failures'] == [{'id': '1', 'link': 'x', 'error': 'gone'}]
     assert any(e['type'] == progress.FINISHED and e.get('forced') for e in job.history)
 

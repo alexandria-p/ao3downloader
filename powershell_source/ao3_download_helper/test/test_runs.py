@@ -1,5 +1,6 @@
 """Tests for source_code.runs - the per-run history files."""
 
+import re
 import json
 import os
 from unittest.mock import MagicMock
@@ -146,6 +147,28 @@ def test_a_record_with_no_settings_to_hand_still_writes(tmp_path):
     assert written(tmp_path)[0]['settings'] == {}
 
 
+STAMP = re.compile(r'^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] ')
+
+
+def unstamped(log: list[str]) -> list[str]:
+    """A log's lines without the time each was said, every one of them checked to have one."""
+
+    assert all(STAMP.match(x) for x in log), log
+    return [STAMP.sub('', x) for x in log]
+
+
+def test_every_line_of_the_log_says_when_it_was_said(tmp_path, monkeypatch):
+    # the log is downloaded from History long after the run; without times it cannot say
+    # where a run spent an hour
+    monkeypatch.setattr(runs, 'now', lambda: '2026-10-30T14:47:47')
+    record = a_record(tmp_path)
+
+    record.line('looking up work 75354806')
+    record.finish(runs.STATUS_SUCCESS)
+
+    assert written(tmp_path)[0]['log'] == ['[2026-10-30 14:47:47] looking up work 75354806']
+
+
 def test_the_console_output_is_kept_with_the_run(tmp_path):
     # the modal is gone once the tab is closed, and this is the only lasting copy
     record = a_record(tmp_path)
@@ -154,18 +177,18 @@ def test_the_console_output_is_kept_with_the_run(tmp_path):
     record.line('fetching page 1 of 80')
     record.finish(runs.STATUS_SUCCESS)
 
-    assert written(tmp_path)[0]['log'] == ['indexing', 'fetching page 1 of 80']
+    assert unstamped(written(tmp_path)[0]['log']) == ['indexing', 'fetching page 1 of 80']
 
 
 def test_lines_printed_before_the_record_existed_are_not_lost(tmp_path):
     # the run says it is logging in before there is a file to say it into
     record = runs.RunRecord(fake_fileops(tmp_path), 'abc', 'sync', 'A', ['JSON'], {},
-                            printed=['logging in as someone'])
+                            printed=[runs.stamped('logging in as someone')])
 
     record.line('logged in')
     record.finish(runs.STATUS_SUCCESS)
 
-    assert written(tmp_path)[0]['log'] == ['logging in as someone', 'logged in']
+    assert unstamped(written(tmp_path)[0]['log']) == ['logging in as someone', 'logged in']
 
 
 def test_a_line_saves_the_record_only_once_enough_time_has_passed(tmp_path):
@@ -202,7 +225,7 @@ def test_saving_every_line_would_keep_the_whole_log(tmp_path, monkeypatch):
     for n in range(3):
         record.line(f'line {n}')
 
-    assert written(tmp_path)[0]['log'] == ['line 0', 'line 1', 'line 2']
+    assert unstamped(written(tmp_path)[0]['log']) == ['line 0', 'line 1', 'line 2']
 
 
 def test_the_default_wait_is_two_minutes():
@@ -259,7 +282,7 @@ def test_a_very_long_run_keeps_the_end_of_its_log_and_says_what_it_dropped(tmp_p
 
     saved = written(tmp_path)[0]
     assert len(saved['log']) == runs.LOG_MAX_LINES
-    assert saved['log'][-1] == f'line {runs.LOG_MAX_LINES + 9}'
+    assert unstamped(saved['log'])[-1] == f'line {runs.LOG_MAX_LINES + 9}'
     assert saved['logTrimmed'] == 10
 
 
@@ -318,7 +341,7 @@ def test_the_log_can_be_asked_for_when_it_is_wanted(tmp_path):
 
     listed = runs.read_runs(fake_fileops(tmp_path), with_log=True)[0]
 
-    assert listed['log'] == ['indexing']
+    assert unstamped(listed['log']) == ['indexing']
 
 
 def test_a_record_written_before_logs_were_kept_still_lists(tmp_path):

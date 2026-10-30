@@ -1,4 +1,4 @@
-Every run is written into the **History** tab (`runs/` in your library) the moment it logs in, and kept up to date as it goes. Each entry names the **AO3 account** it logged in as (never the password) and offers **Download log**, and **Download issues** when there is anything to report.
+Every run is written into the **History** tab (`runs/` in your library) the moment it logs in, and kept up to date as it goes. Each entry names the **AO3 account** it logged in as (never the password) and offers **Download log** (every line timestamped), and **Download issues** when there is anything to report.
 
 ## What the status means
 

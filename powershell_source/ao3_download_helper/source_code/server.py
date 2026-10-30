@@ -849,7 +849,7 @@ def run_job(job: Job, password: str) -> None:
         job.emit({'type': progress.MESSAGE, 'text': line})
         if echo: to_console(f'{tag} {line}')
         if job.record: job.record.line(line)
-        else: before_record.append(line)
+        else: before_record.append(runs.stamped(line))
 
     stream = LineStream(said)
 
@@ -1284,7 +1284,7 @@ def force_stop(job: Job) -> dict | None:
         except Exception:
             pass
         try:
-            record.data['log'].append(strings.AO3_INFO_FORCE_STOPPED)
+            record.data['log'].append(runs.stamped(strings.AO3_INFO_FORCE_STOPPED))
         except Exception:
             pass
         record.data['status'] = runs.STATUS_STOPPED
