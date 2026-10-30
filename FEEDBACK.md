@@ -129,11 +129,30 @@ It is in the right-hand column, or under the account's **...** menu as **Copy ac
 
 ### 3. An API token for deploying
 
-1. Open **My Profile → API Tokens → Create Token**.
-2. Use the **Edit Cloudflare Workers** template.
-3. Limit it to your own account. The zone can be left as **All zones**, since nothing here
-   uses one.
-4. Copy the token. Cloudflare shows it once.
+1. Open **My Profile → API Tokens → Create Token**, and start from the **Edit Cloudflare
+   Workers** template.
+2. **Permissions:** the deploy only uploads the Worker (`wrangler deploy`) and sets its
+   secrets (`wrangler secret put`), so remove every row except these:
+
+   | Scope | Permission | Access | Why |
+   | --- | --- | --- | --- |
+   | Account | Workers Scripts | Edit | deploys the Worker and sets its secrets |
+   | Account | Account Settings | Read | wrangler can read the account while deploying |
+   | User | User Details | Read | wrangler can check whose token it is |
+   | User | Memberships | Read | wrangler can look up the token's accounts |
+
+   Workers Scripts alone should be enough, since the deploy names the account itself. The
+   three read-only rows change nothing and save a failed deploy if a wrangler version wants
+   them. Remove KV, R2, Pages, Routes, Tail, Builds, Agents, Observability and Containers.
+3. **Account Resources:** Include → your account.
+4. **Zone Resources:** none - the Worker lives on `workers.dev`, not on a domain of yours, so
+   with the Routes row gone the token has no zone permissions for this to apply to.
+5. **Token expiration:** 1 year, with a reminder, or none - the token can only deploy Workers
+   in your account. When it expires only the deploy job fails; the deployed Worker, and the
+   feedback form, keep working until you replace the `CLOUDFLARE_API_TOKEN` secret.
+6. **Client IP address filtering:** leave it empty. GitHub Actions runners come from a large,
+   changing pool of addresses, so any filter would break deploys.
+7. Copy the token. Cloudflare shows it once.
 
 ### 4. A Turnstile widget
 
