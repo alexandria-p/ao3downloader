@@ -325,6 +325,29 @@ def test_run_job_turns_printed_output_into_messages(fake_environment):
     assert 'getting metadata' in messages
 
 
+def test_the_run_window_gets_each_line_without_the_time_the_history_file_keeps(fake_environment):
+    # the window shows what is happening now, so a time on every line is only noise there;
+    # the downloaded log is read later, and needs them
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON'], 'someone')
+
+    with patch.object(server, 'run_bookmarks', side_effect=lambda *a: print('getting metadata')):
+        server.run_job(job, 'a-password')
+
+    messages = [e['text'] for e in job.history if e['type'] == progress.MESSAGE]
+    assert 'getting metadata' in messages
+    assert not any(x.startswith('[') for x in messages)
+    assert any(x.endswith('] getting metadata') for x in job.record.data['log'])
+
+
+def test_a_force_stop_tells_the_run_window_without_a_time(tmp_path):
+    job, fileops = a_stuck_run(tmp_path)
+
+    server.force_stop(job)
+
+    messages = [e['text'] for e in job.history if e['type'] == progress.MESSAGE]
+    assert messages[-1] == strings.AO3_INFO_FORCE_STOPPED
+
+
 def test_run_job_says_it_is_logging_in_before_it_tries(fake_environment):
     # logging in is the first thing a run does, and it is slow. without these lines the
     # modal opens on an empty log and looks like it has hung
