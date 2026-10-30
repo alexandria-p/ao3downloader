@@ -1,6 +1,7 @@
 """Web requests go here."""
 
 import datetime
+import threading
 import traceback
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -103,6 +104,54 @@ class Repository:
         """Wait out an ao3 rate limit break. Raises if stopped partway through."""
 
         self.wait(seconds)
+
+
+    def fetch(self, method: str, url: str, data) -> requests.Response:
+        """One request, body and all."""
+
+        response = self.session.request(method, url, data, headers=self.headers,
+                                        timeout=self.timeout, stream=True)
+        self.read_body(response, method)
+        return response
+
+
+    def abandonable(self, method: str, call: Callable[[], requests.Response]) -> requests.Response:
+        """Make one request in a way that a stop or a pause can walk away from at once.
+
+        Stop and pause used to be noticed only between a body's chunks and before a request
+        went out. Waiting for ao3 to start answering - up to `timeout` seconds, again on every
+        retry - noticed neither, and a run pressed to stop sat saying 'stopping' while it
+        waited. So the request runs on a thread of its own and this one watches, a slice at a
+        time: a stop raises `CancelledException`, a pause on a GET raises `PausedException`
+        (the caller holds, then asks for the same thing again from the start).
+
+        Nothing is lost by walking away: the bytes are in memory until the whole body has
+        arrived and been judged, so nothing has been written. The abandoned thread is left to
+        finish or time out on its own; it reads no further than its next chunk, because
+        `read_body` checks the same stop and pause. A POST is only abandoned for a stop - a
+        login form sent twice is not the same as a page asked for twice.
+        """
+
+        if self.cancelled is None and self.held is None: return call()
+
+        result: dict = {}
+        finished = threading.Event()
+
+        def run() -> None:
+            try:
+                result['response'] = call()
+            except BaseException as e:
+                result['error'] = e
+            finally:
+                finished.set()
+
+        threading.Thread(target=run, daemon=True).start()
+        while not finished.wait(self.pause_slice):
+            self.check_cancelled()
+            if method.upper() == 'GET' and self.held is not None and self.held():
+                raise exceptions.PausedException()
+        if 'error' in result: raise result['error']
+        return result['response']
 
 
     def read_body(self, response, method: str) -> None:
@@ -261,9 +310,7 @@ class Repository:
 
             try:
                 try:
-                    response = self.session.request(method, url, data, headers=self.headers,
-                                                    timeout=self.timeout, stream=True)
-                    self.read_body(response, method)
+                    response = self.abandonable(method, lambda: self.fetch(method, url, data))
                 except requests.exceptions.Timeout as e: # raw timeout exceptions are way too verbose
                     raise exceptions.TimeoutException(strings.ERROR_TIMEOUT.format(self.timeout)) from e
             except exceptions.PausedException:

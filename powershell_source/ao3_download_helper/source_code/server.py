@@ -1252,6 +1252,55 @@ def find_anchor(ao3: Ao3, link: str, page: int, anchor: dict) -> int | None:
     return None
 
 
+def force_stop(job: Job) -> dict | None:
+    """End a run at once, as a stop would, without waiting for its thread to notice.
+
+    A stop sets a flag the run reads at its next gate; a run whose thread never reaches one -
+    stuck in a request, waiting on a page that has gone - stays 'running', and holds the
+    helper so nothing else can start. This does what the end of a stop does, here and now:
+    the record says `stopped` with the reason, keeps its log and issues, and is **frozen**
+    so the thread cannot write over it if it wakes; the run is marked done, so the helper
+    takes a new one; and a page still listening is told it finished.
+
+    The record goes back to the page to write rather than being saved here. A run that is
+    not in the background writes its history through the page that started it, and when that
+    page has gone - the usual reason to be here - a save would wait on nobody. The page
+    asking holds the library, so it writes it. Returns `{file, data}`, or None when the run
+    had no record yet (it never reached the login) or had already ended.
+
+    A thread that wakes later unwinds at its next gate, since `cancel` is set; it may finish
+    what it was in the middle of first.
+    """
+
+    job.cancel.set()
+    job.held.clear()
+    if job.done.is_set(): return None
+
+    written = None
+    record = job.record
+    if record is not None:
+        try:
+            record.collect(job.ao3)
+        except Exception:
+            pass
+        try:
+            record.data['log'].append(strings.AO3_INFO_FORCE_STOPPED)
+        except Exception:
+            pass
+        record.data['status'] = runs.STATUS_STOPPED
+        record.data['error'] = strings.ERROR_FORCE_STOPPED
+        record.data['finished'] = runs.now()
+        record.frozen = True
+        written = {'file': os.path.basename(record.path), 'data': json.loads(json.dumps(record.data))}
+
+    job.emit({'type': progress.MESSAGE, 'text': strings.AO3_INFO_FORCE_STOPPED})
+    job.emit({'type': progress.FINISHED, 'cancelled': True, 'forced': True})
+    job.library = None
+    job.finished_at = time.monotonic()
+    job.done.set()
+    return written
+
+
 def close_record(job: Job, status: str, error: str = '') -> None:
     """Finish this run's history file, whatever happened to the run.
 
@@ -3687,6 +3736,10 @@ class Handler(BaseHTTPRequestHandler):
             self.cancel_job(self.path.split('/')[3])
             return
 
+        if self.path.startswith('/api/jobs/') and self.path.endswith('/force-stop'):
+            self.force_stop_job(self.path.split('/')[3])
+            return
+
         if self.path.startswith('/api/jobs/') and self.path.endswith('/answer'):
             self.answer_job(self.path.split('/')[3])
             return
@@ -3869,6 +3922,21 @@ class Handler(BaseHTTPRequestHandler):
         # the run notices at its next checkpoint and unwinds, keeping what it has saved
         job.cancel.set()
         self.send_json(202, {'cancelling': True})
+
+    def force_stop_job(self, job_id: str) -> None:
+        """End a run now, from the History tab, whatever its thread is doing.
+
+        The last resort for a run that will not stop - its page gone, its thread stuck where
+        no stop is noticed. See `force_stop`. Answers with the record as it now stands, for
+        the page to write into the library.
+        """
+
+        with Handler.jobs_lock:
+            job = Handler.jobs.get(job_id)
+        if not job:
+            self.send_json(404, {'error': 'no such job'})
+            return
+        self.send_json(200, {'stopped': True, 'record': force_stop(job)})
 
     def skip_step(self, job_id: str) -> None:
         """Abandon the step a run is on and let it go to the next.

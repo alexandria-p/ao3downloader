@@ -267,6 +267,52 @@ def test_a_work_quoting_the_maintenance_sentence_is_not_mistaken_for_it():
     assert Repository.is_maintenance_response(make_response(text=MAINTENANCE)) is True
 
 
+def test_a_stop_walks_away_from_a_request_ao3_has_not_answered_yet(mock_repo):
+    import threading, time
+    never = threading.Event()
+    mock_repo.pause_slice = 0.01
+    pressed = time.monotonic() + 0.05
+    mock_repo.cancelled = lambda: time.monotonic() > pressed
+
+    def hang(*args, **kwargs):
+        never.wait(5)  # ao3 taking its time - up to the whole timeout
+        return make_response(status_code=200, text='late')
+
+    mock_repo.session.request.side_effect = hang
+    began = time.monotonic()
+    with pytest.raises(exceptions.CancelledException):
+        mock_repo.my_request('GET', AO3_URL)
+    assert time.monotonic() - began < 1
+    never.set()
+
+
+def test_a_pause_walks_away_from_a_slow_request_and_asks_again_on_resume(mock_repo, capsys):
+    import threading, time
+    first = threading.Event()
+    mock_repo.pause_slice = 0.01
+    state = {'held': False, 'calls': 0}
+    mock_repo.held = lambda: state['held']
+    mock_repo.cancelled = lambda: False
+
+    def answer(*args, **kwargs):
+        state['calls'] += 1
+        if state['calls'] == 1:
+            state['held'] = True     # paused while ao3 is still thinking
+            threading.Timer(0.1, lambda: state.update(held=False)).start()  # resumed
+            first.wait(5)
+            return make_response(status_code=200, text='abandoned')
+        return make_response(status_code=200, text='the same page, asked again')
+
+    mock_repo.session.request.side_effect = answer
+    result = mock_repo.my_request('GET', AO3_URL)
+
+    assert result.text == 'the same page, asked again'
+    assert state['calls'] == 2
+    said = capsys.readouterr().out
+    assert strings.MESSAGE_HELD in said and strings.MESSAGE_RELEASED in said
+    first.set()
+
+
 def test_my_request_unlimited_retries_when_max_retries_zero(mock_repo):
     mock_repo.max_retries = 0
     responses = [make_response(status_code=502)] * 5 + [make_response(status_code=200, text='ok')]

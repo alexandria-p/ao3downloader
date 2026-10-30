@@ -719,6 +719,37 @@ export class Jobs {
   }
 
   /**
+   * End a run at once, as a last resort, whatever its thread is doing - from History, for a
+   * run that will not stop or whose window has gone.
+   *
+   * The helper marks it stopped and done, so a new run can start, and hands back its record
+   * as it now stands - log, issues, `stopped` - which this writes into the library itself.
+   * A run that is not in the background saves its history through the window that started
+   * it, and with that window gone a save from the helper would wait on nobody. Written only
+   * where the record already is, so a run from another library is never written into this
+   * one. Throws when the helper refuses or cannot be reached: a force stop that silently did
+   * not happen would leave the run holding the helper.
+   */
+  async forceStop(jobId: string, store: LibraryStore | null): Promise<void> {
+    const response = await this.helper.call(`/api/jobs/${jobId}/force-stop`, { method: 'POST' });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.error ?? `the helper would not stop it (${response.status})`);
+    }
+    const answer = (await response.json()) as {
+      record?: { file: string; data: Record<string, unknown> } | null;
+    };
+    const record = answer.record;
+    if (store && record?.file && !record.file.includes('/')) {
+      const path = `runs/${record.file}`;
+      if ((await store.read(path)) !== null) {
+        await store.write(path, new Response(JSON.stringify(record.data, null, 2)));
+      }
+    }
+    await this.refreshActiveRuns();
+  }
+
+  /**
    * Ask the helper to stop. The run unwinds at its next checkpoint, keeping whatever it
    * has already written, so this is safe rather than destructive.
    */

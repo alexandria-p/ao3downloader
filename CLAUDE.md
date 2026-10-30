@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1691 python passed; 743 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1698 python passed; 748 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1859,6 +1859,29 @@ failure for a lapsed session and end. `logged_in` is `None` until known, so a mo
 console `Repository` keeps the old behaviour. The page's checkbox is unticked by default and
 shows a warning when ticked; its credentials step then asks for nothing, and a hosted page
 seals an empty login.
+
+### Stop and pause land mid-request; force stop ends a run that will not
+
+`Repository.abandonable` runs each request (`fetch`: the request and `read_body`) on a thread
+of its own and watches it a `pause_slice` at a time, so **a stop or a pause lands while ao3 is
+still deciding whether to answer** - up to `timeout` (60s) per try, again on every retry, which
+noticed neither and left a run saying *Stopping...*. A stop raises `CancelledException`; a
+pause on a GET raises `PausedException`, which `my_request` already turns into hold-then-ask-
+again, so Resume repeats the same request (the same fic looked up). Nothing is written before
+a whole body has been judged, so abandoning one loses nothing. A POST is abandoned only for a
+stop. With neither `cancelled` nor `held` set (the console, most tests) it calls straight
+through.
+
+**Force stop** (`POST /api/jobs/<id>/force-stop`, `force_stop`, History's pinned run) is the
+last resort for a run whose thread never reaches a gate or whose page has gone. It does what
+the end of a stop does, at once: record `stopped` with `ERROR_FORCE_STOPPED`, the log plus
+`AO3_INFO_FORCE_STOPPED`, issues collected; the record **frozen** (`RunRecord.frozen`, so
+`save` is a no-op and a thread waking later cannot write over it); a `finished` event with
+`forced`; and `job.done` set, so the helper takes the next run. **The record goes back to the
+page to write** (`Jobs.forceStop`), not saved by the helper: a run not in the background saves
+through the page that started it, which is usually exactly what has gone. The page writes it
+only where `runs/<file>` already exists, so a run from another library never lands in this one.
+`cancel` is set too, so a thread that wakes unwinds at its next gate.
 
 ### A run can be paused, and there are exactly two places it may pause
 

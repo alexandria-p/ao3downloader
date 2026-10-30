@@ -44,6 +44,38 @@
           started it - it needs that page open to reach the library.
         </p>
       }
+
+      <!-- the last resort, for a run that will not stop or whose window has gone -->
+      @if (confirmingForce() === active.id) {
+        <div class="warning force-stop-confirm">
+          <p>
+            <strong>Force stop this run?</strong> It ends now, without waiting for it to reach a
+            safe point. Whatever it was in the middle of is left unfinished - everything it had
+            already saved is kept. Its history says <strong>Stopped</strong>, with its log and
+            issues, and another run can start straight away.
+          </p>
+          <p class="hint">Try its own Stop button first, if its window is open.</p>
+          <div class="force-stop-actions">
+            <button type="button" class="button danger" [disabled]="forcing() === active.id"
+                    (click)="forceStop(active)">
+              {{ forcing() === active.id ? 'Stopping...' : 'Force stop' }}
+            </button>
+            <button type="button" class="button subtle" (click)="confirmingForce.set('')">
+              Keep it running
+            </button>
+          </div>
+          @if (forceProblem()) {
+            <p class="error">{{ forceProblem() }}</p>
+          }
+        </div>
+      } @else {
+        <div class="force-stop">
+          <button type="button" class="button subtle" (click)="confirmingForce.set(active.id)">
+            Force stop
+          </button>
+          <span class="hint">If it will not stop from its own window.</span>
+        </div>
+      }
     </article>
   }
 

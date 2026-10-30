@@ -402,6 +402,9 @@ ERROR_FICHUB_WRONG_WORK = 'FicHub answered about a different work ({})'
 ERROR_FICHUB_NO_FORMAT = 'FicHub does not offer {}'
 ERROR_FICHUB_NOT_A_FILE = 'FicHub sent a page instead of the {} file ({})'
 ERROR_FICHUB_ELSEWHERE = 'FicHub pointed the {} download somewhere other than fichub.net'
+AO3_INFO_FORCE_STOPPED = ('force stopped from the History tab. anything this run was in the middle of '
+                          'was left unfinished; everything it had already saved is kept')
+ERROR_FORCE_STOPPED = 'Force stopped from the History tab'
 ERROR_AO3_AND_FICHUB = 'AO3: {} | FicHub: {}'
 AO3_INFO_DUPLICATES = ('{} works have more than one copy of the same format ({} older files). '
                        'the newest copy is the one every run goes by')

@@ -76,6 +76,9 @@ class RunRecord:
         # lines counted since the last write, not since the run began, and when that was
         self.unsaved = 0
         self.last_saved = float('-inf')
+        # set once the run is force stopped: the page writes the record's ending itself, and
+        # a run thread still stuck somewhere must not wake later and write over it
+        self.frozen = False
         self.path = os.path.join(
             fileops.runsfolder, f'{now().replace(":", "")}-{job_id[:8]}.json')
         self.data: dict = {
@@ -159,6 +162,7 @@ class RunRecord:
         self.save()
 
     def save(self) -> None:
+        if self.frozen: return
         try:
             if self.source is not None: self.collect(self.source())
         except Exception:

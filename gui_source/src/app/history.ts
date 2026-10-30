@@ -70,6 +70,28 @@ export class History {
    */
   protected readonly activeRuns = this.jobs.activeRuns;
 
+  /** the run whose force stop is being confirmed, by id */
+  protected readonly confirmingForce = signal('');
+  /** the run being force stopped right now, so it cannot be pressed twice */
+  protected readonly forcing = signal('');
+  protected readonly forceProblem = signal('');
+
+  /** end a run that will not stop, then read the history again to show how it ended */
+  protected async forceStop(active: ActiveRun): Promise<void> {
+    if (this.forcing()) return;
+    this.forcing.set(active.id);
+    this.forceProblem.set('');
+    try {
+      await this.jobs.forceStop(active.id, this.library.store());
+      this.confirmingForce.set('');
+      await this.load();
+    } catch (e) {
+      this.forceProblem.set(e instanceof Error ? e.message : String(e));
+    } finally {
+      this.forcing.set('');
+    }
+  }
+
   /** how many issues a run reported, across every kind */
   protected issuesIn(run: RunHistory): number {
     return issueCount(issuesOf(run));
