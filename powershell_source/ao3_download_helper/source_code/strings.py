@@ -288,7 +288,10 @@ AO3_INFO_GAP_INDEXED = '    index updated'
 AO3_INFO_STEP_SKIPPED = 'skipping the rest of this step at your request'
 # one fic on its own, by link or work number
 AO3_INFO_ONE_WORK = 'looking up work {}'
-AO3_INFO_ONE_WORK_INDEXED = 'index updated'
+# said for each fic a fic run looks up: whether its index entry was actually written - a
+# step marked done (or a series step skipped) says nothing about this fic on its own
+AO3_INFO_ONE_WORK_INDEXED = 'index updated for work {}'
+AO3_INFO_ONE_WORK_NOT_INDEXED = 'index not updated for work {}'
 AO3_INFO_ONE_WORK_UNREADABLE = 'AO3 would not show this work: {}'
 AO3_INFO_ONE_WORK_DONE = 'finished with work {}'
 AO3_INFO_MANY_WORKS = '{} fics to look up'
@@ -391,8 +394,14 @@ RETRIEVED_FROM_FIELD = 'retrieved_from'
 AO3_INFO_FICHUB_ASK = ('{} works could not be fetched from AO3 ({}). '
                        'waiting for you to choose whether to try FicHub for them...')
 AO3_INFO_FICHUB_DECLINED = 'not trying FicHub'
-AO3_INFO_FICHUB_WORK = 'FicHub {} of {}: {}'
-AO3_INFO_FICHUB_INDEXED = '  indexed from FicHub'
+AO3_INFO_FICHUB_TRYING = 'trying FicHub for {} works: {}'
+# each said before the thing it describes happens, so the run says what it is waiting on
+AO3_INFO_FICHUB_WORK = 'FicHub {} of {}: asking FicHub about work {} ({})...'
+AO3_INFO_FICHUB_FOUND = '  FicHub has work {}: {}'
+AO3_INFO_FICHUB_FETCHING = '  fetching {} of work {} from FicHub...'
+AO3_INFO_FICHUB_INDEXING = '  writing the index entry for work {} from what FicHub says...'
+AO3_INFO_FICHUB_NOT_INDEXED = '  index not updated for work {}'
+AO3_INFO_FICHUB_INDEXED = '  index updated for work {} from FicHub'
 AO3_INFO_FICHUB_RESCUED = '{} works AO3 would not give us came from FicHub instead'
 AO3_INFO_FICHUB_FAILED_TOO = '  not on FicHub either: {}'
 ERROR_FICHUB_LOOKUP = 'FicHub could not find it ({})'

@@ -1890,12 +1890,13 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         ao3.record_failure(link, e)
         ao3.log_error({'link': link}, e)
         print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
+        print(strings.AO3_INFO_ONE_WORK_NOT_INDEXED.format(work))
         job.steps.fail_current()
         # nothing to walk or download from ao3 now - said, rather than left waiting
         for step in ('series', 'check', 'download'): job.steps.skip(step)
         finish_run(job, fileops, ao3, report)
         return
-    print(strings.AO3_INFO_ONE_WORK_INDEXED)
+    say_indexed(ao3, work)
     ao3.mark_series_of(record)
     job.steps.done('index')
 
@@ -1906,6 +1907,21 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
                      overwrite=[record.get('link') or link])
     print(strings.AO3_INFO_ONE_WORK_DONE.format(work))
     finish_run(job, fileops, ao3, report)
+
+
+def say_indexed(ao3, work: str) -> None:
+    """Say whether a fic's index entry was written, by its number.
+
+    Read off what was saved (`reindexed`), not assumed from the lookup having worked: a save
+    that failed is swallowed and logged by `save_metadata`, and the run must not claim it.
+    """
+
+    try:
+        written = str(work) in ao3.reindexed
+    except Exception:
+        written = False
+    print((strings.AO3_INFO_ONE_WORK_INDEXED if written
+           else strings.AO3_INFO_ONE_WORK_NOT_INDEXED).format(work))
 
 
 def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
@@ -1955,7 +1971,9 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             ao3.record_failure(link, e)
             ao3.log_error({'link': link}, e)
             print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
+            print(strings.AO3_INFO_ONE_WORK_NOT_INDEXED.format(work))
             continue
+        say_indexed(ao3, work)
         ao3.mark_series_of(record)
         records.append(record)
         asked.append(record.get('link') or link)
@@ -2812,6 +2830,7 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
         return
 
     job.steps.start('fichub')
+    print(strings.AO3_INFO_FICHUB_TRYING.format(len(works), ', '.join(works)))
     progress.report(report, progress.PHASE, name=progress.FICHUB)
     filetypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
     indexes = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
@@ -2848,7 +2867,7 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
 
     link = failure['link']
     title = (entry or {}).get('title') or link
-    print(strings.AO3_INFO_FICHUB_WORK.format(done, total, title))
+    print(strings.AO3_INFO_FICHUB_WORK.format(done, total, failure['id'], title))
     progress.report(ao3.progress, progress.WORK, title=title, link=link, done=done,
                     total=total, phase=progress.FICHUB)
     log: dict = {'link': link, 'source': strings.FICHUB_SITE}
@@ -2858,6 +2877,11 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         answer = fichub.lookup(ao3.repo, link)
         record = fichub.entry_from(answer, link, entry)
         title = record.get('title') or title
+        print(strings.AO3_INFO_FICHUB_FOUND.format(failure['id'], title))
+
+        def from_fichub(filetype: str) -> bytes:
+            print(strings.AO3_INFO_FICHUB_FETCHING.format(filetype, failure['id']))
+            return fichub.download(ao3.repo, answer, filetype)
 
         problem: Exception | None = None
         if filetypes:
@@ -2868,7 +2892,7 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
                 ao3.superseded = plan['superseded']
                 try:
                     fetch_formats(ao3, record, fetching, maximum, log, done, total,
-                                  fetch=lambda filetype: fichub.download(ao3.repo, answer, filetype),
+                                  fetch=from_fichub,
                                   arrived=arrived)
                 except (exceptions.CancelledException, exceptions.SessionExpiredException):
                     raise
@@ -2876,10 +2900,12 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
                     problem = e
 
         if indexes:
+            print(strings.AO3_INFO_FICHUB_INDEXING.format(failure['id']))
             ao3.save_metadata({**record, strings.RETRIEVED_FROM_FIELD:
                                {'site': strings.FICHUB_SITE, 'downloaded': arrived}},
                               from_mirror=True)
-            print(strings.AO3_INFO_FICHUB_INDEXED)
+            print((strings.AO3_INFO_FICHUB_INDEXED if str(failure['id']) in ao3.reindexed
+                   else strings.AO3_INFO_FICHUB_NOT_INDEXED).format(failure['id']))
         if problem is not None: raise problem
     except exceptions.CancelledException:
         print(strings.INFO_CANCELLED)

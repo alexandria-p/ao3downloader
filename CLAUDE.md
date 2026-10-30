@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1698 python passed; 748 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1700 python passed; 748 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1828,6 +1828,12 @@ holds that - and is skipped when nothing failed. What not to break:
 - **`retrieved_from` belongs to the reading, not the entry.** `save_metadata` drops it
   unless `from_mirror=True`, so an ao3 pass that carries a flattened record forward (as
   `refresh_one` does) does not pass the mark on. The page's *From FicHub* badge reads it.
+- **It says each thing before it does it** - `AO3_INFO_FICHUB_TRYING` once, then per work
+  asking, found, `fetching <format>` (inside the `fetch` it hands `download_one_indexed`),
+  writing the index entry, and whether the entry was really written (`reindexed`, never
+  assumed). A fic run likewise says `index updated for work <id>` or `index not updated for
+  work <id>` per fic (`say_indexed`, from `reindexed`), since the checklist's steps say
+  nothing about any one fic.
 - **Rescued works leave `ao3.failures`** for `ao3.rescued` (a `rescued` event, and
   `rescued` in the run record, listed in History). A work FicHub could not give (or not every
   format of) stays a failure, `error` becoming `AO3: ... | FicHub: ...`.
