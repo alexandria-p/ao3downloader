@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1706 python passed; 751 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1714 python passed; 751 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1532,7 +1532,10 @@ run doing nothing but retrying reads as that rather than as a hang; the debug lo
 a page with `workskin` on it, never a non-html file) is recognised whatever its status. A
 request asks again `maintenance_retries` (2) times, `maintenance_delay` (30s) apart, saying so,
 then raises `Ao3DownException` and sets `Repository.ao3_down`: **every later request to ao3 on
-that run fails at once** with the same reason, while requests elsewhere (FicHub) go on. So a
+that run fails at once** with the same reason, while requests elsewhere (FicHub) go on.
+**"To ao3" is judged by the host** (`repo.goes_to_ao3`), never by the url containing ao3's
+name: FicHub is asked about a work by its ao3 link, in the query, and a text match refused
+FicHub too - the one place left to get the work from. So a
 fic run during an outage fails each fic quickly and offers them all to FicHub at the end; a run
 that logs in fails at the login with `ERROR_AO3_DOWN`. Ao3 coming back between checks carries
 on as if nothing happened.
@@ -1823,6 +1826,9 @@ holds that - and is skipped when nothing failed. What not to break:
   the works are missing already and FicHub only adds. Every other question still defaults
   to what changes nothing. The page offers it up front on a background run (`fichub`) on
   every workflow but a collection run not taking its works.
+- **Only the failed works' entries are read** (`indexed_entries`, through `Ao3.entry_path`),
+  never the whole index: in Dropbox each entry is a download, and reading them all to find one
+  held a run for thirteen minutes before FicHub was asked.
 - **Only ao3 works with a number** (`fichub_candidates`): `ao3.failures` whose link is a
   `/works/<id>` on ao3. External works and series are in `skipped_works`, never failures,
   and a deleted bookmark has no number to ask by.

@@ -2835,8 +2835,7 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
     filetypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
     indexes = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
     wanted = set(works)
-    entries = {str(x.get('id')): x for x in shared.read_index(fileops)
-               if str(x.get('id') or '') in wanted}
+    entries = indexed_entries(ao3, fileops, wanted)
     existing = shared.scan_downloaded_works(fileops.worksfolder, filetypes,
                                             storage=fileops.storage) if filetypes else {}
     maximum = fileops.get_ini_value_integer(
@@ -2854,6 +2853,24 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
 
     if job.cancel.is_set(): return
     job.steps.done('fichub')
+
+
+def indexed_entries(ao3, fileops: FileOps, works: set[str]) -> dict[str, dict]:
+    """The index entries of just these works, by number.
+
+    Found by the number their file names start with (`Ao3.entry_path`, one listing of the
+    index folder) and read one file each - never the whole index, which in Dropbox is a
+    download per entry, and took a run thirteen minutes to find one work's.
+    """
+
+    entries: dict[str, dict] = {}
+    for work in sorted(works):
+        try:
+            record = indexing.flatten(fileops.load_json(ao3.entry_path({'id': work})))
+        except Exception:
+            continue
+        if record and record.get('link'): entries[work] = record
+    return entries
 
 
 def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes: list[str],
