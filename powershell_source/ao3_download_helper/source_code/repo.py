@@ -1,5 +1,6 @@
 """Web requests go here."""
 
+import urllib.parse
 import datetime
 import threading
 import traceback
@@ -21,6 +22,21 @@ def seconds(value: float) -> str:
 
     return f'{value:.1f}' if value < 1 else f'{value:.0f}'
 
+
+
+def goes_to_ao3(url: str) -> bool:
+    """Whether a request is to ao3 itself, judged by the host it goes to.
+
+    Not by the url containing ao3's name: FicHub is asked about a work by its ao3 link, so
+    its url carries `archiveofourown.org` in the query. Judged that way, a run that found ao3
+    down refused FicHub too - the one place left to get the work from.
+    """
+
+    try:
+        host = (urllib.parse.urlsplit(url).hostname or '').lower()
+    except ValueError:
+        return False
+    return host == strings.AO3_DOMAIN or host.endswith('.' + strings.AO3_DOMAIN)
 
 class Repository:
 
@@ -306,13 +322,13 @@ class Repository:
 
         # normalize http -> https for ao3 links. older downloaded works may contain http
         # links in their embedded metadata, and the resulting redirect trips cloudflare.
-        if strings.AO3_DOMAIN in url.lower() and url.lower().startswith('http://'):
+        to_ao3 = goes_to_ao3(url)
+        if to_ao3 and url.lower().startswith('http://'):
             url = 'https://' + url[len('http://'):]
 
         attempt = 0
         timeouts = 0
         maintenance = 0
-        to_ao3 = strings.AO3_DOMAIN in url.lower()
 
         while True:
             # a stop asked for while this was retrying or waiting must not start it again
@@ -323,7 +339,7 @@ class Repository:
             # and a pause holds here, before the request, rather than anywhere it could
             # catch a transfer in progress
             self.hold_if_asked()
-            should_retry = strings.AO3_DOMAIN in url.lower() and (self.max_retries == 0 or attempt < self.max_retries)
+            should_retry = to_ao3 and (self.max_retries == 0 or attempt < self.max_retries)
             retry_delay = self.get_delay(attempt)
 
             try:

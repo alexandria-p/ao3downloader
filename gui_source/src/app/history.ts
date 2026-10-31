@@ -166,7 +166,13 @@ export class History {
     if (!store || this.readingLog()) return;
     this.readingLog.set(run.id);
     try {
-      const record = JSON.parse((await store.read(`runs/${run.file}`)) ?? '{}') as LogRecord;
+      // a run still going is asked of the helper first: the file catches up only every
+      // couple of minutes, and would download behind what the run window shows
+      const live = this.activeRuns().some((active) => active.id === run.id)
+        ? await this.jobs.liveRecord(run.id)
+        : null;
+      const record = (live ??
+        JSON.parse((await store.read(`runs/${run.file}`)) ?? '{}')) as LogRecord;
       const lines = Array.isArray(record.log) ? record.log : [];
       const head = [
         `# ${run.actionName}, started ${this.when(run.started)}`,

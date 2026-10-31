@@ -233,6 +233,34 @@ def test_a_work_ao3_would_not_give_us_is_indexed_and_downloaded_from_fichub(libr
 
 
 @pytest.mark.fichub
+def test_fichub_reads_only_the_failed_works_entries_never_the_whole_index(library, monkeypatch):
+    # in Dropbox every entry is a download of its own; reading them all to find one took a
+    # run thirteen minutes before FicHub was even asked
+    def whole_index(fileops):
+        raise AssertionError('the whole index was read')
+    monkeypatch.setattr(server.shared, 'read_index', whole_index)
+    folder = os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME)
+    for number in ('75354806', '1', '2'):
+        with open(os.path.join(folder, f'{number} Some Title - Someone.json'), 'w', encoding='utf-8') as f:
+            json.dump({'id': number, 'link': f'https://archiveofourown.org/works/{number}',
+                       'title': 'Some Title', 'bookmarked': True}, f)
+    read = []
+    load = library.load_json
+    monkeypatch.setattr(library, 'load_json', lambda path: read.append(path) or load(path))
+    monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
+    monkeypatch.setattr(server.fichub, 'download',
+                        lambda repo, answer, filetype: b'from fichub')
+    job, ao3, _ = a_run(library, ['JSON', 'HTML'], ao3_failed())
+
+    server.rescue_with_fichub(job, library, ao3, MagicMock())
+
+    assert [os.path.basename(x) for x in read if x.endswith('.json')][0] == \
+        '75354806 Some Title - Someone.json'
+    assert not any(os.path.basename(x).startswith(('1 ', '2 ')) for x in read)
+    assert ao3.failures == []
+
+
+@pytest.mark.fichub
 def test_a_work_neither_ao3_nor_fichub_has_stays_a_failure_naming_both(library, monkeypatch):
     def nowhere(repo, link):
         raise exceptions.FicHubException('FicHub could not find it (not found)')

@@ -252,6 +252,31 @@ def test_once_ao3_is_down_every_later_request_to_it_fails_at_once(mock_repo):
     assert mock_repo.my_request('GET', 'https://fichub.net/api/v0/epub?q=x').status_code == 200
 
 
+def test_fichub_is_still_asked_about_an_ao3_link_once_ao3_is_down(mock_repo):
+    # FicHub's lookup carries the ao3 link in its query - which, matched as text, used to
+    # read as a request to ao3 and was refused, so the one place left was never asked
+    import urllib.parse
+    mock_repo.ao3_down = True
+    mock_repo.session.request.return_value = make_response(status_code=200, text='{}')
+    url = strings.FICHUB_API_URL + '?q=' + urllib.parse.quote(
+        'https://archiveofourown.org/works/75354806', safe='')
+
+    assert mock_repo.my_request('GET', url).status_code == 200
+
+
+@pytest.mark.parametrize('url, ao3', [
+    ('https://archiveofourown.org/works/1', True),
+    ('http://archiveofourown.org/works/1', True),
+    ('https://download.archiveofourown.org/downloads/1/fic.epub', True),
+    ('https://fichub.net/api/v0/epub?q=https://archiveofourown.org/works/1', False),
+    ('https://example.com/archiveofourown.org', False),
+    ('https://notarchiveofourown.org/', False),
+])
+def test_a_request_is_to_ao3_by_the_host_it_goes_to(url, ao3):
+    from source_code import repo
+    assert repo.goes_to_ao3(url) is ao3
+
+
 def test_ao3_coming_back_mid_retry_carries_on(mock_repo):
     mock_repo.session.request.side_effect = [make_response(status_code=503, text=MAINTENANCE),
                                              make_response(status_code=200, text='ok')]

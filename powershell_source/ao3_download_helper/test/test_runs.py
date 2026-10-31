@@ -1,5 +1,6 @@
 """Tests for source_code.runs - the per-run history files."""
 
+import datetime
 import re
 import json
 import os
@@ -147,7 +148,7 @@ def test_a_record_with_no_settings_to_hand_still_writes(tmp_path):
     assert written(tmp_path)[0]['settings'] == {}
 
 
-STAMP = re.compile(r'^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] ')
+STAMP = re.compile(r'^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\] ')
 
 
 def unstamped(log: list[str]) -> list[str]:
@@ -160,13 +161,25 @@ def unstamped(log: list[str]) -> list[str]:
 def test_every_line_of_the_log_says_when_it_was_said(tmp_path, monkeypatch):
     # the log is downloaded from History long after the run; without times it cannot say
     # where a run spent an hour
-    monkeypatch.setattr(runs, 'now', lambda: '2026-10-30T14:47:47')
+    monkeypatch.setattr(runs, 'utc_now', lambda: '2026-10-30 14:47:47')
     record = a_record(tmp_path)
 
     record.line('looking up work 75354806')
     record.finish(runs.STATUS_SUCCESS)
 
-    assert written(tmp_path)[0]['log'] == ['[2026-10-30 14:47:47] looking up work 75354806']
+    assert written(tmp_path)[0]['log'] == ['[2026-10-30 14:47:47 UTC] looking up work 75354806']
+
+
+def test_the_time_on_a_line_is_utc_whatever_the_helper_s_own_zone(tmp_path):
+    record = a_record(tmp_path)
+    before = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+
+    record.line('indexing')
+    record.finish(runs.STATUS_SUCCESS)
+
+    stamp = written(tmp_path)[0]['log'][0][1:20]
+    said = datetime.datetime.strptime(stamp, '%Y-%m-%d %H:%M:%S').replace(tzinfo=datetime.timezone.utc)
+    assert abs((said - before).total_seconds()) < 5
 
 
 def test_the_console_output_is_kept_with_the_run(tmp_path):

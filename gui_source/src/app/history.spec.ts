@@ -600,7 +600,7 @@ describe('History', () => {
       options: { reindex: false, skipLogin: true },
       settings: { file: '/x/settings.ini', extraWaitTime: 5, maxRetries: 30 },
       background: true,
-      log: ['[2026-10-30 14:47:47] looking up work 1'],
+      log: ['[2026-10-30 14:47:47 UTC] looking up work 1'],
     }));
     TestBed.inject(Library).store.set({ read } as never);
     await show([aRun({ file: 'r.json', logLines: 1 })]);
@@ -629,8 +629,44 @@ describe('History', () => {
     expect(text).not.toContain('/x/settings.ini');
     // the settings come before the log, and the log is still last
     expect(text.indexOf('maxRetries')).toBeLessThan(text.indexOf('looking up work 1'));
-    expect(text.trim().split('\n').at(-1)).toBe('[2026-10-30 14:47:47] looking up work 1');
+    expect(text.trim().split('\n').at(-1)).toBe('[2026-10-30 14:47:47 UTC] looking up work 1');
     click.mockRestore();
+  });
+
+  async function logSaved(live: Record<string, unknown> | null): Promise<string> {
+    let saved: Blob | null = null;
+    Object.assign(URL, { createObjectURL: vi.fn((blob: Blob) => ((saved = blob), 'blob:x')),
+                         revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const read = vi.fn(async () => JSON.stringify({ log: ['[2026-10-31 09:00:00 UTC] saved line'] }));
+    TestBed.inject(Library).store.set({ read } as never);
+    jobs.leaveRunning = true;
+    jobs.activeRuns.set([{
+      id: 'job-7', action: 'quick', actionName: 'Quick Scan', background: false,
+      started: '2026-10-31T09:00:00', paused: false, step: '',
+    }]);
+    const asked = vi.spyOn(jobs, 'liveRecord').mockResolvedValue(live);
+    await show([aRun({ id: 'job-7', file: 'r.json', status: 'running', finished: null, logLines: 1 })]);
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Download log'))!.click();
+    await fixture.whenStable();
+
+    expect(asked).toHaveBeenCalledWith('job-7');
+    click.mockRestore();
+    return saved!.text();
+  }
+
+  it('takes a running run\'s log from the helper, which has every line the window shows', async () => {
+    const text = await logSaved({
+      log: ['[2026-10-31 09:00:00 UTC] saved line', '[2026-10-31 09:00:30 UTC] not saved yet'],
+    });
+    expect(text.trim().split('\n').at(-1)).toBe('[2026-10-31 09:00:30 UTC] not saved yet');
+  });
+
+  it('falls back to the run\'s file when the helper does not have the run', async () => {
+    const text = await logSaved(null);
+    expect(text.trim().split('\n').at(-1)).toBe('[2026-10-31 09:00:00 UTC] saved line');
   });
 
   it('does not call a run running when the helper has not said it is', async () => {
