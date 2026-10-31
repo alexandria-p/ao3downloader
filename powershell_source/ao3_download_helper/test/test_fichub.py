@@ -416,6 +416,52 @@ def test_a_fic_run_finds_its_fics_entries_by_number_never_reading_the_whole_inde
     if action == server.ACTION_WORKS: assert given['2'] is None
 
 
+def test_a_fic_run_says_it_is_looking_for_the_index_file_and_whether_it_found_it(
+        library, monkeypatch, capsys):
+    folder = os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME)
+    with open(os.path.join(folder, '75354806 Wolfbird - OpalApparition.json'), 'w', encoding='utf-8') as f:
+        json.dump({'id': '75354806', 'link': LINK, 'title': 'Wolfbird'}, f)
+    monkeypatch.setattr(server.Ao3, 'index_one_work',
+                        lambda self, link, existing=None: (_ for _ in ()).throw(
+                            exceptions.DeletedException('gone')))
+    monkeypatch.setattr(server, 'finish_run', MagicMock())
+
+    for url in ('75354806', '1'):
+        job = server.Job(server.ACTION_WORK, ['JSON'], 'Someone', server.resolve_options({}), url=url)
+        server.run_work(job, library, MagicMock(), MagicMock())
+    lines = capsys.readouterr().out.splitlines()
+
+    said = [x for x in lines if 'index file' in x or 'on AO3' in x]
+    assert said == [
+        'looking for an existing index file for work 75354806...',
+        'found the index file for work 75354806: 75354806 Wolfbird - OpalApparition.json',
+        'looking up work 75354806 on AO3',
+        'looking for an existing index file for work 1...',
+        'no index file for work 1 yet - a new one will be made',
+        'looking up work 1 on AO3',
+    ]
+
+
+def test_several_fics_say_which_index_files_they_found(library, monkeypatch, capsys):
+    folder = os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME)
+    with open(os.path.join(folder, '75354806 Wolfbird - OpalApparition.json'), 'w', encoding='utf-8') as f:
+        json.dump({'id': '75354806', 'link': LINK, 'title': 'Wolfbird'}, f)
+    monkeypatch.setattr(server.Ao3, 'index_one_work',
+                        lambda self, link, existing=None: (_ for _ in ()).throw(
+                            exceptions.DeletedException('gone')))
+    monkeypatch.setattr(server, 'finish_run', MagicMock())
+    job = server.Job(server.ACTION_WORKS, ['JSON'], 'Someone', server.resolve_options({}),
+                     url=LINK + '\nhttps://archiveofourown.org/works/2')
+
+    server.run_works(job, library, MagicMock(), MagicMock())
+    out = capsys.readouterr().out
+
+    assert 'looking for existing index files for 2 fics...' in out
+    assert 'found index files for 1 of 2 fics: 75354806' in out
+    assert 'no index file yet for: 2 - new ones will be made' in out
+    assert 'fic 1 of 2: looking up work 75354806 on AO3' in out
+
+
 @pytest.mark.fichub
 def test_fichub_says_what_it_is_about_to_do_before_each_thing(library, monkeypatch, capsys):
     monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())

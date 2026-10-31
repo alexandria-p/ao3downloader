@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1716 python passed; 751 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1718 python passed; 751 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1875,7 +1875,10 @@ not show is a recorded failure and passed over, and **FicHub is asked once, at t
 (`finish_run`) - never per fic. It overwrites exactly the fics listed, as `run_work` does.
 **Both fic runs find their fics' existing entries by number** (`indexed_entries`), never by
 reading the whole index: in Dropbox that is a download per entry, and it held "looking up
-work" for minutes before ao3 was asked anything.
+work" for minutes before ao3 was asked anything. The lookup is said before and after
+(`AO3_INFO_INDEX_CHECK`, then `_FOUND` with the file's name or `_NOT_FOUND`; the several-fics
+run says it once for all of them), and only then `looking up work <id> on AO3`, so the log
+says which of the two is being waited on.
 
 **`skipLogin` belongs to `SKIP_LOGIN_ACTIONS` (`work`, `works`) alone** - `do_POST` clamps it
 off for every other run, since they read your own bookmarks. With it, the credentials are

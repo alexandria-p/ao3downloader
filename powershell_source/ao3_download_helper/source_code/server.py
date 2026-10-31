@@ -1875,12 +1875,14 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     work = parse_text.get_work_number(link) or ''
     job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
-    print(strings.AO3_INFO_ONE_WORK.format(work))
 
     # an entry it already has keeps everything the listing gave it; only the stats change.
     # found by its number, never by reading the whole index - in Dropbox that is a download
     # per entry, and held 'looking up work' for minutes before ao3 was even asked
+    print(strings.AO3_INFO_INDEX_CHECK.format(work))
     existing = indexed_entries(ao3, fileops, {work}).get(work) if work else None
+    say_entry_found(ao3, work, existing)
+    print(strings.AO3_INFO_ONE_WORK.format(work))
     try:
         record = ao3.index_one_work(link, existing)
     except (exceptions.CancelledException, exceptions.SessionExpiredException):
@@ -1951,7 +1953,13 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_MANY_WORKS.format(len(links)))
     # just these fics' entries, by number - see `run_work`
-    index = indexed_entries(ao3, fileops, {parse_text.get_work_number(x) or '' for x in links} - {''})
+    numbers = list(dict.fromkeys(n for n in (parse_text.get_work_number(x) for x in links) if n))
+    print(strings.AO3_INFO_INDEX_CHECK_MANY.format(len(numbers)))
+    index = indexed_entries(ao3, fileops, set(numbers))
+    missing = [n for n in numbers if n not in index]
+    print(strings.AO3_INFO_INDEX_FOUND_MANY.format(
+        len(index), len(numbers), ': ' + ', '.join(n for n in numbers if n in index) if index else ''))
+    if missing: print(strings.AO3_INFO_INDEX_MISSING_MANY.format(', '.join(missing)))
 
     records: list[dict] = []
     asked: list[str] = []
@@ -2855,6 +2863,19 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
 
     if job.cancel.is_set(): return
     job.steps.done('fichub')
+
+
+def say_entry_found(ao3, work: str, existing: dict | None) -> None:
+    """Say whether a fic run found the index file it was looking for, and which."""
+
+    if not existing:
+        print(strings.AO3_INFO_INDEX_NOT_FOUND.format(work))
+        return
+    try:
+        name = os.path.basename(ao3.entry_path({'id': work}))
+    except Exception:
+        name = ''
+    print(strings.AO3_INFO_INDEX_FOUND.format(work, name or existing.get('title') or ''))
 
 
 def indexed_entries(ao3, fileops: FileOps, works: set[str]) -> dict[str, dict]:
