@@ -77,11 +77,18 @@ def stamped(text: str) -> str:
     """One line of a run's log as it is kept: the moment it was said, then what was said.
 
     Stamped when the line is said, not when it is saved - a log is saved in batches, and a
-    line held until the record exists would otherwise carry the record's time. Local time,
-    like every other date in a record, written with a space so the log reads as a log.
+    line held until the record exists would otherwise carry the record's time. In UTC, and
+    marked so: a log is read alongside other people's, and the hosted helper's clock is not
+    the reader's - a local time with no zone cannot be lined up with anything.
     """
 
-    return f'[{now().replace("T", " ")}] {text}'
+    return f'[{utc_now()} UTC] {text}'
+
+
+def utc_now() -> str:
+    """The moment in UTC, to the second, as a log line writes it."""
+
+    return datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
 
 class RunRecord:

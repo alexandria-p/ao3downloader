@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1705 python passed; 751 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1706 python passed; 751 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -977,7 +977,7 @@ file.** `run_job`'s `said` hands each printed line to `RunRecord.line` as well a
 lines printed before the record exists (the setup, 'logging in') are held and passed in as
 `printed`, so the log is the whole account. A message the helper emits without printing - the
 abandonment notice - is added by hand. **Every line starts with when it was said**
-(`runs.stamped`: `[YYYY-MM-DD HH:MM:SS] `, local time) - stamped as it is said, so the held
+(`runs.stamped`: `[YYYY-MM-DD HH:MM:SS UTC] `, always UTC and marked so - the hosted helper's clock is not the reader's) - stamped as it is said, so the held
 `printed` lines are stamped in `said` rather than when the record takes them, and the
 force-stop line is stamped too. The page shows no times in the run window; the downloaded
 log and the feedback log carry them as kept. Older records' lines have none and download
