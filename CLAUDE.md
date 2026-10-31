@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1704 python passed; 749 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1705 python passed; 751 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -985,7 +985,10 @@ as they are. **The downloaded log opens with how the run was set up** (`runSetti
 read from the same file: link(s), file types, background, helper, then every recorded
 option and every settings.ini value as `key: value` - all of them, not only what the History
 entry puts into words, because a log is read to explain a run. **Not the AO3 account, and
-not settings.ini's path**: a log gets passed around, and a path names someone's folders. `save` rewrites the whole file, so a line saves the
+not settings.ini's path**: a log gets passed around, and a path names someone's folders.
+**A run still going is read from the helper** (`GET /api/jobs/<id>/record`,
+`Jobs.liveRecord`, `runs.snapshot`), because its file is up to `LOG_FLUSH_SECONDS` behind the
+window; the file is the fallback when the helper does not have the run. `save` rewrites the whole file, so a line saves the
 record only once `LOG_FLUSH_SECONDS` (120, deliberately not a setting) have passed since the
 last save. **Time alone decides** - it was
 also 25 lines, which left a slow step (an index walk held up by the rate limit prints a few

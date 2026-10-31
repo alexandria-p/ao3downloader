@@ -750,6 +750,24 @@ export class Jobs {
   }
 
   /**
+   * A run's record as the helper holds it now, or null when this helper does not have that
+   * run (over, restarted, or going on another helper) or cannot be reached.
+   *
+   * For a run still going: its file in the library is saved only every couple of minutes,
+   * so a log read from there is behind the run window, and the helper's copy is not.
+   */
+  async liveRecord(jobId: string): Promise<Record<string, unknown> | null> {
+    try {
+      const response = await this.helper.call(`/api/jobs/${jobId}/record`);
+      if (!response.ok) return null;
+      const answer = (await response.json()) as { record?: Record<string, unknown> | null };
+      return answer.record && typeof answer.record === 'object' ? answer.record : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Ask the helper to stop. The run unwinds at its next checkpoint, keeping whatever it
    * has already written, so this is safe rather than destructive.
    */

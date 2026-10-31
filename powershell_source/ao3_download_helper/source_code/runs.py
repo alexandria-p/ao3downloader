@@ -55,6 +55,24 @@ def now() -> str:
     return datetime.datetime.now().replace(microsecond=0).isoformat()
 
 
+def snapshot(record: 'RunRecord') -> dict:
+    """A copy of a record's data as it stands, safe to send while its run goes on.
+
+    The run's thread appends to the log as this copies it, so the log is copied first, in
+    one step, and the rest after; a copy that meets a dict changing under it tries again.
+    """
+
+    for _ in range(3):
+        try:
+            data = dict(record.data)
+            data['log'] = list(data.get('log') or [])
+            return json.loads(json.dumps(data))
+        except RuntimeError:
+            # a dict in it (the progress, say) changed size mid-copy; the next try sees it whole
+            continue
+    return json.loads(json.dumps(dict(record.data)))
+
+
 def stamped(text: str) -> str:
     """One line of a run's log as it is kept: the moment it was said, then what was said.
 

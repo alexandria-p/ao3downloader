@@ -3711,4 +3711,28 @@ def test_the_force_stop_endpoint_answers_with_the_record_or_404(tmp_path):
     server.Handler.force_stop_job(handler, 'nope')
     assert sent['status'] == 404
 
+
+def test_a_running_log_is_read_whole_from_the_helper_not_from_its_last_save(tmp_path):
+    # the file is saved every two minutes; the helper's copy has every line said since
+    job, _ = a_stuck_run(tmp_path)
+    job.record.line('looking up work 2')
+    sent = {}
+    handler = MagicMock()
+    handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
+
+    with patch.dict(server.Handler.jobs, {job.id: job}):
+        server.Handler.send_live_record(handler, job.id)
+
+    assert sent['status'] == 200
+    log = sent['body']['record']['log']
+    assert log[-1].endswith('] looking up work 2')
+    on_disk = json.load(open(job.record.path, encoding='utf-8'))
+    assert len(on_disk['log']) < len(log)
+    # a copy: the run writing more does not change what was sent
+    job.record.line('later')
+    assert len(sent['body']['record']['log']) == len(log)
+
+    server.Handler.send_live_record(handler, 'nope')
+    assert sent['status'] == 404
+
 # endregion

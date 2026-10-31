@@ -1291,7 +1291,7 @@ def force_stop(job: Job) -> dict | None:
         record.data['error'] = strings.ERROR_FORCE_STOPPED
         record.data['finished'] = runs.now()
         record.frozen = True
-        written = {'file': os.path.basename(record.path), 'data': json.loads(json.dumps(record.data))}
+        written = {'file': os.path.basename(record.path), 'data': runs.snapshot(record)}
 
     job.emit({'type': progress.MESSAGE, 'text': strings.AO3_INFO_FORCE_STOPPED})
     job.emit({'type': progress.FINISHED, 'cancelled': True, 'forced': True})
@@ -3716,6 +3716,10 @@ class Handler(BaseHTTPRequestHandler):
             self.stream_events(self.path.split('/')[3])
             return
 
+        if self.path.startswith('/api/jobs/') and self.path.endswith('/record'):
+            self.send_live_record(self.path.split('/')[3])
+            return
+
         if self.path.startswith('/api/jobs/') and '/blobs/' in self.path:
             parts = self.path.split('/')
             self.send_blob(parts[3], parts[5])
@@ -3948,6 +3952,23 @@ class Handler(BaseHTTPRequestHandler):
         # the run notices at its next checkpoint and unwinds, keeping what it has saved
         job.cancel.set()
         self.send_json(202, {'cancelling': True})
+
+    def send_live_record(self, job_id: str) -> None:
+        """A run's record as the helper holds it now, for History's Download log.
+
+        The file in the library is saved only every `LOG_FLUSH_SECONDS`, so a log read from it
+        while the run is going is behind what the run window shows. The helper's copy is the
+        whole of it. 404 for a run this helper does not have, or one with no record yet - the
+        page then reads the file.
+        """
+
+        with Handler.jobs_lock:
+            job = Handler.jobs.get(job_id)
+        record = job.record if job else None
+        if record is None:
+            self.send_json(404, {'error': 'no such job'})
+            return
+        self.send_json(200, {'record': runs.snapshot(record)})
 
     def force_stop_job(self, job_id: str) -> None:
         """End a run now, from the History tab, whatever its thread is doing.
