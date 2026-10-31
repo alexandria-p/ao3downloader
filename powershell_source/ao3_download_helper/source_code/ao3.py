@@ -490,7 +490,8 @@ class Ao3:
         return self.save_images(soup, filename, link, ' / '.join(x for x in title if x))
 
 
-    def index_one_work(self, link: str, existing: dict | None = None) -> dict:
+    def index_one_work(self, link: str, existing: dict | None = None,
+                       find_existing: Callable[[], dict | None] | None = None) -> dict:
         """Index a single fic from its own page, seen before or not.
 
         A work page and a bookmarks listing describe a fic differently, and the index is
@@ -502,12 +503,17 @@ class Ao3:
 
         A fic already in the index keeps everything it has; only the stats are rewritten,
         exactly as `refresh_one` does.
+
+        `find_existing` is how the fic runs hand that entry over: called only once ao3 has
+        shown the work, so a fic ao3 will not show - down, deleted, locked - never costs a
+        read of the library (in Dropbox, a download) on its way to FicHub.
         """
 
         soup = self.proceed(self.repo.get_soup(link))
         stats = parse_soup.get_work_stats(soup)
         if 'error' in stats:
             raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
+        if find_existing is not None: existing = find_existing()
 
         record = dict(existing or {})
         if not record:

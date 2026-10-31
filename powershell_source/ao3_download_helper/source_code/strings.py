@@ -288,14 +288,12 @@ AO3_INFO_GAP_INDEXED = '    index updated'
 AO3_INFO_STEP_SKIPPED = 'skipping the rest of this step at your request'
 # one fic on its own, by link or work number
 AO3_INFO_ONE_WORK = 'looking up work {} on AO3'
-# said before and after a fic run looks for the index entries it already has - a lookup by
-# number, but one that reaches into the library (in Dropbox, a download), so it is named
+# said before and after a fic run looks for the index entry it already has, once ao3 has
+# shown the work - a lookup by number, but one that reaches into the library (in Dropbox,
+# a download), so it is named
 AO3_INFO_INDEX_CHECK = 'looking for an existing index file for work {}...'
 AO3_INFO_INDEX_FOUND = 'found the index file for work {}: {}'
 AO3_INFO_INDEX_NOT_FOUND = 'no index file for work {} yet - a new one will be made'
-AO3_INFO_INDEX_CHECK_MANY = 'looking for existing index files for {} fics...'
-AO3_INFO_INDEX_FOUND_MANY = 'found index files for {} of {} fics{}'
-AO3_INFO_INDEX_MISSING_MANY = 'no index file yet for: {} - new ones will be made'
 # said for each fic a fic run looks up: whether its index entry was actually written - a
 # step marked done (or a series step skipped) says nothing about this fic on its own
 AO3_INFO_ONE_WORK_INDEXED = 'index updated for work {}'

@@ -1575,9 +1575,9 @@ def test_one_fic_already_indexed_is_handed_the_entry_it_has(fake_environment):
          patch.object(server, 'indexed_entries', return_value={'111': held}) as found, \
          patch.object(server, 'download_planned'):
         server.run_work(job, fake_environment['fileops'], fake_environment['repo'], None)
-
-    assert ao3.index_one_work.call_args.args[1] == held
-    # asked for that one fic's entry, by number
+        # handed over only once ao3 has shown the work, found by number
+        found.assert_not_called()
+        assert ao3.index_one_work.call_args.kwargs['find_existing']() == held
     assert found.call_args.args[2] == {'111'}
 
 
@@ -3608,7 +3608,7 @@ def test_several_fics_are_each_indexed_then_downloaded_and_one_ao3_will_not_show
     ao3 = MagicMock()
     ao3.failures = []
 
-    def index(link, existing):
+    def index(link, existing=None, find_existing=None):
         if link.endswith('/2'): raise exceptions.DeletedException('deleted')
         return {'id': link.rsplit('/', 1)[1], 'link': link}
 

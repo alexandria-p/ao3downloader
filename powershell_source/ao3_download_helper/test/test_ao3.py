@@ -1717,6 +1717,25 @@ def test_a_fic_whose_page_cannot_be_read_raises_rather_than_writing_a_stub() -> 
 
     fileops.save_json.assert_not_called()
 
+
+def test_the_existing_entry_is_looked_for_only_once_ao3_has_shown_the_work() -> None:
+    # the fic runs ask ao3 first: a fic ao3 will not show must not cost a read of the library
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.side_effect = exceptions.Ao3DownException('down')
+    find = MagicMock(return_value=None)
+    with pytest.raises(exceptions.Ao3DownException):
+        ao3.index_one_work('https://archiveofourown.org/works/111', find_existing=find)
+    find.assert_not_called()
+
+    repo.get_soup.side_effect = None
+    repo.get_soup.return_value = _work_page_soup()
+    find.return_value = {'id': '111', 'link': 'https://archiveofourown.org/works/111',
+                         'title': 'A Fic', 'authors': ['Cal'], 'summary': 'from the listing'}
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
+        record = ao3.index_one_work('https://archiveofourown.org/works/111', find_existing=find)
+    find.assert_called_once()
+    assert record['summary'] == 'from the listing'
+
 # endregion
 
 

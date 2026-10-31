@@ -1875,16 +1875,9 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     work = parse_text.get_work_number(link) or ''
     job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
-
-    # an entry it already has keeps everything the listing gave it; only the stats change.
-    # found by its number, never by reading the whole index - in Dropbox that is a download
-    # per entry, and held 'looking up work' for minutes before ao3 was even asked
-    print(strings.AO3_INFO_INDEX_CHECK.format(work))
-    existing = indexed_entries(ao3, fileops, {work}).get(work) if work else None
-    say_entry_found(ao3, work, existing)
     print(strings.AO3_INFO_ONE_WORK.format(work))
     try:
-        record = ao3.index_one_work(link, existing)
+        record = ao3.index_one_work(link, find_existing=existing_entry(ao3, fileops, work))
     except (exceptions.CancelledException, exceptions.SessionExpiredException):
         raise
     except Exception as e:
@@ -1952,14 +1945,6 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_MANY_WORKS.format(len(links)))
-    # just these fics' entries, by number - see `run_work`
-    numbers = list(dict.fromkeys(n for n in (parse_text.get_work_number(x) for x in links) if n))
-    print(strings.AO3_INFO_INDEX_CHECK_MANY.format(len(numbers)))
-    index = indexed_entries(ao3, fileops, set(numbers))
-    missing = [n for n in numbers if n not in index]
-    print(strings.AO3_INFO_INDEX_FOUND_MANY.format(
-        len(index), len(numbers), ': ' + ', '.join(n for n in numbers if n in index) if index else ''))
-    if missing: print(strings.AO3_INFO_INDEX_MISSING_MANY.format(', '.join(missing)))
 
     records: list[dict] = []
     asked: list[str] = []
@@ -1973,7 +1958,7 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         progress.report(report, progress.WORK, title=link, link=link, done=done,
                         total=len(links), phase=progress.INDEXING)
         try:
-            record = ao3.index_one_work(link, index.get(work))
+            record = ao3.index_one_work(link, find_existing=existing_entry(ao3, fileops, work))
         except (exceptions.CancelledException, exceptions.SessionExpiredException):
             raise
         except Exception as e:
@@ -2863,6 +2848,24 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
 
     if job.cancel.is_set(): return
     job.steps.done('fichub')
+
+
+def existing_entry(ao3, fileops: FileOps, work: str):
+    """For a fic run: how to find this fic's index entry once ao3 has shown it.
+
+    The fic runs ask ao3 first and the library second - an entry is only needed to save
+    what ao3 said, and a fic ao3 will not show goes to FicHub without the library being
+    read at all. Found by number (`indexed_entries`), never by reading the whole index, and
+    said before and after, so the log names what is being waited on.
+    """
+
+    def find() -> dict | None:
+        if not work: return None
+        print(strings.AO3_INFO_INDEX_CHECK.format(work))
+        existing = indexed_entries(ao3, fileops, {work}).get(work)
+        say_entry_found(ao3, work, existing)
+        return existing
+    return find
 
 
 def say_entry_found(ao3, work: str, existing: dict | None) -> None:
