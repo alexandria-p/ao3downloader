@@ -384,6 +384,112 @@ def test_a_single_fic_ao3_will_not_show_is_handed_to_fichub_rather_than_ending_t
 # endregion
 
 
+def a_fic_page(monkeypatch, shown: set[str]):
+    """Stand AO3 in for the fic runs: the works in `shown` have a page, every other is down.
+    Each existing entry handed over is kept by work number."""
+
+    given = {}
+
+    def index_one_work(self, link, existing=None, find_existing=None):
+        work = link.rsplit('/', 1)[-1]
+        print(f'(ao3 asked about {work})')
+        if work not in shown: raise exceptions.Ao3DownException('AO3 is down')
+        given[work] = find_existing() if find_existing else existing
+        raise exceptions.DeletedException('stop here')
+    monkeypatch.setattr(server.Ao3, 'index_one_work', index_one_work)
+    monkeypatch.setattr(server, 'finish_run', MagicMock())
+    return given
+
+
+def an_index_file(library, number: str, title: str) -> None:
+    folder = os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME)
+    with open(os.path.join(folder, f'{number} {title} - Someone.json'), 'w', encoding='utf-8') as f:
+        json.dump({'id': number, 'link': f'https://archiveofourown.org/works/{number}',
+                   'title': title}, f)
+
+
+@pytest.mark.parametrize('action, url', [
+    (server.ACTION_WORK, '75354806'),
+    (server.ACTION_WORKS, 'https://archiveofourown.org/works/75354806\nhttps://archiveofourown.org/works/2'),
+])
+def test_a_fic_run_finds_its_fics_entries_by_number_never_reading_the_whole_index(
+        library, monkeypatch, action, url):
+    # in Dropbox every entry is a download of its own, and reading them all held 'looking
+    # up work' for minutes before ao3 was asked anything
+    def whole_index(fileops):
+        raise AssertionError('the whole index was read')
+    monkeypatch.setattr(server.shared, 'read_index', whole_index)
+    an_index_file(library, '75354806', 'Title 75354806')
+    an_index_file(library, '1', 'Title 1')
+    given = a_fic_page(monkeypatch, {'75354806', '2'})
+    job = server.Job(action, ['JSON', 'HTML'], 'Someone', server.resolve_options({}), url=url)
+
+    (server.run_work if action == server.ACTION_WORK else server.run_works)(
+        job, library, MagicMock(), MagicMock())
+
+    assert given['75354806']['title'] == 'Title 75354806'
+    if action == server.ACTION_WORKS: assert given['2'] is None
+
+
+def test_a_fic_run_asks_ao3_first_then_looks_for_its_index_file(library, monkeypatch, capsys):
+    an_index_file(library, '75354806', 'Wolfbird')
+    a_fic_page(monkeypatch, {'75354806', '1'})
+
+    for url in ('75354806', '1'):
+        job = server.Job(server.ACTION_WORK, ['JSON'], 'Someone', server.resolve_options({}), url=url)
+        server.run_work(job, library, MagicMock(), MagicMock())
+    lines = capsys.readouterr().out.splitlines()
+
+    said = [x for x in lines if 'index file' in x or 'on AO3' in x or x.startswith('(ao3')]
+    assert said == [
+        'looking up work 75354806 on AO3',
+        '(ao3 asked about 75354806)',
+        'looking for an existing index file for work 75354806...',
+        'found the index file for work 75354806: 75354806 Wolfbird - Someone.json',
+        'looking up work 1 on AO3',
+        '(ao3 asked about 1)',
+        'looking for an existing index file for work 1...',
+        'no index file for work 1 yet - a new one will be made',
+    ]
+
+
+def test_a_fic_ao3_will_not_show_never_reads_the_library(library, monkeypatch, capsys):
+    # straight on to FicHub at the end: nothing to save, so nothing to look for
+    read = []
+    load = library.load_json
+    monkeypatch.setattr(library, 'load_json', lambda path: read.append(path) or load(path))
+    an_index_file(library, '75354806', 'Wolfbird')
+    a_fic_page(monkeypatch, set())
+    job = server.Job(server.ACTION_WORKS, ['JSON'], 'Someone', server.resolve_options({}),
+                     url=LINK + '\nhttps://archiveofourown.org/works/2')
+
+    server.run_works(job, library, MagicMock(), MagicMock())
+
+    assert not [x for x in read if 'indexing' in str(x)]
+    assert 'index file' not in capsys.readouterr().out
+    assert [x['id'] for x in job.ao3.failures] == ['75354806', '2']
+
+
+def test_several_fics_each_ask_ao3_then_look_for_their_own_index_file(library, monkeypatch, capsys):
+    an_index_file(library, '75354806', 'Wolfbird')
+    a_fic_page(monkeypatch, {'75354806', '2'})
+    job = server.Job(server.ACTION_WORKS, ['JSON'], 'Someone', server.resolve_options({}),
+                     url=LINK + '\nhttps://archiveofourown.org/works/2')
+
+    server.run_works(job, library, MagicMock(), MagicMock())
+    said = [x for x in capsys.readouterr().out.splitlines()
+            if 'index file' in x or 'on AO3' in x]
+
+    assert said == [
+        'fic 1 of 2: looking up work 75354806 on AO3',
+        'looking for an existing index file for work 75354806...',
+        'found the index file for work 75354806: 75354806 Wolfbird - Someone.json',
+        'fic 2 of 2: looking up work 2 on AO3',
+        'looking for an existing index file for work 2...',
+        'no index file for work 2 yet - a new one will be made',
+    ]
+
+
 @pytest.mark.fichub
 def test_fichub_says_what_it_is_about_to_do_before_each_thing(library, monkeypatch, capsys):
     monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
@@ -409,7 +515,7 @@ def test_a_fic_run_names_the_work_whose_index_it_did_or_did_not_update(library, 
     ao3 = MagicMock()
     ao3.failures = []
     ao3.reindexed = {'1'}
-    ao3.index_one_work.side_effect = lambda link, existing: (
+    ao3.index_one_work.side_effect = lambda link, existing=None, find_existing=None: (
         {'id': link.rsplit('/', 1)[1], 'link': link} if not link.endswith('/2')
         else (_ for _ in ()).throw(exceptions.DeletedException('deleted')))
     monkeypatch.setattr(server, 'Ao3', MagicMock(return_value=ao3))

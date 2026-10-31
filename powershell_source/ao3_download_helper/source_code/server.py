@@ -1876,12 +1876,8 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_ONE_WORK.format(work))
-
-    # an entry it already has keeps everything the listing gave it; only the stats change
-    existing = next((x for x in shared.read_index(fileops)
-                     if str(x.get('id') or '') == work), None)
     try:
-        record = ao3.index_one_work(link, existing)
+        record = ao3.index_one_work(link, find_existing=existing_entry(ao3, fileops, work))
     except (exceptions.CancelledException, exceptions.SessionExpiredException):
         raise
     except Exception as e:
@@ -1949,7 +1945,6 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_MANY_WORKS.format(len(links)))
-    index = {str(x.get('id') or ''): x for x in shared.read_index(fileops)}
 
     records: list[dict] = []
     asked: list[str] = []
@@ -1963,7 +1958,7 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         progress.report(report, progress.WORK, title=link, link=link, done=done,
                         total=len(links), phase=progress.INDEXING)
         try:
-            record = ao3.index_one_work(link, index.get(work))
+            record = ao3.index_one_work(link, find_existing=existing_entry(ao3, fileops, work))
         except (exceptions.CancelledException, exceptions.SessionExpiredException):
             raise
         except Exception as e:
@@ -2855,12 +2850,44 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
     job.steps.done('fichub')
 
 
+def existing_entry(ao3, fileops: FileOps, work: str):
+    """For a fic run: how to find this fic's index entry once ao3 has shown it.
+
+    The fic runs ask ao3 first and the library second - an entry is only needed to save
+    what ao3 said, and a fic ao3 will not show goes to FicHub without the library being
+    read at all. Found by number (`indexed_entries`), never by reading the whole index, and
+    said before and after, so the log names what is being waited on.
+    """
+
+    def find() -> dict | None:
+        if not work: return None
+        print(strings.AO3_INFO_INDEX_CHECK.format(work))
+        existing = indexed_entries(ao3, fileops, {work}).get(work)
+        say_entry_found(ao3, work, existing)
+        return existing
+    return find
+
+
+def say_entry_found(ao3, work: str, existing: dict | None) -> None:
+    """Say whether a fic run found the index file it was looking for, and which."""
+
+    if not existing:
+        print(strings.AO3_INFO_INDEX_NOT_FOUND.format(work))
+        return
+    try:
+        name = os.path.basename(ao3.entry_path({'id': work}))
+    except Exception:
+        name = ''
+    print(strings.AO3_INFO_INDEX_FOUND.format(work, name or existing.get('title') or ''))
+
+
 def indexed_entries(ao3, fileops: FileOps, works: set[str]) -> dict[str, dict]:
     """The index entries of just these works, by number.
 
     Found by the number their file names start with (`Ao3.entry_path`, one listing of the
     index folder) and read one file each - never the whole index, which in Dropbox is a
-    download per entry, and took a run thirteen minutes to find one work's.
+    download per entry, and took a run thirteen minutes to find one work's. The fic runs and
+    the FicHub step use it; a run that really works through the index still reads it all.
     """
 
     entries: dict[str, dict] = {}
