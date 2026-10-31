@@ -1877,9 +1877,10 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_ONE_WORK.format(work))
 
-    # an entry it already has keeps everything the listing gave it; only the stats change
-    existing = next((x for x in shared.read_index(fileops)
-                     if str(x.get('id') or '') == work), None)
+    # an entry it already has keeps everything the listing gave it; only the stats change.
+    # found by its number, never by reading the whole index - in Dropbox that is a download
+    # per entry, and held 'looking up work' for minutes before ao3 was even asked
+    existing = indexed_entries(ao3, fileops, {work}).get(work) if work else None
     try:
         record = ao3.index_one_work(link, existing)
     except (exceptions.CancelledException, exceptions.SessionExpiredException):
@@ -1949,7 +1950,8 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_MANY_WORKS.format(len(links)))
-    index = {str(x.get('id') or ''): x for x in shared.read_index(fileops)}
+    # just these fics' entries, by number - see `run_work`
+    index = indexed_entries(ao3, fileops, {parse_text.get_work_number(x) or '' for x in links} - {''})
 
     records: list[dict] = []
     asked: list[str] = []
@@ -2860,7 +2862,8 @@ def indexed_entries(ao3, fileops: FileOps, works: set[str]) -> dict[str, dict]:
 
     Found by the number their file names start with (`Ao3.entry_path`, one listing of the
     index folder) and read one file each - never the whole index, which in Dropbox is a
-    download per entry, and took a run thirteen minutes to find one work's.
+    download per entry, and took a run thirteen minutes to find one work's. The fic runs and
+    the FicHub step use it; a run that really works through the index still reads it all.
     """
 
     entries: dict[str, dict] = {}

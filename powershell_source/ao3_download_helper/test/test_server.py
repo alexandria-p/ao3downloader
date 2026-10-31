@@ -1572,11 +1572,13 @@ def test_one_fic_already_indexed_is_handed_the_entry_it_has(fake_environment):
     held = {**finished('111'), 'summary': 'from the listing'}
 
     with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.shared, 'read_index', return_value=[held]), \
+         patch.object(server, 'indexed_entries', return_value={'111': held}) as found, \
          patch.object(server, 'download_planned'):
         server.run_work(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert ao3.index_one_work.call_args.args[1] == held
+    # asked for that one fic's entry, by number
+    assert found.call_args.args[2] == {'111'}
 
 
 def test_one_fic_with_an_unusable_link_never_starts(fake_environment):

@@ -384,6 +384,38 @@ def test_a_single_fic_ao3_will_not_show_is_handed_to_fichub_rather_than_ending_t
 # endregion
 
 
+@pytest.mark.parametrize('action, url', [
+    (server.ACTION_WORK, '75354806'),
+    (server.ACTION_WORKS, 'https://archiveofourown.org/works/75354806\nhttps://archiveofourown.org/works/2'),
+])
+def test_a_fic_run_finds_its_fics_entries_by_number_never_reading_the_whole_index(
+        library, monkeypatch, action, url):
+    # in Dropbox every entry is a download of its own, and reading them all held 'looking
+    # up work' for minutes before ao3 was asked anything
+    def whole_index(fileops):
+        raise AssertionError('the whole index was read')
+    monkeypatch.setattr(server.shared, 'read_index', whole_index)
+    folder = os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME)
+    for number in ('75354806', '1'):
+        with open(os.path.join(folder, f'{number} Some Title - Someone.json'), 'w', encoding='utf-8') as f:
+            json.dump({'id': number, 'link': f'https://archiveofourown.org/works/{number}',
+                       'title': f'Title {number}'}, f)
+    given = {}
+
+    def index_one_work(self, link, existing=None):
+        given[link.rsplit('/', 1)[-1]] = existing
+        raise exceptions.DeletedException('gone')
+    monkeypatch.setattr(server.Ao3, 'index_one_work', index_one_work)
+    monkeypatch.setattr(server, 'finish_run', MagicMock())
+    job = server.Job(action, ['JSON', 'HTML'], 'Someone', server.resolve_options({}), url=url)
+
+    (server.run_work if action == server.ACTION_WORK else server.run_works)(
+        job, library, MagicMock(), MagicMock())
+
+    assert given['75354806']['title'] == 'Title 75354806'
+    if action == server.ACTION_WORKS: assert given['2'] is None
+
+
 @pytest.mark.fichub
 def test_fichub_says_what_it_is_about_to_do_before_each_thing(library, monkeypatch, capsys):
     monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
