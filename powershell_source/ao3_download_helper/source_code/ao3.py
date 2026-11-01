@@ -72,6 +72,9 @@ class Ao3:
         # {work link: {FILETYPE: path of the copy this run is replacing}}. filled in by the
         # caller when it has worked out which downloads are out of date.
         self.superseded: dict[str, dict[str, str]] = {}
+        # formats of a work an overwriting run was told not to replace: the copy on disk is
+        # newer than the version this run would write. by link, formats upper-case
+        self.keep_formats: dict[str, set[str]] = {}
         # works this run could not download, in the order they were attempted. the log
         # records them too, but a run that leaves gaps should be able to say which ones
         # without anyone having to read a log file to find out.
@@ -663,7 +666,11 @@ class Ao3:
 
         display = ' / '.join(x for x in title if x)
         failed: list[tuple[str, Exception]] = []
+        kept = self.keep_formats.get(record['link']) or set()
+        formats = [x for x in self.filetypes if x.upper() not in kept]
         for filetype in self.filetypes:
+            if filetype.upper() in kept: print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
+        for filetype in formats:
             self.check_cancelled()
             progress.report(self.progress, progress.WORK, title=display,
                             link=record['link'], filetype=filetype,
@@ -676,7 +683,7 @@ class Ao3:
                 if arrived is not None: arrived.append(filetype)
 
         # anything that did arrive is a download, even when a format beside it failed
-        if len(failed) < len(self.filetypes): self.downloaded.add(work)
+        if len(failed) < len(formats): self.downloaded.add(work)
         self.raise_if_formats_failed(failed)
         log['success'] = True
         self.fileops.write_log(log)

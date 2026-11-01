@@ -33,7 +33,7 @@ Each run asks its options, then which file types, then your login.
 - **File types** - JSON is the index and always on. HTML starts ticked. Untick everything else for a metadata-only run, about a twentieth of the requests.
 - **Get all works from encountered series** - also downloads the rest of each series.
 - **Include any changes to non-bookmarks** - re-checks works you have indexed but not bookmarked (found through a series or collection).
-- **Overwrite existing downloads** - full scan and custom run only. Fetches every format again, for when you suspect a damaged file.
+- **Overwrite existing downloads** - full scan and custom run only. Fetches every format again, for when you suspect a damaged file. If a file you have is **newer** than the version it would be replaced with, the run asks first (no, keep it, if you don't answer). The fic runs, which always replace, ask the same.
 - **Save embedded images separately** - custom run only. Usually unnecessary: images are already inside the downloaded work.
 - **Index and download encountered works** - collection runs only. Off: just records which works the collection holds. On: indexes and downloads them too.
 - **Include subcollections / parent collections** - collection runs only. Follows the family, each collection once, up to 200.
@@ -45,6 +45,7 @@ Each run asks its options, then which file types, then your login.
 - **Older copies** - two copies of one work and format. Keep only the newest, or leave them.
 - **How far back to go** - a Quick Scan with no earlier scan, but an index already there.
 - **Try FicHub?** - at the end, when AO3 wouldn't give the run some works. Try FicHub, or leave them as failures.
+- **Replace a newer copy with an older version?** - on a run that replaces files, when the copy you have is newer than what would replace it (from AO3 or FicHub). **No** if you don't answer.
 - **Take FicHub's older version?** - when FicHub's copy is older than your index says the fic is, and you have no file at all in a format you asked for. Yes takes the older version of just that format.
 
 Closing the page or stopping takes the answer that changes nothing - except for the two FicHub questions, where it is yes.

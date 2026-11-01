@@ -1106,6 +1106,25 @@
                       </label>
                     </div>
                   }
+
+                  @if (backgroundQuestions().includes('overwrite-older')) {
+                    <div class="answer" data-question="overwrite-older">
+                      <p>
+                        <strong>A copy newer than the version this run would write</strong> -
+                        replace it anyway?
+                      </p>
+                      <label class="check">
+                        <input type="radio" name="bg-overwrite-older" [checked]="overwriteOlderAnswer() === 'no'"
+                               (change)="overwriteOlderAnswer.set('no')" />
+                        <span>No - keep the newer copy (changes nothing)</span>
+                      </label>
+                      <label class="check">
+                        <input type="radio" name="bg-overwrite-older" [checked]="overwriteOlderAnswer() === 'yes'"
+                               (change)="overwriteOlderAnswer.set('yes')" />
+                        <span>Yes - replace it with the older version</span>
+                      </label>
+                    </div>
+                  }
                 </fieldset>
               }
             }
@@ -1345,9 +1364,39 @@
           </div>
         }
 
+        @if (asking() && question() === 'overwrite-older') {
+          <div class="question" data-question="overwrite-older">
+            <p class="question-text">
+              This run replaces what you have, but your
+              <strong>{{ askedFormats().join(', ') }}</strong> of work
+              @for (id of askedIds(); track id) {
+                <a [href]="'https://archiveofourown.org/works/' + id" target="_blank" rel="noopener">{{ id }}</a>
+              }
+              is <strong>newer</strong> ({{ askedNewer() }}) than the version it would be replaced
+              with ({{ askedDate() }}). Replace it with what could be an older, outdated version?
+            </p>
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="keepNewerCopy()">
+                No, keep my newer copy
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="replaceWithOlder()">
+                Yes, replace it
+              </button>
+            </div>
+
+            <p class="hint">
+              Formats you do not have yet are still downloaded either way. Left unanswered, the
+              run keeps your newer copy after 30 minutes.
+            </p>
+          </div>
+        }
+
         <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
         @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub' &&
-             question() !== 'fichub-outdated') {
+             question() !== 'fichub-outdated' && question() !== 'overwrite-older') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">

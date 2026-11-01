@@ -137,13 +137,23 @@ FICHUB_CHOICES = (FICHUB_YES, FICHUB_NO)
 FICHUB_OUTDATED_QUESTION = 'fichub-outdated'
 FICHUB_OUTDATED_CHOICES = (FICHUB_YES, FICHUB_NO)
 
+# Whether an overwriting run should replace a copy on disk with a version **older** than it
+# (the date in the file's name is later than the version about to be written). Asked per
+# work, naming the formats. Defaults to **no**: replacing a newer copy with an older one
+# loses something, and a run nobody answers must not do that on its own.
+OVERWRITE_OLDER_QUESTION = 'overwrite-older'
+OVERWRITE_OLDER_YES = 'yes'
+OVERWRITE_OLDER_NO = 'no'
+OVERWRITE_OLDER_CHOICES = (OVERWRITE_OLDER_YES, OVERWRITE_OLDER_NO)
+
 # every choice any question may be answered with. the run reads only the answer to the
 # question it actually asked, so one list is enough to keep nonsense out at the door
 ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES + FICHUB_CHOICES
 # which choices belong to which question - a background run is answered up front, by name
 CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
                DUPLICATES_QUESTION: DUPLICATES_CHOICES, FICHUB_QUESTION: FICHUB_CHOICES,
-               FICHUB_OUTDATED_QUESTION: FICHUB_OUTDATED_CHOICES}
+               FICHUB_OUTDATED_QUESTION: FICHUB_OUTDATED_CHOICES,
+               OVERWRITE_OLDER_QUESTION: OVERWRITE_OLDER_CHOICES}
 
 # a background run keeps every event for a page that reattaches, but not every line it
 # printed: hours of 'new download:' would be megabytes replayed to a page that shows the
@@ -1645,6 +1655,7 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
     # an out-of-date copy is not 'already downloaded', so it must not be skipped
     visited = shared.already_downloaded(plan['existing'], downloadtypes, records, plan['stale'])
     ao3.superseded = plan['superseded']
+    ao3.keep_formats = plan.get('keep') or {}
     job.steps.done('check')
 
     job.steps.start('download')
@@ -2936,10 +2947,10 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         # replaces nothing and does not rewrite the index - see `older_on_fichub`
         behind = older_on_fichub(entry, record)
         if behind:
-            if not older_fichub_formats(job, failure, existing, filetypes, behind, log):
+            if not older_fichub_formats(job, failure, existing, filetypes, behind, overwrite):
                 return
-            filetypes = behind['missing']
-            overwrite = False
+            filetypes = behind['missing'] + behind['replace']
+            overwrite = bool(behind['replace'])
 
         def from_fichub(filetype: str) -> bytes:
             print(strings.AO3_INFO_FICHUB_FETCHING.format(filetype, failure['id']))
@@ -2999,48 +3010,70 @@ def older_on_fichub(entry: dict | None, record: dict) -> dict | None:
     indexed = parse_text.get_date_stamp((entry or {}).get('date_updated'))
     mirror = parse_text.get_date_stamp(record.get('date_updated'))
     if indexed and mirror and mirror < indexed:
-        return {'fichub': mirror, 'indexed': indexed, 'missing': []}
+        return {'fichub': mirror, 'indexed': indexed, 'missing': [], 'replace': []}
     return None
 
 
 def older_fichub_formats(job, failure: dict, existing: dict, filetypes: list[str],
-                         behind: dict, log: dict) -> bool:
+                         behind: dict, overwrite: bool = False) -> bool:
     """FicHub's copy is older than the index: decide what, if anything, to take from it.
 
-    **Nothing already on disk is replaced** - a format with any copy at all is left alone,
-    whatever its date. A format with no file is asked about (`FICHUB_OUTDATED_QUESTION`,
-    default yes, the 30-minute timeout every question has); `behind['missing']` is set to
-    the formats to fetch. False means take nothing: the work stays a failure, saying why.
+    A format with **no file** is asked about (`FICHUB_OUTDATED_QUESTION`, default yes); the
+    answer goes in `behind['missing']`. A format **already on disk** is never replaced -
+    unless the run is one that overwrites, and then it is asked about too
+    (`OVERWRITE_OLDER_QUESTION`, default no, the same question an overwriting run asks of
+    ao3's own older versions); a yes goes in `behind['replace']`. Every question has the
+    usual 30-minute timeout. False means take nothing: the work stays a failure, saying why.
     """
 
     work = str(failure['id'])
     print(strings.AO3_INFO_FICHUB_OUTDATED.format(work, behind['fichub'], behind['indexed']))
     have = existing.get(work) or {}
     missing = [x for x in filetypes if x.upper() not in have]
+    present = [x for x in filetypes if x.upper() in have]
     reason = strings.ERROR_FICHUB_OUTDATED.format(behind['fichub'], behind['indexed'])
 
     if missing and job is not None:
         print(strings.AO3_INFO_FICHUB_OUTDATED_ASK.format(', '.join(missing), work))
-        answer = job.ask({'name': FICHUB_OUTDATED_QUESTION, 'count': 1, 'ids': [work],
-                          'formats': missing, 'date': behind['fichub'],
-                          'indexed': behind['indexed'],
-                          'choices': list(FICHUB_OUTDATED_CHOICES)},
-                         {'choice': FICHUB_YES})
-        choice = answer.get('choice') if answer.get('choice') in FICHUB_OUTDATED_CHOICES \
-            else FICHUB_YES
-        if job.record:
-            job.record.choice({'question': FICHUB_OUTDATED_QUESTION, 'count': 1,
-                               'works': [work], 'formats': missing, 'choice': choice})
-        if choice == FICHUB_YES and not job.cancel.is_set():
+        if ask_yes_no(job, FICHUB_OUTDATED_QUESTION, FICHUB_YES,
+                      {'ids': [work], 'formats': missing, 'date': behind['fichub'],
+                       'indexed': behind['indexed']}, work, missing):
             behind['missing'] = missing
-            return True
-        print(strings.AO3_INFO_FICHUB_OUTDATED_DECLINED)
-    elif not missing:
-        print(strings.AO3_INFO_FICHUB_OUTDATED_NOTHING)
+        else:
+            print(strings.AO3_INFO_FICHUB_OUTDATED_DECLINED)
 
+    if present and overwrite and job is not None:
+        print(strings.AO3_INFO_OLDER_THAN_COPY.format(
+            work, behind['fichub'], ', '.join(present), behind['indexed']))
+        if ask_yes_no(job, OVERWRITE_OLDER_QUESTION, OVERWRITE_OLDER_NO,
+                      {'ids': [work], 'formats': present, 'date': behind['fichub'],
+                       'newer': behind['indexed']}, work, present):
+            behind['replace'] = present
+            for filetype in present:
+                print(strings.AO3_INFO_REPLACING_NEWER.format(filetype, work))
+        else:
+            for filetype in present:
+                print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
+
+    if behind['missing'] or behind['replace']: return True
+    if not missing and not (present and overwrite):
+        print(strings.AO3_INFO_FICHUB_OUTDATED_NOTHING)
     failure['error'] = strings.ERROR_AO3_AND_FICHUB.format(failure.get('error') or '', reason)
     failure['fichub'] = reason
     return False
+
+
+def ask_yes_no(job, name: str, default: str, details: dict, work: str,
+               formats: list[str]) -> bool:
+    """Ask one of the per-work yes-or-no questions, record the answer, and say if it was yes."""
+
+    answer = job.ask({'name': name, 'count': 1, **details, 'choices': ['yes', 'no']},
+                     {'choice': default})
+    choice = answer.get('choice') if answer.get('choice') in ('yes', 'no') else default
+    if job.record:
+        job.record.choice({'question': name, 'count': 1, 'works': [work],
+                           'formats': formats, 'choice': choice})
+    return choice == 'yes' and not job.cancel.is_set()
 
 
 def finish_run(job: Job, fileops: FileOps, ao3, report) -> None:
@@ -3093,6 +3126,7 @@ def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
     plan['existing'] = existing
     # so the per-format lines can say why a current-looking copy is being fetched again
     plan['overwrite'] = bool(overwrite)
+    if overwrite: keep_newer_copies(job, records, existing, plan, downloadtypes)
 
     if plan['stale'] and overwrite:
         # not 'out of date' - most of them are not, and saying so would be a lie the user
@@ -3392,7 +3426,8 @@ def refresh_and_download(job: Job, fileops: FileOps, ao3: Ao3, records: list[dic
         try:
             fetched += update_one_work(ao3, record, existing, downloadtypes, maximum,
                                        refresh_undated, checked, len(records), report,
-                                       overwrite=overwrite, already_fresh=already_fresh)
+                                       overwrite=overwrite, already_fresh=already_fresh,
+                                       job=job)
         except exceptions.CancelledException:
             # a stop is not a failed run; what has been written so far stays written
             break
@@ -3524,6 +3559,49 @@ def newest_first(records: list[dict]) -> list[dict]:
         reverse=True)
 
 
+def keep_newer_copies(job: 'Job', records: list[dict], existing: dict, plan: dict,
+                      filetypes: list[str]) -> None:
+    """On an overwriting run, ask before replacing a copy with an **older** version.
+
+    Overwriting replaces every copy, current or not - but a copy whose name carries a later
+    date than the version about to be written is newer than it, and replacing it would lose
+    something. For each such work the run asks (`OVERWRITE_OLDER_QUESTION`, default no,
+    the usual 30-minute timeout), naming the formats. On no, those formats leave the plan:
+    out of `superseded`, into `plan['keep']` (which the downloader honours), and a work with
+    nothing else to fetch leaves `stale` too, so it is passed over rather than downloaded.
+    """
+
+    keep: dict[str, set[str]] = plan.setdefault('keep', {})
+    for record in records:
+        link = record.get('link') or ''
+        replacing = plan['superseded'].get(link)
+        if not replacing: continue
+        current = parse_text.get_date_stamp(record.get('date_updated'))
+        if not current: continue
+        work = str(record.get('id') or '')
+        have = existing.get(work) or {}
+        newer = {x: have[x.upper()]['date'] for x in replacing
+                 if (have.get(x.upper()) or {}).get('date') and have[x.upper()]['date'] > current}
+        if not newer: continue
+
+        formats = sorted(newer)
+        print(strings.AO3_INFO_OLDER_THAN_COPY.format(
+            work, current, ', '.join(formats), ', '.join(sorted(set(newer.values())))))
+        if ask_yes_no(job, OVERWRITE_OLDER_QUESTION, OVERWRITE_OLDER_NO,
+                      {'ids': [work], 'formats': formats, 'date': current,
+                       'newer': max(newer.values())}, work, formats):
+            for filetype in formats:
+                print(strings.AO3_INFO_REPLACING_NEWER.format(filetype, work))
+            continue
+
+        keep.setdefault(link, set()).update(x.upper() for x in formats)
+        for filetype in formats: replacing.pop(filetype, None)
+        if not replacing:
+            plan['superseded'].pop(link, None)
+            missing = any(not have.get(x.upper()) for x in filetypes)
+            if not missing and link in plan['stale']: plan['stale'].remove(link)
+
+
 def say_what_each_format_needs(record: dict, existing: dict, filetypes: list[str],
                                plan: dict) -> list[str]:
     """Say what is going to happen to each requested format, and return the ones to fetch.
@@ -3539,11 +3617,14 @@ def say_what_each_format_needs(record: dict, existing: dict, filetypes: list[str
 
     have = existing.get(str(record.get('id') or ''), {})
     replacing = plan['superseded'].get(record.get('link') or '', {})
+    kept = (plan.get('keep') or {}).get(record.get('link') or '', set())
 
     wanted: list[str] = []
     for filetype in filetypes:
         copy = have.get(filetype.upper())
-        if not copy:
+        if filetype.upper() in kept:
+            print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
+        elif not copy:
             print(strings.AO3_INFO_FORMAT_MISSING.format(filetype))
             wanted.append(filetype)
         elif filetype in replacing:
@@ -3582,7 +3663,7 @@ def fetch_formats(ao3: Ao3, record: dict, wanted: list[str], maximum: int, log: 
 def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str],
                     maximum: int, refresh_undated: bool, done: int, total: int,
                     report, overwrite: bool = False,
-                    already_fresh: set[str] | None = None) -> int:
+                    already_fresh: set[str] | None = None, job: 'Job | None' = None) -> int:
     """Bring one fic's entry up to date, and fetch it again if the copy is behind.
 
     Says what it is doing at each step rather than only at the end, because this is the
@@ -3631,6 +3712,8 @@ def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str]
         plan = shared.plan_downloads([fresh], existing, filetypes,
                                      refresh_undated=refresh_undated, overwrite=overwrite)
         plan['overwrite'] = overwrite
+        if overwrite and job is not None:
+            keep_newer_copies(job, [fresh], existing, plan, filetypes)
         wanted = say_what_each_format_needs(fresh, existing, filetypes, plan)
 
         if not wanted:

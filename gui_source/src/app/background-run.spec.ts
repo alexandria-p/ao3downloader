@@ -267,7 +267,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['duplicates', 'fichub', 'fichub-outdated']);
+    expect(questionsOffered()).toEqual(['duplicates', 'fichub', 'fichub-outdated', 'overwrite-older']);
   });
 
   it('asks nothing of a run that downloads no works', async () => {

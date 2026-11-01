@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1725 python passed; 753 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1734 python passed; 754 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1654,6 +1654,16 @@ Two things follow, and both are in `plan_refresh` and `refresh_and_download`:
   check having gone wrong. The plan carries an `overwrite` flag purely so
   `say_what_each_format_needs` can tell which sentence is true.
 
+**Overwriting asks before going backwards** (`keep_newer_copies`, from `plan_refresh` and
+`update_one_work`). A copy whose name carries a date **later** than the version about to be
+written is newer than it, so replacing it loses something: per work, the run asks
+`OVERWRITE_OLDER_QUESTION` (`overwrite-older`, naming the formats, both dates), **default no**
+(30-minute timeout; offered up front on a background run that overwrites). On no, those formats
+leave `superseded`, go into `plan['keep']` - `Ao3.keep_formats`, which `download_one_indexed`
+skips, saying `keeping your newer copy` - and a work with nothing else to fetch leaves `stale`.
+Formats it does not have are still fetched. FicHub's older copy goes through the same question
+on an overwriting run (see the FicHub section).
+
 `replace_superseded` needs nothing new: the re-fetched file usually has the *same* name, so
 there is no old file to delete and the write lands on top of it. The guard only fires when a
 name actually changed, which is still exactly right.
@@ -1845,8 +1855,9 @@ holds that - and is skipped when nothing failed. What not to break:
   `retrieved_from: {site, downloaded}`.
 - **An older FicHub copy replaces nothing** (`older_on_fichub`, `older_fichub_formats`): when
   FicHub's `date_updated` is before the index entry's, no file already on disk is touched -
-  any copy of a format counts, whatever its date, overwriting run or not - and the index is
-  not rewritten (its reading is newer). A requested format with **no file at all** is asked
+  any copy of a format counts, whatever its date - unless the run overwrites, which then asks
+  `OVERWRITE_OLDER_QUESTION` for those formats (default **no**); the index is never
+  rewritten (its reading is newer). A requested format with **no file at all** is asked
   about per work, `FICHUB_OUTDATED_QUESTION` (`fichub-outdated`), the second question whose
   default is **yes** (an older version beats none; offered up front on a background run that
   downloads). Declined, or nothing missing, the work stays a failure with

@@ -1305,6 +1305,25 @@ describe('DownloadDialog', () => {
     expect(jobs.answers.at(-1)).toEqual({ jobId: 'job-1', choice: 'no', date: '' });
   });
 
+  it('asks before replacing a newer copy with an older version, keeping it by default', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'overwrite-older', count: 1, ids: ['1'],
+                 formats: ['EPUB'], date: '2026-04-27', newer: '2026-05-10',
+                 choices: ['yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+
+    const said = element.querySelector('[data-question="overwrite-older"]')?.textContent ?? '';
+    expect(said).toContain('EPUB');
+    expect(said).toContain('newer (2026-05-10) than the version it would be replaced with (2026-04-27)');
+    expect(said).toContain('keeps your newer copy after 30 minutes');
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+
+    button('No, keep my newer copy')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
+  });
+
   it('says how many works came from FicHub at the end', async () => {
     await open('bookmarks');
     await advanceTo('running');

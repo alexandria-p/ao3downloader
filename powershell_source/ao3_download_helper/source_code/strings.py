@@ -418,6 +418,11 @@ AO3_INFO_FICHUB_OUTDATED_ASK = ('  no {} of work {} on disk - waiting for you to
                                 'to take FicHub\'s older version...')
 AO3_INFO_FICHUB_OUTDATED_DECLINED = '  not taking FicHub\'s older version'
 AO3_INFO_FICHUB_INDEX_KEPT = '  index for work {} left as it was: it is newer than FicHub\'s copy'
+# an overwriting run whose version is older than the copy already on disk
+AO3_INFO_OLDER_THAN_COPY = ('  the version about to be downloaded of work {} ({}) is older than '
+                            'your {} ({}) - waiting for you to choose whether to replace it...')
+AO3_INFO_KEEPING_NEWER = '  {}: keeping your newer copy'
+AO3_INFO_REPLACING_NEWER = '  replacing your newer {} of work {} with the older version, as asked'
 ERROR_FICHUB_OUTDATED = 'FicHub only has an older version (updated {}; your index says {})'
 ERROR_FICHUB_LOOKUP = 'FicHub could not find it ({})'
 ERROR_FICHUB_STATUS = 'FicHub answered {}'

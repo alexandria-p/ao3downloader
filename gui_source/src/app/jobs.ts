@@ -396,6 +396,8 @@ export interface JobEvent {
    *  index has for the work (FicHub's own is `date`) */
   formats?: string[];
   indexed?: string;
+  /** on an `overwrite-older` question: the date of the copy on disk, newer than `date` */
+  newer?: string;
   seconds?: number;
   until?: string;
   error?: string;
@@ -435,7 +437,8 @@ export interface StartRequest {
 }
 
 /** the questions a run can stop to ask, by the name the helper gives them */
-export type QuestionName = 'undated' | 'quick-floor' | 'duplicates' | 'fichub' | 'fichub-outdated';
+export type QuestionName =
+  'undated' | 'quick-floor' | 'duplicates' | 'fichub' | 'fichub-outdated' | 'overwrite-older';
 
 /** answers given before a background run starts, since nobody will be there to give them */
 export type BackgroundAnswers = Partial<Record<QuestionName, { choice: AnswerChoice; date?: string }>>;

@@ -304,6 +304,8 @@ export class DownloadDialog implements OnDestroy {
   /** on a `fichub-outdated` question: the formats there is no file of, and the index's date */
   protected readonly askedFormats = signal<string[]>([]);
   protected readonly askedIndexed = signal('');
+  /** on an `overwrite-older` question: the date of the copy on disk */
+  protected readonly askedNewer = signal('');
   /** whether the 'give them a date' half of the question is showing */
   protected readonly choosingDate = signal(false);
   protected readonly stampDate = signal(today());
@@ -857,7 +859,7 @@ export class DownloadDialog implements OnDestroy {
    * library and on AO3 - these are answers held ready, used only if it does.
    */
   protected readonly backgroundQuestions = computed<QuestionName[]>(() => {
-    if (this.resuming()) return ['undated', 'duplicates', 'fichub', 'fichub-outdated'];
+    if (this.resuming()) return ['undated', 'duplicates', 'fichub', 'fichub-outdated', 'overwrite-older'];
     const asked: QuestionName[] = [];
     if (this.action() === 'quick' && this.coverage() !== 'run' && this.coverage() !== 'dates') {
       asked.push('quick-floor');
@@ -871,6 +873,8 @@ export class DownloadDialog implements OnDestroy {
     if (this.picksFiletypes()) asked.push('fichub');
     // only comes up for a run that downloads, when FicHub's copy is older than the index
     if (this.picksFiletypes() && this.downloads()) asked.push('fichub-outdated');
+    // only a run that replaces what you have can be about to replace it with something older
+    if (this.downloads() && this.overwrites()) asked.push('overwrite-older');
     return asked;
   });
 
@@ -883,6 +887,8 @@ export class DownloadDialog implements OnDestroy {
   protected readonly fichubAnswer = signal<'yes' | 'no'>('yes');
   /** whether to take a missing format from an older FicHub copy - yes, by default */
   protected readonly fichubOutdatedAnswer = signal<'yes' | 'no'>('yes');
+  /** whether to replace a copy with an older version of it - no, by default */
+  protected readonly overwriteOlderAnswer = signal<'yes' | 'no'>('no');
   /** how far back a quick scan goes with nothing to measure to - everything, by default */
   protected readonly quickFloorAnswer = signal<'full' | 'since'>('full');
 
@@ -899,6 +905,9 @@ export class DownloadDialog implements OnDestroy {
       if (name === 'fichub') answers.fichub = { choice: this.fichubAnswer() };
       if (name === 'fichub-outdated') {
         answers['fichub-outdated'] = { choice: this.fichubOutdatedAnswer() };
+      }
+      if (name === 'overwrite-older') {
+        answers['overwrite-older'] = { choice: this.overwriteOlderAnswer() };
       }
       if (name === 'quick-floor') answers['quick-floor'] = { choice: this.quickFloorAnswer() };
     }
@@ -1488,6 +1497,7 @@ export class DownloadDialog implements OnDestroy {
         this.askedIds.set(event.ids ?? []);
         this.askedFormats.set(event.formats ?? []);
         this.askedIndexed.set(event.indexed ?? '');
+        this.askedNewer.set(event.newer ?? '');
         this.choosingDate.set(false);
         this.answering.set(false);
         break;
@@ -1716,6 +1726,16 @@ export class DownloadDialog implements OnDestroy {
 
   /** take nothing from FicHub's older copy */
   protected skipOlderFicHub(): void {
+    void this.answerQuestion('no');
+  }
+
+  /** replace the newer copy with the older version anyway */
+  protected replaceWithOlder(): void {
+    void this.answerQuestion('yes');
+  }
+
+  /** keep the newer copy */
+  protected keepNewerCopy(): void {
     void this.answerQuestion('no');
   }
 

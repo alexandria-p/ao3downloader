@@ -273,6 +273,12 @@
                   {{ choice.formats?.join(', ') }} on disk, and chose
                   <strong>{{ choice.choice === 'no' ? 'not to take it' : 'to take the older version' }}</strong>.
                 </p>
+              } @else if (choice.question === 'overwrite-older') {
+                <p>
+                  The {{ choice.formats?.join(', ') }} of work {{ choice.works?.join(', ') }} on disk
+                  was newer than the version this run would write, and chose
+                  <strong>{{ choice.choice === 'yes' ? 'to replace it anyway' : 'to keep the newer copy' }}</strong>.
+                </p>
               } @else if (choice.question === 'quick-floor') {
                 <p>
                   No completed scan to measure back to, with

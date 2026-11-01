@@ -293,8 +293,6 @@ def test_an_older_fichub_copy_never_replaces_a_file_you_have(library, monkeypatc
     job, ao3, asked = a_run(library, ['JSON', 'EPUB', 'HTML'], ao3_failed())
     before = index_text(library)
 
-    # an overwriting run (a fic run) still replaces nothing with an older copy
-    job.options['overwrite'] = True
     server.rescue_with_fichub(job, library, ao3, MagicMock())
 
     assert fetched == []
@@ -305,6 +303,42 @@ def test_an_older_fichub_copy_never_replaces_a_file_you_have(library, monkeypatc
     assert 'older version' in ao3.failures[0]['error']
     out = capsys.readouterr().out
     assert "FicHub's copy of work 75354806 was last updated 2026-04-27, older than your index (2026-05-10)" in out
+
+
+@pytest.mark.fichub
+@pytest.mark.parametrize('answer, replaced', [('no', False), (None, False), ('yes', True)])
+def test_an_overwriting_run_asks_before_replacing_your_copy_with_an_older_fichub_one(
+        library, monkeypatch, answer, replaced):
+    indexed_newer_than_fichub(library)
+    a_copy(library, '75354806 Wolfbird - OpalApparition 2026-05-10.epub')
+    fetched = []
+    monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
+    monkeypatch.setattr(server.fichub, 'download',
+                        lambda repo, answer, filetype: fetched.append(filetype) or b'old')
+    job, ao3, asked = a_run(library, ['EPUB'], ao3_failed())
+    job.options['overwrite'] = True
+
+    def ask(question, default):
+        asked.append((question, default))
+        if question['name'] == server.OVERWRITE_OLDER_QUESTION and answer is None:
+            return dict(default)       # nobody answered: the default
+        return {'choice': answer if question['name'] == server.OVERWRITE_OLDER_QUESTION else 'yes'}
+    job.ask = ask
+
+    server.rescue_with_fichub(job, library, ao3, MagicMock())
+
+    question, default = asked[-1]
+    assert question['name'] == server.OVERWRITE_OLDER_QUESTION
+    assert question['formats'] == ['EPUB']
+    assert question['date'] == '2026-04-27' and question['newer'] == '2026-05-10'
+    assert default == {'choice': 'no'}
+    if replaced:
+        assert fetched == ['EPUB']
+        assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.epub']
+    else:
+        assert fetched == []
+        assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-05-10.epub']
+        assert 'older version' in ao3.failures[0]['error']
 
 
 @pytest.mark.fichub
