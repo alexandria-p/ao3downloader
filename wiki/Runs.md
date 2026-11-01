@@ -45,8 +45,9 @@ Each run asks its options, then which file types, then your login.
 - **Older copies** - two copies of one work and format. Keep only the newest, or leave them.
 - **How far back to go** - a Quick Scan with no earlier scan, but an index already there.
 - **Try FicHub?** - at the end, when AO3 wouldn't give the run some works. Try FicHub, or leave them as failures.
+- **Take FicHub's older version?** - when FicHub's copy is older than your index says the fic is, and you have no file at all in a format you asked for. Yes takes the older version of just that format.
 
-Closing the page or stopping takes the answer that changes nothing - except for FicHub, where it is yes.
+Closing the page or stopping takes the answer that changes nothing - except for the two FicHub questions, where it is yes.
 
 ## Pause and Stop
 
@@ -70,7 +71,7 @@ Tick **Run as background task** on the login step to let the helper finish with 
 
 Every run finishes with **Try FicHub** (when anything failed), then **Report any failures**:
 
-- **Try FicHub** - first, if AO3 wouldn't give the run some works, it asks whether to try [FicHub](https://fichub.net), a mirror that keeps copies of AO3 works, even some AO3 no longer has. **Yes if you don't answer** within 30 minutes. What FicHub has is indexed and downloaded in your file types (not AZW3), and marked **From FicHub** in your library. Never tried for external works or series. Most useful for a fic you indexed before AO3 deleted it (the index keeps its number) and for a single fic fetched by link or number.
+- **Try FicHub** - first, if AO3 wouldn't give the run some works, it asks whether to try [FicHub](https://fichub.net), a mirror that keeps copies of AO3 works, even some AO3 no longer has. **Yes if you don't answer** within 30 minutes. What FicHub has is indexed and downloaded in your file types (not AZW3), and marked **From FicHub** in your library. If FicHub's copy is **older** than your index, it never replaces a file you already have and the index is left alone. Never tried for external works or series. Most useful for a fic you indexed before AO3 deleted it (the index keeps its number) and for a single fic fetched by link or number.
 - **Failures** - works that wouldn't download. A later run tries again. A work FicHub couldn't give either says so.
 - **Bookmarks that are not works** - series, external works, deleted works. Nothing to retry.
 - **Copies to check by hand** - a new file saved, but an older copy couldn't be removed, or the save couldn't be confirmed.

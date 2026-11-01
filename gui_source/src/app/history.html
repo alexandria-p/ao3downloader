@@ -267,6 +267,12 @@
                   {{ choice.count === 1 ? 'work' : 'works' }}, and chose
                   <strong>{{ choice.choice === 'no' ? 'not to try FicHub' : 'to try FicHub' }}</strong>.
                 </p>
+              } @else if (choice.question === 'fichub-outdated') {
+                <p>
+                  FicHub only had an older copy of work {{ choice.works?.join(', ') }}, with no
+                  {{ choice.formats?.join(', ') }} on disk, and chose
+                  <strong>{{ choice.choice === 'no' ? 'not to take it' : 'to take the older version' }}</strong>.
+                </p>
               } @else if (choice.question === 'quick-floor') {
                 <p>
                   No completed scan to measure back to, with

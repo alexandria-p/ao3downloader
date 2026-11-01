@@ -130,12 +130,20 @@ FICHUB_YES = 'yes'
 FICHUB_NO = 'no'
 FICHUB_CHOICES = (FICHUB_YES, FICHUB_NO)
 
+# Whether to take a format from FicHub when FicHub's copy is older than the index says the
+# work is, and there is no file of that format at all. Asked per work, only then - anything
+# already on disk is never replaced by an older copy. Defaults to yes, like the FicHub
+# question: a missing format is still missing, and an older version is better than none.
+FICHUB_OUTDATED_QUESTION = 'fichub-outdated'
+FICHUB_OUTDATED_CHOICES = (FICHUB_YES, FICHUB_NO)
+
 # every choice any question may be answered with. the run reads only the answer to the
 # question it actually asked, so one list is enough to keep nonsense out at the door
 ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES + FICHUB_CHOICES
 # which choices belong to which question - a background run is answered up front, by name
 CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
-               DUPLICATES_QUESTION: DUPLICATES_CHOICES, FICHUB_QUESTION: FICHUB_CHOICES}
+               DUPLICATES_QUESTION: DUPLICATES_CHOICES, FICHUB_QUESTION: FICHUB_CHOICES,
+               FICHUB_OUTDATED_QUESTION: FICHUB_OUTDATED_CHOICES}
 
 # a background run keeps every event for a page that reattaches, but not every line it
 # printed: hours of 'new download:' would be megabytes replayed to a page that shows the
@@ -2844,7 +2852,7 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
             job.steps.skip('fichub')
             return
         rescue_one(ao3, failure, entries.get(str(failure['id'])), existing, filetypes,
-                   indexes, maximum, overwrite, done, len(candidates))
+                   indexes, maximum, overwrite, done, len(candidates), job=job)
 
     if job.cancel.is_set(): return
     job.steps.done('fichub')
@@ -2901,7 +2909,8 @@ def indexed_entries(ao3, fileops: FileOps, works: set[str]) -> dict[str, dict]:
 
 
 def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes: list[str],
-               indexes: bool, maximum: int, overwrite: bool, done: int, total: int) -> None:
+               indexes: bool, maximum: int, overwrite: bool, done: int, total: int,
+               job: 'Job | None' = None) -> None:
     """One work from FicHub: look it up, download what is missing or behind, index it.
 
     The index is written after the downloads, so its FicHub reading can say which formats
@@ -2923,6 +2932,15 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         title = record.get('title') or title
         print(strings.AO3_INFO_FICHUB_FOUND.format(failure['id'], title))
 
+        # FicHub's copy is a cache: when it is older than what the index already says, it
+        # replaces nothing and does not rewrite the index - see `older_on_fichub`
+        behind = older_on_fichub(entry, record)
+        if behind:
+            if not older_fichub_formats(job, failure, existing, filetypes, behind, log):
+                return
+            filetypes = behind['missing']
+            overwrite = False
+
         def from_fichub(filetype: str) -> bytes:
             print(strings.AO3_INFO_FICHUB_FETCHING.format(filetype, failure['id']))
             return fichub.download(ao3.repo, answer, filetype)
@@ -2943,7 +2961,9 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
                 except Exception as e:
                     problem = e
 
-        if indexes:
+        if indexes and behind:
+            print(strings.AO3_INFO_FICHUB_INDEX_KEPT.format(failure['id']))
+        elif indexes:
             print(strings.AO3_INFO_FICHUB_INDEXING.format(failure['id']))
             ao3.save_metadata({**record, strings.RETRIEVED_FROM_FIELD:
                                {'site': strings.FICHUB_SITE, 'downloaded': arrived}},
@@ -2966,6 +2986,61 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
     ao3.failures[:] = [x for x in ao3.failures if x is not failure]
     ao3.rescued.append({'id': failure['id'], 'link': link, 'title': title,
                         'downloaded': arrived})
+
+
+def older_on_fichub(entry: dict | None, record: dict) -> dict | None:
+    """FicHub's date and the index's, when FicHub's copy is the older of the two - else None.
+
+    Judged by `date_updated`, the same field every other decision about versions reads: the
+    index's from before FicHub's answer is merged in, FicHub's from its own answer. A work
+    the index has no date for, or FicHub gives none, is not judged older.
+    """
+
+    indexed = parse_text.get_date_stamp((entry or {}).get('date_updated'))
+    mirror = parse_text.get_date_stamp(record.get('date_updated'))
+    if indexed and mirror and mirror < indexed:
+        return {'fichub': mirror, 'indexed': indexed, 'missing': []}
+    return None
+
+
+def older_fichub_formats(job, failure: dict, existing: dict, filetypes: list[str],
+                         behind: dict, log: dict) -> bool:
+    """FicHub's copy is older than the index: decide what, if anything, to take from it.
+
+    **Nothing already on disk is replaced** - a format with any copy at all is left alone,
+    whatever its date. A format with no file is asked about (`FICHUB_OUTDATED_QUESTION`,
+    default yes, the 30-minute timeout every question has); `behind['missing']` is set to
+    the formats to fetch. False means take nothing: the work stays a failure, saying why.
+    """
+
+    work = str(failure['id'])
+    print(strings.AO3_INFO_FICHUB_OUTDATED.format(work, behind['fichub'], behind['indexed']))
+    have = existing.get(work) or {}
+    missing = [x for x in filetypes if x.upper() not in have]
+    reason = strings.ERROR_FICHUB_OUTDATED.format(behind['fichub'], behind['indexed'])
+
+    if missing and job is not None:
+        print(strings.AO3_INFO_FICHUB_OUTDATED_ASK.format(', '.join(missing), work))
+        answer = job.ask({'name': FICHUB_OUTDATED_QUESTION, 'count': 1, 'ids': [work],
+                          'formats': missing, 'date': behind['fichub'],
+                          'indexed': behind['indexed'],
+                          'choices': list(FICHUB_OUTDATED_CHOICES)},
+                         {'choice': FICHUB_YES})
+        choice = answer.get('choice') if answer.get('choice') in FICHUB_OUTDATED_CHOICES \
+            else FICHUB_YES
+        if job.record:
+            job.record.choice({'question': FICHUB_OUTDATED_QUESTION, 'count': 1,
+                               'works': [work], 'formats': missing, 'choice': choice})
+        if choice == FICHUB_YES and not job.cancel.is_set():
+            behind['missing'] = missing
+            return True
+        print(strings.AO3_INFO_FICHUB_OUTDATED_DECLINED)
+    elif not missing:
+        print(strings.AO3_INFO_FICHUB_OUTDATED_NOTHING)
+
+    failure['error'] = strings.ERROR_AO3_AND_FICHUB.format(failure.get('error') or '', reason)
+    failure['fichub'] = reason
+    return False
 
 
 def finish_run(job: Job, fileops: FileOps, ao3, report) -> None:

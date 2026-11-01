@@ -249,7 +249,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['undated', 'duplicates', 'fichub']);
+    expect(questionsOffered()).toEqual(['undated', 'duplicates', 'fichub', 'fichub-outdated']);
   });
 
   it('also asks a quick scan how far back to go with nothing to measure to', async () => {
@@ -258,7 +258,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['quick-floor', 'undated', 'duplicates', 'fichub']);
+    expect(questionsOffered()).toEqual(['quick-floor', 'undated', 'duplicates', 'fichub', 'fichub-outdated']);
   });
 
   it('does not ask about undated files on a run that fetches every copy again anyway', async () => {
@@ -267,7 +267,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['duplicates', 'fichub']);
+    expect(questionsOffered()).toEqual(['duplicates', 'fichub', 'fichub-outdated']);
   });
 
   it('asks nothing of a run that downloads no works', async () => {
@@ -292,6 +292,7 @@ describe('Running in the background', () => {
       duplicates: { choice: 'leave' },
       // the one that does something: the works it asks about are missing anyway
       fichub: { choice: 'yes' },
+      'fichub-outdated': { choice: 'yes' },
     });
   });
 
@@ -307,6 +308,7 @@ describe('Running in the background', () => {
     date.dispatchEvent(new Event('input'));
     checkbox('Keep the newest')!.click();
     checkbox('No - leave them listed as failures')!.click();
+    checkbox('No - leave the work listed as a failure')!.click();
     await fixture.whenStable();
     await startIt();
 
@@ -314,6 +316,7 @@ describe('Running in the background', () => {
       undated: { choice: 'stamp', date: '2024-05-06' },
       duplicates: { choice: 'newest' },
       fichub: { choice: 'no' },
+      'fichub-outdated': { choice: 'no' },
     });
   });
 

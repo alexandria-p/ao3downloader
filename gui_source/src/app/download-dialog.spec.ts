@@ -1271,6 +1271,40 @@ describe('DownloadDialog', () => {
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
   });
 
+  /** FicHub's copy older than the index, with a format there is no file of */
+  async function askedAboutOlderFicHub(): Promise<void> {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'fichub-outdated', count: 1, ids: ['75354806'],
+                 formats: ['HTML', 'PDF'], date: '2026-04-27', indexed: '2026-05-10',
+                 choices: ['yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+  }
+
+  it('asks whether to take an older FicHub copy, saying both dates and the missing formats', async () => {
+    await askedAboutOlderFicHub();
+
+    const said = element.querySelector('[data-question="fichub-outdated"]')?.textContent ?? '';
+    expect(said).toContain('older');
+    expect(said).toContain('FicHub: 2026-04-27, your index: 2026-05-10');
+    expect(said).toContain('HTML, PDF');
+    expect(said).toContain('never replaced');
+    // its own panel, not the generic one as well
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+  });
+
+  it('takes the older version, or leaves it, as told', async () => {
+    await askedAboutOlderFicHub();
+    button('Yes, take the older version')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'yes', date: '' }]);
+
+    await askedAboutOlderFicHub();
+    button('No, leave it')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers.at(-1)).toEqual({ jobId: 'job-1', choice: 'no', date: '' });
+  });
+
   it('says how many works came from FicHub at the end', async () => {
     await open('bookmarks');
     await advanceTo('running');

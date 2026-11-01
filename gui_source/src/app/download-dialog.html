@@ -1086,6 +1086,26 @@
                       </label>
                     </div>
                   }
+
+                  @if (backgroundQuestions().includes('fichub-outdated')) {
+                    <div class="answer" data-question="fichub-outdated">
+                      <p>
+                        <strong>FicHub's copy older than your index</strong> - files you have are
+                        never replaced by it. For a format you have no file of at all, take
+                        FicHub's older version?
+                      </p>
+                      <label class="check">
+                        <input type="radio" name="bg-fichub-outdated" [checked]="fichubOutdatedAnswer() === 'yes'"
+                               (change)="fichubOutdatedAnswer.set('yes')" />
+                        <span>Yes - an older version is better than none</span>
+                      </label>
+                      <label class="check">
+                        <input type="radio" name="bg-fichub-outdated" [checked]="fichubOutdatedAnswer() === 'no'"
+                               (change)="fichubOutdatedAnswer.set('no')" />
+                        <span>No - leave the work listed as a failure</span>
+                      </label>
+                    </div>
+                  }
                 </fieldset>
               }
             }
@@ -1294,8 +1314,40 @@
           </div>
         }
 
+        @if (asking() && question() === 'fichub-outdated') {
+          <div class="question" data-question="fichub-outdated">
+            <p class="question-text">
+              FicHub's copy of work
+              @for (id of askedIds(); track id) {
+                <a [href]="'https://archiveofourown.org/works/' + id" target="_blank" rel="noopener">{{ id }}</a>
+              }
+              is <strong>older</strong> than your index says the work is
+              (FicHub: {{ askedDate() }}, your index: {{ askedIndexed() }}). You have no
+              <strong>{{ askedFormats().join(', ') }}</strong> of it at all. Download FicHub's
+              older version of {{ askedFormats().length === 1 ? 'that format' : 'those formats' }}?
+            </p>
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="takeOlderFicHub()">
+                Yes, take the older version
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="skipOlderFicHub()">
+                No, leave it
+              </button>
+            </div>
+
+            <p class="hint">
+              Files you already have are never replaced by an older copy, and the index is left
+              as it is. Left unanswered, the run takes the older version after 30 minutes.
+            </p>
+          </div>
+        }
+
         <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
-        @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub') {
+        @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub' &&
+             question() !== 'fichub-outdated') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">

@@ -216,6 +216,8 @@ export interface RunChoice {
   files?: number;
   /** the work numbers the question was about */
   works?: string[];
+  /** the formats a `fichub-outdated` question was about */
+  formats?: string[];
   /** the files given a date, when that was the answer */
   renamed?: { id: string; from: string; to: string }[];
 }
@@ -390,6 +392,10 @@ export interface JobEvent {
   choices?: string[];
   /** on a `question` event: the date the question is offering, where it has one */
   date?: string;
+  /** on a `fichub-outdated` question: the formats there is no file of, and the date the
+   *  index has for the work (FicHub's own is `date`) */
+  formats?: string[];
+  indexed?: string;
   seconds?: number;
   until?: string;
   error?: string;
@@ -429,7 +435,7 @@ export interface StartRequest {
 }
 
 /** the questions a run can stop to ask, by the name the helper gives them */
-export type QuestionName = 'undated' | 'quick-floor' | 'duplicates' | 'fichub';
+export type QuestionName = 'undated' | 'quick-floor' | 'duplicates' | 'fichub' | 'fichub-outdated';
 
 /** answers given before a background run starts, since nobody will be there to give them */
 export type BackgroundAnswers = Partial<Record<QuestionName, { choice: AnswerChoice; date?: string }>>;

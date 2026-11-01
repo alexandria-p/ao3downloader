@@ -301,6 +301,9 @@ export class DownloadDialog implements OnDestroy {
   protected readonly question = signal('');
   /** the date a question is offering, where it has one */
   protected readonly askedDate = signal('');
+  /** on a `fichub-outdated` question: the formats there is no file of, and the index's date */
+  protected readonly askedFormats = signal<string[]>([]);
+  protected readonly askedIndexed = signal('');
   /** whether the 'give them a date' half of the question is showing */
   protected readonly choosingDate = signal(false);
   protected readonly stampDate = signal(today());
@@ -854,7 +857,7 @@ export class DownloadDialog implements OnDestroy {
    * library and on AO3 - these are answers held ready, used only if it does.
    */
   protected readonly backgroundQuestions = computed<QuestionName[]>(() => {
-    if (this.resuming()) return ['undated', 'duplicates', 'fichub'];
+    if (this.resuming()) return ['undated', 'duplicates', 'fichub', 'fichub-outdated'];
     const asked: QuestionName[] = [];
     if (this.action() === 'quick' && this.coverage() !== 'run' && this.coverage() !== 'dates') {
       asked.push('quick-floor');
@@ -866,6 +869,8 @@ export class DownloadDialog implements OnDestroy {
     }
     // a collections run that reads no works fetches none, so none can fail
     if (this.picksFiletypes()) asked.push('fichub');
+    // only comes up for a run that downloads, when FicHub's copy is older than the index
+    if (this.picksFiletypes() && this.downloads()) asked.push('fichub-outdated');
     return asked;
   });
 
@@ -876,6 +881,8 @@ export class DownloadDialog implements OnDestroy {
   protected readonly duplicatesAnswer = signal<'leave' | 'newest'>('leave');
   /** whether to try FicHub for works AO3 would not give us - yes, by default */
   protected readonly fichubAnswer = signal<'yes' | 'no'>('yes');
+  /** whether to take a missing format from an older FicHub copy - yes, by default */
+  protected readonly fichubOutdatedAnswer = signal<'yes' | 'no'>('yes');
   /** how far back a quick scan goes with nothing to measure to - everything, by default */
   protected readonly quickFloorAnswer = signal<'full' | 'since'>('full');
 
@@ -890,6 +897,9 @@ export class DownloadDialog implements OnDestroy {
       }
       if (name === 'duplicates') answers.duplicates = { choice: this.duplicatesAnswer() };
       if (name === 'fichub') answers.fichub = { choice: this.fichubAnswer() };
+      if (name === 'fichub-outdated') {
+        answers['fichub-outdated'] = { choice: this.fichubOutdatedAnswer() };
+      }
       if (name === 'quick-floor') answers['quick-floor'] = { choice: this.quickFloorAnswer() };
     }
     return answers;
@@ -1476,6 +1486,8 @@ export class DownloadDialog implements OnDestroy {
         this.asking.set(event.count ?? 0);
         this.askedFiles.set(event.files ?? 0);
         this.askedIds.set(event.ids ?? []);
+        this.askedFormats.set(event.formats ?? []);
+        this.askedIndexed.set(event.indexed ?? '');
         this.choosingDate.set(false);
         this.answering.set(false);
         break;
@@ -1694,6 +1706,16 @@ export class DownloadDialog implements OnDestroy {
 
   /** leave the works AO3 would not give us as failures */
   protected skipFicHub(): void {
+    void this.answerQuestion('no');
+  }
+
+  /** take the missing formats from FicHub's older copy */
+  protected takeOlderFicHub(): void {
+    void this.answerQuestion('yes');
+  }
+
+  /** take nothing from FicHub's older copy */
+  protected skipOlderFicHub(): void {
     void this.answerQuestion('no');
   }
 

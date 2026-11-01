@@ -38,7 +38,7 @@ the same thing in conversation.
 - **Run** [job] - one use of a workflow, from pressing Start to its report.
 - **Step** [checklist item] - one stage of a run, shown ticked, skipped, failed, or *done in the earlier run* (a resumed run's step its earlier attempt finished) in the run window.
 - **Option** [checkbox, configuration] - a choice made before a run starts.
-- **Question** - something a run stops to ask part-way through (undated files, older copies, how far back to go, whether to try FicHub). Unanswered, each takes its default after 30 minutes - the one that changes nothing, except FicHub's, which is *yes*.
+- **Question** - something a run stops to ask part-way through (undated files, older copies, how far back to go, whether to try FicHub, whether to take an older FicHub copy). Unanswered, each takes its default after 30 minutes - the one that changes nothing, except the two FicHub questions, which are *yes*.
 - **FicHub** [the mirror, fichub.net] - a site keeping copies of AO3 works, including some AO3 no longer serves. A run asks it, at the end, for the works AO3 would not give it (`source_code/fichub.py`).
 - **Scan** - can be used either to describe a scan workflow (full or quick), or to describe reading the library's existing files (the check step).
 - **Cleanup** - the step that removes older copies you chose to remove.
@@ -151,7 +151,7 @@ the same thing in conversation.
 
 **Every workflow** also offers, on its login step:
 
-- *Run as background task* - only on the hosted copy (the page's helper not on this computer - not shown at all in the bundle or the Windows, Mac and Linux apps); only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range, and *whether to try FicHub* (default yes) on every workflow but a collection run not taking its works. A collection run not taking its works asks none; a JSON-only run asks only about FicHub. Its steps are the workflow's own, unchanged.
+- *Run as background task* - only on the hosted copy (the page's helper not on this computer - not shown at all in the bundle or the Windows, Mac and Linux apps); only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range, and *whether to try FicHub* (default yes) on every workflow but a collection run not taking its works, plus *whether to take an older FicHub copy* (default yes) on those that download. A collection run not taking its works asks none; a JSON-only run asks only about FicHub. Its steps are the workflow's own, unchanged.
 
 ## Quick scan
 
@@ -398,6 +398,7 @@ Used by: every workflow.
 - Most useful for a fic indexed while it was on AO3 and deleted since (the index keeps its number, so a later run's re-read or download fails and FicHub is asked by it), and for a single fic fetched by link or number. A bookmark AO3 already lists as deleted has no number to ask by.
 - Tries only AO3 works with a number: the run's failures (a download, an update's re-read, a single fic's own page). Never an external work, a series, or a deleted bookmark with no number.
 - For each: one request to FicHub's api for the work's details, then one per format to fetch. With JSON, writes the index entry from what FicHub says - the stats for a work already indexed (its bookmark fields are kept), everything for a new one - as a reading carrying `retrieved_from`. Downloads the run's file types that are missing or behind (or every one, on a run that overwrites), named and checked as a download from AO3 is. FicHub makes EPUB, HTML, MOBI and PDF - not AZW3.
+- **FicHub's copy older than the index** - when FicHub's `date_updated` is earlier than the index entry's: nothing already on disk is replaced (any copy of a format counts, whatever its date, even on a run that overwrites), and the index is left as it was. A requested format with no file at all is asked about per work (`fichub-outdated`, naming FicHub's date, the index's and the missing formats); yes - the default, after 30 minutes or on a background run - fetches only those, named with FicHub's date. Otherwise the work stays a failure: `FicHub only has an older version (updated ...; your index says ...)`. A copy as new as the index, or a work with no indexed date, is taken as usual.
 - A work it gets is taken off the failures and listed as *fetched from FicHub*. One it cannot get (or not every format of) stays a failure, its reason naming both: `AO3: ... | FicHub: ...`.
 
 ### Cleanup

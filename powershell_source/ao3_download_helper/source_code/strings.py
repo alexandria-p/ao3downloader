@@ -410,6 +410,15 @@ AO3_INFO_FICHUB_NOT_INDEXED = '  index not updated for work {}'
 AO3_INFO_FICHUB_INDEXED = '  index updated for work {} from FicHub'
 AO3_INFO_FICHUB_RESCUED = '{} works AO3 would not give us came from FicHub instead'
 AO3_INFO_FICHUB_FAILED_TOO = '  not on FicHub either: {}'
+# FicHub's copy is a cache, and can be older than what the index already says of the work
+AO3_INFO_FICHUB_OUTDATED = ('  FicHub\'s copy of work {} was last updated {}, older than your '
+                            'index ({}) - nothing you already have will be replaced')
+AO3_INFO_FICHUB_OUTDATED_NOTHING = '  you already have every format asked for, so nothing is taken from FicHub'
+AO3_INFO_FICHUB_OUTDATED_ASK = ('  no {} of work {} on disk - waiting for you to choose whether '
+                                'to take FicHub\'s older version...')
+AO3_INFO_FICHUB_OUTDATED_DECLINED = '  not taking FicHub\'s older version'
+AO3_INFO_FICHUB_INDEX_KEPT = '  index for work {} left as it was: it is newer than FicHub\'s copy'
+ERROR_FICHUB_OUTDATED = 'FicHub only has an older version (updated {}; your index says {})'
 ERROR_FICHUB_LOOKUP = 'FicHub could not find it ({})'
 ERROR_FICHUB_STATUS = 'FicHub answered {}'
 ERROR_FICHUB_NOT_JSON = 'FicHub answered with something that is not its usual reply'
