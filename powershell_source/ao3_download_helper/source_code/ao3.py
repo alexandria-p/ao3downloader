@@ -45,6 +45,13 @@ def blank(value) -> bool:
     return value is None or value == ''
 
 
+
+def was_bookmark(entry: dict | None) -> bool:
+    """Whether an index entry is one of your bookmarks. An entry with no `bookmarked` at all
+    came off your bookmarks before the field existed, so it counts."""
+
+    return bool(entry) and entry.get(strings.BOOKMARKED_FIELD) is not False
+
 class Ao3:
     def __init__(
             self, 
@@ -526,6 +533,8 @@ class Ao3:
                       'title': page.get('title') or '', 'authors': authors}
 
         fresh = {**record, **stats, **bookmark_state(soup)}
+        if not was_bookmark(existing) and fresh.get(strings.BOOKMARKED_FIELD) is not True:
+            fresh[strings.FROM_LINK_FIELD] = True
         # a work page is only ever a work's - an entry made here is typed like any other
         fresh.setdefault(strings.BOOKMARK_TYPE_FIELD, strings.BOOKMARK_TYPE_WORK)
         # the series it is part of, read off its own page, so a run asked to walk them can

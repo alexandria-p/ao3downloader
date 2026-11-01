@@ -1718,6 +1718,28 @@ def test_a_fic_whose_page_cannot_be_read_raises_rather_than_writing_a_stub() -> 
     fileops.save_json.assert_not_called()
 
 
+@pytest.mark.parametrize('existing, page, marked', [
+    (None, {'bookmarked': False}, True),                       # new, not yours
+    (None, {}, True),                                          # new, page could not say
+    (None, {'bookmarked': True}, False),                       # new, but you bookmarked it
+    ({'bookmarked': True}, {}, False),                         # already your bookmark
+    ({}, {}, False),                                           # older entry: off your bookmarks
+    ({'bookmarked': False}, {'bookmarked': False}, True),      # a collection's, fetched by link
+])
+def test_a_fic_fetched_by_link_is_marked_so_unless_it_is_your_bookmark(existing, page, marked) -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _work_page_soup()
+    if existing is not None:
+        existing = {'id': '111', 'link': 'https://archiveofourown.org/works/111',
+                    'title': 'A Fic', 'authors': ['Cal'], **existing}
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup), \
+         patch('source_code.ao3.bookmark_state', return_value=page):
+        record = ao3.index_one_work('https://archiveofourown.org/works/111', existing)
+
+    assert record.get('from_link') is (True if marked else None)
+
+
 def test_the_existing_entry_is_looked_for_only_once_ao3_has_shown_the_work() -> None:
     # the fic runs ask ao3 first: a fic ao3 will not show must not cost a read of the library
     ao3, repo, _ = make_ao3()

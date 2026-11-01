@@ -221,6 +221,10 @@ SERIES_WORKS_FIELD = 'work_ids'
 SERIES_MEMBERSHIP_FIELD = 'series'
 # the bookmark's own fields: what you wrote and when. a work read off a series page has
 # none of them, so an existing entry keeps its own rather than having them blanked
+# set on an entry a fic run indexed from its link or work number when it was not one of your
+# bookmarks. identity, so a later reading from any other run keeps it; the page sorts it into
+# 'Downloaded by ID or URL', after your bookmarks and collections
+FROM_LINK_FIELD = 'from_link'
 BOOKMARK_OWN_FIELDS = ('date_bookmarked', 'bookmark_notes', 'bookmark_tags',
                        'bookmark_collections', 'bookmark_private', 'bookmark_rec',
                        BOOKMARKED_FIELD)

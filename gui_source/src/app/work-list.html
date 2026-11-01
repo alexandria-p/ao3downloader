@@ -163,6 +163,17 @@
 
   <p class="filter-hidden">
     <label>
+      <input type="checkbox" name="withNotes" [checked]="withNotes()" (change)="withNotes.set($any($event.target).checked)" />
+      Bookmarks with a note
+    </label>
+    <label>
+      <input type="checkbox" name="recommended" [checked]="recommended()" (change)="recommended.set($any($event.target).checked)" />
+      Bookmarks you recommended
+    </label>
+  </p>
+
+  <p class="filter-hidden">
+    <label>
       <input type="checkbox" name="showHidden" [checked]="showHidden()" (change)="showHidden.set($any($event.target).checked)" />
       Show hidden works
       @if (hiddenCount()) {

@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1734 python passed; 754 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1744 python passed; 756 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2057,8 +2057,14 @@ or found through a collection was on disk and in the index but nowhere in the pa
 `isListedEntry` now lists every entry but two, both still shown elsewhere: a work only a
 bookmarked series brought in (in that series' card - `from_series`, **or** a bookmarked series'
 `work_ids` listing it, since an entry can lack `from_series`), and a series you did not
-bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `other` for the
-badge and the **Came from** filter. An entry with no `bookmarked` at all still counts as a
+bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `external`
+(newest reading from FicHub) / `link` (`from_link`) / `other` (unknown), in that order, for the
+badge and the **Came from** filter. **`from_link` is written by the fic runs alone**
+(`index_one_work`, and `rescue_one` on a fic run), only when the work is not your bookmark
+(`ao3.was_bookmark`; an entry with no `bookmarked` counts as one), and is an **identity**
+field, so a later reading by any other run keeps it. The Filter panel also narrows to
+bookmarks with a note (`withNotes`, `bookmark_notes`) or recommended (`recommended`,
+`bookmark_rec`). An entry with no `bookmarked` at all still counts as a
 bookmark, for the same reason `isBookmarkEntry` says so: it came off your bookmarks before
 the field existed.
 

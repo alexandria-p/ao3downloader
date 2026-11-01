@@ -419,6 +419,25 @@ def test_a_fichub_copy_as_new_as_the_index_is_taken_as_before(library, monkeypat
 
 
 @pytest.mark.fichub
+@pytest.mark.parametrize('action, marked', [(server.ACTION_WORK, True),
+                                            (server.ACTION_WORKS, True),
+                                            (server.ACTION_BOOKMARKS, False)])
+def test_a_fic_run_s_fichub_entry_is_marked_downloaded_by_link(library, monkeypatch, action, marked):
+    monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
+    monkeypatch.setattr(server.fichub, 'download', lambda repo, answer, filetype: b'x')
+    job, ao3, _ = a_run(library, ['JSON'], ao3_failed())
+    job.action = action
+
+    server.rescue_with_fichub(job, library, ao3, MagicMock())
+
+    [name] = index_files(library)
+    with open(os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME, name),
+              encoding='utf-8') as f:
+        entry = indexing.flatten(json.load(f))
+    assert entry.get('from_link') is (True if marked else None)
+
+
+@pytest.mark.fichub
 def test_a_work_neither_ao3_nor_fichub_has_stays_a_failure_naming_both(library, monkeypatch):
     def nowhere(repo, link):
         raise exceptions.FicHubException('FicHub could not find it (not found)')

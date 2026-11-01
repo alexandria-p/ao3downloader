@@ -44,6 +44,11 @@ const OLD = work('2'); // from before `bookmarked` was recorded: off your bookma
 const BY_LINK = work('3', { bookmarked: false });
 const IN_COLLECTION = work('4', { bookmarked: false, from_collections: ['yuletide2024'] });
 const ONLY_IN_SERIES = work('5', { bookmarked: false, from_series: ['77'] });
+const FETCHED = work('6', { bookmarked: false, from_link: true });
+const FROM_FICHUB = work('7', { bookmarked: false, from_link: true,
+                                retrieved_from: { site: 'fichub', downloaded: ['EPUB'] } });
+const NOTED = work('8', { bookmarked: true, bookmark_notes: 'loved the ending' });
+const RECCED = work('9', { bookmarked: true, bookmark_rec: true });
 
 class MemoryStore implements LibraryStore {
   readonly label = 'memory';
@@ -71,13 +76,17 @@ class MemoryStore implements LibraryStore {
 }
 
 describe('where a work came from', () => {
-  it('says bookmarks, a collection, or something else', () => {
-    expect([MINE, OLD, BY_LINK, IN_COLLECTION].map(originOf)).toEqual([
+  it('says bookmarks, a collection, an external source, by ID or URL, or unknown', () => {
+    expect([MINE, OLD, BY_LINK, IN_COLLECTION, FETCHED, FROM_FICHUB].map(originOf)).toEqual([
       'bookmarks',
       'bookmarks',
       'other',
       'collection',
+      'link',
+      'external',
     ]);
+    // your bookmark stays your bookmark, however it was fetched
+    expect(originOf(work('10', { bookmarked: true, from_link: true }))).toBe('bookmarks');
   });
 
   it('lists everything in the index but a work only a series brought in, and a series you did not bookmark', () => {
@@ -178,6 +187,39 @@ describe('the listing, with works from elsewhere and works hidden', () => {
     select.dispatchEvent(new Event('change'));
     await settle();
     expect(titles().sort()).toEqual(['Work 1', 'Work 2']);
+  });
+
+  it('offers the five places a work can come from, and filters by each new one', async () => {
+    await listing([MINE, BY_LINK, FETCHED, FROM_FICHUB]);
+    const select = element.querySelector<HTMLSelectElement>('select[name="originFilter"]')!;
+    expect(Array.from(select.options).map((o) => o.textContent?.trim())).toEqual([
+      'Anywhere', 'Your AO3 bookmarks', 'An AO3 collection', 'Imported from external source',
+      'Downloaded by ID or URL', 'Unknown',
+    ]);
+
+    select.value = 'link';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+    expect(titles()).toEqual(['Work 6']);
+    expect(blurb('Work 6').querySelector('.badge.origin')?.textContent).toContain('Downloaded by ID or URL');
+
+    select.value = 'external';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+    expect(titles()).toEqual(['Work 7']);
+  });
+
+  it('narrows to bookmarks with a note, or ones you recommended', async () => {
+    await listing([MINE, NOTED, RECCED]);
+    const notes = element.querySelector<HTMLInputElement>('input[name="withNotes"]')!;
+    notes.click();
+    await settle();
+    expect(titles()).toEqual(['Work 8']);
+
+    notes.click();
+    element.querySelector<HTMLInputElement>('input[name="recommended"]')!.click();
+    await settle();
+    expect(titles()).toEqual(['Work 9']);
   });
 
   it('warns before hiding, then hides it from the list and keeps the choice in the library', async () => {

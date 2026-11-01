@@ -30,7 +30,7 @@ import requests
 
 from source_code import access, dropbox_library, exceptions, fichub, settings_file, indexing, parse_soup, parse_text, progress, runs, strings, updater as updates
 from source_code.actions import shared
-from source_code.ao3 import Ao3
+from source_code.ao3 import Ao3, was_bookmark
 from source_code.fileio import FileOps
 from source_code.repo import Repository
 from source_code.storage import PageStorage
@@ -2940,6 +2940,9 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
     try:
         answer = fichub.lookup(ao3.repo, link)
         record = fichub.entry_from(answer, link, entry)
+        # a fic run asked for this one by its link: say so, unless it is your bookmark
+        if job is not None and job.action in SKIP_LOGIN_ACTIONS and not was_bookmark(entry):
+            record[strings.FROM_LINK_FIELD] = True
         title = record.get('title') or title
         print(strings.AO3_INFO_FICHUB_FOUND.format(failure['id'], title))
 

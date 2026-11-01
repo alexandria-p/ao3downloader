@@ -228,3 +228,13 @@ def test_a_record_with_no_counts_at_all_is_treated_as_unfinished():
     assert indexing.is_incomplete({'chapters_published': None, 'chapters_total': None}) is True
 
 # endregion
+
+
+def test_downloaded_by_link_is_kept_through_later_readings_that_do_not_say_it():
+    # identity: a later scan or update pass writes the entry without it, and must not undo it
+    first = indexing.merge(None, {'id': '1', 'link': 'l', 'title': 'A', 'from_link': True}, 't1')
+    later = indexing.merge(first, {'id': '1', 'link': 'l', 'title': 'B'}, 't2')
+
+    assert indexing.flatten(later)['from_link'] is True
+    assert all('from_link' not in reading for reading in later['indexes'])
+
