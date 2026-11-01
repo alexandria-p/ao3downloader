@@ -319,9 +319,6 @@ export class WorkList {
         const names = work.from_collections ?? [];
         return `From ${names.length === 1 ? 'the collection ' + names[0] : names.length + ' collections'}`;
       }
-      case 'external':
-        // the From FicHub badge beside it says this already
-        return '';
       case 'link':
         return 'Downloaded by ID or URL';
       case 'other':
@@ -335,8 +332,6 @@ export class WorkList {
     switch (originOf(work)) {
       case 'collection':
         return `Not in your AO3 bookmarks - it is here because an indexed collection holds it: ${(work.from_collections ?? []).join(', ')}`;
-      case 'external':
-        return 'Not in your AO3 bookmarks - its newest details and files came from an external source rather than AO3';
       case 'link':
         return 'Not in your AO3 bookmarks - downloaded by its link or work number';
       default:

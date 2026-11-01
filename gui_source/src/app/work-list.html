@@ -62,7 +62,7 @@
       >
         <option value="">Anywhere</option>
         @for (origin of origins; track origin.origin) {
-          <option [value]="origin.origin">{{ origin.label }}</option>
+          <option [value]="origin.origin" [disabled]="origin.upcoming">{{ origin.label }}</option>
         }
       </select>
     </label>

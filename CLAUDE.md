@@ -2057,9 +2057,11 @@ or found through a collection was on disk and in the index but nowhere in the pa
 `isListedEntry` now lists every entry but two, both still shown elsewhere: a work only a
 bookmarked series brought in (in that series' card - `from_series`, **or** a bookmarked series'
 `work_ids` listing it, since an entry can lack `from_series`), and a series you did not
-bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `external`
-(newest reading from FicHub) / `link` (`from_link`) / `other` (unknown), in that order, for the
-badge and the **Came from** filter. **`from_link` is written by the fic runs alone**
+bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `link`
+(`from_link`) / `other` (unknown), in that order, for the badge and the **Came from** filter.
+**`external` (*Imported from external source*) is an upcoming feature**: in `ORIGINS` with
+`upcoming`, shown disabled, and `originOf` never returns it yet. A fic FicHub supplied is not
+it - FicHub is a fallback, and the fic is wherever its run put it. **`from_link` is written by the fic runs alone**
 (`index_one_work`, and `rescue_one` on a fic run), only when the work is not your bookmark
 (`ao3.was_bookmark`; an entry with no `bookmarked` counts as one), and is an **identity**
 field, so a later reading by any other run keeps it. The Filter panel also narrows to

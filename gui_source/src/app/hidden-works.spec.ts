@@ -76,14 +76,15 @@ class MemoryStore implements LibraryStore {
 }
 
 describe('where a work came from', () => {
-  it('says bookmarks, a collection, an external source, by ID or URL, or unknown', () => {
+  it('says bookmarks, a collection, by ID or URL, or unknown', () => {
     expect([MINE, OLD, BY_LINK, IN_COLLECTION, FETCHED, FROM_FICHUB].map(originOf)).toEqual([
       'bookmarks',
       'bookmarks',
       'other',
       'collection',
       'link',
-      'external',
+      // a fic run's fic that FicHub supplied is still one fetched by ID or URL
+      'link',
     ]);
     // your bookmark stays your bookmark, however it was fetched
     expect(originOf(work('10', { bookmarked: true, from_link: true }))).toBe('bookmarks');
@@ -190,23 +191,20 @@ describe('the listing, with works from elsewhere and works hidden', () => {
   });
 
   it('offers the five places a work can come from, and filters by each new one', async () => {
-    await listing([MINE, BY_LINK, FETCHED, FROM_FICHUB]);
+    await listing([MINE, BY_LINK, FETCHED]);
     const select = element.querySelector<HTMLSelectElement>('select[name="originFilter"]')!;
     expect(Array.from(select.options).map((o) => o.textContent?.trim())).toEqual([
-      'Anywhere', 'Your AO3 bookmarks', 'An AO3 collection', 'Imported from external source',
-      'Downloaded by ID or URL', 'Unknown',
+      'Anywhere', 'Your AO3 bookmarks', 'An AO3 collection',
+      'Imported from external source (coming soon)', 'Downloaded by ID or URL', 'Unknown',
     ]);
+    // an upcoming feature: there, but not yet choosable
+    expect(Array.from(select.options).find((o) => o.value === 'external')?.disabled).toBe(true);
 
     select.value = 'link';
     select.dispatchEvent(new Event('change'));
     await settle();
     expect(titles()).toEqual(['Work 6']);
     expect(blurb('Work 6').querySelector('.badge.origin')?.textContent).toContain('Downloaded by ID or URL');
-
-    select.value = 'external';
-    select.dispatchEvent(new Event('change'));
-    await settle();
-    expect(titles()).toEqual(['Work 7']);
   });
 
   it('narrows to bookmarks with a note, or ones you recommended', async () => {

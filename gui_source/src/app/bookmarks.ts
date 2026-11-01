@@ -80,21 +80,19 @@ export function isBookmarkEntry(record: Bookmark): boolean {
  * - `bookmarks` - your own ao3 bookmarks (or an entry from before that was recorded, which
  *   came off them)
  * - `collection` - not bookmarked, but in a collection that was indexed
- * - `external` - neither, and its newest reading came from an external source (FicHub,
- *   `retrieved_from`) rather than AO3
+ * - `external` - imported from an external source: an **upcoming feature**, so nothing is
+ *   sorted here yet. Listed in the filter, disabled, so the choice is there when it comes.
+ *   A fic FicHub supplied is *not* this - it is wherever its run put it (a fic run: `link`)
  * - `link` - neither, and indexed by the fic runs from its link or work number (`from_link`,
  *   written by the helper only when the work was not a bookmark of yours)
  * - `other` - none of those: unknown, such as an index brought in from elsewhere
- *
- * In that order: an external copy says more about what is on disk than how it was asked for,
- * and a later reading from AO3 drops `retrieved_from`, leaving `link` to say it.
  */
 export type Origin = 'bookmarks' | 'collection' | 'external' | 'link' | 'other';
 
-export const ORIGINS: { origin: Origin; label: string }[] = [
+export const ORIGINS: { origin: Origin; label: string; upcoming?: boolean }[] = [
   { origin: 'bookmarks', label: 'Your AO3 bookmarks' },
   { origin: 'collection', label: 'An AO3 collection' },
-  { origin: 'external', label: 'Imported from external source' },
+  { origin: 'external', label: 'Imported from external source (coming soon)', upcoming: true },
   { origin: 'link', label: 'Downloaded by ID or URL' },
   { origin: 'other', label: 'Unknown' },
 ];
@@ -102,7 +100,6 @@ export const ORIGINS: { origin: Origin; label: string }[] = [
 export function originOf(record: Bookmark): Origin {
   if (isBookmarkEntry(record)) return 'bookmarks';
   if ((record.from_collections ?? []).length) return 'collection';
-  if (record.retrieved_from) return 'external';
   if (record.from_link) return 'link';
   return 'other';
 }
