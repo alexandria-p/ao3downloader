@@ -315,8 +315,9 @@ def test_an_overwriting_run_asks_before_replacing_your_copy_with_an_older_fichub
     monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
     monkeypatch.setattr(server.fichub, 'download',
                         lambda repo, answer, filetype: fetched.append(filetype) or b'old')
-    job, ao3, asked = a_run(library, ['EPUB'], ao3_failed())
+    job, ao3, asked = a_run(library, ['JSON', 'EPUB'], ao3_failed())
     job.options['overwrite'] = True
+    before = index_text(library)
 
     def ask(question, default):
         asked.append((question, default))
@@ -339,6 +340,8 @@ def test_an_overwriting_run_asks_before_replacing_your_copy_with_an_older_fichub
         assert fetched == []
         assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-05-10.epub']
         assert 'older version' in ao3.failures[0]['error']
+    # whatever the answer, the index already says more than FicHub does
+    assert index_text(library) == before
 
 
 @pytest.mark.fichub
@@ -381,10 +384,13 @@ def test_saying_no_to_an_older_fichub_copy_takes_nothing(library, monkeypatch):
                                          {'choice': 'no' if question['name'] == server.FICHUB_OUTDATED_QUESTION
                                           else 'yes'})
 
+    before = index_text(library)
+
     server.rescue_with_fichub(job, library, ao3, MagicMock())
 
     assert fetched == []
     assert work_files(library) == []
+    assert index_text(library) == before
     assert 'older version' in ao3.failures[0]['error']
 
 
@@ -393,11 +399,13 @@ def test_a_background_run_takes_an_older_fichub_copy_without_asking(library, mon
     indexed_newer_than_fichub(library)
     monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
     monkeypatch.setattr(server.fichub, 'download', lambda repo, answer, filetype: b'old')
-    job, ao3, _ = a_run(library, ['EPUB'], ao3_failed(), background=True)
+    job, ao3, _ = a_run(library, ['JSON', 'EPUB'], ao3_failed(), background=True)
+    before = index_text(library)
 
     server.rescue_with_fichub(job, library, ao3, MagicMock())
 
     assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.epub']
+    assert index_text(library) == before
 
 
 @pytest.mark.fichub
