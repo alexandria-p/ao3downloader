@@ -88,6 +88,9 @@ describe('where a work came from', () => {
     ]);
     // your bookmark stays your bookmark, however it was fetched
     expect(originOf(work('10', { bookmarked: true, from_link: true }))).toBe('bookmarks');
+    // and one first found another way, later found on your bookmarks, is yours from then on
+    expect(originOf(work('11', { bookmarked: true, from_link: true, from_collections: ['c'],
+      retrieved_from: { site: 'fichub', downloaded: ['EPUB'] } }))).toBe('bookmarks');
   });
 
   it('lists everything in the index but a work only a series brought in, and a series you did not bookmark', () => {

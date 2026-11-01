@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1744 python passed; 756 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1752 python passed; 756 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1552,7 +1552,13 @@ sources, and the field is **absent**, never `False`, when neither has spoken:
   gap pass) reads the navigation's bookmark link through `parse_soup.get_bookmarked`: `Edit
   Bookmark` is `True`, `Bookmark` is `False`. Both wordings are in the logged-in fixtures.
   No link (logged out, an unexpected page) is `None`, and `ao3.bookmark_state` then writes
-  nothing, so a page that could not see the button never unmarks a fic.
+  nothing, so a page that could not see the button never unmarks a fic. **And a page never
+  unmarks a known bookmark at all** (`ao3.page_bookmark_state`): your AO3 bookmarks take
+  precedence over every other way a fic came in, at the user's explicit request, so an entry
+  already `true` (or with no field) keeps it whatever its page shows - a fic run or the update
+  pass reading it says `Bookmark` changes nothing, and `from_link` is never set on it. A page
+  can only promote: `Bookmark` on a fic not yet yours writes `false`, `Edit Bookmark` `true`.
+  The cost: unbookmarking a fic on AO3 is not recorded, since nothing else writes `false`.
 
 **A work first indexed through a series or a collection is `false` until you bookmark it** -
 and then the next walk down your bookmarks writes `true` over it, since every such walk marks
@@ -1566,8 +1572,8 @@ walk reads it, marks it, and carries on. `test_bookmarked_later.py` holds all of
 new-bookmarks tests fail with the check taken out. A later series or collection walk never
 unmarks it: `save_series_work` and `as_not_yours` keep an existing entry's own fields.
 
-It is a snapshot field, not identity: unbookmarking a fic is a real change worth a history
-entry.
+It is a snapshot field, not identity: a fic becoming your bookmark is a real change worth a
+history entry.
 
 ### The undated question names works, and dating names files
 

@@ -46,6 +46,19 @@ def blank(value) -> bool:
 
 
 
+def page_bookmark_state(soup, existing: dict | None) -> dict:
+    """What a work page may write to `bookmarked`: never a demotion of a known bookmark.
+
+    Your AO3 bookmarks take precedence over every other way a fic came in. An entry the index
+    already knows as your bookmark stays one when a fic run or the update pass reads its page,
+    whatever the page shows; only an entry that is not yet a bookmark takes the page's word.
+    """
+    state = bookmark_state(soup)
+    if was_bookmark(existing) and state.get(strings.BOOKMARKED_FIELD) is False:
+        return {}
+    return state
+
+
 def was_bookmark(entry: dict | None) -> bool:
     """Whether an index entry is one of your bookmarks. An entry with no `bookmarked` at all
     came off your bookmarks before the field existed, so it counts."""
@@ -532,7 +545,7 @@ class Ao3:
             record = {'id': parse_text.get_work_number(link), 'link': link,
                       'title': page.get('title') or '', 'authors': authors}
 
-        fresh = {**record, **stats, **bookmark_state(soup)}
+        fresh = {**record, **stats, **page_bookmark_state(soup, existing)}
         if not was_bookmark(existing) and fresh.get(strings.BOOKMARKED_FIELD) is not True:
             fresh[strings.FROM_LINK_FIELD] = True
         # a work page is only ever a work's - an entry made here is typed like any other
@@ -564,7 +577,7 @@ class Ao3:
         if 'error' in stats:
             raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
 
-        fresh = {**record, **stats, **bookmark_state(soup)}
+        fresh = {**record, **stats, **page_bookmark_state(soup, record)}
         self.save_metadata(fresh)
         return fresh
 

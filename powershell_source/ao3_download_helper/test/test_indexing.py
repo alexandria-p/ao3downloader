@@ -238,3 +238,13 @@ def test_downloaded_by_link_is_kept_through_later_readings_that_do_not_say_it():
     assert indexing.flatten(later)['from_link'] is True
     assert all('from_link' not in reading for reading in later['indexes'])
 
+
+def test_a_fic_first_fetched_by_link_and_later_found_on_your_bookmarks_is_your_bookmark():
+    # the scan's reading says bookmarked; the page sorts by that before anything else
+    first = indexing.merge(None, {'id': '1', 'link': 'l', 'title': 'A', 'bookmarked': False,
+                                  'from_link': True}, 't1')
+    later = indexing.merge(first, {'id': '1', 'link': 'l', 'title': 'A', 'bookmarked': True}, 't2')
+
+    record = indexing.flatten(later)
+    assert record['bookmarked'] is True
+

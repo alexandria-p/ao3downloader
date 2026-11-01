@@ -347,7 +347,7 @@ Used by: custom run (date range).
 ### Index this fic
 Used by: specific fic.
 - Reads the fic's own AO3 page: one request.
-- Sets `bookmarked` from the page's bookmark button (Edit Bookmark = true, Bookmark = false).
+- Sets `bookmarked` from the page's bookmark button (Edit Bookmark = true, Bookmark = false) - but never sets a known bookmark to false: your AO3 bookmarks take precedence.
 - Marks its series for walkthrough when the series option is on.
 
 ### Index works in series marked for walkthrough
