@@ -186,8 +186,8 @@ WALKS = [
     pytest.param(QUICK_RANGE, {B: B_DONE, U: U_DONE}, [],
                  id='quick, date range: both walks finished'),
 
-    # one walk, by date bookmarked, with no ceiling: new bookmarks are what it is for
-    pytest.param(FULL, {}, [(B, 1), (B, 2), (B, 3)], id='full: the walk did not start'),
+    # one walk, by date bookmarked, from the ceiling: 22 and 21 came after the first attempt
+    pytest.param(FULL, {}, [(B, 1), (B, 2), (B, 2), (B, 3)], id='full: the walk did not start'),
     pytest.param(
         FULL, {'all': {'page': 2, 'anchor': B_PLACE, 'done': False,
                        'works': ['22', '21', '20', '19']}},
@@ -196,7 +196,8 @@ WALKS = [
         FULL, {'all': {**B_DONE, 'works': ['22', '21', '20', '19', '18', '17']}}, [],
         id='full: the walk finished'),
 
-    pytest.param(CUSTOM_ALL, {}, [(B, 1), (B, 2), (B, 3)], id='custom: the walk did not start'),
+    pytest.param(CUSTOM_ALL, {}, [(B, 1), (B, 2), (B, 2), (B, 3)],
+                 id='custom: the walk did not start'),
     pytest.param(
         CUSTOM_ALL, {'all': {'page': 2, 'anchor': B_PLACE, 'done': False,
                              'works': ['22', '21', '20', '19']}},
@@ -376,6 +377,33 @@ def test_every_entry_a_run_writes_names_the_run(library):
     assert entry['last_indexed_by'] == job.id
     # and it is never part of a reading, so it does not fill the history
     assert all('last_indexed_by' not in reading for reading in entry['indexes'])
+
+
+@pytest.mark.parametrize('workflow', [QUICK, FULL, CUSTOM_ALL], ids=['quick', 'full', 'custom'])
+def test_a_retry_from_the_top_starts_at_the_ceiling_too(library, workflow):
+    action, options = workflow
+    for work in [*range(7, 13), *range(17, 25)]: saved(library, work, [])
+    earlier_run(library, action, options,
+                {'floor': '2025-01-08' if action == server.ACTION_QUICK else '', 'walks': {}})
+    repo, asked, _ = a_repo(PAGES)
+
+    with patch.object(server, 'download_planned'):
+        retry(library, repo, server.RETRY_TOP)
+
+    # the date bookmarked walk looks for the ceiling (the 20th, page 2) and starts there:
+    # 22 and 21, bookmarked after the first attempt began, are left for the next scan
+    assert [x for x in asked if x[0] == B] == [(B, 1), (B, 2), (B, 2), (B, 3)]
+
+
+def test_a_retried_new_bookmarks_walk_starts_at_the_ceiling(library):
+    earlier_run(library, server.ACTION_NEW, {}, {'walks': {}})
+    repo, asked, _ = a_repo(listing(BASE[:-1], [22, 21], [20, 19], [18, 17]))
+    # nothing indexed yet, so the walk runs to the end - from the ceiling
+
+    with patch.object(server, 'download_planned'):
+        retry(library, repo, server.RETRY_TOP)
+
+    assert asked == [(B, 1), (B, 2), (B, 2), (B, 3)]
 
 
 def test_a_retry_from_the_top_checks_nothing(library):

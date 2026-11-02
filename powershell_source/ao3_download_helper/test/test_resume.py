@@ -419,9 +419,10 @@ def test_a_quick_scan_over_a_date_range_retries_each_walk_from_its_ceiling_to_it
                  {'page': 4, 'anchor': UPDATED_PLACE, 'done': True,
                   'works': ['24', '23', '12', '11', '10', '9', '8', '7']},
                  [], id='ceiling and floor: finished - from the index'),
+    # with no end, the ceiling is the day the first attempt started - here after every fic
     pytest.param({'dateFrom': '2025-01-08', 'dateTo': ''}, None,
-                 [(U, 1), (U, 2), (U, 3), (U, 4)],
-                 id='floor only: did not start - page 1 to floor'),
+                 [(U, 1), (U, 1), (U, 2), (U, 3), (U, 4)],
+                 id='floor only: did not start - first attempt start to floor'),
     pytest.param({'dateFrom': '2025-01-08', 'dateTo': ''},
                  {'page': 2, 'anchor': UPDATED_PLACE, 'done': False,
                   'works': ['24', '23', '12', '11', '10', '9']},

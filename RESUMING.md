@@ -233,9 +233,15 @@ pages, and which files.
   ordinary quick scan, is always the date reached, since the first attempt read nothing
   after its own start. The one exception is a date range with no start date: its date
   bookmarked walk starts at page 1, because it also supplies the dates updated, which are in
-  no order on it. **Only a retry does this**: a first attempt walks from page 1 as it always
-  has, with nothing above it to leave out. Every retry of a retry keeps the first attempt's
-  floor and ceiling.
+  no order on it. **Only a retry does this** - every way of retrying, *from the top* included:
+  a first attempt walks from page 1 as it always has, with nothing above it to leave out.
+  Every retry of a retry keeps the first attempt's floor and ceiling.
+
+  **Every workflow that walks your bookmarks has a ceiling on a retry** (`retry_ceiling`): the
+  Full Scan's walk and a custom run's all-bookmarks walk (the day the first attempt started),
+  a custom run's date range (its end, or that day if earlier), and the debug new-bookmarks
+  walk (that day). Collection runs and fic runs have none: a collection's listings are not
+  known to be in date order, and a fic run has no listing.
 
   A walk taken from the index is ticked *done in the earlier run*. Whatever happens, both
   walks end the retry saved as finished, so a retry of the retry skips both.
@@ -251,8 +257,8 @@ pages, and which files.
   1, or the date reached; with no start it runs to the end of the listing. A walk it finished
   is taken from the index. `test_a_custom_run_over_dates_retries_its_walk_from_its_ceiling_to_its_floor`
   runs each.
-- **Over all your bookmarks** it is one walk by date bookmarked, carried on from the date it
-  reached like the full scan's.
+- **Over all your bookmarks** it is one walk by date bookmarked, from the day its first
+  attempt started (or the date it reached), like the full scan's.
 - **Over a slice of pages** it can only be retried from the top - page numbers move.
 - Either way, the *by date updated* walk may read past the first attempt's start on its way
   down, so it keeps only works AO3 updated **up to the first attempt's baseline** - the

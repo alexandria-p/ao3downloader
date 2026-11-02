@@ -64,9 +64,8 @@ downloads stopped*; finished with failures → *just the works it could not get*
 - The two download choices also need the run to have **reached its downloads** - a run stopped
   while indexing has them greyed out. *Just the works it could not get* needs the run to have
   had failures.
-- **Carry on from where its indexing stopped** differs by workflow: the Full Scan and a custom
-  run over all bookmarks walk by date bookmarked with no ceiling (a walk that never started
-  begins at page 1); a Quick Scan's two walks and a custom date range walk from their ceiling;
+- **Carry on from where its indexing stopped** differs by workflow: every walk - the Full
+  Scan's, a custom run's, a Quick Scan's two - starts from its ceiling unless it had got further;
   collection runs take finished collections from your index and carry on each unfinished one
   from its last saved page. See below.
 - **A slice of pages cannot be carried on**: page numbers move as bookmarks change.
@@ -88,13 +87,13 @@ anything from. Both are the first attempt's, kept by every retry in a chain.
 
 | Workflow | Walks | Floor | Ceiling on a retry |
 | --- | --- | --- | --- |
-| **Full Scan** | 1, by date bookmarked | none - the whole listing | none: new bookmarks are what it is for, so a walk that never started starts at page 1 |
+| **Full Scan** | 1, by date bookmarked | none - the whole listing | the day the first attempt started |
 | **Quick Scan** | 2: by date bookmarked, then by date updated (just the first when there is no floor - it then reads everything) | the date of the last complete Full or Quick Scan, as the first attempt worked it out | the day the first attempt started, for both walks |
-| **Quick Scan, date range** | 2, as above | the range's start | the range's end (or the day the first attempt started, if earlier); with no start date, the first walk starts at page 1 |
-| **Custom run, all bookmarks** | 1, by date bookmarked | none | none, as the Full Scan |
-| **Custom run, date range** | 1, by date updated | the range's start | the range's end |
+| **Quick Scan, date range** | 2, as above | the range's start | the range's end, or the day the first attempt started if that is earlier (with no start date, the first walk starts at page 1 - it also supplies the dates updated) |
+| **Custom run, all bookmarks** | 1, by date bookmarked | none | the day the first attempt started |
+| **Custom run, date range** | 1, by date updated | the range's start | the range's end, or the day the first attempt started if that is earlier |
 
-On a retry, a walk that **never started** starts at the page holding its ceiling; one that
+On every retry - *from the top* included - a walk that **never started** starts at the page holding its ceiling; one that
 **broke off** carries on from the date it reached (always on or before the ceiling); one that
 **finished** is taken from your index. The ceiling counts: fics dated on it are indexed, fics
 dated after it are left for your next scan. A first attempt always walks from page 1.
@@ -109,7 +108,9 @@ For a Quick Scan, that gives:
 | Stopped during the second walk | from your index | date reached → floor |
 | Both walks finished | from your index | from your index |
 
-**Collection runs** skip collections the first attempt finished (their works taken from your
+The debug new-bookmarks walk (combined run, new bookmarks only) starts at the same ceiling on a
+retry. **Collection runs** and **fic runs** have no ceiling: a collection's listings are not
+known to be in date order, and a fic run has no listing. **Collection runs** skip collections the first attempt finished (their works taken from your
 index), and carry on each unfinished listing from its last saved page, reading it again in
 case works shifted.
 

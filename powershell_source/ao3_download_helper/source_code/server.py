@@ -1459,6 +1459,18 @@ def restore_series(job: Job, ao3: Ao3) -> None:
         ao3.series_read.setdefault(str(series_id), [])
 
 
+def retry_ceiling(job: Job, end: str = '') -> str:
+    """The newest date a retry wants anything from: the day its first attempt started (its
+    baseline), or `end` - a date range's - when that is earlier. A first attempt has none, and
+    walks from page 1. Every retry in a chain shares the first attempt's baseline, so every
+    one of them stops at the same ceiling."""
+
+    if not job.resume: return ''
+    started = str(job.baseline or '')[:10]
+    end = parse_text.get_date_stamp(end) if end else ''
+    return min(d for d in (started, end) if d) if (started or end) else ''
+
+
 def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
                  anchored: bool, ceiling: str = '', **kwargs) -> list[dict]:
     """Walk one listing through `get_metadata`, saving how far it gets - and, when resuming,
@@ -1719,7 +1731,7 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
         records = walk_listing(job, fileops, ao3, 'all', link, anchored=True,
-                               own_bookmarks=True)
+                               ceiling=retry_ceiling(job), own_bookmarks=True)
         finish_walk_step(job, ao3, 'index')
         records = merge_by_work(records,
                                 index_series_and_non_bookmarks(job, fileops, ao3, report))
@@ -1978,8 +1990,13 @@ def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[di
     print(strings.AO3_INFO_INDEXING_NEW)
 
     known = shared.indexed_work_ids(fileops)
-    records = ao3.get_metadata(bookmarks_link(job), job.options['workdates'], known=known,
-                               own_bookmarks=True)
+    # a retry starts at its ceiling, as every walk does; a first attempt is the plain walk
+    if job.resume:
+        records = walk_listing(job, fileops, ao3, 'new', bookmarks_link(job), anchored=True,
+                               ceiling=retry_ceiling(job), known=known, own_bookmarks=True)
+    else:
+        records = ao3.get_metadata(bookmarks_link(job), job.options['workdates'], known=known,
+                                   own_bookmarks=True)
 
     print(strings.AO3_INFO_NEW_FOUND.format(len(records)) if records
           else strings.AO3_INFO_NEW_NONE)
@@ -2724,7 +2741,7 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         progress.report(report, progress.PHASE, name=progress.INDEXING)
         print(strings.AO3_INFO_INDEXING)
         records = walk_listing(job, fileops, ao3, 'all', sorted_bookmarks_link(job),
-                               anchored=True, own_bookmarks=True)
+                               anchored=True, ceiling=retry_ceiling(job), own_bookmarks=True)
         walked = not ao3.walk_skipped
         walk_broke = ao3.walk_failed
     else:
@@ -3861,7 +3878,7 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
         # starts at the window's end: nothing updated after it is chosen
         walk_listing(job, fileops, ao3, 'updated',
                      f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}', anchored=False,
-                     ceiling=end, stop_before=start, own_bookmarks=True)
+                     ceiling=retry_ceiling(job, end), stop_before=start, own_bookmarks=True)
         finish_walk_step(job, ao3, 'index')
     elif metadata:
         # asked for, and turned off - so it is shown as skipped rather than dropped

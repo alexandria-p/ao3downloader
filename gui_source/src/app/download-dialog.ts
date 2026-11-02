@@ -218,10 +218,14 @@ export class DownloadDialog implements OnDestroy {
       dates = `Back to ${floor || 'the start of your bookmarks (it had no floor)'}, and up to ` +
         `${ceiling} - fics dated after that are left for your next scan.`;
     } else if (run.action === 'custom' && ranged) {
+      const end = day(options['dateTo']);
       dates = `Fics AO3 updated from ${day(options['dateFrom']) || 'any date'} to ` +
-        `${day(options['dateTo']) || 'any date'}.`;
+        `${end && end < began ? end : began}.`;
+    } else if (['bookmarks', 'custom', 'quick', 'sync', 'new'].includes(run.action)) {
+      dates = `Up to ${began}, when its first attempt started - bookmarks after that are left ` +
+        `for your next scan.`;
     } else {
-      dates = `Its first attempt started ${began}, and that is the date it is measured from.`;
+      dates = `Its first attempt started ${began}.`;
     }
     const named: Record<string, string> = {
       overwrite: 'overwrite existing downloads',
