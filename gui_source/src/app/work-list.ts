@@ -1,3 +1,4 @@
+import { HIDE_WARNING_KEY } from './preferences';
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, hiddenKey, viewableInBrowser } from './library';
@@ -843,7 +844,7 @@ export class WorkList {
 }
 
 /** set once someone ticks 'do not warn me again' before hiding a work */
-const HIDE_WARNING_KEY = 'ao3.hideWarningOff';
+
 
 /** a work and an external work can share a number, so the kind is part of the key */
 function keyOf(work: Bookmark): string {

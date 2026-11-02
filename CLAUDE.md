@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1752 python passed; 759 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1782 python passed; 774 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2123,6 +2123,38 @@ not to break:
   `kind:lower-case name`), as ao3 does. A tag chosen in one half is disabled in the other.
 - **Suggestions come from the whole library; the folds count this listing.** One finds any tag
   you have; the other says what ticking it will narrow here.
+
+### The User settings tab, and settings.ini from the page
+
+`user-settings.ts` (the `settings` view). What not to break:
+
+- **Every "don't ask again" lives in `preferences.PROMPTS`**, with its localStorage key and the
+  value its own code writes when dismissed - and that code imports the key from there
+  (`folder-warning.ts`, `work-list.ts`, `download-dialog.ts`, `updates.ts`). The tab lists the
+  registry, so a prompt this browser has never shown can be turned off before it is, and one
+  turned off can be turned back on. **A new prompt with such a box goes in `PROMPTS`**, or the
+  tab cannot undo it. The browser notice is not one: it is said once, with no choice.
+- **Nothing is written before Save changes.** The update banner reads its flag once, so Save
+  sets `UpdateCheck.dismissed` too, or the change would show only on the next visit.
+- **Default formats are a starting point** (`ao3.defaultFiletypes`, `startingFiletypes`): the
+  run window ticks them on opening and can still change them. Forced types are always added,
+  types the helper does not offer are dropped, and untouched means the helper's own
+  `defaults` stay in force (nothing stored; **Use the app's defaults** removes the key).
+- **settings.ini is only edited on a helper on this computer.** The page asks only when
+  `HelperConnection.isLocal()`, and the helper answers `editable` only when it is bound to
+  loopback and asks for no passcode (`server.settings_file_editable`, `Handler.host` from
+  `serve`); a POST otherwise is 403. A hosted helper's file comes from its deployment and is
+  replaced on every restart. `SavePassword` and the three hosting keys
+  (`settings_file.NOT_EDITABLE`) are never offered - a wrong `RequirePasscode` or `HelperUrl`
+  can stop the helper answering the page at all.
+- **An edit changes only the value after `=`** (`settings_file.set_values`): comments, order,
+  spacing and line endings stay as written, so this is the user editing their own file, not
+  the app rewriting it - **A settings.ini is only ever added to** still holds for everything
+  the app does on its own. A value is checked against the kind of the template's default
+  (`checked_value`: true/false, or a whole number of 0 or more), and one bad value writes
+  nothing. A setting the file lacks is appended with its explanation, then set. The helper
+  reads settings.ini per run, so a change applies from the next run. Explanations come from
+  the template's comments, reflowed into paragraphs (`about`).
 
 ### The listing takes in what a run changed
 

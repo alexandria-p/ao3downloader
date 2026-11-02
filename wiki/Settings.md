@@ -4,7 +4,22 @@ Settings live in `settings.ini`:
 - **Bundle** - `build/config/settings.ini`
 - **Development** - `powershell_source/settings.ini`
 
-Edit it while the app is closed.
+Edit it while the app is closed - or, in the Windows, Mac or Linux app, a bundle or a
+development build, from the **User settings** tab, which changes the values in place and
+keeps your comments. A change there takes effect from the next run. The hosted copy's
+settings come from its deployment, so the tab does not offer them there.
+
+## The User settings tab
+
+- **Prompts** - every message that offers "don't ask again", grouped by where it appears,
+  each set to **Ask always** or **Do not ask again**, including ones you have not seen yet.
+- **Default download formats** - the formats ticked when a run's window opens. You can still
+  change them in each run. JSON is always on, because it is the index.
+- **settings.ini** - the settings below, on a copy whose helper runs on your computer. The
+  hosting settings (`HelperUrl`, `RequirePasscode`, `PageOrigin`) are left to the file itself.
+
+Nothing is saved until you press **Save changes**. Prompts and formats are kept in this
+browser only.
 
 | Setting | Default | What it does |
 | --- | --- | --- |

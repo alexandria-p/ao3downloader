@@ -795,6 +795,23 @@ describe('App', () => {
     expect(element.querySelector('.report-bug button.send-feedback')).toBeNull();
   });
 
+  it('has a User settings tab after Report a bug, with no run buttons and no folder to choose', async () => {
+    const library = TestBed.inject(Library);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    const tabs = Array.from(element.querySelectorAll('nav.views button')).map((b) => b.textContent?.trim());
+    expect(tabs.indexOf('User settings')).toBe(tabs.indexOf('Report a bug') + 1);
+    expect(library.data()).toBeNull();
+
+    tab(element, 'User settings')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-user-settings')).not.toBeNull();
+    expect(element.querySelector('.actions')).toBeNull();
+    expect(element.textContent).not.toContain('Choose your downloads folder');
+  });
+
   it('says its version and links the repository on every tab', async () => {
     const { fixture, element } = await render(1);
     TestBed.inject(HelperConnection).settings.update((c) => ({ ...c, version: '1.8.2' }));

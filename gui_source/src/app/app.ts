@@ -28,17 +28,18 @@ import { Bookmark, ownerFromSource } from './bookmarks';
 import { APP_FOLDER_PATH, DropboxSession } from './dropbox';
 import { StorageChoice, StorageMode } from './storage-choice';
 import { UpdateCheck } from './updates';
+import { UserSettings } from './user-settings';
 
 /** how often the page asks whether a run in progress has finished, while one is */
 const ACTIVE_RUN_POLL_MS = 30_000;
 
 /** the two things this folder holds, the pages that show them, and the two reading pages */
-export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug';
+export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug' | 'settings';
 
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
-    CollectionsView, Feedback, PasscodeGate, SetupOverlay],
+    CollectionsView, Feedback, PasscodeGate, SetupOverlay, UserSettings],
   styleUrl: './app.css',
   templateUrl: './app.html',
 })

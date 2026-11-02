@@ -206,6 +206,14 @@
   >
     Report a bug
   </button>
+  <button
+    type="button"
+    [class.current]="view() === 'settings'"
+    [attr.aria-current]="view() === 'settings' ? 'page' : null"
+    (click)="setView('settings')"
+  >
+    User settings
+  </button>
 </nav>
 
 <!--
@@ -214,7 +222,7 @@
   to work out what it already has and writes everything back into it. the panel below
   already asks for one, so an empty button bar above it would only repeat the question.
 -->
-@if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && canRun()) {
+@if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && canRun()) {
 <div class="actions">
   @if (view() === 'bookmarks') {
     <!--
@@ -298,8 +306,9 @@
     </p>
   }
 
-  <!-- the faq is worth reading before a folder is chosen, so it is not held behind one -->
-  @if (isEmpty() && view() !== 'faq' && view() !== 'history' && view() !== 'bug') {
+  <!-- the faq is worth reading before a folder is chosen, so it is not held behind one - nor
+       are the user settings, which belong to this browser and not to any folder -->
+  @if (isEmpty() && view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings') {
     <section class="empty">
       <h2>Choose your downloads folder</h2>
       <p>
@@ -426,6 +435,8 @@
       </button>
     }
   </section>
+} @else if (view() === 'settings') {
+  <app-user-settings />
 } @else {
   <app-faq />
 }

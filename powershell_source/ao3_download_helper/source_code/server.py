@@ -3817,6 +3817,9 @@ class Handler(BaseHTTPRequestHandler):
     # the Windows app sets this (desktop.py): it is the one copy that can update itself.
     # everything else answers the update endpoints 404
     updater: 'updates.Updater | None' = None
+    # the address this helper listens on - `serve` sets it. Only a helper on this computer lets
+    # the page edit its settings.ini (see `settings_file_editable`)
+    host: str = HOST
 
     server_version = 'ao3downloader-local'
 
@@ -3882,6 +3885,49 @@ class Handler(BaseHTTPRequestHandler):
         if not length: return {}
         return json.loads(self.rfile.read(length).decode('utf-8'))
 
+    def send_settings_file(self) -> None:
+        """settings.ini's editable settings, for the page's User settings tab - or, from a
+        helper that is not on this computer, only that it cannot be edited from here."""
+
+        if not settings_file_editable():
+            self.send_json(200, {'editable': False, 'settings': []})
+            return
+        path = FileOps().inifile
+        try:
+            with open(path, encoding='utf-8', newline='') as f:
+                text = f.read()
+        except OSError:
+            text = ''
+        self.send_json(200, {'editable': True, 'file': os.path.abspath(path),
+                             'settings': settings_file.editable_settings(text)})
+
+    def save_settings_file(self) -> None:
+        """Write the page's edits into settings.ini, in place. 403 from a helper that is not
+        on this computer; 400, writing nothing, for a setting or value it will not take."""
+
+        if not settings_file_editable():
+            self.send_json(403, {'error': strings.ERROR_SETTINGS_NOT_EDITABLE})
+            return
+        try:
+            values = self.read_json().get('values')
+        except Exception:
+            self.send_json(400, {'error': 'invalid json'})
+            return
+        if not isinstance(values, dict):
+            self.send_json(400, {'error': 'values must be an object'})
+            return
+        path = FileOps().inifile
+        try:
+            settings_file.ensure_settings_file(path)
+            settings = settings_file.update_settings_file(path, values)
+        except ValueError as e:
+            self.send_json(400, {'error': str(e)})
+            return
+        except OSError as e:
+            self.send_json(500, {'error': f'could not write settings.ini: {e}'})
+            return
+        self.send_json(200, {'editable': True, 'file': os.path.abspath(path), 'settings': settings})
+
     def do_OPTIONS(self) -> None:
         self.send_response(204)
         self.cors()
@@ -3911,6 +3957,10 @@ class Handler(BaseHTTPRequestHandler):
             return
 
 
+        if self.path == '/api/settings-file':
+            self.send_settings_file()
+            return
+
         if self.path == '/api/jobs':
             # which runs are really going, so the page can tell an interrupted run's record -
             # still saying 'running' - from one that is
@@ -3937,6 +3987,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == '/api/update':
             self.start_update()
+            return
+
+        if self.path == '/api/settings-file':
+            self.save_settings_file()
             return
 
         if self.path == '/api/runs/floors':
@@ -4495,6 +4549,18 @@ def is_loopback(host: str) -> bool:
     return host == 'localhost' or host == '::1' or host.startswith('127.')
 
 
+def settings_file_editable() -> bool:
+    """Whether the page may edit this helper's settings.ini.
+
+    Only a helper on this computer, and only one that asks for no passcode. A hosted helper's
+    settings.ini is written by the deploy from its variables and baked into an image that a
+    restart replaces, so an edit there would be lost and would disagree with the deployment;
+    and it answers anyone who has the passcode, which is not the same as owning the file.
+    """
+
+    return is_loopback(Handler.host) and not access.passcode_required(FileOps())
+
+
 def startup_problem(host: str, fileops: FileOps) -> str:
     """Why this helper must not start as configured, or '' when it may.
 
@@ -4578,6 +4644,7 @@ def serve(port: int | None = None, host: str | None = None) -> None:
                      args=(threading.Event(), os.environ.get(ENV_EXTERNAL_URL, '')),
                      daemon=True).start()
 
+    Handler.host = host
     httpd = ThreadingHTTPServer((host, port), Handler)
     print(f'ao3downloader local api listening on http://{host}:{port}')
     if access.passcode_required(FileOps()):

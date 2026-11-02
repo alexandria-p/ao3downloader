@@ -1446,6 +1446,22 @@ describe('DownloadDialog', () => {
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'refresh', date: '' }]);
   });
 
+  it('starts with the formats chosen in User settings ticked, and they can still be changed', async () => {
+    localStorage.setItem('ao3.defaultFiletypes', JSON.stringify(['EPUB']));
+    await open('bookmarks');
+    await advanceTo('filetypes');
+
+    expect(checkbox('JSON')!.checked).toBe(true);
+    expect(checkbox('EPUB')!.checked).toBe(true);
+    expect(checkbox('HTML')!.checked).toBe(false);
+
+    checkbox('EPUB')!.click();
+    checkbox('HTML')!.click();
+    await fixture.whenStable();
+    await advanceTo('running');
+    expect(jobs.started[0].filetypes).toEqual(['JSON', 'HTML']);
+  });
+
   it('defaults the date to today, meaning what I have is current', async () => {
     await askedAboutUndated();
 

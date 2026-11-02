@@ -1,7 +1,6 @@
 import { Component, output, signal } from '@angular/core';
 import { safeGet, safeSet } from './storage';
-
-const DISMISSED_KEY = 'ao3.folderWarningDismissed';
+import { FOLDER_WARNING_KEY as DISMISSED_KEY } from './preferences';
 
 /** whether the note has been turned off for this browser */
 export function folderWarningDismissed(): boolean {

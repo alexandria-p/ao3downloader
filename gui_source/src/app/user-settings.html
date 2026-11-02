@@ -1,0 +1,135 @@
+<section class="user-settings">
+  <h2>User settings</h2>
+  <p class="hint">
+    Nothing changes until you press <strong>Save changes</strong>. Prompts and download formats
+    are kept in this browser only.
+  </p>
+
+  <section class="group prompts">
+    <h3>Prompts</h3>
+    <p class="hint">
+      Every message that offers "don't ask again", whether you have seen it yet or not.
+    </p>
+    @for (group of areas; track group.area) {
+      <h4>{{ group.area }}</h4>
+      <ul class="rows">
+        @for (prompt of group.prompts; track prompt.key) {
+          <li class="row" [attr.data-prompt]="prompt.key">
+            <div class="about">
+              <span class="name">{{ prompt.name }}</span>
+              <span class="description">{{ prompt.description }}</span>
+            </div>
+            <select
+              [attr.aria-label]="prompt.name"
+              [value]="asking()[prompt.key]"
+              (change)="choose(prompt, $any($event.target).value)"
+            >
+              <option value="ask" [selected]="asking()[prompt.key] === 'ask'">Ask always</option>
+              <option value="skip" [selected]="asking()[prompt.key] === 'skip'">Do not ask again</option>
+            </select>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+
+  <section class="group formats">
+    <h3>Default download formats</h3>
+    @if (config(); as config) {
+      <p class="hint">
+        Ticked at the start of every run. You can still change them in a run's own window.
+      </p>
+      <div class="format-list">
+        @for (filetype of config.filetypes; track filetype) {
+          <label class="check">
+            <input
+              type="checkbox"
+              [attr.name]="'format-' + filetype"
+              [checked]="formats().includes(filetype)"
+              [disabled]="isForced(filetype)"
+              (change)="toggleFormat(filetype, $any($event.target).checked)"
+            />
+            <span>{{ filetype }}</span>
+            @if (isForced(filetype)) {
+              <span class="note">(always - it is the index)</span>
+            }
+          </label>
+        }
+      </div>
+      <button type="button" class="button subtle reset-formats" (click)="resetFormats()">
+        Use the app's defaults
+      </button>
+    } @else if (!helperAnswered()) {
+      <p class="hint">Start the helper to choose which formats a run starts with.</p>
+    }
+  </section>
+
+  @if (local && ini(); as file) {
+    @if (file.editable) {
+      <section class="group ini">
+        <h3>settings.ini</h3>
+        <p class="hint">
+          The helper's own settings, saved in <code>{{ file.file }}</code>. A change takes effect
+          from the next run.
+        </p>
+        <ul class="rows">
+          @for (setting of file.settings; track setting.key) {
+            <li class="row" [attr.data-setting]="setting.key">
+              <div class="about">
+                <span class="name"><code>{{ setting.key }}</code></span>
+                <span class="description">{{ setting.about }}</span>
+              </div>
+              @switch (setting.kind) {
+                @case ('boolean') {
+                  <select
+                    [attr.aria-label]="setting.key"
+                    [value]="iniValues()[setting.key]"
+                    (change)="editIni(setting.key, $any($event.target).value)"
+                  >
+                    <option value="true" [selected]="iniValues()[setting.key] === 'true'">true</option>
+                    <option value="false" [selected]="iniValues()[setting.key] === 'false'">false</option>
+                  </select>
+                }
+                @case ('integer') {
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    [attr.aria-label]="setting.key"
+                    [value]="iniValues()[setting.key]"
+                    (input)="editIni(setting.key, $any($event.target).value)"
+                  />
+                }
+                @default {
+                  <input
+                    type="text"
+                    [attr.aria-label]="setting.key"
+                    [value]="iniValues()[setting.key]"
+                    (input)="editIni(setting.key, $any($event.target).value)"
+                  />
+                }
+              }
+            </li>
+          }
+        </ul>
+      </section>
+    }
+  }
+
+  <footer class="save-bar">
+    <button type="button" class="button primary save" [disabled]="saving()" (click)="save()">
+      {{ saving() ? 'Saving...' : 'Save changes' }}
+    </button>
+    @if (saved()) {
+      <span class="status saved" role="status">Saved.</span>
+    }
+    @if (iniProblem()) {
+      <span class="status problem" role="alert">
+        Prompts and formats were saved, but settings.ini was not: {{ iniProblem() }}
+      </span>
+    }
+    @if (problem()) {
+      <span class="status problem" role="alert">Could not save: {{ problem() }}</span>
+    }
+  </footer>
+</section>

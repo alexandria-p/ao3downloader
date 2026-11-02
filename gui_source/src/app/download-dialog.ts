@@ -33,6 +33,7 @@ import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, issueCount, issuesReport } from './issues';
+import { SYNC_ACK_KEY, startingFiletypes } from './preferences';
 
 type Step =
   /**
@@ -94,8 +95,6 @@ const METADATA = 'JSON';
 
 const USERNAME_KEY = 'ao3.username';
 const REMEMBER_KEY = 'ao3.remember';
-/** set once the combined run's note has been read and turned off */
-const SYNC_ACK_KEY = 'ao3.syncAcknowledged';
 const MAX_LOG = 200;
 
 @Component({
@@ -970,8 +969,9 @@ export class DownloadDialog implements OnDestroy {
 
     // the library the page has open is where everything goes - the helper has none of its own
     this.folder.set(this.library.store()?.label ?? '');
-    // the defaults are a starting point, not a rule: only `forced` cannot be unticked
-    this.selected.set([...(config.defaults ?? config.forced)]);
+    // the defaults are a starting point, not a rule: only `forced` cannot be unticked. This
+    // browser's own choice, from the User settings tab, comes before the helper's
+    this.selected.set(startingFiletypes(config));
     this.step.set(this.firstStep());
     if (this.resumeFrom() && this.action() === 'custom') {
       this.coverage.set('resume');

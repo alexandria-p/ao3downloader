@@ -1,0 +1,161 @@
+.user-settings {
+  max-width: 760px;
+  margin: 8px 0 24px;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+}
+
+h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+h4 {
+  margin: 14px 0 6px;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0 0 10px;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+.group {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.about {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 600;
+}
+
+.description {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  white-space: pre-line;
+}
+
+select,
+input[type='number'],
+input[type='text'] {
+  flex: none;
+  width: 170px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.format-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-bottom: 12px;
+}
+
+.check {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.note {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.button {
+  display: inline-block;
+  font-family: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #383838;
+}
+
+.button.primary {
+  border-color: #5a7f9a;
+  background: #33566b;
+}
+
+.button.primary:hover {
+  background: #3d6580;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.save-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.status.saved {
+  color: #8fc79a;
+}
+
+.status.problem {
+  color: #e08a8a;
+}
+
+@media (max-width: 560px) {
+  .row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  select,
+  input[type='number'],
+  input[type='text'] {
+    width: 100%;
+  }
+}
