@@ -91,6 +91,41 @@ works listing, a bookmarked-items listing, and an **empty** collection; confirm
 the way `get_metadata` does, raising `ERROR_LISTING_UNREADABLE` so the collection's gap
 records `reason: no-data`, with tests on the new fixtures.
 
+## TODO: hosted and downloaded copies keep settings in different places
+
+**What happens now.** Where a setting lives depends on which copy you are using, and the
+order is not the same:
+
+- **A downloaded app, the bundle, a dev build:** settings.ini only. User settings edits it,
+  and the browser keeps nothing but the prompts and the default formats.
+- **A hosted copy:** settings.ini comes from the deployment's variables and the page cannot
+  edit it. So *Questions a run may ask* (`QuestionTimeoutMinutes` and the six default answers)
+  is kept in the browser (`ao3.answerDefaults`, `ao3.questionTimeoutMinutes`), sent with each
+  run, and used **ahead of** settings.ini (`run_question_settings`, `Job.answer_defaults`).
+  Every other setting stays deployment-only.
+
+So the same choice is settings.ini-first on one copy and browser-first on the other. Each
+browser of a hosted copy also has its own set, and a downloaded app's set is shared by every
+browser on that computer.
+
+**What happens when the pipeline changes a variable.** A hosted helper's settings.ini is
+written fresh from the variables on every deploy, so the new value is in force at once. But a
+browser that already saved its own choice for that question keeps it, and keeps sending it -
+the deployment's change never reaches that browser's runs. The page only stores values that
+differ from the helper's, so a browser with nothing saved follows the new value. A downloaded
+app is different again: an update appends new settings to settings.ini but never changes a
+value already there (**A settings.ini is only ever added to**), so a variable changed after
+someone installed never reaches them either, and its new value only shows as the "default"
+in User settings and what Reset to defaults writes.
+
+**To decide.** One rule for both: which settings (some or all) live in the browser and which
+in settings.ini; which wins when both have a value; and what a changed deployment variable
+does to a value someone has already chosen - override it, leave it, or tell them. Possible
+answers: everything per-user goes in the browser on both (settings.ini keeping only what the
+helper needs before a page exists); or a hosted copy gets an editable store of its own on the
+helper side, so both are settings.ini-first. Whichever, the page should say where each value
+comes from.
+
 ## Other known gaps
 
 - **The order of a collection's works listing** was not checked against the live site. A
