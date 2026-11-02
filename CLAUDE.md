@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1940 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1947 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -696,10 +696,20 @@ with a page (verified: 404, `text/html`). Saving that under an `.epub` name woul
 downloaded and be unreadable, so a non-200 raises, and so does html arriving for a
 non-html format. Don't swap this back to plain `get_book`.
 
-`server.can_use_index` is the guard. Embedded images, series links and mark-as-read are all
-discovered *on* the work page, so asking for any of them falls back to `Ao3.download`. The
-other cost of the indexed path is that nothing reads the work page, so locked/deleted/hidden
-works are no longer recognised as such - they fail and are logged.
+`server.can_use_index` is the guard: no index entries (in practice, a full scan with JSON
+unticked) or embedded images (which only the custom run offers, and fetches in a pass of its
+own) fall back to `Ao3.download`. Mark-as-read and series links no longer do. The other cost
+of the indexed path is that nothing reads the work page, so locked/deleted/hidden works are
+no longer recognised as such - they fail and are logged.
+
+**The long way never writes the index** - the run that takes it chose not to keep one - but
+it follows the same per-format rule. `run_bookmarks` hands it the folder scan
+(`existing_copies`) and `overwriting`; `note_listing_dates` reads each listing page's dates
+updated, and `listing_says_behind` reopens a work already on disk in every format (normally
+`visited`, so never opened) when a copy is older than that date, or on an overwriting run -
+once, `reopened`. On the work page, `page_verdict` judges each format against the page's own
+date: missing or older is fetched (an older copy named in `superseded`, so it is replaced),
+current is kept, undated is left alone. `test_long_way.py` holds it.
 
 **Only `run_bookmarks` can take that fallback**, and that decides what the ui offers. Every
 other action downloads a *subset* of the index through `download_planned` /

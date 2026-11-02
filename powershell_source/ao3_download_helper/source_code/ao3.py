@@ -139,6 +139,12 @@ class Ao3:
         # the folder scan, while downloading from the index: a format already here and not
         # named in `superseded` is current, and is not fetched again
         self.existing_copies: dict[str, dict[str, dict]] | None = None
+        # the long way round (`download`), given the folder scan: whether the run overwrites,
+        # the date each work on the listing says it was updated, and the works reopened
+        # though every format was on disk, because a copy was behind
+        self.overwriting = False
+        self.listing_dates: dict[str, str] = {}
+        self.reopened: set[str] = set()
         # formats of a work an overwriting run was told not to replace: the copy on disk is
         # newer than the version this run would write. by link, formats upper-case
         self.keep_formats: dict[str, set[str]] = {}
@@ -2022,6 +2028,7 @@ class Ao3:
                 if total_pages is None:
                     total_pages = parse_soup.get_total_pages(thesoup)
                 urls = parse_soup.get_work_and_series_urls(thesoup, include_series)
+                self.note_listing_dates(thesoup)
                 for url in urls:
                     self.get_work_links_recursive(links_list, url, visited_series, metadata, thesoup)
                 pagenum = parse_text.get_page_number(link)
@@ -2041,8 +2048,15 @@ class Ao3:
 
         self.check_cancelled()
 
-        if link in visited: return
-        visited.append(link)
+        if link in visited:
+            # every format of it is on disk - but a copy behind the listing's date (or a run
+            # that overwrites) still wants it, once
+            if not (self.existing_copies is not None and link not in self.reopened
+                    and parse_text.is_work(link) and self.listing_says_behind(link)):
+                return
+            self.reopened.add(link)
+        else:
+            visited.append(link)
 
         if parse_text.is_work(link):
             log = {}
@@ -2061,6 +2075,7 @@ class Ao3:
                 if total_pages is None:
                     total_pages = parse_soup.get_total_pages(thesoup)
                 urls = parse_soup.get_work_and_series_urls(thesoup, include_series)
+                self.note_listing_dates(thesoup)
                 for url in urls:
                     self.download_recursive(url, log, visited)
                 if not self.mark:
@@ -2108,6 +2123,58 @@ class Ao3:
             log['link'] = link
             self.log_error(log, e)
 
+
+    def note_listing_dates(self, soup) -> None:
+        """Remember the date each work on a listing page says it was last updated, by
+        number - what decides whether a work already on disk in every format is behind."""
+
+        if self.existing_copies is None: return
+        for blurb in parse_soup.get_blurbs(soup):
+            kind, number = parse_soup.get_blurb_kind(blurb)
+            if kind != parse_soup.BLURB_WORK or not number: continue
+            stamp = parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                blurb, SORT_DATE_SELECTORS['updated']))
+            if stamp: self.listing_dates[str(number)] = stamp
+
+    def listing_says_behind(self, link: str) -> bool:
+        """Whether a work with every format on disk should be opened anyway: the run
+        overwrites, or the listing dates it later than one of its copies. An undated copy
+        cannot be judged, so it never counts as behind."""
+
+        if self.existing_copies is None: return False
+        number = parse_text.get_work_number(link) or ''
+        copies = self.existing_copies.get(number) or {}
+        if self.overwriting: return bool(copies)
+        stamp = self.listing_dates.get(number)
+        return bool(stamp) and any(
+            (copies.get(x.upper()) or {}).get('date') and copies[x.upper()]['date'] < stamp
+            for x in self.filetypes if x.upper() in copies)
+
+    def page_verdict(self, work_url: str, number: str, filetype: str, stamp: str) -> bool:
+        """Whether to fetch this format, judged against the date the work's own page gives
+        (`stamp`) - the same rule as everywhere: no copy, or a copy dated before it, is
+        fetched; a current one is kept; an undated one cannot be judged and is left alone;
+        an overwriting run fetches every one. An older copy is named in `superseded`, so
+        the new file replaces it. Says which, per format. Without a folder scan to go by
+        (`existing_copies`), every format is fetched, as it always was."""
+
+        if self.existing_copies is None: return True
+        copy = (self.existing_copies.get(number) or {}).get(filetype.upper())
+        if not copy:
+            print(strings.AO3_INFO_FORMAT_MISSING.format(filetype))
+            return True
+        if self.overwriting:
+            print(strings.AO3_INFO_FORMAT_REPLACING.format(filetype))
+        elif not copy.get('date'):
+            print(strings.AO3_INFO_FORMAT_UNDATED.format(filetype))
+            return False
+        elif stamp and copy['date'] < stamp:
+            print(strings.AO3_INFO_FORMAT_OUTDATED.format(filetype))
+        else:
+            print(strings.AO3_INFO_FORMAT_CURRENT.format(filetype))
+            return False
+        if copy.get('path'): self.superseded.setdefault(work_url, {})[filetype] = copy['path']
+        return True
 
     def download_work(self, link: str, log: dict, chapters: str | None) -> None:
         """Download a single work"""
@@ -2158,11 +2225,13 @@ class Ao3:
 
         failed: list[tuple[str, Exception]] = []
         number = parse_text.get_work_number(work_url) or ''
+        stamp = parse_text.get_date_stamp(updated)
         for filetype in self.filetypes:
             self.check_cancelled()
             if self.format_done(number, filetype):
                 print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, number))
                 continue
+            if not self.page_verdict(work_url, number, filetype, stamp): continue
             progress.report(self.progress, progress.WORK, title=display, link=work_url,
                             filetype=filetype, phase='downloading')
             with self.one_format(filetype, failed):

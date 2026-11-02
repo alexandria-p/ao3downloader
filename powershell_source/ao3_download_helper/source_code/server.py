@@ -1756,8 +1756,15 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             ao3.download_indexed(newest_first(records), visited, existing,
                                  forced=bool(job.options.get('overwrite')))
         else:
-            # the download walks the same listing, so it begins on the same page
-            ao3.download(parse_text.set_page_number(link, start), visited)
+            # the download walks the same listing, so it begins on the same page. with no
+            # index to judge from, each work's page is: given the folder scan, every format is
+            # fetched only when missing or older than the page says, or when overwriting
+            ao3.existing_copies = existing
+            ao3.overwriting = bool(job.options.get('overwrite'))
+            try:
+                ao3.download(parse_text.set_page_number(link, start), visited)
+            finally:
+                ao3.existing_copies = None
         job.steps.done('download')
     else:
         # a metadata-only run, or one stopped during indexing: these never start
@@ -1771,11 +1778,14 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
 
 def can_use_index(job: Job, records: list[dict]) -> bool:
-    """Whether the download phase can work from the index instead of crawling ao3 again.
+    """Whether the full scan's download phase can work from the index instead of opening
+    each work's page.
 
-    It needs an index to work from, and none of the things only a work page can give:
-    embedded images are found on it, marking as read posts from it, and series links are
-    discovered through it. Asking for any of those means going the long way round.
+    It needs an index to work from - a run with JSON unticked has none, which is in practice
+    the one case that goes the long way round - and must not want embedded images, which are
+    found on the work page. (Mark-as-read and series links used to send it the long way too;
+    neither does any more.) The long way never writes the index: a run with no JSON chose not
+    to keep one.
     """
 
     if not records: return False
