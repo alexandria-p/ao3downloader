@@ -139,6 +139,15 @@ def test_starting_normally_runs_the_helper_on_its_usual_port(tmp_path, monkeypat
     serve.assert_called_once_with(port=server.DEFAULT_PORT)
     assert page.called
 
+
+def test_the_app_tells_the_helper_which_settings_it_was_built_with(tmp_path, monkeypatch):
+    # what the page's User settings tab offers as the defaults, and resets to
+    web(tmp_path)
+    started(tmp_path, monkeypatch)
+
+    assert server.Handler.settings_defaults == os.path.join(
+        str(tmp_path / '_internal'), desktop.DEFAULTS_FOLDER, strings.INI_FILE_NAME)
+
 # endregion
 
 

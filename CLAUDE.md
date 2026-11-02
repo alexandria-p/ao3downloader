@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1782 python passed; 779 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1786 python passed; 784 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2142,6 +2142,18 @@ not to break:
   sent on `change` (left, or Enter), never on `input`, so a half-typed number is not written;
   only a value that differs is sent, and one the helper refuses is put back as the file has it.
   The update banner reads its flag once, so choosing it sets `UpdateCheck.dismissed` too.
+- **The tab says first that most of it is this browser's** (`.browser-note`): prompts and
+  formats are per browser, settings.ini is the computer's.
+- **Reset to defaults asks first** (`confirmingReset`), then sets every prompt to *Ask
+  always* (the browser notice included, so it shows every visit), drops
+  `ao3.defaultFiletypes`, and posts `{reset: true}` to `/api/settings-file`.
+- **"Default" for settings.ini means what this copy was built with.** The packaged app packs
+  its deployment's settings.ini (`desktop.defaults_file`), and `desktop.main` hands its path
+  to `Handler.settings_defaults`; `editable_settings(defaults=)` takes each default from it,
+  falling back to the template's - the only defaults a bundle or a development build has. An
+  update replaces the packed file, so after one the defaults are the new version's. Each
+  setting shows its default beside it, and Reset writes them in place like any other edit,
+  never touching the hosting settings.
 - **Default formats are a starting point** (`ao3.defaultFiletypes`, `startingFiletypes`): the
   run window ticks them on opening and can still change them. Forced types are always added,
   types the helper does not offer are dropped, and untouched means the helper's own

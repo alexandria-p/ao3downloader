@@ -1,9 +1,39 @@
 <section class="user-settings">
-  <h2>User settings</h2>
-  <p class="hint">
-    Every change is saved as you make it. Prompts and download formats are kept in this
-    browser only.
+  <div class="heading">
+    <h2>User settings</h2>
+    <button type="button" class="button reset-all" (click)="confirmingReset.set(true)">Reset to defaults</button>
+  </div>
+  <p class="browser-note" role="note">
+    <strong>Most of these are saved in this browser, not with your library.</strong> The prompts
+    and default download formats are kept by this browser on this device - open the page in a
+    different browser, a private window or on another device and they will be as they were
+    there, and clearing this site's data puts them back to their defaults.
+    @if (local && ini()?.editable) {
+      settings.ini is different: it is a file the helper reads on this computer, the same
+      whichever browser you use.
+    }
   </p>
+  <p class="hint">Every change is saved as you make it.</p>
+
+  @if (confirmingReset()) {
+    <div class="confirm-reset" role="alertdialog" aria-labelledby="reset-title">
+      <p id="reset-title"><strong>Put everything back to its defaults?</strong></p>
+      <ul>
+        <li>every prompt goes back to <strong>Ask always</strong></li>
+        <li>runs start with the app's own download formats</li>
+        @if (ini()?.editable) {
+          <li>
+            every setting in settings.ini below goes back to the value this copy came with - your
+            comments in the file are kept
+          </li>
+        }
+      </ul>
+      <div class="confirm-actions">
+        <button type="button" class="button" (click)="confirmingReset.set(false)">Cancel</button>
+        <button type="button" class="button primary confirm" (click)="resetAll()">Reset to defaults</button>
+      </div>
+    </div>
+  }
 
   <section class="group prompts">
     <h3>Prompts</h3>
@@ -76,7 +106,10 @@
           @for (setting of file.settings; track setting.key) {
             <li class="row" [attr.data-setting]="setting.key">
               <div class="about">
-                <span class="name"><code>{{ setting.key }}</code></span>
+                <span class="name">
+                  <code>{{ setting.key }}</code>
+                  <span class="default">default: {{ setting.default === '' ? '(empty)' : setting.default }}</span>
+                </span>
                 <span class="description">{{ setting.about }}</span>
               </div>
               @switch (setting.kind) {

@@ -79,6 +79,9 @@ export class UserSettings implements OnDestroy {
   protected readonly local = this.helper.isLocal();
   protected readonly ini = signal<IniFile | null>(null);
 
+  /** the Reset to defaults question is open */
+  protected readonly confirmingReset = signal(false);
+
   readonly toast = signal<Toast | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -149,6 +152,43 @@ export class UserSettings implements OnDestroy {
   private formatList(): string {
     const config = this.config();
     return (config?.filetypes ?? []).filter((x) => this.formats().includes(x)).join(', ');
+  }
+
+  /**
+   * Everything back as it came: every prompt asks always, runs start with the app's own
+   * formats, and settings.ini - where it is offered - holds the values this copy was built
+   * with (the downloaded app's own; the template's for anything else).
+   */
+  protected async resetAll(): Promise<void> {
+    this.confirmingReset.set(false);
+    for (const prompt of PROMPTS) setPromptAsks(prompt, true);
+    this.asking.set(Object.fromEntries(PROMPTS.map((p) => [p.key, 'ask' as Asking])));
+    this.updates.dismissed.set(false);
+    saveDefaultFiletypes(null);
+    const config = this.config();
+    if (config) this.formats.set(startingFiletypes(config));
+
+    if (!this.ini()?.editable) {
+      this.say('Reset: every prompt asks always, and runs start with the app\'s default formats');
+      return;
+    }
+    try {
+      const response = await this.helper.call('/api/settings-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset: true }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `the helper answered ${response.status}`);
+      this.ini.set(body as IniFile);
+      void this.jobs.loadConfig();
+      this.say('Reset: every prompt asks always, runs start with the app\'s default formats, and settings.ini holds its defaults');
+    } catch (e) {
+      this.say(
+        `Prompts and formats were reset, but settings.ini was not: ${e instanceof Error ? e.message : String(e)}`,
+        'problem',
+      );
+    }
   }
 
   /** one setting changed and left: write it now. A refused value is put back as the file has it */

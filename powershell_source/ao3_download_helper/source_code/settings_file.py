@@ -223,17 +223,24 @@ def values_in(text: str) -> dict[str, str]:
     return found
 
 
-def editable_settings(text: str, template: str | None = None) -> list[dict]:
+def editable_settings(text: str, template: str | None = None,
+                      defaults: str | None = None) -> list[dict]:
     """The settings the page may edit, in the template's order: the name, the value the file
-    has (or the template's default where it has none), what kind of value it takes, the
-    default, and the explanation from the template."""
+    has (or the default where it has none), what kind of value it takes, the default, and the
+    explanation from the template.
+
+    `defaults` is the settings.ini this copy was built with, when it has one - the packaged
+    app packs its deployment's, which is what "the defaults" mean to someone who downloaded
+    it. A setting it lacks, and every setting of a copy with none, takes the template's.
+    """
 
     template = template_text() if template is None else template
+    built = values_in(defaults or '')
     have = values_in(text)
     settings = []
     for key, block in blocks_of(template):
         if key in NOT_EDITABLE: continue
-        default = VALUE_LINE.match(block.split('\n')[-1]).group(4)
+        default = built.get(key.lower(), VALUE_LINE.match(block.split('\n')[-1]).group(4))
         settings.append({
             'key': key,
             'value': have.get(key.lower(), default),
@@ -295,14 +302,22 @@ def set_values(text: str, values: dict[str, str]) -> str:
     return text
 
 
-def update_settings_file(path: str, values: dict) -> list[dict]:
+def update_settings_file(path: str, values: dict, defaults: str | None = None,
+                         reset: bool = False) -> list[dict]:
     """Write the page's edits into the settings.ini at `path`, and return the settings as
     they now stand. Raises ValueError, naming the setting, for a name the page may not edit
-    or a value it does not take - and then writes nothing at all."""
+    or a value it does not take - and then writes nothing at all.
+
+    `reset` puts every setting the page may edit back to its default (see
+    `editable_settings`) - in place, like any other edit, so comments stay and the settings
+    the page does not offer (the hosting ones) are not touched.
+    """
 
     with open(path, encoding='utf-8', newline='') as f:
         existing = f.read()
-    settings = {setting['key'].lower(): setting for setting in editable_settings(existing)}
+    offered = editable_settings(existing, defaults=defaults)
+    if reset: values = {setting['key']: setting['default'] for setting in offered}
+    settings = {setting['key'].lower(): setting for setting in offered}
     written: dict[str, str] = {}
     for key, value in values.items():
         setting = settings.get(str(key).lower())
@@ -314,7 +329,7 @@ def update_settings_file(path: str, values: dict) -> list[dict]:
     if text != existing.replace('\r\n', '\n'):
         with open(path, 'w', encoding='utf-8', newline='') as f:
             f.write(text.replace('\n', ending))
-    return editable_settings(text)
+    return editable_settings(text, defaults=defaults)
 
 # endregion
 

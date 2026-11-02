@@ -20,6 +20,56 @@ h4 {
   font-weight: 600;
 }
 
+.heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.heading h2 {
+  margin: 0;
+}
+
+/* where these live is the thing most likely to surprise someone, so it is said first */
+.browser-note {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #5a7f9a;
+  border-radius: 5px;
+  background: #22323d;
+  font-size: 0.88rem;
+}
+
+.confirm-reset {
+  margin: 0 0 14px;
+  padding: 12px 16px;
+  border: 1px solid #9a7a3d;
+  border-radius: 5px;
+  background: #3a3222;
+  font-size: 0.9rem;
+}
+
+.confirm-reset p,
+.confirm-reset ul {
+  margin: 0 0 8px;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.default {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
 .hint {
   margin: 0 0 10px;
   color: var(--text-dim);

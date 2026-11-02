@@ -23,7 +23,7 @@ const CONFIG: ServerConfig = {
 };
 
 const INI: IniSetting[] = [
-  { key: 'ExtraWaitTime', value: '15', default: '15', kind: 'integer', about: 'seconds to wait' },
+  { key: 'ExtraWaitTime', value: '15', default: '40', kind: 'integer', about: 'seconds to wait' },
   { key: 'EnableDebugTools', value: 'false', default: 'false', kind: 'boolean', about: 'a debug panel' },
 ];
 
@@ -79,7 +79,13 @@ describe('UserSettings', () => {
     const helper = TestBed.inject(HelperConnection);
     vi.spyOn(helper, 'call').mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === '/api/settings-file' && init?.method === 'POST') {
-        const values = JSON.parse(String(init.body)).values as Record<string, string>;
+        const sent = JSON.parse(String(init.body));
+        if (sent.reset) {
+          posted.push({ reset: true });
+          const settings = iniAnswer.settings.map((s) => ({ ...s, value: s.default }));
+          return new Response(JSON.stringify({ ...iniAnswer, settings }), { status: 200 });
+        }
+        const values = sent.values as Record<string, string>;
         posted.push(values);
         const settings = iniAnswer.settings.map((s) => ({ ...s, value: values[s.key] ?? s.value }));
         return new Response(JSON.stringify({ ...iniAnswer, settings }), { status: 200 });
@@ -290,6 +296,79 @@ describe('UserSettings', () => {
 
     expect(element.querySelector('.ini')).toBeNull();
     expect(vi.mocked(TestBed.inject(HelperConnection).call).mock.calls.map((c) => c[0])).not.toContain('/api/settings-file');
+  });
+
+  // endregion
+  // region where it is kept, and putting it all back
+
+  it('says up front that most of this is kept by this browser, and that settings.ini is not', async () => {
+    await open();
+
+    const note = element.querySelector('.browser-note')?.textContent ?? '';
+    expect(note).toContain('saved in this browser');
+    expect(note).toContain('different browser');
+    expect(note).toContain('settings.ini is different');
+  });
+
+  it('shows each setting\'s default beside it', async () => {
+    await open();
+
+    expect(element.querySelector('[data-setting="ExtraWaitTime"] .default')?.textContent).toContain('default: 40');
+  });
+
+  it('asks before resetting, and Cancel changes nothing', async () => {
+    localStorage.setItem(HIDE_WARNING_KEY, 'off');
+    await open();
+
+    element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
+    await settle();
+    expect(element.querySelector('.confirm-reset')?.textContent).toContain('Ask always');
+    Array.from(element.querySelectorAll<HTMLButtonElement>('.confirm-reset button'))
+      .find((b) => b.textContent?.trim() === 'Cancel')!.click();
+    await settle();
+
+    expect(element.querySelector('.confirm-reset')).toBeNull();
+    expect(localStorage.getItem(HIDE_WARNING_KEY)).toBe('off');
+    expect(posted).toEqual([]);
+  });
+
+  it('resets every prompt to ask always, the formats to the app\'s, and settings.ini to its built defaults', async () => {
+    for (const prompt of PROMPTS) localStorage.setItem(prompt.key, prompt.dismissed);
+    localStorage.setItem(DEFAULT_FILETYPES_KEY, JSON.stringify(['JSON', 'PDF']));
+    const updates = TestBed.inject(UpdateCheck);
+    updates.dismissed.set(true);
+    await open();
+
+    element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
+    await settle();
+    element.querySelector<HTMLButtonElement>('.confirm-reset button.confirm')!.click();
+    await settle();
+
+    for (const row of Array.from(element.querySelectorAll('.prompts [data-prompt] select'))) {
+      expect((row as HTMLSelectElement).value).toBe('ask');
+    }
+    expect(PROMPTS.every((p) => localStorage.getItem(p.key) !== p.dismissed)).toBe(true);
+    expect(updates.dismissed()).toBe(false);
+    expect(localStorage.getItem(DEFAULT_FILETYPES_KEY)).toBeNull();
+    expect(element.querySelector<HTMLInputElement>('input[name="format-PDF"]')!.checked).toBe(false);
+    expect(posted).toEqual([{ reset: true }]);
+    expect(element.querySelector<HTMLInputElement>('[data-setting="ExtraWaitTime"] input')!.value).toBe('40');
+    expect(toast()).toContain('settings.ini holds its defaults');
+  });
+
+  it('resets only what this browser keeps when there is no settings.ini to offer', async () => {
+    iniAnswer = { editable: false, settings: [] };
+    localStorage.setItem(SYNC_ACK_KEY, 'true');
+    await open();
+
+    element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
+    await settle();
+    expect(element.querySelector('.confirm-reset')?.textContent).not.toContain('settings.ini');
+    element.querySelector<HTMLButtonElement>('.confirm-reset button.confirm')!.click();
+    await settle();
+
+    expect(localStorage.getItem(SYNC_ACK_KEY)).toBeNull();
+    expect(posted).toEqual([]);
   });
 
   // endregion

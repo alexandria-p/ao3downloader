@@ -3820,6 +3820,9 @@ class Handler(BaseHTTPRequestHandler):
     # the address this helper listens on - `serve` sets it. Only a helper on this computer lets
     # the page edit its settings.ini (see `settings_file_editable`)
     host: str = HOST
+    # the settings.ini this copy was built with, where it packs one - the packaged app sets it
+    # (desktop.py) to its deployment's. The page's defaults, and what Reset puts back
+    settings_defaults: str = ''
 
     server_version = 'ao3downloader-local'
 
@@ -3899,7 +3902,8 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             text = ''
         self.send_json(200, {'editable': True, 'file': os.path.abspath(path),
-                             'settings': settings_file.editable_settings(text)})
+                             'settings': settings_file.editable_settings(
+                                 text, defaults=built_settings())})
 
     def save_settings_file(self) -> None:
         """Write the page's edits into settings.ini, in place. 403 from a helper that is not
@@ -3909,17 +3913,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(403, {'error': strings.ERROR_SETTINGS_NOT_EDITABLE})
             return
         try:
-            values = self.read_json().get('values')
+            asked = self.read_json()
         except Exception:
             self.send_json(400, {'error': 'invalid json'})
             return
+        reset = asked.get('reset') is True
+        values = {} if reset else asked.get('values')
         if not isinstance(values, dict):
             self.send_json(400, {'error': 'values must be an object'})
             return
         path = FileOps().inifile
         try:
             settings_file.ensure_settings_file(path)
-            settings = settings_file.update_settings_file(path, values)
+            settings = settings_file.update_settings_file(path, values, built_settings(), reset)
         except ValueError as e:
             self.send_json(400, {'error': str(e)})
             return
@@ -4547,6 +4553,17 @@ def watch_background(stop: threading.Event, url: str) -> None:
 
 def is_loopback(host: str) -> bool:
     return host == 'localhost' or host == '::1' or host.startswith('127.')
+
+
+def built_settings() -> str:
+    """The text of the settings.ini this copy was built with, or '' for a copy with none."""
+
+    if not Handler.settings_defaults: return ''
+    try:
+        with open(Handler.settings_defaults, encoding='utf-8') as f:
+            return f.read()
+    except OSError:
+        return ''
 
 
 def settings_file_editable() -> bool:

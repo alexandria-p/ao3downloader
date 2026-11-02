@@ -53,6 +53,17 @@ def test_an_explanation_reads_as_paragraphs_keeping_its_indented_example():
     assert settings_file.about(block) == 'one line carried on\n\nnamed:\n  {worknum} {title}\nafter'
 
 
+def test_the_defaults_are_those_this_copy_was_built_with_where_it_has_them():
+    built = '[settings]\nExtraWaitTime=40\n'
+
+    offered = settings_file.editable_settings('[settings]\n', TEMPLATE, defaults=built)
+
+    # the packaged app's deployment set 40; the template's 15 is not what it was downloaded with
+    assert offered[0]['default'] == '40' and offered[0]['value'] == '40'
+    # a setting the built file lacks still has one: the template's
+    assert offered[1]['default'] == 'false'
+
+
 def test_a_commented_out_value_is_not_read_as_the_setting():
     offered = settings_file.editable_settings('# ExtraWaitTime=99\nExtraWaitTime=4\n', TEMPLATE)
 
@@ -105,6 +116,21 @@ def test_a_setting_the_page_may_not_edit_is_refused(tmp_path, key):
 
     with pytest.raises(ValueError, match=key):
         settings_file.update_settings_file(str(path), {key: 'true'})
+
+
+def test_reset_puts_back_every_default_in_place_and_leaves_the_hosting_settings(tmp_path):
+    path = tmp_path / 'settings.ini'
+    path.write_text('[settings]\n# mine\nExtraWaitTime=99\nEnableDebugTools=true\n'
+                    'HelperUrl=http://127.0.0.1:5000\n', encoding='utf-8')
+
+    settings = settings_file.update_settings_file(str(path), {}, '[settings]\nExtraWaitTime=40\n',
+                                                  reset=True)
+
+    text = path.read_text(encoding='utf-8')
+    assert '# mine\nExtraWaitTime=40\n' in text
+    assert 'EnableDebugTools=false' in text
+    assert 'HelperUrl=http://127.0.0.1:5000' in text
+    assert {s['key']: s['value'] for s in settings}['ExtraWaitTime'] == '40'
 
 
 def test_a_notepad_file_keeps_its_line_endings(tmp_path):
@@ -178,6 +204,19 @@ def test_a_helper_on_this_computer_writes_the_change_into_its_settings_ini(live,
     assert status == 200
     assert body['settings'][0]['value'] == '30'
     assert config.read_text(encoding='utf-8').startswith('[settings]\n# mine\nExtraWaitTime=30\n')
+
+
+def test_reset_through_the_helper_uses_the_settings_the_app_was_built_with(live, config, tmp_path, monkeypatch):
+    built = tmp_path / 'defaults.ini'
+    built.write_text('[settings]\nExtraWaitTime=40\n', encoding='utf-8')
+    monkeypatch.setattr(server.Handler, 'settings_defaults', str(built))
+    ask(live, 'POST', {'values': {'ExtraWaitTime': 7}})
+
+    status, body = ask(live, 'POST', {'reset': True})
+
+    assert status == 200
+    assert body['settings'][0] == {**body['settings'][0], 'value': '40', 'default': '40'}
+    assert config.read_text(encoding='utf-8').startswith('[settings]\n# mine\nExtraWaitTime=40\n')
 
 
 def test_a_bad_value_is_a_400_naming_it(live, config):
