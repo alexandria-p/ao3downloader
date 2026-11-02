@@ -66,6 +66,31 @@ in date order, the union of `from_series` and `from_collections`, `bookmarked` t
 said so - and deletes the rest. It needs care, since it deletes files, and it has not been
 written.
 
+## TODO: collection listings do not yet refuse a page that is not a listing
+
+**What is missing.** The bookmarks walk (`get_metadata`) refuses a page with no blurbs that is
+not a listing at all (`parse_soup.looks_like_listing`: an `ol.index`, or a heading naming what
+it lists) with `ERROR_LISTING_UNREADABLE`, so a login page or an error page ao3 serves as 200
+becomes an index gap instead of the end of your bookmarks. A collection's works and
+bookmarked-items listings (`Ao3.walk_pages`, from `collect_work_ids`) only have the status
+check (`fetch_page`, which catches 401/403/404/5xx and maintenance).
+
+**What it costs.** Such a page mid-collection reads as an empty last page: the collection is
+saved with only the works found so far - possibly none - and marked done, with nothing in the
+run saying so.
+
+**Why it is not done.** The marker was checked against a real bookmarks page
+(`test/fixtures/bookmarks.html`), but there is no fixture of a collection's works or
+bookmarked-items listing, empty or not. If an empty collection's listing carried neither
+marker, every empty collection would be flagged as a failure. AO3 was down when this came up,
+so it could not be checked live.
+
+**The fix.** Refresh the fixtures from live AO3 (`dev/refresh_fixtures.py`) with a collection
+works listing, a bookmarked-items listing, and an **empty** collection; confirm
+`looks_like_listing` accepts all three; then call it in `walk_pages` (or `collect_work_ids`)
+the way `get_metadata` does, raising `ERROR_LISTING_UNREADABLE` so the collection's gap
+records `reason: no-data`, with tests on the new fixtures.
+
 ## Other known gaps
 
 - **The order of a collection's works listing** was not checked against the live site. A
