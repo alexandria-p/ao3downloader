@@ -460,3 +460,25 @@ def test_a_local_library_is_exactly_the_folder_it_always_was(tmp_path):
     assert storage.size(path) is None
 
 # endregion
+
+
+# region a pause lands between the library's reads and writes
+
+def test_every_request_to_the_page_passes_the_pause_gate_first():
+    said: list[str] = []
+
+    class Page:
+        def storage_call(self, op, args, content=None):
+            said.append(op)
+            return {}
+
+    storage = PageStorage(Page())
+    storage.gate = lambda: said.append('gate')
+
+    storage.call('check')
+    storage.call('mkdir', path='works')
+
+    # before each whole request - never inside one, so nothing is part-written
+    assert said == ['gate', 'check', 'gate', 'mkdir']
+
+# endregion

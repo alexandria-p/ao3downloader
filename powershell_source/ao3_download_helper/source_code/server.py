@@ -944,6 +944,8 @@ def run_job(job: Job, password: str) -> None:
         with contextlib.redirect_stdout(stream):
             with Repository(fileops, progress=report, cancelled=job.cancel.is_set,
                             held=job.held.is_set) as repo:
+                # a pause lands between the library's reads and writes too, not only at ao3
+                if isinstance(fileops.storage, PageStorage): fileops.storage.gate = repo.hold_if_asked
                 job.emit({'type': progress.STARTED, 'action': job.action,
                           'filetypes': job.filetypes, 'options': job.options})
                 # the checklist goes out before anything happens, so the ui can show what

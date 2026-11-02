@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1986 python passed; 799 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1990 python passed; 799 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2040,44 +2040,41 @@ through the page that started it, which is usually exactly what has gone. The pa
 only where `runs/<file>` already exists, so a run from another library never lands in this one.
 `cancel` is set too, so a thread that wakes unwinds at its next gate.
 
-### A run can be paused, and there are exactly two places it may pause
+### A pause lands at once, wherever the run is - and never inside a write
 
-Both are inside the request path, and both are before anything reaches disk:
+At the user's request a pause takes effect **immediately, like a stop**, in every workflow at
+every step, and Resume picks the interrupted thing up again. The places it lands:
 
-1. `Repository.hold_if_asked`, at the top of the `my_request` loop, **before a request goes
-   out**. This is where a run with nothing in flight waits.
-2. `Repository.read_body`, which pulls a response body down in `chunk_size` pieces and
-   raises `PausedException` between them. `my_request` catches it, waits at
-   `hold_if_asked`, then **re-issues the same request from the start**.
+1. **Before a request goes out** - `Repository.hold_if_asked`, at the top of the `my_request`
+   loop.
+2. **While ao3 is deciding whether to answer, and while a body arrives** - `abandonable`
+   and `read_body` raise `PausedException`, for **every method**. A GET or a PATCH (mark as
+   read) is asked again from the start after the hold. **A POST - the login - is handed back
+   to its caller** (`my_request` re-raises), and `Repository.login` holds and then logs in
+   again from a fresh login page and token; if that page already shows the session logged
+   in (ao3 had taken the abandoned form), the login is done.
+3. **During any wait** - `Repository.wait` (the 429 break, `extra_wait`, retry backoff, the
+   maintenance delay) holds at once, and **the time held counts toward the wait**: ao3's clock
+   runs whether or not the run is paused, so resumed it waits out only what is left, then
+   goes on to the request it was waiting to make. That is what used to keep a pause out of
+   `wait` (stretching a break), and counting the held time is what answers it.
+4. **Between the library's reads and writes** - `PageStorage.call` calls `gate`
+   (`run_job` sets it to `repo.hold_if_asked`) before every request to the page. Before a
+   whole request, never inside one, so no file is ever part-written - a save and the check
+   or delete that follow it can be separated by a pause, but each is whole.
 
-The second exists because bodies used to arrive inside a single `session.request` call, so
-pausing during a large pdf did nothing until the transfer finished - the button looked
-broken. Requests are now made with `stream=True` and `read_body` fills in `_content` /
-`_content_consumed` itself, which is what keeps streaming an implementation detail: every
-caller still uses `.content` and `.text` unchanged.
+What it never does is land **inside** a write: a gate that could fire halfway through writing
+an epub would leave a truncated file whose name says it is complete - the exact failure
+`saved_intact` and `replace_superseded` exist to prevent. Don't add one there. Pure computation
+between those points (parsing a page, planning) takes milliseconds and runs to the next.
 
-**Abandoning a body is free, and that is the point.** Bytes are held in memory until the
-caller has all of them and has judged them (`download_file` checks status and content type
-before anything is written), so there is no part-written file to clean up and the retry
-starts from nothing. **Only GETs are abandoned** - a GET can be asked for again, while
-re-sending a login form or a mark-as-read is not the same as asking for a page twice.
-
-A pause-retry does **not** increment `attempt`: the user pausing is not the server failing,
-and it must not eat the retry budget.
-
-**Do not add a third gate** inside a download or a save loop. A gate that can fire anywhere
-can fire halfway through writing an epub, and the result - a truncated file whose name says
-it is complete - is the exact failure `saved_intact` and `replace_superseded` exist to
-prevent.
-
-For the same reason `get_metadata` buffers a page's records and saves them only once the
-whole page has been parsed. A page is one unit of work - fetched, parsed, then written - so
-a page abandoned partway leaves no half-built entries and is simply asked for again. Saving
-as each blurb was parsed made a part-read page a part-written index by definition.
-
-It is deliberately **not** folded into `check_cancelled`, even though the two look alike.
-`check_cancelled` is called from inside `wait`, so a hold there would stretch an ao3 rate
-limit break and then return to a request ao3 had just told us to wait longer for.
+Bodies arrive in `chunk_size` pieces (`stream=True`; `read_body` fills `_content` /
+`_content_consumed` itself, so every caller still uses `.content` and `.text`), which is what
+lets a pause land during a large pdf. **Abandoning a body is free**: bytes are held in memory
+until the caller has all of them and has judged them, so there is no part-written file and the
+retry starts from nothing. A pause-retry does **not** increment `attempt`: the user pausing is
+not the server failing. `get_metadata` buffers a page's records and saves them only once the
+whole page is parsed, so a page abandoned partway leaves no half-built entries.
 
 Three things keep a pause from becoming a hang:
 

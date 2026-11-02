@@ -1095,9 +1095,9 @@ def test_a_pause_partway_through_a_body_does_not_count_as_a_failed_attempt(fake_
     assert repo.my_request('GET', AO3_URL).content == b'still comes down in the end'
 
 
-def test_a_post_is_never_abandoned_partway(fake_fileops, monkeypatch):
-    # a GET can simply be asked for again. re-sending a login form or a mark-as-read is a
-    # different thing entirely, so those are read to the end whatever has been pressed
+def test_a_post_paused_partway_is_handed_back_to_be_started_again(fake_fileops, monkeypatch):
+    # a login form ao3 may already have taken is not one to send twice: the caller holds,
+    # then starts the whole login again with a fresh token
     state = {'held': False}
     monkeypatch.setattr('source_code.repo.sleep', lambda _s: None)
     repo = Repository(fake_fileops, held=lambda: state['held'])
@@ -1110,10 +1110,73 @@ def test_a_post_is_never_abandoned_partway(fake_fileops, monkeypatch):
 
     repo.session.request.side_effect = respond
 
-    response = repo.my_request('POST', AO3_URL, {'user': 'someone'})
-
+    with pytest.raises(exceptions.PausedException):
+        repo.my_request('POST', AO3_URL, {'user': 'someone'})
     assert repo.session.request.call_count == 1
-    assert response.content == b'the form went through'
+
+
+def test_a_login_paused_partway_holds_then_logs_in_again_from_a_fresh_page(
+        fake_fileops, monkeypatch):
+    repo = Repository(fake_fileops)
+    pages = iter(['<form>token</form>', '<form>token</form>'])
+    monkeypatch.setattr(repo, 'get_soup', lambda url: BeautifulSoup(next(pages), 'html.parser'))
+    monkeypatch.setattr('source_code.repo.parse_soup.get_login_token', lambda soup: 't')
+    held = []
+    monkeypatch.setattr(repo, 'hold_if_asked', lambda: held.append(1))
+    posts = []
+
+    def post(method, url, data=None):
+        posts.append(method)
+        if len(posts) == 1: raise exceptions.PausedException()
+        return real_response(b'<body class="logged-in"></body>')
+    monkeypatch.setattr(repo, 'my_request', post)
+    monkeypatch.setattr('source_code.repo.parse_soup.is_logged_in',
+                        lambda soup: 'logged-in' in str(soup))
+
+    repo.login('someone', 'secret')
+
+    assert held == [1] and posts == ['POST', 'POST']
+
+
+def test_a_login_paused_after_ao3_took_the_form_is_already_done(fake_fileops, monkeypatch):
+    repo = Repository(fake_fileops)
+    pages = iter(['<form>token</form>', '<body class="logged-in"></body>'])
+    monkeypatch.setattr(repo, 'get_soup', lambda url: BeautifulSoup(next(pages), 'html.parser'))
+    monkeypatch.setattr('source_code.repo.parse_soup.get_login_token', lambda soup: 't')
+    monkeypatch.setattr(repo, 'hold_if_asked', lambda: None)
+    posts = []
+
+    def post(method, url, data=None):
+        posts.append(method)
+        raise exceptions.PausedException()
+    monkeypatch.setattr(repo, 'my_request', post)
+    monkeypatch.setattr('source_code.repo.parse_soup.is_logged_in',
+                        lambda soup: 'logged-in' in str(soup))
+
+    repo.login('someone', 'secret')
+
+    assert posts == ['POST']
+
+
+def test_a_pause_lands_during_a_break_and_the_time_held_counts_toward_it(
+        fake_fileops, monkeypatch):
+    state = {'held': True}
+    sleeps = []
+    monkeypatch.setattr('source_code.repo.sleep', lambda s: sleeps.append(s))
+    clock = iter([100.0, 103.0])
+    monkeypatch.setattr('source_code.repo.monotonic', lambda: next(clock))
+    repo = Repository(fake_fileops, cancelled=lambda: False, held=lambda: state['held'])
+    holds = []
+
+    def hold():
+        holds.append(1)
+        state['held'] = False   # resumed after three seconds
+    monkeypatch.setattr(repo, 'hold_if_asked', hold)
+
+    repo.pause(5)
+
+    # held at once, and only the two seconds left of the break waited out after
+    assert holds == [1] and sleeps == [1, 1]
 
 
 def test_a_stop_partway_through_a_body_unwinds(fake_fileops):
