@@ -1,8 +1,8 @@
 <section class="user-settings">
   <h2>User settings</h2>
   <p class="hint">
-    Nothing changes until you press <strong>Save changes</strong>. Prompts and download formats
-    are kept in this browser only.
+    Every change is saved as you make it. Prompts and download formats are kept in this
+    browser only.
   </p>
 
   <section class="group prompts">
@@ -69,8 +69,8 @@
       <section class="group ini">
         <h3>settings.ini</h3>
         <p class="hint">
-          The helper's own settings, saved in <code>{{ file.file }}</code>. A change takes effect
-          from the next run.
+          The helper's own settings, saved in <code>{{ file.file }}</code> as soon as you leave a
+          box. A change takes effect from the next run.
         </p>
         <ul class="rows">
           @for (setting of file.settings; track setting.key) {
@@ -83,11 +83,11 @@
                 @case ('boolean') {
                   <select
                     [attr.aria-label]="setting.key"
-                    [value]="iniValues()[setting.key]"
-                    (change)="editIni(setting.key, $any($event.target).value)"
+                    [value]="setting.value"
+                    (change)="editIni(setting, $any($event.target).value, $any($event.target))"
                   >
-                    <option value="true" [selected]="iniValues()[setting.key] === 'true'">true</option>
-                    <option value="false" [selected]="iniValues()[setting.key] === 'false'">false</option>
+                    <option value="true" [selected]="setting.value === 'true'">true</option>
+                    <option value="false" [selected]="setting.value === 'false'">false</option>
                   </select>
                 }
                 @case ('integer') {
@@ -96,16 +96,16 @@
                     min="0"
                     step="1"
                     [attr.aria-label]="setting.key"
-                    [value]="iniValues()[setting.key]"
-                    (input)="editIni(setting.key, $any($event.target).value)"
+                    [value]="setting.value"
+                    (change)="editIni(setting, $any($event.target).value, $any($event.target))"
                   />
                 }
                 @default {
                   <input
                     type="text"
                     [attr.aria-label]="setting.key"
-                    [value]="iniValues()[setting.key]"
-                    (input)="editIni(setting.key, $any($event.target).value)"
+                    [value]="setting.value"
+                    (change)="editIni(setting, $any($event.target).value, $any($event.target))"
                   />
                 }
               }
@@ -116,20 +116,9 @@
     }
   }
 
-  <footer class="save-bar">
-    <button type="button" class="button primary save" [disabled]="saving()" (click)="save()">
-      {{ saving() ? 'Saving...' : 'Save changes' }}
-    </button>
-    @if (saved()) {
-      <span class="status saved" role="status">Saved.</span>
-    }
-    @if (iniProblem()) {
-      <span class="status problem" role="alert">
-        Prompts and formats were saved, but settings.ini was not: {{ iniProblem() }}
-      </span>
-    }
-    @if (problem()) {
-      <span class="status problem" role="alert">Could not save: {{ problem() }}</span>
-    }
-  </footer>
+  @if (toast(); as toast) {
+    <div class="toast" [class.problem]="toast.kind === 'problem'" [attr.role]="toast.kind === 'problem' ? 'alert' : 'status'">
+      {{ toast.text }}
+    </div>
+  }
 </section>

@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1782 python passed; 774 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1782 python passed; 779 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2133,9 +2133,15 @@ not to break:
   (`folder-warning.ts`, `work-list.ts`, `download-dialog.ts`, `updates.ts`). The tab lists the
   registry, so a prompt this browser has never shown can be turned off before it is, and one
   turned off can be turned back on. **A new prompt with such a box goes in `PROMPTS`**, or the
-  tab cannot undo it. The browser notice is not one: it is said once, with no choice.
-- **Nothing is written before Save changes.** The update banner reads its flag once, so Save
-  sets `UpdateCheck.dismissed` too, or the change would show only on the next visit.
+  tab cannot undo it. **The browser notice is one too**, though it has no box: it turns
+  itself off once seen, so its *Ask always* writes `always` (`Prompt.always`) rather than
+  removing the key, and the notice then shows on every visit with a *Don't show this again*
+  box of its own (`askedAlways`).
+- **Every change saves at once, with a toast** (`say`, `TOAST_MS`; a problem stays
+  `PROBLEM_TOAST_MS`) - there is no Save button, at the user's request. A settings.ini box is
+  sent on `change` (left, or Enter), never on `input`, so a half-typed number is not written;
+  only a value that differs is sent, and one the helper refuses is put back as the file has it.
+  The update banner reads its flag once, so choosing it sets `UpdateCheck.dismissed` too.
 - **Default formats are a starting point** (`ao3.defaultFiletypes`, `startingFiletypes`): the
   run window ticks them on opening and can still change them. Forced types are always added,
   types the helper does not offer are dropped, and untouched means the helper's own

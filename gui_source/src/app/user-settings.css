@@ -127,24 +127,26 @@ input[type='text'] {
   background: #3d6580;
 }
 
-.button:disabled {
-  opacity: 0.6;
-  cursor: default;
+/* says every change was saved, or why it was not - above the page, below the feedback tab */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  z-index: 900;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border: 1px solid #4f7a58;
+  border-radius: 5px;
+  background: #23362a;
+  color: var(--text-strong);
+  font-size: 0.88rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  transform: translateX(-50%);
 }
 
-.save-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.status.saved {
-  color: #8fc79a;
-}
-
-.status.problem {
-  color: #e08a8a;
+.toast.problem {
+  border-color: #8a4040;
+  background: #3a2020;
 }
 
 @media (max-width: 560px) {

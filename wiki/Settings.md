@@ -13,13 +13,16 @@ settings come from its deployment, so the tab does not offer them there.
 
 - **Prompts** - every message that offers "don't ask again", grouped by where it appears,
   each set to **Ask always** or **Do not ask again**, including ones you have not seen yet.
+  That includes the first-visit notice about saving to Dropbox or this device (with its
+  warning for browsers that are not Chromium): set to **Ask always**, it shows every time
+  you open the page, with its own "Don't show this again" box.
 - **Default download formats** - the formats ticked when a run's window opens. You can still
   change them in each run. JSON is always on, because it is the index.
 - **settings.ini** - the settings below, on a copy whose helper runs on your computer. The
   hosting settings (`HelperUrl`, `RequirePasscode`, `PageOrigin`) are left to the file itself.
 
-Nothing is saved until you press **Save changes**. Prompts and formats are kept in this
-browser only.
+Each change is saved as soon as you make it - a settings.ini box when you leave it - and a
+message at the bottom says so. Prompts and formats are kept in this browser only.
 
 | Setting | Default | What it does |
 | --- | --- | --- |

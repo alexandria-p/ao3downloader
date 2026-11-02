@@ -12,6 +12,7 @@
 
 import { safeGet, safeRemove, safeSet } from './storage';
 
+export const BROWSER_NOTICE_KEY = 'ao3.browserNoticeSeen';
 export const FOLDER_WARNING_KEY = 'ao3.folderWarningDismissed';
 export const HIDE_WARNING_KEY = 'ao3.hideWarningOff';
 export const SYNC_ACK_KEY = 'ao3.syncAcknowledged';
@@ -27,10 +28,26 @@ export interface Prompt {
   description: string;
   /** what the prompt's own code writes when it is told not to ask again */
   dismissed: string;
+  /**
+   * What *Ask always* writes, for a prompt that otherwise turns itself off once shown. Unset
+   * for the rest: they ask until someone ticks their box, so *Ask always* only removes the key.
+   */
+  always?: string;
 }
 
 /** grouped by `area`, in the order the tab lists them */
 export const PROMPTS: Prompt[] = [
+  {
+    key: BROWSER_NOTICE_KEY,
+    area: 'Your library',
+    name: 'Saving to Dropbox, or to this device',
+    description:
+      'What each place to keep a library needs - and, in a browser that is not Chromium on a ' +
+      'computer, the warning that it cannot save to a folder here. Shown once unless set to ' +
+      'ask always.',
+    dismissed: 'true',
+    always: 'always',
+  },
   {
     key: FOLDER_WARNING_KEY,
     area: 'Your library',
@@ -75,8 +92,14 @@ export function promptAsks(prompt: Prompt): boolean {
 }
 
 export function setPromptAsks(prompt: Prompt, asks: boolean): void {
-  if (asks) safeRemove(prompt.key);
-  else safeSet(prompt.key, prompt.dismissed);
+  if (!asks) safeSet(prompt.key, prompt.dismissed);
+  else if (prompt.always) safeSet(prompt.key, prompt.always);
+  else safeRemove(prompt.key);
+}
+
+/** whether *Ask always* was chosen for a prompt that would otherwise turn itself off */
+export function askedAlways(prompt: Prompt): boolean {
+  return !!prompt.always && safeGet(prompt.key) === prompt.always;
 }
 
 /** the file types this browser starts every run with ticked, or null for the helper's own */

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
 import { Jobs, ServerConfig } from './jobs';
 import {
+  BROWSER_NOTICE_KEY,
   DEFAULT_FILETYPES_KEY,
   FOLDER_WARNING_KEY,
   HIDE_WARNING_KEY,
@@ -12,7 +13,7 @@ import {
   startingFiletypes,
 } from './preferences';
 import { UpdateCheck } from './updates';
-import { IniSetting, UserSettings } from './user-settings';
+import { IniSetting, TOAST_MS, UserSettings } from './user-settings';
 
 const CONFIG: ServerConfig = {
   username: '',
@@ -57,8 +58,14 @@ function tick(name: string, on: boolean): void {
   box.dispatchEvent(new Event('change'));
 }
 
-async function save(): Promise<void> {
-  element.querySelector<HTMLButtonElement>('button.save')!.click();
+function toast(): string {
+  return element.querySelector('.toast')?.textContent?.trim() ?? '';
+}
+
+async function leave(selector: string, value: string): Promise<void> {
+  const input = element.querySelector<HTMLInputElement>(selector)!;
+  input.value = value;
+  input.dispatchEvent(new Event('change'));
   await settle();
 }
 
@@ -105,23 +112,55 @@ describe('UserSettings', () => {
     expect(element.querySelector<HTMLSelectElement>(`[data-prompt="${HIDE_WARNING_KEY}"] select`)!.value).toBe('skip');
   });
 
-  it('writes nothing until Save, then writes what each prompt reads', async () => {
+  it('has no Save button: each choice is written the moment it is made, and a toast says so', async () => {
     localStorage.setItem(HIDE_WARNING_KEY, 'off');
     await open();
+    expect(element.querySelector('button.save')).toBeNull();
+    expect(toast()).toBe('');
 
     choose(`[data-prompt="${FOLDER_WARNING_KEY}"] select`, 'skip');
+    await settle();
+    expect(localStorage.getItem(FOLDER_WARNING_KEY)).toBe('true');
+    expect(toast()).toBe('Saved: "Before you choose a folder" - do not ask again');
+
     choose(`[data-prompt="${SYNC_ACK_KEY}"] select`, 'skip');
     choose(`[data-prompt="${HIDE_WARNING_KEY}"] select`, 'ask');
     await settle();
-    expect(localStorage.getItem(FOLDER_WARNING_KEY)).toBeNull();
-    expect(localStorage.getItem(HIDE_WARNING_KEY)).toBe('off');
-
-    await save();
-
-    expect(localStorage.getItem(FOLDER_WARNING_KEY)).toBe('true');
     expect(localStorage.getItem(SYNC_ACK_KEY)).toBe('true');
     expect(localStorage.getItem(HIDE_WARNING_KEY)).toBeNull();
-    expect(element.querySelector('.status.saved')?.textContent).toContain('Saved');
+    expect(toast()).toContain('ask always');
+  });
+
+  it('lets the toast go after a moment', async () => {
+    vi.useFakeTimers();
+    try {
+      fixture = TestBed.createComponent(UserSettings);
+      element = fixture.nativeElement as HTMLElement;
+      fixture.detectChanges();
+      choose(`[data-prompt="${FOLDER_WARNING_KEY}"] select`, 'skip');
+      fixture.detectChanges();
+      expect(toast()).not.toBe('');
+
+      vi.advanceTimersByTime(TOAST_MS + 1);
+      fixture.detectChanges();
+      expect(toast()).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lists the notice about saving to Dropbox or this device, which otherwise shows only once', async () => {
+    await open();
+    expect(element.querySelector(`[data-prompt="${BROWSER_NOTICE_KEY}"]`)?.textContent).toContain('Chromium');
+
+    choose(`[data-prompt="${BROWSER_NOTICE_KEY}"] select`, 'ask');
+    await settle();
+    // shown on every visit from now on - not merely once more
+    expect(localStorage.getItem(BROWSER_NOTICE_KEY)).toBe('always');
+
+    choose(`[data-prompt="${BROWSER_NOTICE_KEY}"] select`, 'skip');
+    await settle();
+    expect(localStorage.getItem(BROWSER_NOTICE_KEY)).toBe('true');
   });
 
   it('turns the update banner off and on at once, not only on the next visit', async () => {
@@ -129,11 +168,9 @@ describe('UserSettings', () => {
     await open();
 
     choose(`[data-prompt="${UPDATE_BANNER_KEY}"] select`, 'skip');
-    await save();
     expect(updates.dismissed()).toBe(true);
 
     choose(`[data-prompt="${UPDATE_BANNER_KEY}"] select`, 'ask');
-    await save();
     expect(updates.dismissed()).toBe(false);
     expect(localStorage.getItem(UPDATE_BANNER_KEY)).toBeNull();
   });
@@ -151,15 +188,15 @@ describe('UserSettings', () => {
     expect(element.querySelector<HTMLInputElement>('input[name="format-EPUB"]')!.checked).toBe(false);
   });
 
-  it('saves the formats a run should start with, and leaves the helper defaults in force when untouched', async () => {
+  it('saves the formats a run should start with as each is ticked, and leaves the helper defaults alone until then', async () => {
     await open();
-    await save();
     expect(localStorage.getItem(DEFAULT_FILETYPES_KEY)).toBeNull();
 
     tick('format-HTML', false);
     tick('format-PDF', true);
     tick('format-EPUB', true);
-    await save();
+    await settle();
+    expect(toast()).toBe('Saved: runs start with JSON, EPUB, PDF');
 
     // in the order the helper offers them, whatever order they were ticked in
     expect(JSON.parse(localStorage.getItem(DEFAULT_FILETYPES_KEY)!)).toEqual(['JSON', 'EPUB', 'PDF']);
@@ -171,7 +208,7 @@ describe('UserSettings', () => {
     expect(element.querySelector<HTMLInputElement>('input[name="format-PDF"]')!.checked).toBe(true);
 
     element.querySelector<HTMLButtonElement>('button.reset-formats')!.click();
-    await save();
+    await settle();
 
     expect(localStorage.getItem(DEFAULT_FILETYPES_KEY)).toBeNull();
   });
@@ -198,35 +235,46 @@ describe('UserSettings', () => {
     expect(rows[0].textContent).toContain('seconds to wait');
   });
 
-  it('sends only the settings that changed, and only on Save', async () => {
+  it('writes a setting once its box is left - not while it is being typed', async () => {
     await open();
 
     const wait = element.querySelector<HTMLInputElement>('[data-setting="ExtraWaitTime"] input')!;
-    wait.value = '30';
+    wait.value = '3';
     wait.dispatchEvent(new Event('input'));
     await settle();
     expect(posted).toEqual([]);
 
-    await save();
-
+    await leave('[data-setting="ExtraWaitTime"] input', '30');
     expect(posted).toEqual([{ ExtraWaitTime: '30' }]);
+    expect(toast()).toBe('Saved to settings.ini: ExtraWaitTime=30 - from the next run');
+
+    // leaving it as it is sends nothing
+    await leave('[data-setting="ExtraWaitTime"] input', '30');
+    expect(posted).toHaveLength(1);
   });
 
-  it('says when the helper would not take a value, and keeps the prompts it saved', async () => {
+  it('writes a true/false setting as soon as it is picked', async () => {
+    await open();
+
+    choose('[data-setting="EnableDebugTools"] select', 'true');
+    await settle();
+
+    expect(posted).toEqual([{ EnableDebugTools: 'true' }]);
+  });
+
+  it('says when the helper would not take a value, and puts back what the file still says', async () => {
     await open();
     const helper = TestBed.inject(HelperConnection);
     vi.mocked(helper.call).mockImplementation(async () =>
       new Response(JSON.stringify({ error: 'ExtraWaitTime takes a whole number of 0 or more' }), { status: 400 }),
     );
-    choose(`[data-prompt="${FOLDER_WARNING_KEY}"] select`, 'skip');
-    const wait = element.querySelector<HTMLInputElement>('[data-setting="ExtraWaitTime"] input')!;
-    wait.value = '-3';
-    wait.dispatchEvent(new Event('input'));
 
-    await save();
+    await leave('[data-setting="ExtraWaitTime"] input', '-3');
 
-    expect(element.querySelector('.status.problem')?.textContent).toContain('ExtraWaitTime takes a whole number');
-    expect(localStorage.getItem(FOLDER_WARNING_KEY)).toBe('true');
+    expect(element.querySelector('.toast.problem')?.textContent).toContain(
+      'Not saved: ExtraWaitTime takes a whole number',
+    );
+    expect(element.querySelector<HTMLInputElement>('[data-setting="ExtraWaitTime"] input')!.value).toBe('15');
   });
 
   it('offers no settings.ini when the helper says it cannot be edited', async () => {

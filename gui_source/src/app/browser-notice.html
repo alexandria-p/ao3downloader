@@ -52,6 +52,17 @@
   </section>
 
   <footer>
+    @if (always) {
+      <label class="check">
+        <input
+          type="checkbox"
+          name="dontShowAgain"
+          [checked]="dontShowAgain()"
+          (change)="dontShowAgain.set($any($event.target).checked)"
+        />
+        <span>Don't show this again</span>
+      </label>
+    }
     <button type="button" class="button primary" (click)="dismiss()">Got it</button>
   </footer>
 </div>

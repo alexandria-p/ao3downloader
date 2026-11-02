@@ -1,13 +1,13 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, inject, signal } from '@angular/core';
 import { HelperConnection } from './helper-connection';
 import { Jobs, ServerConfig } from './jobs';
 import {
   PROMPTS,
   PROMPT_AREAS,
   Prompt,
+  UPDATE_BANNER_KEY,
   promptAsks,
   saveDefaultFiletypes,
-  savedDefaultFiletypes,
   setPromptAsks,
   startingFiletypes,
 } from './preferences';
@@ -30,22 +30,36 @@ interface IniFile {
   settings: IniSetting[];
 }
 
+export interface Toast {
+  text: string;
+  kind: 'saved' | 'problem';
+}
+
+/** how long a toast stays up - long enough to read, short enough not to pile up */
+export const TOAST_MS = 2500;
+/** a problem stays longer: it says what did not happen, which is worth the time to read */
+export const PROBLEM_TOAST_MS = 6000;
+
 /**
  * The User settings tab: what this browser remembers, and - on a helper on this computer -
  * the helper's settings.ini.
  *
- * Nothing is written until Save. Every prompt with a "don't ask again" box is listed, from
- * `PROMPTS`, whether or not this browser has met it yet, so a prompt can be turned off before
- * it is ever shown and turned back on after. settings.ini is offered only where the page's
- * helper is on this computer and says it may be edited (`editable`): a hosted copy's file is
- * written by its deployment, and an edit there would be lost on the next restart.
+ * **Every change is saved the moment it is made**, and a toast says so (or says what went
+ * wrong) - there is no Save button to forget. A settings.ini value is sent when its box is
+ * left or Enter is pressed (`change`, not `input`), so a number half-typed is never written,
+ * and one the helper refuses goes back to what the file still says.
+ *
+ * Every prompt with a "don't ask again" box is listed, from `PROMPTS`, whether or not this
+ * browser has met it yet. settings.ini is offered only where the page's helper is on this
+ * computer and says it may be edited (`editable`): a hosted copy's file is written by its
+ * deployment, and an edit there would be lost on the next restart.
  */
 @Component({
   selector: 'app-user-settings',
   templateUrl: './user-settings.html',
   styleUrl: './user-settings.css',
 })
-export class UserSettings {
+export class UserSettings implements OnDestroy {
   private readonly jobs = inject(Jobs);
   private readonly helper = inject(HelperConnection);
   private readonly updates = inject(UpdateCheck);
@@ -54,42 +68,26 @@ export class UserSettings {
     area,
     prompts: PROMPTS.filter((p) => p.area === area),
   }));
-  protected readonly asking = signal<Record<string, Asking>>(this.storedAsking());
+  protected readonly asking = signal<Record<string, Asking>>(
+    Object.fromEntries(PROMPTS.map((p) => [p.key, promptAsks(p) ? 'ask' : 'skip'])),
+  );
 
   protected readonly config = signal<ServerConfig | null>(this.jobs.config());
   protected readonly helperAnswered = signal(true);
   protected readonly formats = signal<string[]>([]);
-  /** the helper's own defaults are back in force - nothing of this browser's is kept */
-  protected readonly formatsReset = signal(false);
 
   protected readonly local = this.helper.isLocal();
   protected readonly ini = signal<IniFile | null>(null);
-  /** settings.ini values as edited, by key - written only once Save is pressed */
-  protected readonly iniValues = signal<Record<string, string>>({});
-  protected readonly iniProblem = signal('');
 
-  protected readonly saving = signal(false);
-  protected readonly saved = signal(false);
-  protected readonly problem = signal('');
-
-  protected readonly iniChanges = computed(() => {
-    const file = this.ini();
-    if (!file) return {};
-    const edited = this.iniValues();
-    const changes: Record<string, string> = {};
-    for (const setting of file.settings) {
-      const value = edited[setting.key];
-      if (value !== undefined && value !== setting.value) changes[setting.key] = value;
-    }
-    return changes;
-  });
+  readonly toast = signal<Toast | null>(null);
+  private toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
     void this.load();
   }
 
-  private storedAsking(): Record<string, Asking> {
-    return Object.fromEntries(PROMPTS.map((p) => [p.key, promptAsks(p) ? 'ask' : 'skip']));
+  ngOnDestroy(): void {
+    clearTimeout(this.toastTimer);
   }
 
   private async load(): Promise<void> {
@@ -104,7 +102,7 @@ export class UserSettings {
     try {
       const response = await this.helper.call('/api/settings-file');
       if (!response.ok) throw new Error(String(response.status));
-      this.showIni((await response.json()) as IniFile);
+      this.ini.set((await response.json()) as IniFile);
     } catch {
       // an older helper has no such endpoint, and a stopped one does not answer: either
       // way there is nothing here to edit
@@ -112,14 +110,19 @@ export class UserSettings {
     }
   }
 
-  private showIni(file: IniFile): void {
-    this.ini.set(file);
-    this.iniValues.set(Object.fromEntries(file.settings.map((s) => [s.key, s.value])));
+  private say(text: string, kind: Toast['kind'] = 'saved'): void {
+    clearTimeout(this.toastTimer);
+    this.toast.set({ text, kind });
+    this.toastTimer = setTimeout(() => this.toast.set(null), kind === 'saved' ? TOAST_MS : PROBLEM_TOAST_MS);
   }
 
   protected choose(prompt: Prompt, value: string): void {
-    this.asking.update((all) => ({ ...all, [prompt.key]: value === 'skip' ? 'skip' : 'ask' }));
-    this.saved.set(false);
+    const asks = value !== 'skip';
+    this.asking.update((all) => ({ ...all, [prompt.key]: asks ? 'ask' : 'skip' }));
+    setPromptAsks(prompt, asks);
+    // the banner reads its flag once, when the page opens - tell it now
+    if (prompt.key === UPDATE_BANNER_KEY) this.updates.dismissed.set(!asks);
+    this.say(`Saved: "${prompt.name}" - ${asks ? 'ask always' : 'do not ask again'}`);
   }
 
   protected isForced(filetype: string): boolean {
@@ -127,69 +130,45 @@ export class UserSettings {
   }
 
   protected toggleFormat(filetype: string, on: boolean): void {
-    if (this.isForced(filetype)) return;
+    const config = this.config();
+    if (!config || this.isForced(filetype)) return;
     this.formats.update((all) => (on ? [...all.filter((x) => x !== filetype), filetype] : all.filter((x) => x !== filetype)));
-    this.formatsReset.set(false);
-    this.saved.set(false);
+    // in the order the helper offers them, so the stored list reads the same way every time
+    saveDefaultFiletypes(config.filetypes.filter((x) => this.formats().includes(x)));
+    this.say(`Saved: runs start with ${this.formatList()}`);
   }
 
   protected resetFormats(): void {
     const config = this.config();
     if (!config) return;
-    this.formats.set([...new Set([...config.forced, ...(config.defaults ?? [])])]);
-    this.formatsReset.set(true);
-    this.saved.set(false);
+    saveDefaultFiletypes(null);
+    this.formats.set(startingFiletypes(config));
+    this.say(`Saved: back to the app's defaults - ${this.formatList()}`);
   }
 
-  protected editIni(key: string, value: string): void {
-    this.iniValues.update((all) => ({ ...all, [key]: value }));
-    this.saved.set(false);
+  private formatList(): string {
+    const config = this.config();
+    return (config?.filetypes ?? []).filter((x) => this.formats().includes(x)).join(', ');
   }
 
-  async save(): Promise<void> {
-    this.saving.set(true);
-    this.saved.set(false);
-    this.problem.set('');
-    this.iniProblem.set('');
+  /** one setting changed and left: write it now. A refused value is put back as the file has it */
+  protected async editIni(setting: IniSetting, value: string, input?: HTMLInputElement | HTMLSelectElement): Promise<void> {
+    if (value === setting.value) return;
     try {
-      for (const prompt of PROMPTS) setPromptAsks(prompt, this.asking()[prompt.key] !== 'skip');
-      // the banner reads its flag once, when the page opens - tell it now
-      this.updates.dismissed.set(this.asking()[PROMPTS.find((p) => p.area === 'Updates')!.key] === 'skip');
-
-      const config = this.config();
-      if (config) {
-        if (this.formatsReset()) saveDefaultFiletypes(null);
-        else if (savedDefaultFiletypes() !== null || !sameSet(this.formats(), startingFiletypes(config))) {
-          // the order the helper offers them in, so the file reads the same way every time
-          saveDefaultFiletypes(config.filetypes.filter((x) => this.formats().includes(x)));
-        }
-      }
-
-      const changes = this.iniChanges();
-      if (Object.keys(changes).length) {
-        const response = await this.helper.call('/api/settings-file', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ values: changes }),
-        });
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          this.iniProblem.set(body.error || `the helper answered ${response.status}`);
-          return;
-        }
-        this.showIni(body as IniFile);
-        // the run window reads these through the config, so it sees the new values at once
-        await this.jobs.loadConfig();
-      }
-      this.saved.set(true);
+      const response = await this.helper.call('/api/settings-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: { [setting.key]: value } }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `the helper answered ${response.status}`);
+      this.ini.set(body as IniFile);
+      this.say(`Saved to settings.ini: ${setting.key}=${value.trim()} - from the next run`);
+      // the run window reads these through the config, so it sees the new value at once
+      void this.jobs.loadConfig();
     } catch (e) {
-      this.problem.set(e instanceof Error ? e.message : String(e));
-    } finally {
-      this.saving.set(false);
+      if (input) input.value = setting.value;
+      this.say(`Not saved: ${e instanceof Error ? e.message : String(e)}`, 'problem');
     }
   }
-}
-
-function sameSet(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((x) => b.includes(x));
 }
