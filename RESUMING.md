@@ -203,9 +203,9 @@ pages, and which files.
 - **Overwriting** carries through a retry, as every option does. *Start its downloads from
   the top* then fetches every format again; *carry on* still passes over what the earlier
   attempt saved, since it already overwrote those.
-- **Downloads from the top** behaves as a fresh run's downloads do: the scans fetch a fic in
-  every format when it is missing any (their download step goes fic by fic); the custom run's
-  date range goes format by format, so it keeps a current copy even in a fic missing others.
+- **Downloads from the top** behaves as a fresh run's downloads do: every format is judged
+  against the index on its own - a format with no copy, or a copy dated older than the index,
+  is fetched; a current copy is kept, even in a fic missing other formats.
 
 ### The quick scan, specifically
 

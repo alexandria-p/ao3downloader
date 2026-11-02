@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1935 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1940 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1246,7 +1246,11 @@ in a `finally`.
 
 This was per *fic*: anything missing or stale meant `download_one_indexed` with the run's
 whole filetype list, so a fic that had a current html and no pdf re-fetched the html too. A
-request each, spent for nothing.
+request each, spent for nothing. **The scans' index download is per format too**:
+`download_indexed` hands its folder scan to `download_one_indexed` (`existing_copies`), and
+`current_formats` passes over a format already on disk that `superseded` does not name
+(`AO3_INFO_FORMAT_CURRENT`) - so a fic is fetched only in the formats missing or behind, or
+all of them on an overwriting run.
 
 **The verdicts come out of `plan_downloads`, not from judging again here.** `superseded`
 already names the exact formats it decided to replace, so there is one definition of

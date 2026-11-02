@@ -136,6 +136,9 @@ class Ao3:
         # {work link: {FILETYPE: path of the copy this run is replacing}}. filled in by the
         # caller when it has worked out which downloads are out of date.
         self.superseded: dict[str, dict[str, str]] = {}
+        # the folder scan, while downloading from the index: a format already here and not
+        # named in `superseded` is current, and is not fetched again
+        self.existing_copies: dict[str, dict[str, dict]] | None = None
         # formats of a work an overwriting run was told not to replace: the copy on disk is
         # newer than the version this run would write. by link, formats upper-case
         self.keep_formats: dict[str, set[str]] = {}
@@ -722,6 +725,15 @@ class Ao3:
         print(strings.AO3_INFO_FROM_INDEX.format(len(pending)))
         if existing is not None: self.say_why_downloading(pending, existing, forced)
 
+        self.existing_copies = existing
+        try:
+            self.download_pending(pending, maximum)
+        finally:
+            self.existing_copies = None
+
+    def download_pending(self, pending: list[dict], maximum: int) -> None:
+        """The loop of `download_indexed`, one work at a time."""
+
         for done, record in enumerate(pending, start=1):
             log: dict = {'link': record['link']}
             try:
@@ -794,12 +806,15 @@ class Ao3:
         display = ' / '.join(x for x in title if x)
         failed: list[tuple[str, Exception]] = []
         kept = self.keep_formats.get(record['link']) or set()
+        current = self.current_formats(record)
         formats = [x for x in self.filetypes if x.upper() not in kept
-                   and not self.format_done(work, x)]
+                   and not self.format_done(work, x) and x.upper() not in current]
         for filetype in self.filetypes:
             if filetype.upper() in kept: print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
             elif self.format_done(work, filetype):
                 print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, work))
+            elif filetype.upper() in current:
+                print(strings.AO3_INFO_FORMAT_CURRENT.format(filetype))
         for filetype in formats:
             self.check_cancelled()
             progress.report(self.progress, progress.WORK, title=display,
@@ -818,6 +833,23 @@ class Ao3:
         log['success'] = True
         self.fileops.write_log(log)
 
+
+    def current_formats(self, record: dict) -> set[str]:
+        """The formats of this work already in the folder that the check step did not mark
+        to be replaced - so current, and not fetched again.
+
+        A work is downloaded because some format of it is missing or behind; the others may
+        be perfectly current, and fetching them again spends a request each for nothing. The
+        check step's `superseded` names exactly the copies it decided to replace (behind the
+        index, undated ones the user chose to refresh, or every one on an overwriting run), so
+        a copy here and not there is kept - the one rule for what is outdated. Only while
+        downloading from the index with a folder scan to go by (`existing_copies`).
+        """
+
+        if not self.existing_copies: return set()
+        here = {str(x).upper() for x in (self.existing_copies.get(str(record.get('id'))) or {})}
+        replacing = {str(x).upper() for x in (self.superseded.get(record.get('link')) or {})}
+        return here - replacing
 
     def format_done(self, work: str, filetype: str) -> bool:
         """Whether an earlier attempt this run carries on from already saved this format of

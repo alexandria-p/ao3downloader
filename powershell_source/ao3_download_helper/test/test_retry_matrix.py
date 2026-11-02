@@ -265,10 +265,9 @@ MISSING_FROM_2 = [('2', 'EPUB'), ('2', 'MOBI'), ('2', 'PDF')]
 @pytest.mark.parametrize('workflow', DOWNLOADING, ids=['quick', 'quick, date range', 'full',
                                                         'custom', 'custom, date range'])
 @pytest.mark.parametrize('mode, wanted, wanted_overwriting', [
-    # from the top: as a fresh run would - a fic with every format current is left alone, one
-    # missing any is fetched whole (the scans' download step works per fic), and overwriting
-    # fetches everything
-    pytest.param(server.RETRY_REDOWNLOAD, every(2, 3), every(1, 2, 3),
+    # from the top: every format judged against the index, as a fresh run does - a current
+    # copy kept, a missing or older one fetched; overwriting fetches everything
+    pytest.param(server.RETRY_REDOWNLOAD, sorted(MISSING_FROM_2 + every(3)), every(1, 2, 3),
                  id='start its downloads from the top'),
     # carrying on: only what is still missing, a fic partway through its formats included -
     # even when overwriting, since the earlier attempt already overwrote what it saved
@@ -289,10 +288,6 @@ def test_a_retry_takes_up_its_downloads_from_where_it_was_asked_to(
     with patch.object(Ao3, 'refresh_one', side_effect=lambda record, *a, **k: record):
         retry(library, repo, mode)
 
-    if workflow == CUSTOM_RANGE and mode == server.RETRY_REDOWNLOAD and not overwrite:
-        # a date range's downloads go fic by fic and format by format, so a current copy is
-        # kept even in a fic missing other formats
-        wanted = sorted(MISSING_FROM_2 + every(3))
     assert asked == []    # no listing is read again
     assert sorted(files) == (wanted_overwriting if overwrite else wanted)
 
@@ -300,6 +295,27 @@ def test_a_retry_takes_up_its_downloads_from_where_it_was_asked_to(
 
 
 # region checking what the earlier attempt says it did
+
+@pytest.mark.parametrize('workflow', DOWNLOADING, ids=['quick', 'quick, date range', 'full',
+                                                        'custom', 'custom, date range'])
+def test_downloads_from_the_top_replace_only_a_format_older_than_the_index(library, workflow):
+    # fic 1's index and files say 01 Jan; its html is renamed to an older date, so that copy
+    # alone is behind the index
+    import os
+    progress = three_fics(library)
+    folder = library.worksfolder
+    [html] = [n for n in os.listdir(folder) if n.startswith('1 ') and n.endswith('.html')]
+    os.rename(os.path.join(folder, html),
+              os.path.join(folder, html.replace('2025-01-01', '2024-12-01')))
+    action, options = workflow
+    earlier_run(library, action, options, progress, failures=[3])
+    repo, _, files = a_repo({})
+
+    with patch.object(Ao3, 'refresh_one', side_effect=lambda record, *a, **k: record):
+        retry(library, repo, server.RETRY_REDOWNLOAD)
+
+    assert sorted(files) == sorted([('1', 'HTML')] + MISSING_FROM_2 + every(3))
+
 
 def test_a_format_whose_file_has_gone_is_fetched_again(library):
     progress = three_fics(library)
