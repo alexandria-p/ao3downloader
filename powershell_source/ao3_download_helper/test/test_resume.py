@@ -281,7 +281,7 @@ UPDATED_PLACE = {'id': 'bookmark_9', 'date': '2025-01-09', 'sort': 'updated'}
 @pytest.mark.parametrize('walks, wanted_requests, wanted_works, marks', [
     pytest.param(
         {}, [('bookmarked', 1), ('bookmarked', 2), ('bookmarked', 3),
-             ('updated', 1), ('updated', 2), ('updated', 3)],
+             ('updated', 1), ('updated', 1), ('updated', 2), ('updated', 3)],
         [22, 21, 20, 19, 18, 17, 12, 11, 10, 9, 8, 7], ('done', 'done'),
         id='the first walk did not start'),
     pytest.param(
@@ -289,13 +289,13 @@ UPDATED_PLACE = {'id': 'bookmark_9', 'date': '2025-01-09', 'sort': 'updated'}
                         'works': ['20', '19']}},
         # two bookmarks made since push the date reached onto page 2: found, walked from there
         [('bookmarked', 1), ('bookmarked', 2), ('bookmarked', 2), ('bookmarked', 3),
-         ('updated', 1), ('updated', 2), ('updated', 3)],
+         ('updated', 1), ('updated', 1), ('updated', 2), ('updated', 3)],
         [20, 19, 18, 17, 12, 11, 10, 9, 8, 7], ('done', 'done'),
         id='it stopped during the first walk'),
     pytest.param(
         {'bookmarked': {'page': 2, 'anchor': BOOKMARKED_PLACE, 'done': True,
                         'works': ['20', '19', '18', '17']}},
-        [('updated', 1), ('updated', 2), ('updated', 3)],
+        [('updated', 1), ('updated', 1), ('updated', 2), ('updated', 3)],
         [20, 19, 18, 17, 12, 11, 10, 9, 8, 7], ('earlier', 'done'),
         id='the first walk finished, the second did not start'),
     pytest.param(
@@ -342,6 +342,74 @@ def test_a_quick_scan_carries_on_its_two_walks_from_wherever_it_stopped(
     # and both walks are now saved as finished, for a retry of this retry
     assert job.progress()['walks']['bookmarked']['done']
     assert job.progress()['walks']['updated']['done']
+
+
+RANGE = {'dates': True, 'dateFrom': '2025-01-08', 'dateTo': '2025-01-19'}
+U = 'updated'
+B = 'bookmarked'
+EVERY_BOOKMARKED = ['22', '21', '20', '19', '18', '17']
+FROM_CEILING = [(U, 1), (U, 2), (U, 2), (U, 3), (U, 4)]
+
+
+@pytest.mark.parametrize('walks, wanted_requests', [
+    pytest.param(
+        {}, [(B, 1), (B, 2), (B, 2), (B, 3), *FROM_CEILING], id='the first walk did not start'),
+    pytest.param(
+        {B: {'page': 2, 'anchor': {**BOOKMARKED_PLACE, 'date': '2025-01-17'}, 'done': False,
+             'works': ['22', '21', '20', '19']}},
+        # it reached the 17th, older than the ceiling: carries on from there, not the ceiling
+        [(B, 2), (B, 3), (B, 3), *FROM_CEILING], id='it stopped during the first walk'),
+    pytest.param(
+        {B: {'page': 3, 'anchor': BOOKMARKED_PLACE, 'done': True, 'works': EVERY_BOOKMARKED}},
+        # the custom ceiling to the floor, not page 1 to the floor
+        FROM_CEILING, id='the first walk finished, the second did not start'),
+    pytest.param(
+        {B: {'page': 3, 'anchor': BOOKMARKED_PLACE, 'done': True, 'works': EVERY_BOOKMARKED},
+         U: {'page': 2, 'anchor': UPDATED_PLACE, 'done': False,
+             'works': ['24', '23', '12', '11', '10', '9']}},
+        [(U, 2), (U, 3), (U, 3), (U, 4)], id='it stopped during the second walk'),
+    pytest.param(
+        {B: {'page': 3, 'anchor': BOOKMARKED_PLACE, 'done': True, 'works': EVERY_BOOKMARKED},
+         U: {'page': 4, 'anchor': UPDATED_PLACE, 'done': True,
+             'works': ['24', '23', '12', '11', '10', '9', '8', '7']}},
+        [], id='both walks finished'),
+])
+def test_a_quick_scan_over_a_date_range_retries_each_walk_from_its_ceiling_to_its_floor(
+        library, walks, wanted_requests):
+    # the 8th to the 19th: bookmarked 17-19 of the first listing, updated 8-12 of the second.
+    # 23 and 24 were updated after the range, and sit above it
+    writer, _ = an_ao3(library, {})
+    for work in range(7, 25):
+        writer.save_metadata({'id': str(work), 'title': f'Work {work}', 'authors': ['A'],
+                              'link': f'https://archiveofourown.org/works/{work}',
+                              'date_updated': f'{work:02d} Jan 2025',
+                              'date_bookmarked': f'{work:02d} Jan 2025'})
+    pages = {**listing([22, 21], [20, 19], [18, 17]),
+             **listing([24, 23], [12, 11], [10, 9], [8, 7], link=UPDATED_LINK)}
+    _, repo = an_ao3(library, pages)
+    job, _ = a_job(library, server.ACTION_QUICK, earlier={'floor': '2025-01-08', 'walks': walks})
+    job.options.update(RANGE)
+
+    with patch.object(server, 'index_series_and_non_bookmarks', return_value=[]), \
+         patch.object(server, 'download_planned') as downloading, \
+         patch.object(server, 'finish_run'):
+        server.run_quick(job, library, repo, None)
+
+    requests = [(U if strings.AO3_SORT_BY_UPDATED in c.args[0] else B,
+                 parse_text.get_page_number(c.args[0])) for c in repo.get_soup.call_args_list]
+    assert requests == wanted_requests
+    assert sorted(int(r['id']) for r in downloading.call_args.args[3]) == [
+        8, 9, 10, 11, 12, 17, 18, 19]
+    assert job.progress()['walks'][B]['done'] and job.progress()['walks'][U]['done']
+
+
+def test_a_first_attempt_over_a_date_range_still_walks_from_page_1(library):
+    ao3, repo = an_ao3(library, listing([22, 21], [20, 19]))
+    job, _ = a_job(library)
+
+    server.walk_listing(job, library, ao3, 'all', LINK, anchored=True, ceiling='2025-01-19')
+
+    assert fetched(repo) == [1, 2]
 
 
 def test_an_updated_walk_saves_the_date_updated_as_its_place(library):

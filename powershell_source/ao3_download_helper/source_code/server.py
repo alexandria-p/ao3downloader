@@ -1352,7 +1352,7 @@ def restore_series(job: Job, ao3: Ao3) -> None:
 
 
 def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
-                 anchored: bool, **kwargs) -> list[dict]:
+                 anchored: bool, ceiling: str = '', **kwargs) -> list[dict]:
     """Walk one listing through `get_metadata`, saving how far it gets - and, when resuming,
     carrying on from where the earlier attempt stopped.
 
@@ -1362,6 +1362,13 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
     date bookmarked, where the last bookmark it saved can be found again (`find_anchor`).
     A listing sorted by date updated is walked again from the first page: a fic ao3 updated
     since moves to the top, so no place in it stays put.
+
+    `ceiling` is the newest date a **retry** has any use for, in the listing's own sort -
+    a date range's end, or the first attempt's start - for walks whose works above it are
+    left out anyway. A retried walk then starts at the first page holding that date rather
+    than page 1, and one that broke off starts at whichever is older, the ceiling or the date
+    it reached. A first attempt walks from page 1 whatever it is given: this only shortens a
+    retry, it never changes how a listing is walked.
 
     Returns the works the walk covers, in both attempts. Whether it was walked at all this
     time is left on `ao3.walk_skipped`, for the caller's checklist.
@@ -1379,15 +1386,22 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
         job.checkpoint(walks=walks)
         ao3.walk_skipped = True
         return records_by_id(fileops, earlier.get('works'))
-    dated = earlier and (earlier.get('anchor') or {}).get('date') and earlier.get('page')
+    sort = 'bookmarked' if anchored else 'updated'
+    reached = str((earlier or {}).get('anchor', {}).get('date') or '') if earlier else ''
     # an anchor saved before walks recorded their sort is a date bookmarked
-    if dated and not anchored and (earlier.get('anchor') or {}).get('sort') != 'updated':
-        dated = False
-    if dated:
-        page = find_anchor(ao3, link, int(earlier['page']), earlier['anchor'])
+    if reached and (not earlier.get('page') or
+                    (earlier.get('anchor') or {}).get('sort', 'bookmarked') != sort):
+        reached = ''
+    ceiling = parse_text.get_date_stamp(ceiling) if job.resume and ceiling else ''
+    target = min(d for d in (reached, ceiling) if d) if (reached or ceiling) else ''
+    if target:
+        if target == ceiling and ceiling != reached:
+            print(strings.AO3_INFO_RESUME_FROM_CEILING.format(ceiling))
+        hint = int(earlier['page']) if reached else 1
+        page = find_anchor(ao3, link, hint, {'date': target, 'sort': sort})
         if page:
             ao3.start = page
-            carried = [str(x) for x in earlier.get('works') or []]
+            carried = [str(x) for x in (earlier or {}).get('works') or []]
         else:
             print(strings.AO3_INFO_RESUME_ANCHOR_LOST)
     elif earlier:
@@ -2317,8 +2331,11 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         # 2019 sits far below the floor on that listing and would never be reached
         job.steps.start('bookmarked')
         print(strings.AO3_INFO_QUICK_BOOKMARKED.format(floor or strings.AO3_INFO_DATE_ANY))
+        # a retry over a date range starts at its ceiling - but only with a floor too: with
+        # none, this walk is also the updated-date half, and dates updated are in no order here
         by_bookmarked = walk_listing(
             job, fileops, ao3, 'bookmarked', sorted_bookmarks_link(job), anchored=True,
+            ceiling=ceiling if window and floor else '',
             stop_before=floor, stop_on='bookmarked', own_bookmarks=True)
         finish_walk_step(job, ao3, 'bookmarked')
 
@@ -2337,7 +2354,7 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             # ao3 updated since jumps to the top, so its page is found by date, not by number
             by_updated = walk_listing(
                 job, fileops, ao3, 'updated', f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
-                anchored=False, stop_before=floor, own_bookmarks=True)
+                anchored=False, ceiling=ceiling, stop_before=floor, own_bookmarks=True)
             finish_walk_step(job, ao3, 'index')
 
         if window:
@@ -3719,11 +3736,11 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
         print(strings.AO3_INFO_DATE_INDEXING.format(start) if start
               else strings.AO3_INFO_DATE_NO_FLOOR)
         # the whole index is read below rather than just what came back here: a fic in the
-        # window that is no longer bookmarked is still one the window asked for. walked again
-        # from the top when resuming, as every listing sorted by date updated is
+        # window that is no longer bookmarked is still one the window asked for. a retry
+        # starts at the window's end: nothing updated after it is chosen
         walk_listing(job, fileops, ao3, 'updated',
                      f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}', anchored=False,
-                     stop_before=start, own_bookmarks=True)
+                     ceiling=end, stop_before=start, own_bookmarks=True)
         finish_walk_step(job, ao3, 'index')
     elif metadata:
         # asked for, and turned off - so it is shown as skipped rather than dropped

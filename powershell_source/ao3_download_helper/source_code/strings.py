@@ -727,6 +727,7 @@ AO3_INFO_RESUME_COLLECTION_SHORT = ('collection {}: found {} works of the {} it 
                                     'the front since, so reading pages 1 to {} again')
 AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: the earlier attempt '
                               'did not save a date to carry on from')
+AO3_INFO_RESUME_FROM_CEILING = 'nothing after {} is wanted from this listing, so the walk starts there'
 AO3_INFO_RESUME_LOOKING = 'looking for where the earlier attempt stopped (fics dated {1}): page {0}'
 AO3_INFO_RESUME_FOUND = 'the first fic dated {1} or earlier is now on page {0} - carrying on from there'
 AO3_INFO_RESUME_ANCHOR_LOST = ('nothing in the listing is now dated as far back as where the '

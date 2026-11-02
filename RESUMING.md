@@ -178,15 +178,28 @@ index, and the checklist marks it *done in the earlier run*.
 
   | Where the earlier attempt got to | By date bookmarked | By date updated |
   | --- | --- | --- |
-  | The first walk did not start | walked from page 1 | walked from page 1 |
-  | Stopped during the first walk | carries on from the date it reached | walked from page 1 |
-  | First finished, second did not start | taken from the index, no requests | walked from page 1 |
-  | Stopped during the second walk | taken from the index, no requests | carries on from the date it reached |
+  | The first walk did not start | ceiling → floor | ceiling → floor |
+  | Stopped during the first walk | date it reached → floor | ceiling → floor |
+  | First finished, second did not start | taken from the index, no requests | ceiling → floor |
+  | Stopped during the second walk | taken from the index, no requests | date it reached → floor |
   | Both finished | taken from the index, no requests | taken from the index, no requests |
+
+  **The ceiling** is the newest date the retry has any use for from that walk, in its own
+  sort: the date range's end (or the first attempt's start, if that is earlier) on a quick scan
+  over a date range; the first attempt's start for the date updated walk of an ordinary quick
+  scan. The walk starts at the first page now holding that date, found the same way as a
+  date reached. An ordinary quick scan's date bookmarked walk has no ceiling - it keeps new
+  bookmarks whatever their date - so it starts at page 1, and so does a date range with no
+  start date (that one walk then also supplies the dates updated, which are in no order on
+  it). A walk that broke off starts at whichever is older, the ceiling or the date it reached.
+  **Only a retry does this**: a first attempt walks from page 1 as it always has.
 
   A walk taken from the index is ticked *done in the earlier run*. Whatever happens, both
   walks end the retry saved as finished, so a retry of the retry skips both.
-  `test_a_quick_scan_carries_on_its_two_walks_from_wherever_it_stopped` runs all five.
+  `test_a_quick_scan_carries_on_its_two_walks_from_wherever_it_stopped` and
+  `test_a_quick_scan_over_a_date_range_retries_each_walk_from_its_ceiling_to_its_floor` run all
+  five cases, without a date range and with one. The custom run's date range walk is retried
+  from the range's end the same way.
 - Either way, the *by date updated* walk may read past the first attempt's start on its way
   down, so it keeps only works AO3 updated **up to the first attempt's baseline** - the
   **ceiling**. Anything updated after that is the next quick scan's to find, measured from the

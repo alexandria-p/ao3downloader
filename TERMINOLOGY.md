@@ -328,14 +328,14 @@ Used by: quick scan.
 - Walks your bookmarks sorted by date bookmarked, stopping at the floor.
 - With no floor, reads everything, which makes the next step unnecessary.
 - **Resumed:** carries on from where the earlier attempt stopped, as the full scan's walk does; skipped if that attempt finished it.
-- **Date range:** stops at the range's start date, and keeps only works bookmarked in the range.
+- **Date range:** stops at the range's start date, and keeps only works bookmarked in the range. **Retried:** starts at the page holding the range's end (or where it broke off, if older), not page 1.
 
 ### Index works AO3 has updated since your last run
 Used by: quick scan.
 - Walks your bookmarks sorted by date updated, stopping at the floor.
 - Skipped when the previous step already read everything.
-- **Resumed:** carries on from the first page now holding the date updated the earlier attempt got down to (pages move as fics update), keeping only works updated up to the first attempt's baseline; skipped if that attempt finished it.
-- **Date range:** stops at the range's start, and keeps only works updated in the range.
+- **Resumed:** carries on from the first page now holding the date updated the earlier attempt got down to (pages move as fics update) - or, if it never started, from the page holding the first attempt's start - keeping only works updated up to the first attempt's baseline; skipped if that attempt finished it.
+- **Date range:** stops at the range's start, and keeps only works updated in the range. **Retried:** starts at the page holding the range's end (or where it broke off, if older), not page 1.
 
 ### Index works AO3 has updated since that date
 Used by: custom run (date range).
