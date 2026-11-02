@@ -169,6 +169,22 @@ attempt. It stops at the same floor as before.
 **A walk the earlier attempt finished is not walked again** - its works are taken from the
 index, and the checklist marks it *done in the earlier run*.
 
+### Nothing to carry on from
+
+Once a run has finished **both its indexing and its downloads** (`finished_both`: every index
+and download step in its plan done, done earlier or skipped; a run from before steps were saved
+counts only when it finished), both carry-on choices are greyed out with `RETRY_ALL_DONE`. The
+choices left are from the top, its indexing or its downloads from the top, and just the works it
+could not get.
+
+### Download several fics carries on fic by fic
+
+*Carry on from where it stopped* (`downloads`) is offered for Download several fics, never for
+one fic, which is quick to fetch again. `run_works` passes over every fic whose formats are all
+in the earlier attempt's `formatsDone` (checked on disk first, like any carry-on) without looking
+it up; the rest are looked up as usual and `format_done` skips what was saved, so the fic it was
+partway through gets only its missing formats and the ones it never reached everything.
+
 ### Before carrying on, a retry checks what it is carrying on from
 
 A retry that takes on the earlier attempt's progress first checks that progress still holds:

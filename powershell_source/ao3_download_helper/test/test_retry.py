@@ -236,14 +236,26 @@ def test_only_a_run_with_failures_can_retry_just_those():
     assert server.retry_problem(record, server.RETRY_FAILED, set()) == ''
 
 
-def test_a_fic_run_is_offered_the_top_and_its_failed_fics_only():
-    record = a_record(action=server.ACTION_WORKS, url='https://archiveofourown.org/works/7',
+def test_a_single_fic_run_is_offered_the_top_and_its_failed_fic_only():
+    record = a_record(action=server.ACTION_WORK, url='https://archiveofourown.org/works/7',
                       failures=[{'id': '7', 'link': 'https://archiveofourown.org/works/7'}])
 
     choices = server.retry_choices(record, set())
 
     assert [m['mode'] for m in choices['modes']] == [server.RETRY_TOP, server.RETRY_FAILED]
     assert choices['default'] == server.RETRY_FAILED and choices['failedWorks'] == 1
+
+
+def test_several_fics_can_also_carry_on_from_where_they_stopped():
+    record = a_record(action=server.ACTION_WORKS, url='https://archiveofourown.org/works/7',
+                      failures=[{'id': '7', 'link': 'https://archiveofourown.org/works/7'}])
+
+    choices = server.retry_choices(record, set())
+
+    assert [m['mode'] for m in choices['modes']] == [server.RETRY_TOP, server.RETRY_DOWNLOADS,
+                                                     server.RETRY_FAILED]
+    # it stopped, so carrying on is offered first - which takes in its failed fic too
+    assert choices['default'] == server.RETRY_DOWNLOADS
 
 
 @pytest.mark.parametrize('record, wanted', [

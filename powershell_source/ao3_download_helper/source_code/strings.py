@@ -649,6 +649,9 @@ RETRY_NO_INDEX = 'Only a full scan, quick scan, custom run or collection run can
 RETRY_NO_DOWNLOADS = 'It never got as far as settling which works to check and download.'
 RETRY_NO_FAILURES = 'Every work it set out to get arrived - there is nothing that failed to retry.'
 RETRY_FAILED_WRONG_ACTION = 'Only a scan, a collection run or a fic run can retry just the works it could not get.'
+RETRY_ALL_DONE = ('It finished both its indexing and its downloads, so there is nothing to carry '
+                  'on from - start its indexing or its downloads from the top, or retry just '
+                  'the works it could not get.')
 RETRY_NO_FIC_LINKS = 'This run is from before fic runs saved the fics they were given - start it again from its button.'
 AO3_INFO_RETRYING = 'retrying {} from {}, {} ({})'
 AO3_INFO_RETRY_TOP = 'the top'
@@ -728,6 +731,7 @@ AO3_INFO_RESUME_COLLECTION_SHORT = ('collection {}: found {} works of the {} it 
 AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: the earlier attempt '
                               'did not save a date to carry on from')
 # a retry checking what its earlier attempt says it did, before carrying on from it
+AO3_INFO_RETRY_FIC_DONE = '({}/{}) work {}: saved in every format by the earlier attempt - passed over'
 AO3_INFO_RETRY_CHECK_INDEX = 'checking the {} works the earlier attempt indexed still have their index files'
 AO3_INFO_RETRY_INDEX_OK = 'every one of them does'
 AO3_INFO_RETRY_INDEX_MISSING = '{} have no index file any more, so they are indexed again from their own pages: {}'

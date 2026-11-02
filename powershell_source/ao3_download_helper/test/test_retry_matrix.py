@@ -418,3 +418,95 @@ def test_a_retry_from_the_top_checks_nothing(library):
     assert server.carried_works(job.earlier_progress()) == set()
 
 # endregion
+
+
+# region nothing to carry on from once indexing and downloads both finished
+
+def steps_record(status: str, steps: dict, action=server.ACTION_QUICK) -> dict:
+    return {'id': 'r', 'action': action, 'status': status, 'options': {}, 'url': 'x',
+            'failures': [{'id': '9', 'link': 'https://archiveofourown.org/works/9'}],
+            'progress': {'scope': ['1'], 'stepPlan': [[s, s] for s in steps], 'steps': steps}}
+
+
+DONE_STEPS = {'login': 'done', 'bookmarked': 'done', 'index': 'skipped', 'series': 'skipped',
+              'check': 'done', 'download': 'done', 'fichub': 'running'}
+
+
+def available(record: dict) -> set[str]:
+    return {m['mode'] for m in server.retry_choices(record, set())['modes'] if m['available']}
+
+
+def test_a_run_that_finished_indexing_and_downloads_has_nothing_to_carry_on_from():
+    # stopped during FicHub, after both had finished
+    record = steps_record(runs.STATUS_STOPPED, DONE_STEPS)
+
+    assert available(record) == {server.RETRY_TOP, server.RETRY_REINDEX,
+                                 server.RETRY_REDOWNLOAD, server.RETRY_FAILED}
+    assert server.retry_problem(record, server.RETRY_INDEX, set()) == strings.RETRY_ALL_DONE
+    assert server.retry_problem(record, server.RETRY_DOWNLOADS, set()) == strings.RETRY_ALL_DONE
+    assert server.retry_choices(record, set())['default'] == server.RETRY_FAILED
+
+
+def test_a_run_stopped_during_its_downloads_can_carry_on():
+    record = steps_record(runs.STATUS_STOPPED, {**DONE_STEPS, 'download': 'running'})
+    assert {server.RETRY_INDEX, server.RETRY_DOWNLOADS} <= available(record)
+
+
+def test_a_run_from_before_steps_were_saved_counts_as_complete_only_once_finished():
+    finished = {**steps_record(runs.STATUS_SUCCESS, {}), 'progress': {'scope': ['1']}}
+    stopped = {**finished, 'status': runs.STATUS_STOPPED}
+    assert server.RETRY_DOWNLOADS not in available(finished)
+    assert server.RETRY_DOWNLOADS in available(stopped)
+
+# endregion
+
+
+# region several fics carry on from where they stopped
+
+LINKS = [f'https://archiveofourown.org/works/{w}' for w in range(1, 7)]
+
+
+def several_fics(library: FileOps, status=runs.STATUS_STOPPED) -> None:
+    saved(library, 1, FORMATS)
+    saved(library, 2, FORMATS)
+    saved(library, 3, ['HTML'])
+    record = runs.RunRecord(library, EARLIER, server.ACTION_WORKS, 'Download several fics',
+                            ['JSON', *FORMATS], {})
+    record.data.update(status=status, url='\n'.join(LINKS), baseline='2025-01-20T10:00:00',
+                       progress={'formatsDone': {'1': FORMATS, '2': FORMATS, '3': ['HTML']},
+                                 'stepPlan': [['index', 'i'], ['download', 'd']],
+                                 'steps': {'index': 'done', 'download': 'running'}})
+    record.save()
+
+
+def test_several_fics_can_carry_on_but_a_single_fic_cannot():
+    record = {'id': 'r', 'action': server.ACTION_WORKS, 'status': runs.STATUS_STOPPED,
+              'options': {}, 'url': '\n'.join(LINKS), 'failures': [],
+              'progress': {'formatsDone': {'1': FORMATS}}}
+    assert server.retry_problem(record, server.RETRY_DOWNLOADS, set()) == ''
+    # and it is what a stopped one picks up with
+    assert server.retry_choices(record, set())['default'] == server.RETRY_DOWNLOADS
+    single = {**record, 'action': server.ACTION_WORK, 'url': LINKS[0]}
+    assert server.retry_problem(single, server.RETRY_DOWNLOADS, set()) != ''
+
+
+def test_carrying_on_several_fics_passes_over_the_finished_and_fetches_only_whats_missing(library):
+    several_fics(library)
+    repo, _, files = a_repo({})
+    looked_up: list[str] = []
+
+    def index_one_work(self, link, **kwargs):
+        looked_up.append(link)
+        record = a_fic(int(link.rsplit('/', 1)[1]))
+        self.save_metadata(record)
+        return record
+
+    with patch.object(Ao3, 'index_one_work', index_one_work):
+        retry(library, repo, server.RETRY_DOWNLOADS)
+
+    # 1 and 2 were finished: not even looked up
+    assert looked_up == LINKS[2:]
+    # 3 had its html; 4 to 6 nothing
+    assert sorted(files) == sorted([('3', f) for f in FORMATS if f != 'HTML'] + every(4, 5, 6))
+
+# endregion

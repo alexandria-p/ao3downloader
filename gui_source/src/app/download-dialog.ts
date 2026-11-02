@@ -292,6 +292,9 @@ export class DownloadDialog implements OnDestroy {
       case 'redownload':
         return 'Start its downloads from the top - every work it had settled on, checked and downloaded again by the usual rules (on a run that overwrites, every format again)';
       case 'downloads':
+        if (run.action === 'works') {
+          return 'Carry on from where it stopped - a fic it saved in every format is passed over, the one it was partway through gets only its missing formats, and every fic it never reached is done in full';
+        }
         return 'Carry on from where its downloads stopped - only the formats it had not saved yet: nothing for a fic it finished, the rest of one it was partway through, every format of one it never reached';
       case 'failed':
         return `Just the ${run.retry.failedWorks} ${run.retry.failedWorks === 1 ? 'work' : 'works'} it could not get`;

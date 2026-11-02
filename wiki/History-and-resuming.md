@@ -58,19 +58,27 @@ downloads stopped*; finished with failures → *just the works it could not get*
 | **Custom run** - all bookmarks, or a date range | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | **Custom run** - a slice of pages | ✓ | ✓ | – | – | – | ✓ |
 | **Index your collections** / **index a collection by link** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| **Download a fic** / **download several fics** | ✓ | – | – | – | – | ✓ (just those fics) |
+| **Download several fics** | ✓ | – | – | – | ✓ (*carry on from where it stopped*) | ✓ (just those fics) |
+| **Download a fic** | ✓ | – | – | – | – | ✓ |
 | **Debug runs** (combined run, update incomplete, new bookmarks only) | ✓ | – | – | – | – | – |
 
 - The two download choices also need the run to have **reached its downloads** - a run stopped
   while indexing has them greyed out. *Just the works it could not get* needs the run to have
   had failures.
+- **Both carry-on choices are greyed out once a run has finished both its indexing and its
+  downloads** - there is nothing left to carry on from. Start its indexing or its downloads
+  from the top instead, or retry just the works it could not get.
+- **Download several fics** carries on fic by fic: a fic it saved in every format is passed
+  over without being looked up, the one it was partway through gets only its missing formats,
+  and every fic it never reached is done in full. A single fic is quick to fetch again, so it
+  has no carry-on - retry it from the top.
 - **Carry on from where its indexing stopped** differs by workflow: every walk - the Full
   Scan's, a custom run's, a Quick Scan's two - starts from its ceiling unless it had got further;
   collection runs take finished collections from your index and carry on each unfinished one
   from its last saved page. See below.
 - **A slice of pages cannot be carried on**: page numbers move as bookmarks change.
-- **The fic runs** have no listing to walk; instead of carrying on they retry just the fics they
-  could not get, and only those fics' missing formats.
+- **The fic runs** have no listing to walk. *Just the fics it could not get* retries only those
+  fics, and only their missing formats.
 
 ### How a walk is picked up again
 

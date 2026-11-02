@@ -1213,6 +1213,28 @@ def failed_work_ids(record: dict) -> list[str]:
     return ids
 
 
+# the steps that make up a run's indexing, and its downloads - for telling whether both finished
+INDEX_STEPS = ('index', 'bookmarked', 'collections', 'collection', 'series', 'nonbookmarks')
+DOWNLOAD_STEPS = ('check', 'download', 'update')
+
+
+def finished_both(record: dict) -> bool:
+    """Whether a run completed both its indexing and its downloads - so there is nothing to
+    carry on from, and a retry starts one of them from the top or takes just its failures.
+
+    Read from how each of its steps went (a step done, done earlier, or skipped counts); a run
+    from before steps were saved counts only when it finished.
+    """
+
+    saved = record.get('progress') if isinstance(record.get('progress'), dict) else {}
+    plan = [step[0] for step in (saved.get('stepPlan') or []) if step]
+    steps = saved.get('steps') or {}
+    if not plan or not steps: return record.get('status') == runs.STATUS_SUCCESS
+    over = (progress.STEP_DONE, progress.STEP_EARLIER, progress.STEP_SKIPPED)
+    wanted = [step for step in plan if step in INDEX_STEPS + DOWNLOAD_STEPS]
+    return bool(wanted) and all(steps.get(step) in over for step in wanted)
+
+
 def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
     """Why `record` cannot be retried this way, or '' when it can."""
 
@@ -1225,6 +1247,11 @@ def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
     if action == ACTION_COLLECTION and not record.get('url'): return strings.RESUME_NO_LINK
     if action in FIC_ACTIONS and not record.get('url'): return strings.RETRY_NO_FIC_LINKS
     if mode == RETRY_TOP: return ''
+    if mode in (RETRY_INDEX, RETRY_DOWNLOADS) and finished_both(record):
+        return strings.RETRY_ALL_DONE
+    if action == ACTION_WORKS and mode == RETRY_DOWNLOADS:
+        # several fics carry on fic by fic: what the earlier attempt saved is passed over
+        return '' if progress_so_far is not None else strings.RESUME_TOO_OLD
     if mode == RETRY_REINDEX:
         # from the first page, so a slice's page numbers are not trusted to have stayed put
         return '' if action in RESUME_ACTIONS else strings.RETRY_NO_INDEX
@@ -1270,8 +1297,11 @@ def retry_choices(record: dict, active: set[str]) -> dict:
     modes = [{'mode': mode, 'available': not retry_problem(record, mode, active),
               'reason': retry_problem(record, mode, active)} for mode in RETRY_MODES]
     if record.get('action') in FIC_ACTIONS:
-        # a fic run has no listing to carry on with: it is the fics, or the failed ones
-        modes = [m for m in modes if m['mode'] in (RETRY_TOP, RETRY_FAILED)]
+        # a fic run has no listing to carry on with: it is the fics, or the failed ones - and,
+        # for several fics, carrying on from where it stopped
+        kept = (RETRY_TOP, RETRY_DOWNLOADS, RETRY_FAILED) \
+            if record.get('action') == ACTION_WORKS else (RETRY_TOP, RETRY_FAILED)
+        modes = [m for m in modes if m['mode'] in kept]
     available = {m['mode'] for m in modes if m['available']}
     return {'modes': modes, 'default': retry_default(record, available) if available else '',
             'failedWorks': len(failed_work_ids(record))}
@@ -2340,6 +2370,13 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     progress.report(report, progress.PHASE, name=progress.INDEXING)
     print(strings.AO3_INFO_MANY_WORKS.format(len(links)))
 
+    # carrying on: a fic the earlier attempt saved in every format is done - not looked up,
+    # not fetched. one partway through is looked up and only its missing formats fetched
+    # (`formats_done`); one it never reached is done in full
+    wanted = {x.upper() for x in downloadtypes}
+    finished = {work for work, saved in (ao3.formats_done or {}).items()
+                if wanted and wanted <= set(saved)} if job.resume else set()
+
     records: list[dict] = []
     asked: list[str] = []
     for done, link in enumerate(links, start=1):
@@ -2348,6 +2385,9 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             print(strings.AO3_INFO_STEP_SKIPPED)
             break
         work = parse_text.get_work_number(link) or ''
+        if work in finished:
+            print(strings.AO3_INFO_RETRY_FIC_DONE.format(done, len(links), work))
+            continue
         print(strings.AO3_INFO_MANY_WORK.format(done, len(links), work))
         progress.report(report, progress.WORK, title=link, link=link, done=done,
                         total=len(links), phase=progress.INDEXING)

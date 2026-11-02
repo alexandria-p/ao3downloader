@@ -3367,6 +3367,21 @@ describe('DownloadDialog', () => {
       .toContain('Fics AO3 updated from 2026-01-01 to 2026-02-01');
   });
 
+  it('offers several fics carrying on from where they stopped', async () => {
+    jobs.retryableOnRecord = [ended({
+      action: 'works', actionName: 'Download several fics', status: 'stopped',
+      retry: { modes: ALL_MODES().filter((m) => ['top', 'downloads', 'failed'].includes(m.mode)),
+               default: 'downloads', failedWorks: 0 },
+    })];
+    await toRetryPage();
+    await pick();
+
+    expect(element.querySelector('.retry-modes')?.textContent)
+      .toContain('Carry on from where it stopped - a fic it saved in every format is passed over');
+    expect(element.querySelector<HTMLInputElement>('input[name="retryMode"]:checked')!.value)
+      .toBe('downloads');
+  });
+
   it('opens set to retry a run picked from the history, with its default way picked', async () => {
     jobs.retryableOnRecord = [ended()];
     fixture = TestBed.createComponent(DownloadDialog);
