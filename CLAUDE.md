@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1876 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1878 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1104,10 +1104,11 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
   `div.header p.datetime` - `SORT_DATE_SELECTORS`), and `find_anchor` finds the first page now
   holding anything on or before it, searching as far either way as it must (doubling, then
   halving). Both sorts carry on; an anchor with no `sort` on an updated walk (an older record)
-  restarts. A retry also starts a walk at its **ceiling** (`walk_listing(ceiling=)`) - a date
-  range's end, or the first attempt's start for a date updated walk - when the works above it
-  are left out anyway; one that broke off starts at the older of that and the date reached. A
-  first attempt ignores `ceiling`. **The walk itself (`get_metadata`) is unchanged** - only the
+  restarts. A retry also starts a walk at its **ceiling** (`walk_listing(ceiling=)`) - the day
+  the first attempt started (both quick scan walks), or a date range's end - and indexes only
+  fics dated on or before it (`get_metadata(ceiling=, ceiling_on=)`, inclusive); one that broke
+  off starts at the older of that and the date reached, searching from its last page. A first
+  attempt ignores `ceiling`. A retry of a retry keeps the first attempt's floor and baseline. **The walk itself (`get_metadata`) is unchanged** - only the
   page it starts on.
 - **`prepare_resume` replaces the job's action, file types and options** with the earlier
   run's before the checklist is built. Recorded answers are reused through `Job.prior_answers`.

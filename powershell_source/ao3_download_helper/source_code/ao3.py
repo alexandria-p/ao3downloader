@@ -293,7 +293,8 @@ class Ao3:
 
     def get_metadata(self, link: str, workdates: bool,
                      known: set[str] | None = None, stop_before: str = '',
-                     stop_on: str = 'updated', own_bookmarks: bool = False) -> list[dict]:
+                     stop_on: str = 'updated', own_bookmarks: bool = False,
+                     ceiling: str = '', ceiling_on: str = 'updated') -> list[dict]:
         """Walk a listing and save metadata for every work on it, one file per bookmark.
 
         One request per page rather than per work, so a bookmarks list of any size is
@@ -325,6 +326,12 @@ class Ao3:
         work's own date, `div.header p.datetime`) or `'bookmarked'` (the bookmark's date,
         `div.user p.datetime`). The listing has to be sorted by the same date - a
         bookmarked stop down an updated-date listing is exactly as wrong as the reverse.
+
+        `ceiling` (`YYYY-MM-DD`, measured on `ceiling_on`: 'updated' or 'bookmarked') is set
+        by a **retry** alone: a blurb dated after it is passed over - not indexed, not
+        returned - because it is after the date the run's first attempt began, and so the
+        next scan's to find. The walk itself goes on exactly as before; only those blurbs are
+        left out. On the date itself a blurb is kept: the ceiling counts.
 
         `own_bookmarks` says the listing is the logged-in user's own bookmarks, and marks
         every work read off it `bookmarked: True`. That is the one place the answer is
@@ -392,6 +399,10 @@ class Ao3:
                 page_external: list[dict] = []
                 reached_known = False
                 for blurb in parse_soup.get_blurbs(thesoup):
+                    if ceiling:
+                        dated = parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                            blurb, SORT_DATE_SELECTORS.get(ceiling_on, 'div.header p.datetime')))
+                        if dated and dated > ceiling: continue
                     kind, number = parse_soup.get_blurb_kind(blurb)
                     if kind in (parse_soup.BLURB_SERIES, parse_soup.BLURB_EXTERNAL) and \
                             (number or kind == parse_soup.BLURB_EXTERNAL):

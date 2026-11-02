@@ -1364,11 +1364,12 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
     since moves to the top, so no place in it stays put.
 
     `ceiling` is the newest date a **retry** has any use for, in the listing's own sort -
-    a date range's end, or the first attempt's start - for walks whose works above it are
-    left out anyway. A retried walk then starts at the first page holding that date rather
-    than page 1, and one that broke off starts at whichever is older, the ceiling or the date
-    it reached. A first attempt walks from page 1 whatever it is given: this only shortens a
-    retry, it never changes how a listing is walked.
+    a date range's end, or the first attempt's start. A retried walk starts at the first page
+    holding that date rather than page 1, and one that broke off starts at whichever is older,
+    the ceiling or the date it reached (from the page it stopped on). Fics dated after the
+    ceiling are not indexed (`get_metadata(ceiling=)`); on it, they are. A first attempt
+    walks from page 1 whatever it is given: this only shortens a retry, it never changes how
+    a listing is walked.
 
     Returns the works the walk covers, in both attempts. Whether it was walked at all this
     time is left on `ao3.walk_skipped`, for the caller's checklist.
@@ -1419,6 +1420,7 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
 
     ao3.on_page = on_page
     try:
+        if ceiling: kwargs.update(ceiling=ceiling, ceiling_on=sort)
         records = ao3.get_metadata(link, job.options['workdates'], **kwargs)
     finally:
         ao3.on_page = None
@@ -2331,11 +2333,12 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         # 2019 sits far below the floor on that listing and would never be reached
         job.steps.start('bookmarked')
         print(strings.AO3_INFO_QUICK_BOOKMARKED.format(floor or strings.AO3_INFO_DATE_ANY))
-        # a retry over a date range starts at its ceiling - but only with a floor too: with
-        # none, this walk is also the updated-date half, and dates updated are in no order here
+        # a retry starts at its ceiling - the first attempt's start, or a date range's end -
+        # and leaves out anything bookmarked after it. but not a date range with no floor:
+        # then this walk is also the updated-date half, and dates updated are in no order here
         by_bookmarked = walk_listing(
             job, fileops, ao3, 'bookmarked', sorted_bookmarks_link(job), anchored=True,
-            ceiling=ceiling if window and floor else '',
+            ceiling=ceiling if not window or floor else '',
             stop_before=floor, stop_on='bookmarked', own_bookmarks=True)
         finish_walk_step(job, ao3, 'bookmarked')
 

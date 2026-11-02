@@ -280,9 +280,11 @@ UPDATED_PLACE = {'id': 'bookmark_9', 'date': '2025-01-09', 'sort': 'updated'}
 
 @pytest.mark.parametrize('walks, wanted_requests, wanted_works, marks', [
     pytest.param(
-        {}, [('bookmarked', 1), ('bookmarked', 2), ('bookmarked', 3),
+        # 22 and 21 were bookmarked after the first attempt began: the walk starts on page 2,
+        # where the ceiling is, and leaves them for the next scan
+        {}, [('bookmarked', 1), ('bookmarked', 2), ('bookmarked', 2), ('bookmarked', 3),
              ('updated', 1), ('updated', 1), ('updated', 2), ('updated', 3)],
-        [22, 21, 20, 19, 18, 17, 12, 11, 10, 9, 8, 7], ('done', 'done'),
+        [20, 19, 18, 17, 12, 11, 10, 9, 8, 7], ('done', 'done'),
         id='the first walk did not start'),
     pytest.param(
         {'bookmarked': {'page': 1, 'anchor': BOOKMARKED_PLACE, 'done': False,
@@ -324,7 +326,8 @@ def test_a_quick_scan_carries_on_its_two_walks_from_wherever_it_stopped(
     pages = {**listing([22, 21], [20, 19], [18, 17]),
              **listing([12, 11], [10, 9], [8, 7], link=UPDATED_LINK)}
     _, repo = an_ao3(library, pages)
-    job, events = a_job(library, server.ACTION_QUICK,
+    # the first attempt began on the 20th: that is the ceiling, and it counts
+    job, events = a_job(library, server.ACTION_QUICK, baseline='2025-01-20T10:00:00',
                         earlier={'floor': '2025-01-01', 'walks': walks})
 
     with patch.object(server, 'index_series_and_non_bookmarks', return_value=[]), \
@@ -451,6 +454,34 @@ def test_a_custom_run_over_dates_retries_its_walk_from_its_ceiling_to_its_floor(
     assert sorted(int(r['id']) for r in downloading.call_args.args[3]) == [
         w for w in range(7, 25) if low <= f'2025-01-{w:02d}' <= high]
     assert job.progress()['walks'][U]['done']
+
+
+def test_a_retried_walk_indexes_fics_on_the_ceiling_but_none_after_it(library):
+    # 21 and 22 are after the ceiling, 20 is on it
+    ao3, repo = an_ao3(library, listing([22, 21, 20], [19, 18]))
+    job, _ = a_job(library, earlier={})
+
+    records = server.walk_listing(job, library, ao3, 'all', LINK, anchored=True,
+                                  ceiling='2025-01-20', own_bookmarks=True)
+
+    assert sorted(int(r['id']) for r in records) == [18, 19, 20]
+    assert not os.path.exists(os.path.join(library.downloadfolder, 'indexing',
+                                           '21 Work 21 - A.json'))
+    assert fetched(repo) == [1, 1, 2]
+
+
+def test_a_retry_of_a_retry_keeps_the_first_attempts_floor_and_ceiling(library):
+    job, _ = a_job(library, server.ACTION_QUICK, baseline='2025-01-20T10:00:00',
+                   earlier={'floor': '2025-01-01', 'walks': {}})
+    pages = {**listing([22, 21], [20, 19]),
+             **listing([12, 11], link=UPDATED_LINK)}
+    _, repo = an_ao3(library, pages)
+    with patch.object(server, 'index_series_and_non_bookmarks', return_value=[]), \
+         patch.object(server, 'download_planned'), patch.object(server, 'finish_run'):
+        server.run_quick(job, library, repo, None)
+    # what this retry saves is what the next one starts from
+    assert job.progress()['floor'] == '2025-01-01'
+    assert job.baseline == '2025-01-20T10:00:00'
 
 
 def test_a_first_attempt_over_a_date_range_still_walks_from_page_1(library):

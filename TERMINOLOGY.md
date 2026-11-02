@@ -327,7 +327,7 @@ Used by: custom run, when skipping indexing.
 Used by: quick scan.
 - Walks your bookmarks sorted by date bookmarked, stopping at the floor.
 - With no floor, reads everything, which makes the next step unnecessary.
-- **Resumed:** carries on from where the earlier attempt stopped, as the full scan's walk does; skipped if that attempt finished it.
+- **Resumed:** carries on from where the earlier attempt stopped, as the full scan's walk does - or, if it never started, from the page holding the day the first attempt began, indexing nothing bookmarked after that day; skipped if that attempt finished it.
 - **Date range:** stops at the range's start date, and keeps only works bookmarked in the range. **Retried:** starts at the page holding the range's end (or where it broke off, if older), not page 1.
 
 ### Index works AO3 has updated since your last run

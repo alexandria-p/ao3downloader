@@ -184,15 +184,20 @@ index, and the checklist marks it *done in the earlier run*.
   | Stopped during the second walk | taken from the index, no requests | date it reached → floor |
   | Both finished | taken from the index, no requests | taken from the index, no requests |
 
-  **The ceiling** is the newest date the retry has any use for from that walk, in its own
-  sort: the date range's end (or the first attempt's start, if that is earlier) on a quick scan
-  over a date range; the first attempt's start for the date updated walk of an ordinary quick
-  scan. The walk starts at the first page now holding that date, found the same way as a
-  date reached. An ordinary quick scan's date bookmarked walk has no ceiling - it keeps new
-  bookmarks whatever their date - so it starts at page 1, and so does a date range with no
-  start date (that one walk then also supplies the dates updated, which are in no order on
-  it). A walk that broke off starts at whichever is older, the ceiling or the date it reached.
-  **Only a retry does this**: a first attempt walks from page 1 as it always has.
+  **The ceiling** is the newest date the retry has any use for, in the walk's own sort:
+  **the day the first attempt was started** on an ordinary quick scan - for both walks - and
+  the date range's end (or that day, if earlier) on one over a date range. The floor is the
+  first attempt's too, never worked out again. The walk starts at the first page now holding
+  the ceiling, found the same way as a date reached, and **indexes only fics dated on the
+  ceiling or before it** - the ceiling counts; anything after it is the next scan's (its
+  floor is this run's start). A walk that broke off searches from the page it stopped on,
+  and starts at whichever is older, the ceiling or the date it reached - which, on an
+  ordinary quick scan, is always the date reached, since the first attempt read nothing
+  after its own start. The one exception is a date range with no start date: its date
+  bookmarked walk starts at page 1, because it also supplies the dates updated, which are in
+  no order on it. **Only a retry does this**: a first attempt walks from page 1 as it always
+  has, with nothing above it to leave out. Every retry of a retry keeps the first attempt's
+  floor and ceiling.
 
   A walk taken from the index is ticked *done in the earlier run*. Whatever happens, both
   walks end the retry saved as finished, so a retry of the retry skips both.
