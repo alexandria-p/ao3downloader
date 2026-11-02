@@ -331,16 +331,18 @@ def test_a_custom_run_over_a_slice_cannot_be_resumed_but_all_bookmarks_or_dates_
     assert server.resume_problem({**custom, 'options': {'dates': True}}, set()) == ''
 
 
-def test_the_list_offers_unfinished_scans_with_warnings():
+def test_the_list_offers_every_ended_run_for_retrying_with_warnings():
     finished = {'id': 'b', 'action': server.ACTION_BOOKMARKS, 'status': runs.STATUS_SUCCESS}
     stopped = {'id': 'a', 'action': server.ACTION_QUICK, 'status': runs.STATUS_STOPPED,
                'progress': {}, 'resumedBy': 'c'}
     single = {'id': 'd', 'action': server.ACTION_WORK, 'status': runs.STATUS_FAILED}
 
-    [offered] = server.resumable_among([finished, stopped, single], set())
+    offered = server.retryable_among([finished, stopped, single], set())
 
-    assert offered['id'] == 'a' and offered['resumable']
-    assert offered['warnings'] == [strings.RESUME_ALREADY_RESUMED, strings.RESUME_NEWER_SCAN]
+    # every run that has ended can be retried - the finished one and the fic run too
+    assert [run['id'] for run in offered] == ['b', 'a', 'd']
+    stopped_offer = offered[1]
+    assert stopped_offer['warnings'] == [strings.RESUME_ALREADY_RESUMED, strings.RESUME_NEWER_SCAN]
 
 # endregion
 

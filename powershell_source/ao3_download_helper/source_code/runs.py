@@ -15,6 +15,7 @@ import time
 import os
 
 from source_code import strings
+from source_code.ao3 import index_gaps
 
 
 # how a run ended. 'running' is also the state a run is left in when it never got to
@@ -22,6 +23,10 @@ from source_code import strings
 STATUS_RUNNING = 'running'
 STATUS_SUCCESS = 'success'
 STATUS_FAILED = 'failed'
+# ended as it should, but some of its indexing broke off - a listing that stopped on an
+# error, a collection listing, a fic whose page would not read. what it did is kept and
+# counted; it is never a floor for a quick scan, and Retry can carry on from the gap
+STATUS_PARTIAL = 'partial'
 STATUS_STOPPED = 'stopped'
 # a background run the helper ended because it was left paused too long. ended the same way a
 # stop ends one - everything saved is kept - and, like a stopped run, it can be resumed
@@ -280,6 +285,9 @@ class RunRecord:
         self.data['skipped'] = list(ao3.skipped_works)
         kept = getattr(ao3, 'kept_copies', None)
         self.data['keptCopies'] = list(kept) if isinstance(kept, list) else []
+        # where indexing broke off - which listing or collection, which pages were read,
+        # which failed, how far back in date it got
+        self.data['indexFailures'] = index_gaps(ao3)
 
     def finish(self, status: str, error: str = '') -> None:
         self.data['status'] = status

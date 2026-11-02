@@ -91,7 +91,7 @@ def test_resolve_options_defaults_match_the_console_defaults():
     assert server.resolve_options(None) == {
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
         'reindex': True, 'dates': False, 'skipLogin': False, 'dateFrom': '', 'dateTo': '',
-        'overwrite': False, 'floorRun': '', 'nonBookmarks': False, 'resume': '',
+        'overwrite': False, 'floorRun': '', 'nonBookmarks': False, 'resume': '', 'retryMode': '',
         'collectionWorks': False, 'subcollections': False, 'parentCollections': False,
     }
 
@@ -107,7 +107,7 @@ def test_resolve_options_reads_what_was_asked_for():
                       'workdates': True, 'reindex': False, 'dates': True, 'skipLogin': False,
                       'dateFrom': '2026-01-01', 'dateTo': '2026-06-30',
                       'overwrite': True, 'floorRun': '', 'nonBookmarks': True,
-                      'resume': '', 'collectionWorks': True, 'subcollections': True,
+                      'resume': '', 'retryMode': '', 'collectionWorks': True, 'subcollections': True,
                       'parentCollections': True}
 
 

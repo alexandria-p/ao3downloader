@@ -30,7 +30,7 @@ import requests
 
 from source_code import access, dropbox_library, exceptions, fichub, settings_file, indexing, parse_soup, parse_text, progress, runs, strings, updater as updates
 from source_code.actions import shared
-from source_code.ao3 import Ao3, was_bookmark
+from source_code.ao3 import Ao3, index_gaps, was_bookmark
 from source_code.fileio import FileOps
 from source_code.repo import Repository
 from source_code.storage import PageStorage
@@ -196,6 +196,20 @@ NON_BOOKMARK_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
 RESUME_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM,
                   ACTION_COLLECTIONS, ACTION_COLLECTION)
 
+# how an earlier run can be retried. TOP is the same run again from its first step - a quick
+# scan over the same window it had (its floor, up to when it first started). INDEX carries on
+# with its indexing: walks it finished are taken from the index, one that broke off goes on
+# from where it stopped, and everything is checked and downloaded after. DOWNLOADS goes
+# straight to the works it had settled on and checks and downloads those. FAILED downloads
+# only the works it could not get.
+RETRY_TOP = 'top'
+RETRY_INDEX = 'index'
+RETRY_DOWNLOADS = 'downloads'
+RETRY_FAILED = 'failed'
+RETRY_MODES = (RETRY_TOP, RETRY_INDEX, RETRY_DOWNLOADS, RETRY_FAILED)
+# the fic runs: retried by the fics they name, not by a listing
+FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+
 # How many pages a resumed walk looks through for the last bookmark the earlier attempt
 # saved, before giving up and starting that walk from the first page.
 ANCHOR_SEARCH_PAGES = 6
@@ -296,6 +310,11 @@ def resolve_options(requested) -> dict:
         # the earlier run to pick up from, by id. like the floor, only the id travels: what
         # the run does is read off that run's own record, and its settings replace these
         'resume': str(given.get('resume') or '').strip(),
+        # how that run is retried: from the top, carrying on from its indexing, from its
+        # downloads, or only the works it could not get. '' is the older resume, which
+        # takes everything the earlier attempt recorded as it stands
+        'retryMode': str(given.get('retryMode') or '').strip()
+        if str(given.get('retryMode') or '').strip() in RETRY_MODES else '',
     }
 
 
@@ -614,17 +633,24 @@ class Steps:
     unfinished fics has not gone wrong.
     """
 
-    def __init__(self, report, plan: list[tuple[str, str]], on_start=None) -> None:
+    def __init__(self, report, plan: list[tuple[str, str]], on_start=None,
+                 on_change=None) -> None:
         self.report = report
         self.plan = plan
         self.current: str | None = None
         # told which step is starting, so the history file says where an interrupted run was
         self.on_start = on_start
+        # how each step has ended so far, by its id - kept in the history file, so a retry
+        # can say which was the last to finish and offer to carry on from the next
+        self.outcomes: dict[str, str] = {}
+        self.on_change = on_change
         progress.report(report, progress.STEPS,
                         steps=[{'id': i, 'label': label} for i, label in plan])
 
     def _set(self, step: str, status: str) -> None:
         progress.report(self.report, progress.STEP, id=step, status=status)
+        self.outcomes[step] = status
+        if self.on_change: self.on_change(dict(self.outcomes))
 
     def label_of(self, step: str) -> str:
         return dict(self.plan).get(step, step)
@@ -646,6 +672,12 @@ class Steps:
     def skip(self, step: str) -> None:
         if self.current == step: self.current = None
         self._set(step, progress.STEP_SKIPPED)
+
+    def fail(self, step: str) -> None:
+        """Mark one step failed while the run carries on - indexing that broke off partway,
+        whose run still downloads what it did index."""
+        if self.current == step: self.current = None
+        self._set(step, progress.STEP_FAILED)
 
     def fail_current(self) -> None:
         """Mark whatever was in progress as failed, when a run ends badly.
@@ -887,7 +919,8 @@ def run_job(job: Job, password: str) -> None:
                 # the checklist goes out before anything happens, so the ui can show what
                 # is still to come rather than only what has already been done
                 job.steps = Steps(report, step_plan(job), on_start=lambda step, label:
-                                  job.checkpoint(step=step, stepLabel=label))
+                                  job.checkpoint(step=step, stepLabel=label),
+                                  on_change=lambda outcomes: job.checkpoint(steps=outcomes))
 
                 # announced separately so the ui can show it is waiting, and say whether
                 # the credentials worked before anything else starts
@@ -913,6 +946,10 @@ def run_job(job: Job, password: str) -> None:
                                             url=job.url, username=job.username)
                 # the issues and fic lists go into every save, not only the last one
                 job.record.source = lambda: job.ao3
+                # the steps this run set out to take, and how each has gone so far - what a
+                # retry reads to say which finished last, and to offer the next
+                job.checkpoint(stepPlan=[[step, label] for step, label in job.steps.plan],
+                               steps=dict(job.steps.outcomes))
                 if skip_login:
                     # asked for, on a run pointed at fics by hand: everything goes on as it
                     # would, and what ao3 shows only to a login fails and goes to FicHub
@@ -969,6 +1006,28 @@ def run_job(job: Job, password: str) -> None:
         job.finish()
 
 
+def retry_progress(earlier: dict, mode: str) -> dict:
+    """What a retry takes on of the earlier attempt's progress, by how it is retried.
+
+    The old resume (no mode) and DOWNLOADS take it all: walks done, and the works it had
+    settled on, so the run goes straight to them. INDEX drops those works, so the indexing
+    is done again - walks the earlier attempt finished taken from the index, one that broke
+    off carried on from where it stopped - and everything after it too. FAILED settles on the
+    works it could not get and nothing else. TOP keeps only a quick scan's floor: the same
+    window again, back to that floor and up to when the first attempt started.
+    """
+
+    saved = json.loads(json.dumps(earlier.get('progress') or {})) if isinstance(
+        earlier.get('progress'), dict) else {}
+    kept = {key: saved[key] for key in ('floor',) if key in saved}
+    if mode == RETRY_TOP: return kept
+    if mode == RETRY_FAILED: return {**kept, 'scope': failed_work_ids(earlier)}
+    if mode == RETRY_INDEX:
+        for key in ('scope', 'step', 'stepLabel', 'steps', 'nonBookmarksDone', 'updateDone'):
+            saved.pop(key, None)
+    return saved
+
+
 def prepare_resume(job: Job, fileops: FileOps) -> None:
     """Take on the earlier run this one picks up from: its workflow, file types and options,
     how far it got, and the answers it was given.
@@ -977,22 +1036,40 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
     says why in words the page shows.
     """
 
+    mode = job.options.get('retryMode') or ''
     earlier = runs.find_run(fileops, job.options['resume'])
-    problem = resume_problem(earlier, active_job_ids(exclude=job.id))
+    active = active_job_ids(exclude=job.id)
+    problem = retry_problem(earlier, mode, active) if mode else resume_problem(earlier, active)
     if problem: raise exceptions.Ao3DownloaderException(problem)
 
     job.action = earlier['action']
     job.filetypes = list(earlier.get('filetypes') or [])
     # the collection it was pointed at; a resume request carries no link of its own
     job.url = earlier.get('url') or job.url
-    job.options = {**resolve_options(earlier.get('options')), 'resume': earlier['id']}
+    job.options = {**resolve_options(earlier.get('options')), 'resume': earlier['id'],
+                   'retryMode': mode}
     job.resume = {
         'id': earlier['id'],
         'file': earlier.get('file') or '',
         'first': earlier.get('resumesFirst') or earlier['id'],
         'baseline': earlier.get('baseline') or '',
-        'progress': json.loads(json.dumps(earlier.get('progress') or {})),
+        'progress': retry_progress(earlier, mode),
     }
+    if mode == RETRY_FAILED and job.action in FIC_ACTIONS:
+        # a fic run's failures are fics it could not read: just those, by their links
+        links = [str(x.get('link') or '') for x in earlier.get('failures') or []
+                 if isinstance(x, dict) and x.get('link')]
+        job.url = '\n'.join(links)
+        job.action = ACTION_WORKS if len(links) > 1 else ACTION_WORK
+    if mode:
+        failed = len(failed_work_ids(earlier))
+        print(strings.AO3_INFO_RETRYING.format(
+            earlier.get('actionName') or earlier['action'],
+            {RETRY_TOP: strings.AO3_INFO_RETRY_TOP, RETRY_INDEX: strings.AO3_INFO_RETRY_INDEX,
+             RETRY_DOWNLOADS: strings.AO3_INFO_RETRY_DOWNLOADS,
+             RETRY_FAILED: strings.AO3_INFO_RETRY_FAILED.format(failed)}[mode],
+            str(earlier.get('started') or '')[:16].replace('T', ' '),
+            earlier.get('status') or ''))
     # what the earlier attempt was actually told wins; a background run's up-front answers
     # stand in for any question it never reached
     job.prior_answers = {**job.prior_answers,
@@ -1091,25 +1168,94 @@ def resume_problem(record: dict | None, active: set[str]) -> str:
     return ''
 
 
-def resumable_among(records: list[dict], active: set[str]) -> list[dict]:
-    """The unfinished scans among `records`, each saying whether it can be resumed and, if
-    it can, anything worth knowing first. Newest first, as given."""
+def failed_work_ids(record: dict) -> list[str]:
+    """The works a run could not get, by number - what a retry of just those fetches."""
+
+    ids: list[str] = []
+    for failure in record.get('failures') or []:
+        if not isinstance(failure, dict): continue
+        number = str(failure.get('id') or '') or parse_text.get_work_number(str(failure.get('link') or ''))
+        if number and number not in ids: ids.append(str(number))
+    return ids
+
+
+def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
+    """Why `record` cannot be retried this way, or '' when it can."""
+
+    if not isinstance(record, dict): return strings.RETRY_NOT_FOUND
+    if record.get('status') == runs.STATUS_RUNNING and record.get('id') in active:
+        return strings.RETRY_STILL_RUNNING
+    action = record.get('action')
+    options = record.get('options') or {}
+    progress_so_far = record.get('progress') if isinstance(record.get('progress'), dict) else None
+    if action == ACTION_COLLECTION and not record.get('url'): return strings.RESUME_NO_LINK
+    if action == ACTION_WORKS and not record.get('url'): return strings.RETRY_NO_FIC_LINKS
+    if mode == RETRY_TOP: return ''
+    if mode == RETRY_FAILED:
+        if action not in RESUME_ACTIONS and action not in FIC_ACTIONS:
+            return strings.RETRY_FAILED_WRONG_ACTION
+        return '' if failed_work_ids(record) else strings.RETRY_NO_FAILURES
+    if action not in RESUME_ACTIONS: return strings.RETRY_NO_INDEX
+    if action == ACTION_CUSTOM and not options.get('dates') and \
+            (int(options.get('pages') or 0) or int(options.get('start') or 1) > 1):
+        return strings.RESUME_SLICE
+    if progress_so_far is None: return strings.RESUME_TOO_OLD
+    if mode == RETRY_DOWNLOADS and progress_so_far.get('scope') is None:
+        return strings.RETRY_NO_DOWNLOADS
+    return ''
+
+
+def retry_default(record: dict, available: set[str]) -> str:
+    """The way to retry a run that picks up from its first step that did not finish.
+
+    A run whose indexing broke off carries on with its indexing; one that got past indexing
+    and stopped carries on with its downloads; one that finished but could not get some works
+    retries just those; anything else starts again from the top.
+    """
+
+    steps = ((record.get('progress') or {}).get('steps') or {}) if isinstance(
+        record.get('progress'), dict) else {}
+    index_steps = ('index', 'bookmarked', 'collections', 'collection')
+    index_broke = bool(record.get('indexFailures')) or any(
+        steps.get(step) in (progress.STEP_FAILED, progress.STEP_RUNNING) for step in index_steps)
+    unfinished = record.get('status') != runs.STATUS_SUCCESS
+    if index_broke and RETRY_INDEX in available: return RETRY_INDEX
+    if unfinished and RETRY_DOWNLOADS in available: return RETRY_DOWNLOADS
+    if unfinished and RETRY_INDEX in available and steps: return RETRY_INDEX
+    if RETRY_FAILED in available: return RETRY_FAILED
+    return RETRY_TOP
+
+
+def retry_choices(record: dict, active: set[str]) -> dict:
+    """Every way `record` could be retried, whether each can be and why not, and the one to
+    offer first."""
+
+    modes = [{'mode': mode, 'available': not retry_problem(record, mode, active),
+              'reason': retry_problem(record, mode, active)} for mode in RETRY_MODES]
+    if record.get('action') in FIC_ACTIONS:
+        # a fic run has no listing to carry on with: it is the fics, or the failed ones
+        modes = [m for m in modes if m['mode'] in (RETRY_TOP, RETRY_FAILED)]
+    available = {m['mode'] for m in modes if m['available']}
+    return {'modes': modes, 'default': retry_default(record, available) if available else '',
+            'failedWorks': len(failed_work_ids(record))}
+
+
+def retryable_among(records: list[dict], active: set[str]) -> list[dict]:
+    """Every run that has ended among `records`, each with how it can be retried. Newest
+    first, as given. A run still going is left out: it is paused or resumed in its window."""
 
     found = []
     for index, record in enumerate(records):
         if not isinstance(record, dict): continue
-        if record.get('action') not in RESUME_ACTIONS: continue
-        if record.get('status') == runs.STATUS_SUCCESS: continue
-        problem = resume_problem(record, active)
+        if record.get('status') == runs.STATUS_RUNNING and record.get('id') in active: continue
         warnings = []
         if record.get('resumedBy'): warnings.append(strings.RESUME_ALREADY_RESUMED)
-        # a later scan that finished has most likely covered what this one had left - a
-        # scan says nothing about a collection, so a collection run is never warned of one
-        if record.get('action') not in COLLECTION_ACTIONS and any(isinstance(x, dict) and x.get('status') == runs.STATUS_SUCCESS
-               and covered_the_whole_listing(x) for x in records[:index]):
+        if record.get('action') not in COLLECTION_ACTIONS and \
+                record.get('status') != runs.STATUS_SUCCESS and \
+                any(isinstance(x, dict) and x.get('status') == runs.STATUS_SUCCESS
+                    and covered_the_whole_listing(x) for x in records[:index]):
             warnings.append(strings.RESUME_NEWER_SCAN)
-        found.append({**record, 'resumable': not problem, 'reason': problem,
-                      'warnings': warnings})
+        found.append({**record, 'retry': retry_choices(record, active), 'warnings': warnings})
     return found
 
 
@@ -1139,6 +1285,16 @@ def save_scope(job: Job, records: list[dict]) -> None:
     run goes on to check and download without indexing again."""
 
     job.checkpoint(scope=[str(r['id']) for r in records if r.get('id')])
+
+
+def finish_walk_step(job: Job, ao3: Ao3, step: str) -> None:
+    """Mark a listing walk's step: taken from the earlier attempt, failed when the walk
+    broke off on an error (its pages so far are kept, and the run carries on with them -
+    but the step did not do what it says), or done."""
+
+    if getattr(ao3, 'walk_skipped', False): mark_earlier(job, step)
+    elif getattr(ao3, 'walk_failed', False): job.steps.fail(step)
+    else: job.steps.done(step)
 
 
 def mark_earlier(job: Job, *steps: str) -> None:
@@ -1217,6 +1373,9 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
     finally:
         ao3.on_page = None
         ao3.start = start
+    if ao3.walk_failed and ao3.index_failures:
+        # which of this run's walks it was - a quick scan makes two
+        ao3.index_failures[-1]['walk'] = name
     if ao3.walk_finished and not job.cancel.is_set():
         state['done'] = True
         walks[name] = state
@@ -1329,6 +1488,9 @@ def close_record(job: Job, status: str, error: str = '') -> None:
 
     if not job.record: return
     try:
+        # a run that ended as it should, but whose indexing broke off somewhere, is only
+        # partly done - and so never a floor a quick scan measures back to
+        if status == runs.STATUS_SUCCESS and index_gaps(job.ao3): status = runs.STATUS_PARTIAL
         job.record.collect(job.ao3)
         job.record.finish(status, error)
     except Exception:
@@ -1373,7 +1535,7 @@ def run_bookmarks(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         print(strings.AO3_INFO_INDEXING)
         records = walk_listing(job, fileops, ao3, 'all', link, anchored=True,
                                own_bookmarks=True)
-        mark_earlier(job, 'index') if ao3.walk_skipped else job.steps.done('index')
+        finish_walk_step(job, ao3, 'index')
         records = merge_by_work(records,
                                 index_series_and_non_bookmarks(job, fileops, ao3, report))
     else:
@@ -1626,7 +1788,7 @@ def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[di
 
     print(strings.AO3_INFO_NEW_FOUND.format(len(records)) if records
           else strings.AO3_INFO_NEW_NONE)
-    job.steps.done('index')
+    finish_walk_step(job, ao3, 'index')
     # a series you bookmarked since last time is walked, and its works downloaded with the rest
     return merge_by_work(records, index_marked_series(job, ao3, report))
 
@@ -1904,6 +2066,7 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         # work rather than of the run: FicHub may still have it, and is asked at the end
         ao3.record_failure(link, e)
         ao3.log_error({'link': link}, e)
+        ao3.index_failures.append({'kind': 'work', 'id': str(work), 'link': link, 'error': str(e)})
         print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
         print(strings.AO3_INFO_ONE_WORK_NOT_INDEXED.format(work))
         job.steps.fail_current()
@@ -1984,6 +2147,8 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             # one fic ao3 will not show is that fic's failure, never the run's
             ao3.record_failure(link, e)
             ao3.log_error({'link': link}, e)
+            ao3.index_failures.append({'kind': 'work', 'id': str(work), 'link': link,
+                                       'error': str(e)})
             print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
             print(strings.AO3_INFO_ONE_WORK_NOT_INDEXED.format(work))
             continue
@@ -1994,7 +2159,10 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     if job.cancel.is_set():
         finish_run(job, fileops, ao3, report)
         return
-    job.steps.done('index')
+    # a fic whose page would not read was not indexed: the step says so, and the run goes on
+    # with the rest - the fics themselves are named in its issues
+    if any(gap.get('kind') == 'work' for gap in ao3.index_failures): job.steps.fail('index')
+    else: job.steps.done('index')
 
     records = merge_by_work(records, index_marked_series(job, ao3, report))
     download_planned(job, fileops, ao3, records, downloadtypes, report, overwrite=asked)
@@ -2091,7 +2259,7 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         by_bookmarked = walk_listing(
             job, fileops, ao3, 'bookmarked', sorted_bookmarks_link(job), anchored=True,
             stop_before=floor, stop_on='bookmarked', own_bookmarks=True)
-        mark_earlier(job, 'bookmarked') if ao3.walk_skipped else job.steps.done('bookmarked')
+        finish_walk_step(job, ao3, 'bookmarked')
 
         # 2. fics ao3 has changed since the floor, newest updated first - the ones already
         # bookmarked before it, which the first pass stopped short of
@@ -2109,7 +2277,7 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             by_updated = walk_listing(
                 job, fileops, ao3, 'updated', f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
                 anchored=False, stop_before=floor, own_bookmarks=True)
-            mark_earlier(job, 'index') if ao3.walk_skipped else job.steps.done('index')
+            finish_walk_step(job, ao3, 'index')
 
         if window:
             # a listing cannot be entered at a date, so both walks start at the newest and read
@@ -2359,6 +2527,7 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         records = walk_listing(job, fileops, ao3, 'all', sorted_bookmarks_link(job),
                                anchored=True, own_bookmarks=True)
         walked = not ao3.walk_skipped
+        walk_broke = ao3.walk_failed
     else:
         print(strings.AO3_INFO_USING_LAST_INDEX)
         records = shared.read_index(fileops)
@@ -2366,7 +2535,9 @@ def run_custom(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         # not re-read, but what each entry says about its series is enough to walk them
         for record in records: ao3.mark_series_of(record)
         walked = True
-    job.steps.done('index') if walked else mark_earlier(job, 'index')
+        walk_broke = False
+    if walk_broke: job.steps.fail('index')
+    else: job.steps.done('index') if walked else mark_earlier(job, 'index')
 
     records = merge_by_work(records, index_series_and_non_bookmarks(job, fileops, ao3, report))
     download_planned(job, fileops, ao3, records, downloadtypes, report)
@@ -3242,7 +3413,9 @@ def crawl_collections(job: Job, fileops: FileOps, ao3: Ao3, step: str, crawl) ->
         return None
     job.steps.start(step)
     records = crawl()
-    job.steps.done(step)
+    # a collection whose listing broke off was saved with what it had, but not finished
+    if any(gap.get('kind') == 'collection' for gap in ao3.index_failures): job.steps.fail(step)
+    else: job.steps.done(step)
     return records
 
 
@@ -3490,7 +3663,7 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
         walk_listing(job, fileops, ao3, 'updated',
                      f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}', anchored=False,
                      stop_before=start, own_bookmarks=True)
-        mark_earlier(job, 'index') if ao3.walk_skipped else job.steps.done('index')
+        finish_walk_step(job, ao3, 'index')
     elif metadata:
         # asked for, and turned off - so it is shown as skipped rather than dropped
         print(strings.AO3_INFO_USING_LAST_INDEX)
@@ -4010,15 +4183,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {'runs': floors_among(records if isinstance(records, list) else [])})
             return
 
-        if self.path == '/api/runs/resumable':
-            # the same arrangement: the page reads the history, the rule for what can be
-            # resumed is the helper's
+        if self.path == '/api/runs/retryable':
+            # the same arrangement: the page reads the history, the rule for how a run can
+            # be retried is the helper's
             try:
                 records = self.read_json().get('runs')
             except Exception:
                 self.send_json(400, {'error': 'invalid json'})
                 return
-            self.send_json(200, {'runs': resumable_among(
+            self.send_json(200, {'runs': retryable_among(
                 records if isinstance(records, list) else [], active_job_ids())})
             return
 
@@ -4092,7 +4265,7 @@ class Handler(BaseHTTPRequestHandler):
         # re-fetch a whole library
         if action not in OVERWRITE_ACTIONS: options['overwrite'] = False
         # the scans alone can be resumed; the run itself checks the one named can be
-        if action not in RESUME_ACTIONS: options['resume'] = ''
+        if action not in RESUME_ACTIONS: options['resume'] = options['retryMode'] = ''
         # the same for checking non-bookmarks, which costs a request per work outside a series
         if action not in NON_BOOKMARK_ACTIONS: options['nonBookmarks'] = False
         # a chosen floor is the quick scan's alone, and has to name a run that can be one -
