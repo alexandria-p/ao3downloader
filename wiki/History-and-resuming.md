@@ -15,29 +15,99 @@ Every run is written into the **History** tab (`runs/` in your library) the mome
 
 Whatever the status, what the run saved stays saved.
 
+## Resuming
+
+**Resume** only un-pauses a run that is still going - after you pressed **Pause**. A run that has
+ended is never resumed; it is **retried**.
+
 ## Retrying [experimental]
 
-**Retry** is on every run that has ended, whatever its status, and every workflow. It starts a **new run** (with its own History entry), so a retry can be retried too. **Resume** now only means un-pausing a run that is still going.
+**Retry** is on every run that has ended - finished, partly finished, failed, stopped,
+interrupted or abandoned - from its History entry, or from **Custom run > Retry an earlier
+run**. A retry is a **new run** with its own History entry, linked both ways to the run it
+retries, so a retry can be retried in turn.
 
-The Retry window shows how each step went and the last one that finished, and offers:
+### The ways to retry
 
-- **From the top** - the whole run again, asking its questions afresh. A Quick Scan covers the same dates as the first attempt.
-- **Start its indexing from the top** - every listing read again from page 1, then everything checked and downloaded.
-- **Carry on from where its indexing stopped** - walks that finished are taken from your index; one that broke off carries on from the date it had got down to - found again however far the pages have moved since; then everything is checked and downloaded.
-- **Start its downloads from the top** - every work it had settled on, checked and downloaded again (every format, on a run that overwrites).
-- **Carry on from where its downloads stopped** - only what it hadn't saved yet: nothing for a fic it finished, the missing formats of one it was partway through, every format of one it never reached.
+| Choice | What it does |
+| --- | --- |
+| **From the top** | The whole run again, with the same workflow and options, asking its questions afresh. |
+| **Start its indexing from the top** | Every listing read again from page 1, then everything checked and downloaded. The first attempt's answers are reused. |
+| **Carry on from where its indexing stopped** | Walks that finished are taken from your index - no requests. A walk that broke off carries on from the date it had got down to. A walk that never started starts at its ceiling (below). Then everything is checked and downloaded. |
+| **Start its downloads from the top** | The works it had settled on, every format judged afresh against the index: a missing or older copy is fetched, a current one kept. On a run that overwrites, every format is fetched again. |
+| **Carry on from where its downloads stopped** | Only what it hadn't saved: nothing for a fic it finished, the missing formats of one it was partway through, every format of one it never reached. Even on a run that overwrites, what it already saved is not fetched again. |
+| **Just the works it could not get** | Only its failures, and only the formats each is missing. For a fic run, just those fics. |
 
-Before carrying on, a retry checks the earlier attempt's work is still there: every fic it indexed still has its index file (one that does not is indexed again), and every file it saved is still in the folder with the date the index has (one that is missing or dated differently is fetched again).
-- **Just the works it could not get** - only its failures, and only their missing formats. For a fic run, just those fics.
+The window shows how each of the run's steps went and the last one that finished, and picks
+the choice that carries on from the first step that did not finish: indexing broke off →
+*carry on from where its indexing stopped*; stopped after indexing → *carry on from where its
+downloads stopped*; finished with failures → *just the works it could not get*; otherwise
+*from the top*. Choices that cannot apply are greyed out, with the reason.
 
-The one that picks up from the first step that did not finish is chosen for you. Also under **Custom run > Retry an earlier run**.
+### Which choices each workflow has
 
-How it carries on:
+| Workflow | Choices |
+| --- | --- |
+| **Full Scan** | All six. |
+| **Quick Scan** (with or without a date range) | All six. |
+| **Custom run** - all bookmarks, or a date range | All six. |
+| **Custom run** - a slice of pages | From the top, start its indexing from the top, just the works it could not get. Page numbers move as bookmarks change, so a slice cannot be carried on. |
+| **Index your collections** / **index a collection by link** | All six. |
+| **Download a fic** / **download several fics** | From the top, just the fics it could not get. |
+| The debug runs (combined run, update incomplete, new bookmarks only) | From the top. |
 
-- **Walks by date bookmarked** carry on from the page holding the last bookmark saved. If that bookmark has moved, it looks a few pages either way, then starts over.
-- **Walks by date updated** start from the top again, since updated fics jump to the front.
-- **Collection runs** skip finished collections and carry on from each listing's last saved page, read again in case works shifted.
-- **Answers** the first attempt gave to questions are reused.
-- A custom run over a slice of pages can only be retried from the top - page numbers move as bookmarks change.
+### How a walk is picked up again
 
-A retried scan keeps its first attempt's start time, so the next Quick Scan measures back to when the chain began.
+A walk is one read down a listing of your bookmarks. Pages move between attempts - new bookmarks
+push everything down, removed ones pull it up, and an updated fic jumps to the top of a listing
+sorted by date updated - so a walk is never picked up by page number alone. Every page it reads
+saves **the date it got down to**, in the order the listing is sorted by, and a retry looks for
+**the first page now holding that date** (starting from the page it stopped on, going forwards
+or backwards as far as it needs to), then walks on from there to the floor. If nothing in the
+listing is that old any more, the walk starts again from page 1.
+
+The **floor** is the date a walk stops at; the **ceiling** is the newest date a retry wants
+anything from. Both are the first attempt's, kept by every retry in a chain.
+
+| Workflow | Walks | Floor | Ceiling on a retry |
+| --- | --- | --- | --- |
+| **Full Scan** | 1, by date bookmarked | none - the whole listing | none: new bookmarks are what it is for, so a walk that never started starts at page 1 |
+| **Quick Scan** | 2: by date bookmarked, then by date updated (just the first when there is no floor - it then reads everything) | the date of the last complete Full or Quick Scan, as the first attempt worked it out | the day the first attempt started, for both walks |
+| **Quick Scan, date range** | 2, as above | the range's start | the range's end (or the day the first attempt started, if earlier); with no start date, the first walk starts at page 1 |
+| **Custom run, all bookmarks** | 1, by date bookmarked | none | none, as the Full Scan |
+| **Custom run, date range** | 1, by date updated | the range's start | the range's end |
+
+On a retry, a walk that **never started** starts at the page holding its ceiling; one that
+**broke off** carries on from the date it reached (always on or before the ceiling); one that
+**finished** is taken from your index. The ceiling counts: fics dated on it are indexed, fics
+dated after it are left for your next scan. A first attempt always walks from page 1.
+
+For a Quick Scan, that gives:
+
+| Where the first attempt got to | By date bookmarked | By date updated |
+| --- | --- | --- |
+| The first walk did not start | ceiling → floor | ceiling → floor |
+| Stopped during the first walk | date reached → floor | ceiling → floor |
+| First finished, second did not start | from your index | ceiling → floor |
+| Stopped during the second walk | from your index | date reached → floor |
+| Both walks finished | from your index | from your index |
+
+**Collection runs** skip collections the first attempt finished (their works taken from your
+index), and carry on each unfinished listing from its last saved page, reading it again in
+case works shifted.
+
+### What a retry checks before carrying on
+
+- **Every fic the first attempt indexed still has its index file.** One that does not is
+  indexed again from its own page.
+- **Every file it saved is still in the folder, dated as the index says.** One that is missing,
+  undated or dated differently is fetched again. Each index entry records which run last wrote
+  it, so the log says when another run has changed one since.
+
+### What carries through every retry
+
+- The workflow, its file types and its **options** - overwriting included.
+- The first attempt's **floor**, **ceiling** and start time, so the next Quick Scan measures back
+  to when the chain began.
+- The **answers** the first attempt gave to its questions - except on *from the top*, which asks
+  again.

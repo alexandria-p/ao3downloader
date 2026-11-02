@@ -220,9 +220,6 @@ RETRY_MODES = (RETRY_TOP, RETRY_REINDEX, RETRY_INDEX, RETRY_REDOWNLOAD, RETRY_DO
 # the fic runs: retried by the fics they name, not by a listing
 FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
 
-# How many pages a resumed walk looks through for the last bookmark the earlier attempt
-# saved, before giving up and starting that walk from the first page.
-
 # json is always produced, so the ui shows it ticked and locked. it is what the web page
 # reads, and it costs nothing extra: the metadata comes off the listing page that has to be
 # fetched anyway, rather than one request per work.
