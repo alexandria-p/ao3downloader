@@ -273,6 +273,77 @@ def test_a_quick_scan_whose_first_walk_finished_carries_on_with_the_second(libra
     assert job.progress()['walks']['updated']['done'] is True
 
 
+UPDATED_LINK = LINK.replace(strings.AO3_SORT_BY_BOOKMARKED, strings.AO3_SORT_BY_UPDATED)
+BOOKMARKED_PLACE = {'id': 'bookmark_19', 'date': '2025-01-19', 'sort': 'bookmarked'}
+UPDATED_PLACE = {'id': 'bookmark_9', 'date': '2025-01-09', 'sort': 'updated'}
+
+
+@pytest.mark.parametrize('walks, wanted_requests, wanted_works, marks', [
+    pytest.param(
+        {}, [('bookmarked', 1), ('bookmarked', 2), ('bookmarked', 3),
+             ('updated', 1), ('updated', 2), ('updated', 3)],
+        [22, 21, 20, 19, 18, 17, 12, 11, 10, 9, 8, 7], ('done', 'done'),
+        id='the first walk did not start'),
+    pytest.param(
+        {'bookmarked': {'page': 1, 'anchor': BOOKMARKED_PLACE, 'done': False,
+                        'works': ['20', '19']}},
+        # two bookmarks made since push the date reached onto page 2: found, walked from there
+        [('bookmarked', 1), ('bookmarked', 2), ('bookmarked', 2), ('bookmarked', 3),
+         ('updated', 1), ('updated', 2), ('updated', 3)],
+        [20, 19, 18, 17, 12, 11, 10, 9, 8, 7], ('done', 'done'),
+        id='it stopped during the first walk'),
+    pytest.param(
+        {'bookmarked': {'page': 2, 'anchor': BOOKMARKED_PLACE, 'done': True,
+                        'works': ['20', '19', '18', '17']}},
+        [('updated', 1), ('updated', 2), ('updated', 3)],
+        [20, 19, 18, 17, 12, 11, 10, 9, 8, 7], ('earlier', 'done'),
+        id='the first walk finished, the second did not start'),
+    pytest.param(
+        {'bookmarked': {'page': 2, 'anchor': BOOKMARKED_PLACE, 'done': True,
+                        'works': ['20', '19', '18', '17']},
+         'updated': {'page': 1, 'anchor': UPDATED_PLACE, 'done': False, 'works': ['10', '9']}},
+        [('updated', 1), ('updated', 2), ('updated', 2), ('updated', 3)],
+        [20, 19, 18, 17, 10, 9, 8, 7], ('earlier', 'done'),
+        id='it stopped during the second walk'),
+    pytest.param(
+        {'bookmarked': {'page': 2, 'anchor': BOOKMARKED_PLACE, 'done': True,
+                        'works': ['20', '19', '18', '17']},
+         'updated': {'page': 2, 'anchor': UPDATED_PLACE, 'done': True,
+                     'works': ['10', '9', '8', '7']}},
+        [], [20, 19, 18, 17, 10, 9, 8, 7], ('earlier', 'earlier'),
+        id='both walks finished'),
+])
+def test_a_quick_scan_carries_on_its_two_walks_from_wherever_it_stopped(
+        library, walks, wanted_requests, wanted_works, marks):
+    # as a walk would have left them: dated, which is what keeps them inside the window
+    writer, _ = an_ao3(library, {})
+    for work in range(7, 23):
+        writer.save_metadata({'id': str(work), 'title': f'Work {work}', 'authors': ['A'],
+                              'link': f'https://archiveofourown.org/works/{work}',
+                              'date_updated': f'{work:02d} Jan 2025'})
+    pages = {**listing([22, 21], [20, 19], [18, 17]),
+             **listing([12, 11], [10, 9], [8, 7], link=UPDATED_LINK)}
+    _, repo = an_ao3(library, pages)
+    job, events = a_job(library, server.ACTION_QUICK,
+                        earlier={'floor': '2025-01-01', 'walks': walks})
+
+    with patch.object(server, 'index_series_and_non_bookmarks', return_value=[]), \
+         patch.object(server, 'download_planned') as downloading, \
+         patch.object(server, 'finish_run'):
+        server.run_quick(job, library, repo, None)
+
+    requests = [('updated' if strings.AO3_SORT_BY_UPDATED in c.args[0] else 'bookmarked',
+                 parse_text.get_page_number(c.args[0])) for c in repo.get_soup.call_args_list]
+    assert requests == wanted_requests
+    assert sorted(int(r['id']) for r in downloading.call_args.args[3]) == sorted(wanted_works)
+    statuses = {e['id']: e['status'] for e in events if e['type'] == progress.STEP}
+    wanted = {'done': progress.STEP_DONE, 'earlier': progress.STEP_EARLIER}
+    assert (statuses['bookmarked'], statuses['index']) == tuple(wanted[m] for m in marks)
+    # and both walks are now saved as finished, for a retry of this retry
+    assert job.progress()['walks']['bookmarked']['done']
+    assert job.progress()['walks']['updated']['done']
+
+
 def test_an_updated_walk_saves_the_date_updated_as_its_place(library):
     link = LINK.replace(strings.AO3_SORT_BY_BOOKMARKED, strings.AO3_SORT_BY_UPDATED)
     ao3, _ = an_ao3(library, listing([10, 9], [8, 7], link=link))

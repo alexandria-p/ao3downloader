@@ -173,11 +173,21 @@ index, and the checklist marks it *done in the earlier run*.
 
 - The floor is **the earlier attempt's floor**, not one worked out afresh: runs have finished
   since, and this is still that run. It is never asked again.
-- Stopped during the *bookmarks by date bookmarked* walk: that walk is picked up from its page
-  as above, then the *by date updated* walk runs from the top.
-- Stopped during the *by date updated* walk: the first walk is not repeated; the second runs
-  again from the top.
-- Either way, the *by date updated* walk now reads past the first attempt's start on its way
+- Its index step is two walks, *by date bookmarked* then *by date updated*, and each saves
+  whether it finished. Carrying on from where indexing stopped:
+
+  | Where the earlier attempt got to | By date bookmarked | By date updated |
+  | --- | --- | --- |
+  | The first walk did not start | walked from page 1 | walked from page 1 |
+  | Stopped during the first walk | carries on from the date it reached | walked from page 1 |
+  | First finished, second did not start | taken from the index, no requests | walked from page 1 |
+  | Stopped during the second walk | taken from the index, no requests | carries on from the date it reached |
+  | Both finished | taken from the index, no requests | taken from the index, no requests |
+
+  A walk taken from the index is ticked *done in the earlier run*. Whatever happens, both
+  walks end the retry saved as finished, so a retry of the retry skips both.
+  `test_a_quick_scan_carries_on_its_two_walks_from_wherever_it_stopped` runs all five.
+- Either way, the *by date updated* walk may read past the first attempt's start on its way
   down, so it keeps only works AO3 updated **up to the first attempt's baseline** - the
   **ceiling**. Anything updated after that is the next quick scan's to find, measured from the
   same baseline. A quick scan with a date range uses whichever is earlier: its own end date or

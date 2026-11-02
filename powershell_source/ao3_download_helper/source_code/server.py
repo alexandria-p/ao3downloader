@@ -2333,8 +2333,8 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         elif not job.cancel.is_set():
             job.steps.start('index')
             print(strings.AO3_INFO_QUICK_UPDATED.format(floor))
-            # never picked up partway, even when resuming: a fic ao3 updated since moves to
-            # the top of this listing, so no page of it stays where it was
+            # a retry picks it up from the date updated it had reached (`find_anchor`): a fic
+            # ao3 updated since jumps to the top, so its page is found by date, not by number
             by_updated = walk_listing(
                 job, fileops, ao3, 'updated', f'{bookmarks_link(job)}?{strings.AO3_SORT_BY_UPDATED}',
                 anchored=False, stop_before=floor, own_bookmarks=True)
@@ -2350,8 +2350,8 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             by_bookmarked = works_dated_between(by_bookmarked, 'date_bookmarked', floor, ceiling)
             by_updated = works_dated_between(by_updated, 'date_updated', floor, ceiling)
         elif job.resume and ceiling:
-            # walked again from the top, so it read past the first attempt's start on the
-            # way down. only what ao3 updated up to then is this run's to download
+            # a walk from the top reads past the first attempt's start on the way down. only
+            # what ao3 updated up to then is this run's to download
             by_updated = works_dated_between(by_updated, 'date_updated', floor, ceiling)
             print(strings.AO3_INFO_RESUME_CEILING.format(ceiling, len(by_updated)))
 
