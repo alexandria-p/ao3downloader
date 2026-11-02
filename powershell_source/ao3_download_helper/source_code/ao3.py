@@ -46,6 +46,46 @@ def blank(value) -> bool:
 
 
 
+def listing_sort(link: str) -> str:
+    """Which date a bookmarks listing is in order of, from its url: 'bookmarked', 'updated',
+    or '' for ao3's own default (when each was bookmarked, but not asked for by name)."""
+
+    if strings.AO3_SORT_BY_UPDATED in link: return 'updated'
+    if strings.AO3_SORT_BY_BOOKMARKED in link: return 'bookmarked'
+    return ''
+
+
+def describe_listing_gap(gap: dict) -> str:
+    """One line saying exactly where indexing broke off - which pages were read, which one
+    failed, and how far back in date the listing got - for the run's window and its log."""
+
+    if gap.get('kind') == 'work':
+        return strings.AO3_INFO_INDEX_GAP_WORK.format(gap.get('id'), gap.get('error'))
+    first, last, failed = gap.get('firstPage') or 1, gap.get('lastPage'), gap.get('failedPage')
+    read = (strings.AO3_INFO_INDEX_GAP_NONE_READ if not last else
+            strings.AO3_INFO_INDEX_GAP_READ.format(first, last, gap.get('works') or 0))
+    total = gap.get('totalPages')
+    where = (strings.AO3_INFO_INDEX_GAP_COLLECTION.format(gap.get('collection'), gap.get('items'))
+             if gap.get('kind') == 'collection' else strings.AO3_INFO_INDEX_GAP_LISTING)
+    line = strings.AO3_INFO_INDEX_GAP.format(where, failed, f' of {total}' if total else '', read)
+    date = gap.get('reachedBookmarked') if gap.get('sort') == 'bookmarked' else \
+        gap.get('reachedUpdated') if gap.get('sort') == 'updated' else gap.get('reachedBookmarked')
+    if last and date:
+        kind = 'updated' if gap.get('sort') == 'updated' else 'bookmarked'
+        line += ' ' + strings.AO3_INFO_INDEX_GAP_DATE.format(kind, date)
+    return line
+
+
+def index_gaps(ao3) -> list[dict]:
+    """The places this run's indexing broke off that still stand. A fic run's fic whose own
+    page would not read counts only while it is still a failure - one FicHub supplied in the
+    end was got after all."""
+
+    gaps = list(getattr(ao3, 'index_failures', None) or [])
+    failed = {str(x.get('id') or '') for x in getattr(ao3, 'failures', None) or []}
+    return [gap for gap in gaps if gap.get('kind') != 'work' or str(gap.get('id')) in failed]
+
+
 def page_bookmark_state(soup, existing: dict | None) -> dict:
     """What a work page may write to `bookmarked`: never a demotion of a known bookmark.
 
@@ -164,6 +204,16 @@ class Ao3:
         self.externals_saved: set[str] = set()
         # collections saved with a listing that failed partway, which are not finished
         self.unfinished_collections: set[str] = set()
+        # every place this run's indexing broke off: a listing walk that stopped on an error
+        # (which pages it read, which page failed, how far back in date it got), a
+        # collection listing, or a fic's own page. A run with any of these is only partly
+        # done - see `index_gaps` - and never a floor for a quick scan
+        self.index_failures: list[dict] = []
+        # whether the last listing walk stopped on an error rather than ending as it should
+        self.walk_failed = False
+        # how far the collection listing being read has got: its first page, the last page
+        # read in full, and the works found - said when one breaks off
+        self.listing_read: dict = {}
         # whether a collection run follows each collection's subcollections, its parent, or
         # both - any number of steps away - and what it has read and has still to read
         # external works indexed off collections' bookmarked items this run, by ao3's number
@@ -300,6 +350,14 @@ class Ao3:
         skipped = 0
         total_pages = None
         self.walk_finished = False
+        self.walk_failed = False
+        # how far the walk got, for when it breaks off: the page it began on, the last one
+        # read in full, and the dates on that page's last blurb - the bookmark's and the
+        # work's own - which is how far back in time the listing was read
+        first_page = parse_text.get_page_number(link)
+        current = first_page
+        last_good: int | None = None
+        reached = {'bookmarked': '', 'updated': ''}
 
         try:
             while True:
@@ -421,6 +479,15 @@ class Ao3:
                 progress.report(self.progress, progress.PAGE, page=done, total=of,
                                 listingPage=current, listingTotal=shown_total,
                                 works=len(records))
+                last_good = current
+                page_blurbs = parse_soup.get_blurbs(thesoup)
+                if page_blurbs:
+                    reached = {
+                        'bookmarked': parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                            page_blurbs[-1], 'div.user p.datetime')) or reached['bookmarked'],
+                        'updated': parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                            page_blurbs[-1], 'div.header p.datetime')) or reached['updated'],
+                    }
                 # said as soon as the page is in, and before any decision to stop: this used
                 # to sit after the break checks, so the page a run ended on - the last one
                 # of the listing, or the one the page limit stopped at - never reported
@@ -446,7 +513,21 @@ class Ao3:
             # everything written so far stays on disk; this is not an error
             print(strings.INFO_CANCELLED)
         except Exception as e:
+            # the walk ends here, keeping everything already written - but it did not reach
+            # the end of the listing, and the run must say exactly how far it got rather
+            # than carry on as though it had
+            self.walk_failed = True
+            gap = {
+                'kind': 'listing', 'walk': '', 'listing': source,
+                'sort': listing_sort(source),
+                'firstPage': first_page, 'lastPage': last_good, 'failedPage': current,
+                'totalPages': total_pages, 'works': len(records),
+                'reachedBookmarked': reached['bookmarked'], 'reachedUpdated': reached['updated'],
+                'error': str(e),
+            }
+            self.index_failures.append(gap)
             print(strings.ERROR_LINKS_LIST)
+            print(describe_listing_gap(gap))
             self.log_error({'message': strings.ERROR_LINKS_LIST, 'link': link}, e)
         except KeyboardInterrupt:
             print(strings.INFO_LINKS_LIST_CANCELED)
@@ -816,6 +897,7 @@ class Ao3:
             # read before this attempt: indexed then, so downloaded with the rest now
             self.keep_indexed(found)
         page = start
+        self.listing_read = {'firstPage': start, 'lastPage': None, 'works': len(found)}
         for soup in self.walk_pages(parse_text.set_page_number(link, start) if start > 1
                                     else link, stop):
             readings: list[dict] = []
@@ -853,6 +935,7 @@ class Ao3:
             if self.on_collection_page and key:
                 self.on_collection_page(collection, key, page, list(found),
                                         externals=list(external_ids), series=list(series_ids))
+            self.listing_read = {'firstPage': start, 'lastPage': page, 'works': len(found)}
             page += 1
         return found
 
@@ -1278,6 +1361,17 @@ class Ao3:
                     document['series_ids'] = [str(x) for x in previous.get('series_ids') or []]
                 # saved with what it has, as ever - but not finished, so a resumed run reads it
                 self.unfinished_collections.add(slug)
+                read = self.listing_read or {}
+                last = read.get('lastPage')
+                gap = {
+                    'kind': 'collection', 'collection': slug, 'listing': url,
+                    'items': 'bookmarked items' if key == 'bookmark_ids' else 'works',
+                    'firstPage': read.get('firstPage') or 1, 'lastPage': last,
+                    'failedPage': (last or (read.get('firstPage') or 1) - 1) + 1,
+                    'works': read.get('works') or 0, 'error': str(e),
+                }
+                self.index_failures.append(gap)
+                print(describe_listing_gap(gap))
                 self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': url}, e)
 
         # the works in each series are recorded in the series' own entry, not here - a
