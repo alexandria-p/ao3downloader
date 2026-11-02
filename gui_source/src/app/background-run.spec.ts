@@ -580,6 +580,16 @@ describe('Running in the background', () => {
     expect(said).toContain(`If it is not resumed by ${expected}, the helper abandons it`);
   });
 
+  it('says at the end of a background run that the library has to be opened again to show it', async () => {
+    await runningInBackground();
+    jobs.push!({ type: 'finished', cancelled: false });
+    await fixture.whenStable();
+
+    const said = element.textContent ?? '';
+    expect(said).toContain('Open the library again to see them.');
+    expect(said).not.toContain('The listing has been brought up to date');
+  });
+
   it('says a run that was abandoned was abandoned, and how to carry on', async () => {
     await runningInBackground();
     jobs.push!({ type: 'finished', cancelled: true, abandoned: true });

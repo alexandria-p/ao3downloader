@@ -1935,9 +1935,21 @@
           </p>
         }
 
-        <p class="hint">
-          Point the folder picker at that folder (or reopen it) to see the new bookmarks here.
-        </p>
+        <!--
+          an ordinary run's writes all go through this page, which brings the listing up to
+          date as the run ends (refreshAfterRun). a background run writes to Dropbox itself,
+          so this page never sees what it changed
+        -->
+        @if (runningInBackground()) {
+          <p class="hint">
+            This run wrote to your library without this page, so the listing does not show
+            its changes yet. Open the library again to see them.
+          </p>
+        } @else {
+          <p class="hint">
+            The listing has been brought up to date with what this run changed.
+          </p>
+        }
         @if (log().length) {
           <pre class="log">@for (line of log(); track $index) {{{ line }}
 }</pre>

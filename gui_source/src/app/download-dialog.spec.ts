@@ -1074,6 +1074,15 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  it('says at the end that the listing already has the run\'s changes, rather than to reopen the folder', async () => {
+    await finishWithFailures([]);
+
+    const said = element.textContent ?? '';
+    expect(said).toContain('The listing has been brought up to date with what this run changed.');
+    expect(said).not.toContain('Point the folder picker');
+    expect(said).not.toContain('Open the library again');
+  });
+
   it('says which works could not be downloaded', async () => {
     await finishWithFailures();
 
