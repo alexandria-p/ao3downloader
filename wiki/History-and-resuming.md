@@ -23,7 +23,7 @@ The Retry window shows how each step went and the last one that finished, and of
 
 - **From the top** - the whole run again, asking its questions afresh. A Quick Scan covers the same dates as the first attempt.
 - **Start its indexing from the top** - every listing read again from page 1, then everything checked and downloaded.
-- **Carry on from where its indexing stopped** - walks that finished are taken from your index; one that broke off carries on from where it stopped; then everything is checked and downloaded.
+- **Carry on from where its indexing stopped** - walks that finished are taken from your index; one that broke off carries on from the date it had got down to - found again however far the pages have moved since; then everything is checked and downloaded.
 - **Start its downloads from the top** - every work it had settled on, checked and downloaded again (every format, on a run that overwrites).
 - **Carry on from where its downloads stopped** - only what it hadn't saved yet: nothing for a fic it finished, the missing formats of one it was partway through, every format of one it never reached.
 - **Just the works it could not get** - only its failures, and only their missing formats. For a fic run, just those fics.

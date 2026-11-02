@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1851 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1858 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1099,8 +1099,12 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
   batched). Walks go through `walk_listing`, which records each page's last bookmark (the
   **anchor**) via `Ao3.on_page`; `Ao3.walk_finished` says whether a walk reached its natural
   end, because `get_metadata` swallows its own errors and returns what it had.
-- **Listings sorted by date bookmarked carry on from the anchor** (`find_anchor`); **listings
-  sorted by date updated always restart** - an updated fic jumps to the top.
+- **A broken walk carries on from the date it got down to**, not from the bookmark: the anchor
+  saves the last blurb's date in the listing's own sort (`sort`: bookmarked, or updated from
+  `div.header p.datetime` - `SORT_DATE_SELECTORS`), and `find_anchor` finds the first page now
+  holding anything on or before it, searching as far either way as it must (doubling, then
+  halving). Both sorts carry on; an anchor with no `sort` on an updated walk (an older record)
+  restarts. **The walk itself (`get_metadata`) is unchanged** - only the page it starts on.
 - **`prepare_resume` replaces the job's action, file types and options** with the earlier
   run's before the checklist is built. Recorded answers are reused through `Job.prior_answers`.
 - **A custom run over a slice can only be retried from the top** (`RESUME_SLICE`): page

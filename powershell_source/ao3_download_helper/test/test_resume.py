@@ -2,8 +2,8 @@
 
 A run saves how far it got as it goes; a resumed run takes the earlier attempt's workflow,
 settings and progress, and carries on: a walk sorted by date bookmarked from the page it
-stopped on (found again however the pages have moved), a walk sorted by date updated from
-the top, and everything after indexing over the works the earlier attempt had settled.
+stopped on - found again by the date it got down to, however the pages have moved - and a
+walk sorted by date updated the same way, and everything after indexing over the works the earlier attempt had settled.
 """
 
 import json
@@ -86,13 +86,14 @@ def fetched(repo: MagicMock) -> list[int]:
 
 # region finding where the earlier attempt stopped
 
-ANCHOR = {'id': 'bookmark_7', 'date': '2025-01-07'}
+ANCHOR = {'id': 'bookmark_7', 'date': '2025-01-07', 'sort': 'bookmarked'}
 
 
 def test_the_bookmark_is_found_where_it_was():
     ao3, repo = an_ao3(MagicMock(), listing([10, 9], [8, 7], [6, 5]))
     assert server.find_anchor(ao3, LINK, 2, ANCHOR) == 2
-    assert fetched(repo) == [2]
+    # and the page before is checked, in case fics on that date start earlier now
+    assert fetched(repo) == [2, 1]
 
 
 def test_bookmarks_added_since_move_it_down_and_the_dates_say_so():
@@ -119,10 +120,56 @@ def test_a_page_past_the_end_of_a_shorter_listing_is_brought_back_to_it():
     assert fetched(repo) == [9, 2, 1]
 
 
-def test_a_bookmark_that_is_gone_is_not_found():
-    # unbookmarked since: nowhere to carry on from, so the walk starts again
+def test_a_bookmark_that_is_gone_does_not_matter_it_is_the_date_that_is_looked_for():
+    # bookmark 7 unbookmarked since: the walk carries on from the first page reaching its date
     ao3, _ = an_ao3(MagicMock(), listing([10, 9], [8, 6], [5, 4]))
-    assert server.find_anchor(ao3, LINK, 2, ANCHOR) is None
+    assert server.find_anchor(ao3, LINK, 2, ANCHOR) == 2
+
+
+def test_it_starts_at_the_first_fic_on_the_date_even_when_that_day_spans_pages():
+    # three fics bookmarked on the 7th, now split across pages 2 and 3
+    pages = listing([12, 11], [10, 7], [7, 7], [6, 5])
+    ao3, _ = an_ao3(MagicMock(), pages)
+    assert server.find_anchor(ao3, LINK, 3, ANCHOR) == 2
+
+
+def test_a_listing_that_moved_a_long_way_is_searched_as_far_as_it_takes():
+    # forty pages of new bookmarks since: page 2 is now page 42
+    pages = listing(*[[100 + 2 * i, 99 + 2 * i] for i in range(40, 0, -1)], [10, 9], [8, 7],
+                    [6, 5])
+    ao3, repo = an_ao3(MagicMock(), pages)
+    assert server.find_anchor(ao3, LINK, 2, ANCHOR) == 42
+    # doubling then halving - nowhere near forty requests
+    assert len(fetched(repo)) <= 14
+
+
+def test_a_listing_that_shrank_a_long_way_is_searched_back_to_the_start():
+    pages = listing([8, 7], [6, 5], [4, 3])
+    ao3, repo = an_ao3(MagicMock(), pages)
+    assert server.find_anchor(ao3, LINK, 3, ANCHOR) == 1
+    assert fetched(repo) == [3, 2, 1]
+
+
+def test_a_listing_with_nothing_as_old_as_the_date_gives_no_page():
+    ao3, _ = an_ao3(MagicMock(), listing([12, 11], [10, 9]))
+    assert server.find_anchor(ao3, LINK, 1, ANCHOR) is None
+
+
+def test_a_listing_sorted_by_date_updated_is_searched_by_the_date_updated():
+    # the updated date is in the blurb's header; the bookmarked date says something else
+    def updated_blurb(work: int, bookmarked: str) -> str:
+        return (f'<li id="bookmark_{work}" class="bookmark blurb group">'
+                f'<div class="header module"><h4 class="heading"><a href="/works/{work}">W</a>'
+                f'</h4><p class="datetime">{work:02d} Jan 2025</p></div>'
+                f'<div class="user module group"><p class="datetime">{bookmarked}</p></div></li>')
+    link = LINK.replace(strings.AO3_SORT_BY_BOOKMARKED, strings.AO3_SORT_BY_UPDATED)
+    pages = {parse_text.set_page_number(link, i): BeautifulSoup(
+        '<ol class="bookmark index group">' + ''.join(updated_blurb(w, '01 Jan 2020') for w in ws)
+        + '</ol><ol class="pagination actions"><li>1</li><li>2</li><li>3</li></ol>',
+        'html.parser') for i, ws in enumerate([[12, 11], [10, 9], [8, 7]], start=1)}
+    ao3, _ = an_ao3(MagicMock(), pages)
+    anchor = {'id': 'bookmark_7', 'date': '2025-01-07', 'sort': 'updated'}
+    assert server.find_anchor(ao3, link, 2, anchor) == 3
 
 # endregion
 
@@ -170,14 +217,45 @@ def test_a_walk_the_earlier_attempt_finished_is_not_walked_again(library):
     assert [r['id'] for r in records] == ['10', '9']
 
 
-def test_a_listing_sorted_by_date_updated_is_walked_again_from_the_top(library):
+def test_a_walk_saved_before_walks_recorded_their_sort_is_walked_again_from_the_top(library):
+    # an older record's anchor carries a date bookmarked, which says nothing about an
+    # updated-date listing
     ao3, repo = an_ao3(library, listing([10, 9], [8, 7]))
+    old = {'id': 'bookmark_7', 'date': '2025-01-07'}
     job, _ = a_job(library, earlier={'walks': {'updated': {
-        'page': 2, 'anchor': ANCHOR, 'done': False, 'works': ['10', '9']}}})
+        'page': 2, 'anchor': old, 'done': False, 'works': ['10', '9']}}})
 
     server.walk_listing(job, library, ao3, 'updated', LINK, anchored=False)
 
     assert fetched(repo) == [1, 2]
+
+
+def test_a_listing_sorted_by_date_updated_carries_on_from_the_date_it_got_to(library):
+    seed(library, 10, 9)
+    link = LINK.replace(strings.AO3_SORT_BY_BOOKMARKED, strings.AO3_SORT_BY_UPDATED)
+    # two fics updated since jumped to the top, pushing the rest along a page
+    ao3, repo = an_ao3(library, listing([30, 31], [10, 9], [8, 7], [6, 5], link=link))
+    anchor = {'id': 'bookmark_9', 'date': '2025-01-09', 'sort': 'updated'}
+    job, _ = a_job(library, earlier={'walks': {'updated': {
+        'page': 1, 'anchor': anchor, 'done': False, 'works': ['10', '9']}}})
+
+    records = server.walk_listing(job, library, ao3, 'updated', link, anchored=False,
+                                  own_bookmarks=True)
+
+    # found on page 2, walked from there; the fics above it are the first attempt's
+    assert fetched(repo)[-3:] == [2, 3, 4]
+    assert sorted(int(r['id']) for r in records) == [5, 6, 7, 8, 9, 10]
+
+
+def test_an_updated_walk_saves_the_date_updated_as_its_place(library):
+    link = LINK.replace(strings.AO3_SORT_BY_BOOKMARKED, strings.AO3_SORT_BY_UPDATED)
+    ao3, _ = an_ao3(library, listing([10, 9], [8, 7], link=link))
+    job, _ = a_job(library)
+
+    server.walk_listing(job, library, ao3, 'updated', link, anchored=False)
+
+    assert job.progress()['walks']['updated']['anchor'] == {
+        'id': 'bookmark_7', 'date': '2025-01-07', 'sort': 'updated'}
 
 
 def test_a_walk_that_was_stopped_is_not_saved_as_done(library):

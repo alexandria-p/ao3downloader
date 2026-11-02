@@ -46,6 +46,10 @@ def blank(value) -> bool:
 
 
 
+# where a blurb carries each date a bookmarks listing can be sorted by
+SORT_DATE_SELECTORS = {'bookmarked': 'div.user p.datetime', 'updated': 'div.header p.datetime'}
+
+
 def listing_sort(link: str) -> str:
     """Which date a bookmarks listing is in order of, from its url: 'bookmarked', 'updated',
     or '' for ao3's own default (when each was bookmarked, but not asked for by name)."""
@@ -465,14 +469,17 @@ class Ao3:
                 for document in page_records:
                     self.mark_series_of(document)
                 if self.on_page:
-                    # the last bookmark on the page, and the date the listing is sorted by, so
-                    # a resumed run can find this place again however the pages have moved
+                    # the last bookmark on the page and the date it carries in the order the
+                    # listing is sorted by - the date is what a retry looks for again, since
+                    # pages move between attempts and an updated fic moves with them
                     blurbs = parse_soup.get_blurbs(thesoup)
                     anchor = None
                     if blurbs and parse_soup.get_blurb_id(blurbs[-1]):
+                        sort = 'updated' if listing_sort(source) == 'updated' else 'bookmarked'
                         anchor = {'id': parse_soup.get_blurb_id(blurbs[-1]),
                                   'date': parse_text.get_date_stamp(parse_soup.get_text_or_empty(
-                                      blurbs[-1], 'div.user p.datetime'))}
+                                      blurbs[-1], SORT_DATE_SELECTORS[sort])),
+                                  'sort': sort}
                     self.on_page(current, anchor, [str(d['id']) for d in page_records
                                                    if d.get('id')])
                 shown_total = None if open_ended else total_pages

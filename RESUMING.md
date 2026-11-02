@@ -131,27 +131,40 @@ a resume that is itself interrupted can be resumed from wherever it got to.
 walk, and the quick scan's first walk. The full scan and the custom run now ask AO3 for that
 order by name rather than relying on it being the default, because this search depends on it.
 
+Every page a walk finishes saves the last bookmark on it **and the date that bookmark
+carries in the listing's own order** - date bookmarked, or date updated. That date is what a
+retry looks for, never the bookmark itself: pages move between attempts (new bookmarks push
+everything down, removed ones pull it up, an updated fic jumps to the top), and the bookmark
+may have moved or gone, but the listing is still in date order, newest first.
+
 1. The same listing, with the same sort and the same floor, is opened at the page the earlier
    attempt last wrote (say page 43).
-2. The bookmark it saved last is looked for on that page.
-3. If it is not there, the dates on the page say which way it went. The listing is newest
-   first, so:
-   - every bookmark on the page newer than it → it has moved **down** (new bookmarks pushed it),
-     so page 44 is next
-   - every bookmark older than it → it has moved **up** (bookmarks were removed), so page 42
-   - the page straddles its day → the pages either side are tried
-4. Once found, **that whole page is indexed again** and the walk carries on to the run's
-   original floor.
-5. If it is not found within a few pages - it was unbookmarked, say - the walk starts again
-   from the first page, and says so.
+2. The search is for **the first page that now holds anything dated on or before that date** -
+   so the walk starts at the first fic on that day, wherever it is now:
+   - everything on the page is newer → it has moved **down**, so the search goes forward
+   - the page reaches the date → the search goes **back**, in case fics on that day now start
+     on an earlier page
+3. It goes as far either way as it takes, bounded only by the listing's length. The step
+   doubles and then halves, so a listing that moved by a hundred pages costs a handful of
+   requests, not a hundred.
+4. **That whole page is indexed again** and the walk carries on to the run's original floor,
+   exactly as the first attempt walked - nothing about the walk itself changes.
+5. If nothing in the listing is dated that far back any more, the walk starts again from the
+   first page, and says so. So does a walk saved by an older version, which recorded no date
+   for a listing sorted by date updated.
 
+**A listing sorted by date bookmarked** - the full scan's walk, the custom run's all-bookmarks
+walk, and the quick scan's first walk. The full scan and the custom run ask AO3 for that order
+by name rather than relying on it being the default, because this search depends on it.
 Bookmarks made after the first attempt's baseline land above the resumed page and are not
 read; they are after the baseline, so the next quick scan finds them.
 
 **A listing sorted by date updated** - the quick scan's second walk and the custom run's date
-range walk - **is always walked again from the first page.** A fic AO3 updates moves to the
-top, so nothing in that listing stays put between attempts. It stops at the same floor as
-before.
+range walk - is searched the same way, by the **date updated** it got down to. A fic AO3
+updated since the first attempt jumps to the top, above the resumed page - but its new date is
+after the first attempt's baseline, which is this retry's ceiling, so it is outside the window
+anyway; the next quick scan finds it. Fics on or after the date reached were read by the first
+attempt. It stops at the same floor as before.
 
 **A walk the earlier attempt finished is not walked again** - its works are taken from the
 index, and the checklist marks it *done in the earlier run*.

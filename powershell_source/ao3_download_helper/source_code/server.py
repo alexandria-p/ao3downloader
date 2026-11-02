@@ -30,7 +30,7 @@ import requests
 
 from source_code import access, dropbox_library, exceptions, fichub, settings_file, indexing, parse_soup, parse_text, progress, runs, strings, updater as updates
 from source_code.actions import shared
-from source_code.ao3 import Ao3, index_gaps, was_bookmark
+from source_code.ao3 import SORT_DATE_SELECTORS, Ao3, index_gaps, was_bookmark
 from source_code.fileio import FileOps
 from source_code.repo import Repository
 from source_code.storage import PageStorage
@@ -222,7 +222,6 @@ FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
 
 # How many pages a resumed walk looks through for the last bookmark the earlier attempt
 # saved, before giving up and starting that walk from the first page.
-ANCHOR_SEARCH_PAGES = 6
 
 # json is always produced, so the ui shows it ticked and locked. it is what the web page
 # reads, and it costs nothing extra: the metadata comes off the listing page that has to be
@@ -1380,14 +1379,18 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
         job.checkpoint(walks=walks)
         ao3.walk_skipped = True
         return records_by_id(fileops, earlier.get('works'))
-    if earlier and anchored and earlier.get('anchor') and earlier.get('page'):
+    dated = earlier and (earlier.get('anchor') or {}).get('date') and earlier.get('page')
+    # an anchor saved before walks recorded their sort is a date bookmarked
+    if dated and not anchored and (earlier.get('anchor') or {}).get('sort') != 'updated':
+        dated = False
+    if dated:
         page = find_anchor(ao3, link, int(earlier['page']), earlier['anchor'])
         if page:
             ao3.start = page
             carried = [str(x) for x in earlier.get('works') or []]
         else:
             print(strings.AO3_INFO_RESUME_ANCHOR_LOST)
-    elif earlier and not anchored:
+    elif earlier:
         print(strings.AO3_INFO_RESUME_WALK_AGAIN)
 
     state = {'page': None, 'anchor': None, 'done': False, 'works': list(carried)}
@@ -1418,48 +1421,73 @@ def walk_listing(job: Job, fileops: FileOps, ao3: Ao3, name: str, link: str,
 
 
 def find_anchor(ao3: Ao3, link: str, page: int, anchor: dict) -> int | None:
-    """The page of a listing sorted by date bookmarked that now holds `anchor`, the last
-    bookmark an earlier attempt saved - or None when it cannot be found nearby.
+    """The page a retried walk carries on from: the first page of the listing now holding
+    anything dated on or before `anchor['date']`, the date the earlier attempt got down to -
+    or None when no such page is left.
 
-    Pages move between attempts: bookmarks added since push everything down, and ones
-    removed pull it up. The listing is in date order, so each page says which way to look -
-    everything on it newer than the bookmark means it is further down, everything older
-    means further up. A page that straddles the bookmark's day is searched either side.
+    It looks for the **date**, not the bookmark. Pages move between attempts - bookmarks
+    added since push everything down, ones removed pull it up, and on a listing sorted by
+    date updated a fic ao3 updated since jumps to the top - but the listing is still in date
+    order, newest first. So every fic on that date sits from this page on, and starting here
+    reaches the first of them. Fics above it the earlier attempt read already.
+
+    The search starts at the page the earlier attempt stopped on and goes as far either way
+    as it has to, bounded by the listing's length: forward while a page is all newer, back
+    while the page before still reaches the date - doubling the step and then halving it, so
+    a listing that has moved by a hundred pages costs a handful of requests, not a hundred.
     """
 
-    wanted = str(anchor.get('id') or '')
     date = str(anchor.get('date') or '')
-    if not wanted: return None
-
-    tried: set[int] = set()
+    if not date: return None
+    selector = SORT_DATE_SELECTORS.get(anchor.get('sort') or 'bookmarked')
+    seen: dict[int, bool] = {}
     total = None
+
+    def reaches(number: int) -> bool:
+        """Whether this page holds anything on or before the date (pages past the end do)."""
+        nonlocal total
+        if number in seen: return seen[number]
+        print(strings.AO3_INFO_RESUME_LOOKING.format(number, date))
+        soup = ao3.repo.get_soup(parse_text.set_page_number(link, number))
+        if total is None: total = parse_soup.get_total_pages(soup) or 1
+        dates = [d for d in (parse_text.get_date_stamp(parse_soup.get_text_or_empty(b, selector))
+                             for b in parse_soup.get_blurbs(soup)) if d]
+        seen[number] = number > total or bool(dates and min(dates) <= date)
+        return seen[number]
+
     current = max(1, page)
-    while len(tried) < ANCHOR_SEARCH_PAGES:
-        if total and current > total: current = total
-        if current < 1 or current in tried: break
-        print(strings.AO3_INFO_RESUME_LOOKING.format(current))
-        soup = ao3.repo.get_soup(parse_text.set_page_number(link, current))
-        tried.add(current)
-        if total is None:
-            total = parse_soup.get_total_pages(soup) or 1
-            if current > total:
-                current = total
-                continue
-        blurbs = parse_soup.get_blurbs(soup)
-        if any(parse_soup.get_blurb_id(b) == wanted for b in blurbs):
-            print(strings.AO3_INFO_RESUME_FOUND.format(current))
-            return current
-        dates = [d for d in (parse_text.get_date_stamp(parse_soup.get_text_or_empty(
-            b, 'div.user p.datetime')) for b in blurbs) if d]
-        if date and dates and min(dates) > date:
-            current += 1
-        elif date and dates and max(dates) < date:
-            current -= 1
-        else:
-            nearby = [x for x in (current + 1, current - 1) if x >= 1 and x not in tried]
-            if not nearby: break
-            current = nearby[0]
-    return None
+    reaches(current)
+    if current > total:
+        current = total
+    if reaches(current):
+        # walk back: the latest page known to reach the date, and one before it that does not
+        hi, lo, step = current, 0, 1
+        while hi > 1:
+            probe = max(1, hi - step)
+            if reaches(probe):
+                hi = probe
+                step *= 2
+            else:
+                lo = probe
+                break
+    else:
+        # walk forward to the first page that reaches it
+        lo, hi, step = current, None, 1
+        while hi is None:
+            probe = min(total, lo + step)
+            if reaches(probe):
+                hi = probe
+            elif probe >= total:
+                return None
+            else:
+                lo = probe
+                step *= 2
+    while hi - lo > 1:
+        middle = (lo + hi) // 2
+        if reaches(middle): hi = middle
+        else: lo = middle
+    print(strings.AO3_INFO_RESUME_FOUND.format(hi, date))
+    return hi
 
 
 def force_stop(job: Job) -> dict | None:

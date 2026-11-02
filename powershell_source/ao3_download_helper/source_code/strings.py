@@ -725,12 +725,12 @@ AO3_INFO_RESUME_COLLECTION_DONE = 'collection {}: finished by the earlier attemp
 AO3_INFO_RESUME_COLLECTION_PAGE = 'collection {}: carrying on through its {} from page {}, where the earlier attempt got to'
 AO3_INFO_RESUME_COLLECTION_SHORT = ('collection {}: found {} works of the {} it holds - some have moved to '
                                     'the front since, so reading pages 1 to {} again')
-AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: it is sorted by '
-                              'date updated, so nothing in it stays in place between attempts')
-AO3_INFO_RESUME_LOOKING = 'looking for where the earlier attempt stopped: page {}'
-AO3_INFO_RESUME_FOUND = 'found it on page {} - carrying on from there'
-AO3_INFO_RESUME_ANCHOR_LOST = ('could not find where the earlier attempt stopped, so this walk '
-                               'starts again from the first page')
+AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: the earlier attempt '
+                              'did not save a date to carry on from')
+AO3_INFO_RESUME_LOOKING = 'looking for where the earlier attempt stopped (fics dated {1}): page {0}'
+AO3_INFO_RESUME_FOUND = 'the first fic dated {1} or earlier is now on page {0} - carrying on from there'
+AO3_INFO_RESUME_ANCHOR_LOST = ('nothing in the listing is now dated as far back as where the '
+                               'earlier attempt stopped, so this walk starts again from the first page')
 AO3_INFO_RESUME_SERIES_DONE = 'the earlier attempt walked every marked series already'
 AO3_INFO_RESUME_NON_BOOKMARKS_DONE = 'the earlier attempt already checked every non-bookmark'
 AO3_INFO_RESUME_FLOOR = 'measuring back to {}, as the earlier attempt did'

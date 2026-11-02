@@ -313,7 +313,7 @@ Used by: every workflow.
 ### Index every bookmark
 Used by: full scan; custom run (all bookmarks or a slice).
 - Walks your bookmarks listing page by page, sorted by date bookmarked, one request per 20 bookmarks.
-- **Resumed:** carries on from the page holding the last bookmark the earlier attempt saved.
+- **Resumed:** carries on from the first page now holding the date bookmarked the earlier attempt got down to, however far the pages have moved.
 - Writes an index entry for every work, series bookmark and external work; marks every one `bookmarked: true`.
 - Marks series bookmarks for walkthrough, and the series of each work when the series option is on.
 - **Custom run:** a slice walks only the pages asked for.
@@ -334,7 +334,7 @@ Used by: quick scan.
 Used by: quick scan.
 - Walks your bookmarks sorted by date updated, stopping at the floor.
 - Skipped when the previous step already read everything.
-- **Resumed:** always walked again from the top, keeping only works updated up to the first attempt's baseline.
+- **Resumed:** carries on from the first page now holding the date updated the earlier attempt got down to (pages move as fics update), keeping only works updated up to the first attempt's baseline; skipped if that attempt finished it.
 - **Date range:** stops at the range's start, and keeps only works updated in the range.
 
 ### Index works AO3 has updated since that date
