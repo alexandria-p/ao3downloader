@@ -140,6 +140,15 @@ describe('Feedback', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
+  it('says at the bottom of the form that an attached log loses the AO3 username', async () => {
+    await make();
+    await openForm();
+    const note = element.querySelector('.hint.privacy')?.textContent ?? '';
+    expect(note).toContain('AO3');
+    expect(note).toContain('username');
+    expect(note).toContain('stripped out');
+  });
+
   it('offers no tab on a copy built without the feedback service', async () => {
     await make('');
     expect(element.querySelector('.feedback-tab')).toBeNull();

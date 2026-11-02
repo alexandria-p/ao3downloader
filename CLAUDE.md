@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1752 python passed; 758 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1752 python passed; 759 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -492,7 +492,8 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   record's `username`, `Jobs.config().username`, and `ao3.username` in localStorage. It also
   takes out `password=`-shaped text. The Worker's `scrubPasswords` does that again, as a
   backstop; it cannot know the username. **See exactly what will be sent** shows the redacted
-  text, and the same text is what is sent.
+  text, and the same text is what is sent. The form's foot says so (`.hint.privacy`): an attached
+  log has the AO3 username and password-shaped text stripped out; the message is sent as written.
 - **The deploy makes the labels** (`gh label create --force` with `GITHUB_TOKEN`). The
   Worker's token only writes issues, and GitHub drops an unknown label rather than creating
   it. The Worker is deployed by the `feedback` job, which needs only `tests`, and skips with
