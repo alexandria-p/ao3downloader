@@ -247,6 +247,32 @@ def test_a_listing_sorted_by_date_updated_carries_on_from_the_date_it_got_to(lib
     assert sorted(int(r['id']) for r in records) == [5, 6, 7, 8, 9, 10]
 
 
+def test_a_quick_scan_whose_first_walk_finished_carries_on_with_the_second(library):
+    # the date bookmarked walk finished; the date updated walk broke off after page 1
+    seed(library, 20, 19, 10, 9)
+    updated = LINK.replace(strings.AO3_SORT_BY_BOOKMARKED, strings.AO3_SORT_BY_UPDATED)
+    pages = {**listing([10, 9], [8, 7], [6, 5], link=updated)}
+    ao3, repo = an_ao3(library, pages)
+    job, _ = a_job(library, server.ACTION_QUICK, earlier={'walks': {
+        'bookmarked': {'done': True, 'works': ['20', '19']},
+        'updated': {'page': 1, 'done': False, 'works': ['10', '9'],
+                    'anchor': {'id': 'bookmark_9', 'date': '2025-01-09', 'sort': 'updated'}}}})
+
+    first = server.walk_listing(job, library, ao3, 'bookmarked', LINK, anchored=True,
+                                own_bookmarks=True)
+    assert ao3.walk_skipped
+    assert sorted(r['id'] for r in first) == ['19', '20']
+    repo.get_soup.assert_not_called()
+
+    second = server.walk_listing(job, library, ao3, 'updated', updated, anchored=False,
+                                 own_bookmarks=True)
+    # only the date updated listing is read, from the page holding the date it reached
+    assert all(strings.AO3_SORT_BY_UPDATED in c.args[0] for c in repo.get_soup.call_args_list)
+    assert fetched(repo)[-3:] == [1, 2, 3]
+    assert sorted(int(r['id']) for r in second) == [5, 6, 7, 8, 9, 10]
+    assert job.progress()['walks']['updated']['done'] is True
+
+
 def test_an_updated_walk_saves_the_date_updated_as_its_place(library):
     link = LINK.replace(strings.AO3_SORT_BY_BOOKMARKED, strings.AO3_SORT_BY_UPDATED)
     ao3, _ = an_ao3(library, listing([10, 9], [8, 7], link=link))
