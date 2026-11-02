@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1838 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1851 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1062,11 +1062,20 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
   `index`; stopped with a scope -> `downloads`; finished with failures -> `failed`; else `top`).
   Fic runs get `top` and `failed` only.
 - **`retryMode` decides what of the earlier progress is taken on** (`retry_progress`, from
-  `prepare_resume`): `top` keeps only `floor` - with the copied baseline as ceiling, a quick scan
-  covers the **same window** again; `index` drops `scope` and the step markers, so indexing
-  runs again (finished walks from the index, a broken one from its anchor); `downloads` takes it
-  all (straight to `scope`, as the old resume did); `failed` is `floor` plus `scope` = the
-  failures. For a fic run `failed` sets `job.url` to the failed links (and `work`/`works` by
+  `prepare_resume`), six ways: `top` keeps only `floor` - with the copied baseline as ceiling, a
+  quick scan covers the **same window** again - and is the one way that does not reuse the
+  earlier answers; `reindex` keeps `floor` and the answers, so every listing is read from page 1;
+  `index` drops `scope` and the step markers, so indexing runs again (finished walks from the
+  index, a broken one from its anchor); `redownload` keeps everything but `formatsDone`;
+  `downloads` keeps it all; `failed` is `floor`, `formatsDone` and `scope` = the failures.
+- **Carrying on fetches only what is missing, per format.** `save_download` notes every format
+  saved whole in `Ao3.saved_formats`; `RunRecord.collect` merges it into progress
+  `formatsDone` (with what the attempt it carries on from had). The ways that carry on
+  (`index`, `downloads`, `failed`) keep `formatsDone`, the `Job.ao3` setter hands it to the
+  runner's downloader as `formats_done`, and both download loops skip those formats
+  (`Ao3.format_done`, `AO3_INFO_FORMAT_DONE_EARLIER`) - even on an overwriting run, which
+  already overwrote them. Saved with the record, so a run killed outright can miss its last
+  `LOG_FLUSH_SECONDS` of files: current on disk, so only an overwriting run fetches them again. For a fic run `failed` sets `job.url` to the failed links (and `work`/`works` by
   count). `''` is the old resume, kept for its rules (`resume_problem`).
 - **A retry request carries no link**, and `do_POST` skips the link checks when `resume` is set
   - a collection retry used to be refused there. The page sends the earlier run's own action when

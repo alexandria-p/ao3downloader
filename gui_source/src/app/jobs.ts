@@ -237,7 +237,7 @@ export interface IndexGap {
 }
 
 /** how a run can be retried - see the helper's RETRY_MODES */
-export type RetryMode = 'top' | 'index' | 'downloads' | 'failed';
+export type RetryMode = 'top' | 'reindex' | 'index' | 'redownload' | 'downloads' | 'failed';
 
 export interface RetryChoices {
   modes: { mode: RetryMode; available: boolean; reason: string }[];

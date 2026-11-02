@@ -196,17 +196,27 @@ NON_BOOKMARK_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
 RESUME_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM,
                   ACTION_COLLECTIONS, ACTION_COLLECTION)
 
-# how an earlier run can be retried. TOP is the same run again from its first step - a quick
-# scan over the same window it had (its floor, up to when it first started). INDEX carries on
-# with its indexing: walks it finished are taken from the index, one that broke off goes on
-# from where it stopped, and everything is checked and downloaded after. DOWNLOADS goes
-# straight to the works it had settled on and checks and downloads those. FAILED downloads
-# only the works it could not get.
+# how an earlier run can be retried - see RESUMING.md:
+# - TOP: the same run again from its first step, answering its questions afresh - a quick scan
+#   over the same window it had (its floor, up to when it first started)
+# - REINDEX: its indexing again from the first page of every listing - nothing taken from the
+#   earlier attempt but its window and the answers it was given
+# - INDEX: carrying on with its indexing - walks it finished taken from the index, one that
+#   broke off going on from where it stopped - then checking and downloading, passing over the
+#   formats it already saved
+# - REDOWNLOAD: its downloads again from the first work it had settled on, every format
+# - DOWNLOADS: carrying on with its downloads - the works it had settled on, fetching only the
+#   formats it had not yet saved whole: none of a work it finished, the rest of one it was
+#   partway through, all of one it never reached
+# - FAILED: only the works it could not get, and only their formats still missing
 RETRY_TOP = 'top'
+RETRY_REINDEX = 'reindex'
 RETRY_INDEX = 'index'
+RETRY_REDOWNLOAD = 'redownload'
 RETRY_DOWNLOADS = 'downloads'
 RETRY_FAILED = 'failed'
-RETRY_MODES = (RETRY_TOP, RETRY_INDEX, RETRY_DOWNLOADS, RETRY_FAILED)
+RETRY_MODES = (RETRY_TOP, RETRY_REINDEX, RETRY_INDEX, RETRY_REDOWNLOAD, RETRY_DOWNLOADS,
+               RETRY_FAILED)
 # the fic runs: retried by the fics they name, not by a listing
 FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
 
@@ -436,7 +446,7 @@ class Job:
         self.steps: 'Steps' = Steps(None, [])
         # the downloader doing the work, once a runner has built one, and the history file
         # being written about this run. both are set as the run gets going.
-        self.ao3 = None
+        self._ao3 = None
         self.record = None
         # a run can stop and put a question to the ui; these carry the reply back
         self.answered = threading.Event()
@@ -519,6 +529,22 @@ class Job:
     def progress(self) -> dict:
         """How far this run has got, as its history file records it."""
         return self.record.data.setdefault('progress', {}) if self.record else {}
+
+    @property
+    def ao3(self):
+        return self._ao3
+
+    @ao3.setter
+    def ao3(self, value) -> None:
+        """Every runner builds its own downloader and hands it over here - which is where a
+        retry carrying on from an earlier attempt tells it which formats that attempt already
+        saved whole, so they are not fetched again."""
+
+        self._ao3 = value
+        done = self.earlier_progress().get('formatsDone') if getattr(self, 'resume', None) else None
+        if value is not None and isinstance(done, dict):
+            value.formats_done = {str(work): {str(x).upper() for x in formats or []}
+                                  for work, formats in done.items()}
 
     def earlier_progress(self) -> dict:
         """How far the run this one resumes had got; empty when it resumes nothing."""
@@ -1009,19 +1035,20 @@ def run_job(job: Job, password: str) -> None:
 def retry_progress(earlier: dict, mode: str) -> dict:
     """What a retry takes on of the earlier attempt's progress, by how it is retried.
 
-    The old resume (no mode) and DOWNLOADS take it all: walks done, and the works it had
-    settled on, so the run goes straight to them. INDEX drops those works, so the indexing
-    is done again - walks the earlier attempt finished taken from the index, one that broke
-    off carried on from where it stopped - and everything after it too. FAILED settles on the
-    works it could not get and nothing else. TOP keeps only a quick scan's floor: the same
-    window again, back to that floor and up to when the first attempt started.
+    `formatsDone` - every format of every work it saved whole - goes with the ways that carry
+    on (INDEX, DOWNLOADS, FAILED), so those fetch only what is still missing, and is dropped by
+    the ways that start something from the top. The old resume (no mode) takes everything.
     """
 
     saved = json.loads(json.dumps(earlier.get('progress') or {})) if isinstance(
         earlier.get('progress'), dict) else {}
-    kept = {key: saved[key] for key in ('floor',) if key in saved}
-    if mode == RETRY_TOP: return kept
-    if mode == RETRY_FAILED: return {**kept, 'scope': failed_work_ids(earlier)}
+    window = {key: saved[key] for key in ('floor',) if key in saved}
+    done = {key: saved[key] for key in ('formatsDone',) if key in saved}
+    if mode in (RETRY_TOP, RETRY_REINDEX): return window
+    if mode == RETRY_FAILED: return {**window, **done, 'scope': failed_work_ids(earlier)}
+    if mode == RETRY_REDOWNLOAD:
+        saved.pop('formatsDone', None)
+        return saved
     if mode == RETRY_INDEX:
         for key in ('scope', 'step', 'stepLabel', 'steps', 'nonBookmarksDone', 'updateDone'):
             saved.pop(key, None)
@@ -1066,17 +1093,20 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
         print(strings.AO3_INFO_RETRYING.format(
             earlier.get('actionName') or earlier['action'],
             {RETRY_TOP: strings.AO3_INFO_RETRY_TOP, RETRY_INDEX: strings.AO3_INFO_RETRY_INDEX,
+             RETRY_REINDEX: strings.AO3_INFO_RETRY_REINDEX,
+             RETRY_REDOWNLOAD: strings.AO3_INFO_RETRY_REDOWNLOAD,
              RETRY_DOWNLOADS: strings.AO3_INFO_RETRY_DOWNLOADS,
              RETRY_FAILED: strings.AO3_INFO_RETRY_FAILED.format(failed)}[mode],
             str(earlier.get('started') or '')[:16].replace('T', ' '),
             earlier.get('status') or ''))
     # what the earlier attempt was actually told wins; a background run's up-front answers
-    # stand in for any question it never reached
-    job.prior_answers = {**job.prior_answers,
-                         **{str(c['question']): {k: v for k, v in c.items()
-                                                 if k in ('choice', 'date')}
-                            for c in earlier.get('choices') or []
-                            if isinstance(c, dict) and c.get('question') and c.get('choice')}}
+    # stand in for any question it never reached. not from the top: that asks everything again
+    if mode != RETRY_TOP:
+        job.prior_answers = {**job.prior_answers,
+                             **{str(c['question']): {k: v for k, v in c.items()
+                                                     if k in ('choice', 'date')}
+                                for c in earlier.get('choices') or []
+                                if isinstance(c, dict) and c.get('question') and c.get('choice')}}
     print(strings.AO3_INFO_RESUMING.format(
         earlier.get('actionName') or earlier['action'],
         str(earlier.get('started') or '')[:16].replace('T', ' '),
@@ -1191,6 +1221,9 @@ def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
     if action == ACTION_COLLECTION and not record.get('url'): return strings.RESUME_NO_LINK
     if action in FIC_ACTIONS and not record.get('url'): return strings.RETRY_NO_FIC_LINKS
     if mode == RETRY_TOP: return ''
+    if mode == RETRY_REINDEX:
+        # from the first page, so a slice's page numbers are not trusted to have stayed put
+        return '' if action in RESUME_ACTIONS else strings.RETRY_NO_INDEX
     if mode == RETRY_FAILED:
         if action not in RESUME_ACTIONS and action not in FIC_ACTIONS:
             return strings.RETRY_FAILED_WRONG_ACTION
@@ -1200,7 +1233,7 @@ def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
             (int(options.get('pages') or 0) or int(options.get('start') or 1) > 1):
         return strings.RESUME_SLICE
     if progress_so_far is None: return strings.RESUME_TOO_OLD
-    if mode == RETRY_DOWNLOADS and progress_so_far.get('scope') is None:
+    if mode in (RETRY_DOWNLOADS, RETRY_REDOWNLOAD) and progress_so_far.get('scope') is None:
         return strings.RETRY_NO_DOWNLOADS
     return ''
 

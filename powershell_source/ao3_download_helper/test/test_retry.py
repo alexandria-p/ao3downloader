@@ -6,6 +6,7 @@ scan. Any run that has ended can be retried: from the top, carrying on with its 
 from its downloads, or only the works it could not get.
 """
 
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -434,3 +435,121 @@ def test_a_retry_request_carries_no_link_and_is_not_refused_for_it(action):
 
 # endregion
 
+
+
+# region carrying on with downloads fetches only what is still missing
+
+FORMATS = ['HTML', 'EPUB', 'PDF', 'MOBI']
+
+
+def a_fic(work: int) -> dict:
+    return {'id': str(work), 'link': f'https://archiveofourown.org/works/{work}',
+            'title': f'Work {work}', 'authors': ['A'], 'date_updated': '2025-01-01'}
+
+
+def downloader(library: FileOps) -> tuple[Ao3, list[tuple[str, str]]]:
+    fetched: list[tuple[str, str]] = []
+    repo = MagicMock(spec=Repository)
+
+    def download_file(link, filetype):
+        fetched.append((re.search(r'/downloads/(\d+)/', link).group(1), filetype))
+        return f'{link} {filetype}'.encode()
+    repo.download_file.side_effect = download_file
+    return Ao3(repo=repo, fileops=library, filetypes=list(FORMATS), pages=None, series=False,
+               images=False), fetched
+
+
+def test_carrying_on_fetches_only_the_formats_and_fics_the_earlier_attempt_had_not_saved(library):
+    # 8 fics: the first 5 had every format saved, the 6th only its html, the last 2 nothing
+    ao3, fetched = downloader(library)
+    ao3.formats_done = {**{str(w): set(FORMATS) for w in range(1, 6)}, '6': {'HTML'}}
+
+    for done, work in enumerate(range(1, 9), start=1):
+        ao3.download_one_indexed(a_fic(work), 50, {}, done, 8)
+
+    assert fetched == [('6', 'EPUB'), ('6', 'PDF'), ('6', 'MOBI'),
+                       *[(str(w), f) for w in (7, 8) for f in FORMATS]]
+
+
+def test_a_run_remembers_every_format_it_saved_whole_for_a_retry_to_carry_on_from(library):
+    ao3, _ = downloader(library)
+    ao3.filetypes = ['HTML', 'EPUB']
+    ao3.download_one_indexed(a_fic(6), 50, {}, 1, 1)
+    record = runs.RunRecord(library, 'r' * 32, server.ACTION_BOOKMARKS, 'Run', ['HTML'], {})
+    record.data['progress']['formatsDone'] = {'5': ['HTML']}   # from an attempt it carries on
+
+    record.collect(ao3)
+
+    assert record.data['progress']['formatsDone'] == {'5': ['HTML'], '6': ['EPUB', 'HTML']}
+
+
+def test_a_format_that_did_not_arrive_whole_is_not_remembered_as_done(library):
+    ao3, _ = downloader(library)
+    ao3.filetypes = ['HTML']
+    with patch.object(library, 'saved_intact', return_value=False):
+        with pytest.raises(Exception):
+            ao3.download_one_indexed(a_fic(6), 50, {}, 1, 1)
+
+    assert ao3.saved_formats == {}
+
+
+@pytest.mark.parametrize('mode, carries', [
+    (server.RETRY_DOWNLOADS, True), (server.RETRY_INDEX, True), (server.RETRY_FAILED, True),
+    (server.RETRY_REDOWNLOAD, False), (server.RETRY_REINDEX, False), (server.RETRY_TOP, False),
+])
+def test_only_the_ways_that_carry_on_pass_over_what_the_earlier_attempt_saved(library, mode, carries):
+    write_run(library, id='d' * 32, action=server.ACTION_BOOKMARKS, status=runs.STATUS_STOPPED,
+              progress={'scope': ['6'], 'formatsDone': {'6': ['HTML']}},
+              failures=[{'id': '6', 'link': 'https://archiveofourown.org/works/6'}])
+    job = started(library, 'd' * 32, mode)
+    ao3, fetched = downloader(library)
+
+    job.ao3 = ao3
+    ao3.download_one_indexed(a_fic(6), 50, {}, 1, 1)
+
+    assert (('6', 'HTML') in fetched) is not carries
+    assert ('6', 'EPUB') in fetched
+
+
+def test_carrying_on_passes_over_what_was_saved_even_on_a_run_that_overwrites(library):
+    # the earlier attempt already did the overwriting; doing it again would spend a request
+    # per format for nothing
+    write_run(library, id='o' * 32, action=server.ACTION_BOOKMARKS, status=runs.STATUS_STOPPED,
+              options={'overwrite': True},
+              progress={'scope': ['6'], 'formatsDone': {'6': ['HTML', 'EPUB', 'PDF', 'MOBI']}})
+    job = started(library, 'o' * 32, server.RETRY_DOWNLOADS)
+    ao3, fetched = downloader(library)
+    job.ao3 = ao3
+
+    ao3.download_one_indexed(a_fic(6), 50, {}, 1, 1)
+
+    assert job.options['overwrite'] is True and fetched == []
+
+
+def test_starting_indexing_from_the_top_keeps_only_the_window_and_the_answers(library):
+    write_run(library, id='i' * 32, action=server.ACTION_QUICK, status=runs.STATUS_PARTIAL,
+              progress={'floor': '2025-02-01', 'walks': {'bookmarked': {'done': True}},
+                        'scope': ['1'], 'formatsDone': {'1': ['HTML']}},
+              choices=[{'question': server.DUPLICATES_QUESTION, 'choice': 'newest'}])
+
+    job = started(library, 'i' * 32, server.RETRY_REINDEX)
+    assert job.resume['progress'] == {'floor': '2025-02-01'}
+    assert server.DUPLICATES_QUESTION in job.prior_answers
+
+    # from the top asks every question again
+    assert started(library, 'i' * 32, server.RETRY_TOP).prior_answers == {}
+
+
+def test_starting_downloads_from_the_top_keeps_the_works_it_settled_on_but_fetches_every_format():
+    earlier = a_record(progress={'floor': '', 'scope': ['1', '2'], 'formatsDone': {'1': ['HTML']}})
+    assert server.retry_progress(earlier, server.RETRY_REDOWNLOAD) == {'floor': '', 'scope': ['1', '2']}
+    assert server.retry_problem(a_record(), server.RETRY_REDOWNLOAD, set()) == \
+        strings.RETRY_NO_DOWNLOADS
+
+
+def test_a_slice_can_start_its_indexing_from_the_top_but_not_carry_on():
+    record = a_record(action=server.ACTION_CUSTOM, options={'pages': 5})
+    assert server.retry_problem(record, server.RETRY_REINDEX, set()) == ''
+    assert server.retry_problem(record, server.RETRY_INDEX, set()) == strings.RESUME_SLICE
+
+# endregion

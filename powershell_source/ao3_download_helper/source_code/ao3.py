@@ -211,6 +211,10 @@ class Ao3:
         self.index_failures: list[dict] = []
         # whether the last listing walk stopped on an error rather than ending as it should
         self.walk_failed = False
+        # the formats of each work, by number, that this run saved whole - and those an earlier
+        # attempt saved, which a retry carrying on from it does not fetch again (`format_done`)
+        self.saved_formats: dict[str, set[str]] = {}
+        self.formats_done: dict[str, set[str]] = {}
         # how far the collection listing being read has got: its first page, the last page
         # read in full, and the works found - said when one breaks off
         self.listing_read: dict = {}
@@ -770,9 +774,12 @@ class Ao3:
         display = ' / '.join(x for x in title if x)
         failed: list[tuple[str, Exception]] = []
         kept = self.keep_formats.get(record['link']) or set()
-        formats = [x for x in self.filetypes if x.upper() not in kept]
+        formats = [x for x in self.filetypes if x.upper() not in kept
+                   and not self.format_done(work, x)]
         for filetype in self.filetypes:
             if filetype.upper() in kept: print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
+            elif self.format_done(work, filetype):
+                print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, work))
         for filetype in formats:
             self.check_cancelled()
             progress.report(self.progress, progress.WORK, title=display,
@@ -791,6 +798,12 @@ class Ao3:
         log['success'] = True
         self.fileops.write_log(log)
 
+
+    def format_done(self, work: str, filetype: str) -> bool:
+        """Whether an earlier attempt this run carries on from already saved this format of
+        this work whole - in which case it is not fetched again, even on a run that
+        overwrites: that attempt already did the overwriting."""
+        return filetype.upper() in self.formats_done.get(str(work), ())
 
     @contextlib.contextmanager
     def one_format(self, filetype: str, failed: list[tuple[str, Exception]]):
@@ -2090,8 +2103,12 @@ class Ao3:
                         phase='downloading')
 
         failed: list[tuple[str, Exception]] = []
+        number = parse_text.get_work_number(work_url) or ''
         for filetype in self.filetypes:
             self.check_cancelled()
+            if self.format_done(number, filetype):
+                print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, number))
+                continue
             progress.report(self.progress, progress.WORK, title=display, link=work_url,
                             filetype=filetype, phase='downloading')
             with self.one_format(filetype, failed):
@@ -2172,6 +2189,8 @@ class Ao3:
             print(strings.INFO_REPLACED_OLD_COPY.format(new))
         else:
             print(strings.INFO_SAVED_NEW_COPY.format(new))
+        # whole, checked and in place: a retry that carries on from this run passes it over
+        if work: self.saved_formats.setdefault(str(work), set()).add(filetype.upper())
         return saved
 
 

@@ -3166,7 +3166,7 @@ describe('DownloadDialog', () => {
   // region retrying an earlier run
 
   const ALL_MODES = (available: Partial<Record<string, string>> = {}) =>
-    (['top', 'index', 'downloads', 'failed'] as const).map((mode) => ({
+    (['top', 'reindex', 'index', 'redownload', 'downloads', 'failed'] as const).map((mode) => ({
       mode, available: !(mode in available), reason: available[mode] ?? '',
     }));
 
@@ -3232,7 +3232,7 @@ describe('DownloadDialog', () => {
     jobs.retryableOnRecord = [
       ended({ warnings: ['It has already been resumed once.'] }),
       ended({ id: 'r2', status: 'success', actionName: 'Full Scan',
-              retry: { modes: ALL_MODES({ index: 'x', downloads: 'x', failed: 'x' }),
+              retry: { modes: ALL_MODES({ reindex: 'x', index: 'x', redownload: 'x', downloads: 'x', failed: 'x' }),
                        default: 'top', failedWorks: 0 } }),
     ];
     await toRetryPage();
@@ -3265,6 +3265,14 @@ describe('DownloadDialog', () => {
       // the helper's default is picked, and a way it cannot be retried is greyed with why
       const modes = Array.from(element.querySelectorAll<HTMLInputElement>('input[name="retryMode"]'));
       expect(modes.find((m) => m.checked)?.value).toBe('index');
+      // every way, in order: from the top, then indexing from its start or where it stopped,
+      // then downloads from their start or where they stopped, then just the failures
+      expect(modes.map((m) => m.value)).toEqual(
+        ['top', 'reindex', 'index', 'redownload', 'downloads', 'failed']);
+      const said = element.querySelector('.retry-modes')?.textContent ?? '';
+      expect(said).toContain('Start its indexing from the top');
+      expect(said).toContain('Start its downloads from the top');
+      expect(said).toContain('the rest of one it was partway through');
       const failed = modes.find((m) => m.value === 'failed')!;
       expect(failed.disabled).toBe(true);
       expect(failed.closest('label')!.title).toContain('Every work it set out to get arrived');

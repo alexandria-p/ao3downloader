@@ -14,10 +14,19 @@ window.
 
 | Way to retry | What it does | Offered on |
 | --- | --- | --- |
-| **From the top** | The same run again from its first step. A quick scan covers the **same window** as the first attempt: back to its floor, and up to when the first attempt started. | Every run (a fic run needs the links it was given, which older fic runs did not keep) |
-| **Carry on from its indexing** | Walks it finished are taken from the index; one that broke off carries on from where it stopped (see below); everything is then checked and downloaded. | Full, quick and custom scans, collection runs (not a custom run over a slice - see below) |
-| **Carry on from its downloads** | Straight to the works it had settled on, checked and downloaded - nothing is indexed again. | Those runs, once they got as far as checking their files |
-| **Just the works it could not get** | Downloads only the works in its failures list. For a fic run, runs again over just those fics. | Any scan, collection run or fic run with failures |
+| **From the top** | The same run again from its first step, asking its questions afresh. A quick scan covers the **same window** as the first attempt: back to its floor, and up to when the first attempt started. | Every run (a fic run needs the links it was given, which older fic runs did not keep) |
+| **Start its indexing from the top** | Every listing read again from its first page - nothing taken from the earlier attempt but its window and the answers it was given - then everything checked and downloaded. | Full, quick and custom scans (a slice too), collection runs |
+| **Carry on from where its indexing stopped** | Walks it finished are taken from the index; one that broke off carries on from where it stopped (see below); everything is then checked and downloaded, passing over the formats it already saved. | Those runs, but not a custom run over a slice - see below |
+| **Start its downloads from the top** | Straight to the works it had settled on, every one checked and downloaded again by the usual rules - which on a run that overwrites means every format again. | Those runs, once they got as far as checking their files |
+| **Carry on from where its downloads stopped** | Straight to the works it had settled on, fetching **only the formats it had not saved whole**: nothing for a fic it finished, the rest of one it was partway through (3 of 4 formats saved fetches the 4th), every format of one it never reached - even on a run that overwrites, since it already did the overwriting. | The same |
+| **Just the works it could not get** | Only the works in its failures list, and only their formats still missing. For a fic run, runs again over just those fics. | Any scan, collection run or fic run with failures |
+
+**How it knows which formats arrived.** Every format of every work saved whole - checked on disk
+at its full length, as every download is - goes into the history file's `formatsDone`, carried
+from attempt to attempt by the ways that carry on. The file is saved at least every two minutes
+while lines are arriving, so a run killed outright may not have noted its last couple of minutes'
+files: on an ordinary run those are passed over anyway (they are on disk and current), and on a
+run that overwrites they are fetched once more.
 
 The window picks **the way that carries on from the first step that did not finish**: a run whose
 indexing broke off carries on with its indexing, one stopped after settling its works carries on

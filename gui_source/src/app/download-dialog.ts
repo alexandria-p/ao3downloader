@@ -233,10 +233,14 @@ export class DownloadDialog implements OnDestroy {
         return run.action === 'quick'
           ? 'From the top - the same window again, back to its floor and up to when it first started'
           : 'From the top';
+      case 'reindex':
+        return 'Start its indexing from the top - every listing read again from its first page, then everything checked and downloaded';
       case 'index':
-        return 'Carry on from its indexing - walks it finished are taken from the index, one that broke off goes on from where it stopped';
+        return 'Carry on from where its indexing stopped - walks it finished are taken from the index, one that broke off goes on from where it stopped, and formats it already saved are not fetched again';
+      case 'redownload':
+        return 'Start its downloads from the top - every work it had settled on, checked and downloaded again by the usual rules (on a run that overwrites, every format again)';
       case 'downloads':
-        return 'Carry on from its downloads - the works it had settled on, checked and downloaded';
+        return 'Carry on from where its downloads stopped - only the formats it had not saved yet: nothing for a fic it finished, the rest of one it was partway through, every format of one it never reached';
       case 'failed':
         return `Just the ${run.retry.failedWorks} ${run.retry.failedWorks === 1 ? 'work' : 'works'} it could not get`;
     }

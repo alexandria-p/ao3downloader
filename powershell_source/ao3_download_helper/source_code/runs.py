@@ -288,6 +288,13 @@ class RunRecord:
         # where indexing broke off - which listing or collection, which pages were read,
         # which failed, how far back in date it got
         self.data['indexFailures'] = index_gaps(ao3)
+        # every format of every work saved whole, this attempt and any it carries on from - so
+        # a retry carrying on from this one fetches only what is still missing
+        saved = getattr(ao3, 'saved_formats', None)
+        if isinstance(saved, dict) and saved:
+            done = self.data['progress'].setdefault('formatsDone', {})
+            for work, formats in saved.items():
+                done[work] = sorted(set(done.get(work) or []) | {str(x) for x in formats})
 
     def finish(self, status: str, error: str = '') -> None:
         self.data['status'] = status
