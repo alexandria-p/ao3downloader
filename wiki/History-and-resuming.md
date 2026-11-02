@@ -31,15 +31,15 @@ retries, so a retry can be retried in turn.
 
 | Choice | What it does |
 | --- | --- |
-| **From the top** | The whole run again, with the same workflow and options, asking its questions afresh. |
-| **Start its indexing from the top** | Every listing read again from page 1, then everything checked and downloaded. The first attempt's answers are reused. |
+| **From the top** | The whole run again, as if fresh, with the same workflow and options and the first attempt's floor and ceiling, asking its questions afresh. |
+| **Start its indexing from the top** | Every walk read again from its start - its ceiling, if it has one (below), otherwise page 1 - then everything checked and downloaded. Unlike *from the top*, the first attempt's answers are reused. |
 | **Carry on from where its indexing stopped** | Walks that finished are taken from your index - no requests. A walk that broke off carries on from the date it had got down to. A walk that never started starts at its ceiling (below). Then everything is checked and downloaded. |
 | **Start its downloads from the top** | The works it had settled on, every format judged afresh against the index: a missing or older copy is fetched, a current one kept. On a run that overwrites, every format is fetched again. |
 | **Carry on from where its downloads stopped** | Only what it hadn't saved: nothing for a fic it finished, the missing formats of one it was partway through, every format of one it never reached. Even on a run that overwrites, what it already saved is not fetched again. |
 | **Just the works it could not get** | Only its failures, and only the formats each is missing. For a fic run, just those fics. |
 
 The window shows how each of the run's steps went and the last one that finished, and picks
-the choice that carries on from the first step that did not finish: indexing broke off →
+the choice that carries on from the first step that did not finish. The two download choices need the run to have reached its downloads: works are settled on as the check step starts, so a run stopped while indexing has them greyed out. The default: indexing broke off →
 *carry on from where its indexing stopped*; stopped after indexing → *carry on from where its
 downloads stopped*; finished with failures → *just the works it could not get*; otherwise
 *from the top*. Choices that cannot apply are greyed out, with the reason.

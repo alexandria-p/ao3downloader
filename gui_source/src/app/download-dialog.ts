@@ -234,7 +234,7 @@ export class DownloadDialog implements OnDestroy {
           ? 'From the top - the same window again, back to its floor and up to when it first started'
           : 'From the top';
       case 'reindex':
-        return 'Start its indexing from the top - every listing read again from its first page, then everything checked and downloaded';
+        return 'Start its indexing from the top - every walk read again from its start (its ceiling, if it has one; otherwise page 1), keeping its earlier answers, then everything checked and downloaded';
       case 'index':
         return 'Carry on from where its indexing stopped - walks it finished are taken from the index, one that broke off goes on from where it stopped, and formats it already saved are not fetched again';
       case 'redownload':
