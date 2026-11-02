@@ -3,8 +3,11 @@
 import contextlib
 import datetime
 import os
+import re
 import sys
 import traceback
+
+import requests
 from collections.abc import Callable
 
 from bs4 import BeautifulSoup
@@ -50,6 +53,50 @@ def blank(value) -> bool:
 SORT_DATE_SELECTORS = {'bookmarked': 'div.user p.datetime', 'updated': 'div.header p.datetime'}
 
 
+def failure_reason(e: BaseException) -> dict:
+    """Why a page or a file from ao3 could not be had, as a run records it.
+
+    `reason` is one of `maintenance` (ao3's maintenance page, asked again and given up on),
+    `status` (an answer outside 2xx - `status` holds the code), `connection` (no answer, or
+    none in time), `no-data` (a page that came back but held nothing that could be read off
+    it), or `other`. A failure several formats share names the worst of them: maintenance
+    first, since it says ao3 itself was not there.
+    """
+
+    text = str(e)
+    if isinstance(e, exceptions.Ao3DownException) or strings.ERROR_AO3_DOWN in text:
+        return {'reason': REASON_MAINTENANCE}
+    if isinstance(e, exceptions.InvalidStatusCodeException) or 'status code' in text:
+        code = re.search(r'status code (\d{3})', text)
+        return {'reason': REASON_STATUS, **({'status': int(code.group(1))} if code else {})}
+    if isinstance(e, (exceptions.TimeoutException, requests.exceptions.ConnectionError,
+                      requests.exceptions.Timeout)):
+        return {'reason': REASON_CONNECTION}
+    if text in (strings.ERROR_LISTING_UNREADABLE, strings.ERROR_WORK_STATS):
+        return {'reason': REASON_NO_DATA}
+    return {'reason': REASON_OTHER}
+
+
+def failure_words(failed: dict) -> str:
+    """Why something failed, in words: the recorded reason, then the error itself."""
+
+    reason, error = failed.get('reason'), str(failed.get('error') or '')
+    if reason == REASON_MAINTENANCE: words = strings.REASON_WORDS_MAINTENANCE
+    elif reason == REASON_STATUS and failed.get('status'):
+        words = strings.REASON_WORDS_STATUS.format(failed['status'])
+    elif reason == REASON_CONNECTION: words = strings.REASON_WORDS_CONNECTION
+    elif reason == REASON_NO_DATA: words = strings.REASON_WORDS_NO_DATA
+    else: return error
+    return f'{words} ({error})' if error and error != words else words
+
+
+REASON_MAINTENANCE = 'maintenance'
+REASON_STATUS = 'status'
+REASON_CONNECTION = 'connection'
+REASON_NO_DATA = 'no-data'
+REASON_OTHER = 'other'
+
+
 def listing_sort(link: str) -> str:
     """Which date a bookmarks listing is in order of, from its url: 'bookmarked', 'updated',
     or '' for ao3's own default (when each was bookmarked, but not asked for by name)."""
@@ -64,14 +111,15 @@ def describe_listing_gap(gap: dict) -> str:
     failed, and how far back in date the listing got - for the run's window and its log."""
 
     if gap.get('kind') == 'work':
-        return strings.AO3_INFO_INDEX_GAP_WORK.format(gap.get('id'), gap.get('error'))
+        return strings.AO3_INFO_INDEX_GAP_WORK.format(gap.get('id'), failure_words(gap))
     first, last, failed = gap.get('firstPage') or 1, gap.get('lastPage'), gap.get('failedPage')
     read = (strings.AO3_INFO_INDEX_GAP_NONE_READ if not last else
             strings.AO3_INFO_INDEX_GAP_READ.format(first, last, gap.get('works') or 0))
     total = gap.get('totalPages')
     where = (strings.AO3_INFO_INDEX_GAP_COLLECTION.format(gap.get('collection'), gap.get('items'))
              if gap.get('kind') == 'collection' else strings.AO3_INFO_INDEX_GAP_LISTING)
-    line = strings.AO3_INFO_INDEX_GAP.format(where, failed, f' of {total}' if total else '', read)
+    line = strings.AO3_INFO_INDEX_GAP.format(where, failed, f' of {total}' if total else '',
+                                             failure_words(gap), read)
     date = gap.get('reachedBookmarked') if gap.get('sort') == 'bookmarked' else \
         gap.get('reachedUpdated') if gap.get('sort') == 'updated' else gap.get('reachedBookmarked')
     if last and date:
@@ -559,7 +607,7 @@ class Ao3:
                 'firstPage': first_page, 'lastPage': last_good, 'failedPage': current,
                 'totalPages': total_pages, 'works': len(records),
                 'reachedBookmarked': reached['bookmarked'], 'reachedUpdated': reached['updated'],
-                'error': str(e),
+                'error': str(e), **failure_reason(e),
             }
             self.index_failures.append(gap)
             print(strings.ERROR_LINKS_LIST)
@@ -701,7 +749,7 @@ class Ao3:
             # a fic that could not be re-read is a gap in this run's index, not only a file
             # it could not get: the run is only partly done, and says which
             self.index_failures.append({'kind': 'work', 'id': str(record.get('id') or ''),
-                                        'link': record.get('link') or '', 'error': str(e)})
+                                        'link': record.get('link') or '', 'error': str(e), **failure_reason(e)})
             raise
 
         fresh = {**record, **stats, **page_bookmark_state(soup, record)}
@@ -1469,7 +1517,7 @@ class Ao3:
                     'items': 'bookmarked items' if key == 'bookmark_ids' else 'works',
                     'firstPage': read.get('firstPage') or 1, 'lastPage': last,
                     'failedPage': (last or (read.get('firstPage') or 1) - 1) + 1,
-                    'works': read.get('works') or 0, 'error': str(e),
+                    'works': read.get('works') or 0, 'error': str(e), **failure_reason(e),
                 }
                 self.index_failures.append(gap)
                 print(describe_listing_gap(gap))
@@ -2497,7 +2545,8 @@ class Ao3:
 
         work = parse_text.get_work_number(link or '')
         if any(x['link'] == link for x in self.failures): return
-        self.failures.append({'id': work, 'link': link, 'error': str(exception)})
+        self.failures.append({'id': work, 'link': link, 'error': str(exception),
+                              **failure_reason(exception)})
 
 
     def log_error(self, log: dict, exception: Exception):

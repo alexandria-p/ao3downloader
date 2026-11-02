@@ -235,6 +235,9 @@ export interface IndexGap {
   id?: string;
   link?: string;
   error: string;
+  /** why: 'maintenance', 'status' (with `status`), 'connection', 'no-data' or 'other' */
+  reason?: string;
+  status?: number;
 }
 
 /** how a run can be retried - see the helper's RETRY_MODES */
@@ -268,6 +271,8 @@ export interface RunChoice {
 
 /** one past run, as the helper wrote it down */
 export interface RunHistory {
+  /** on a floor offered to a quick scan: the works a partly finished one could not download */
+  missingDownloads?: string[];
   file: string;
   id: string;
   action: string;

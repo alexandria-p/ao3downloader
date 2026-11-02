@@ -112,9 +112,22 @@ export function issuesReport(issues: RunIssues, heading = 'Issues from this run'
  * `describe_listing_gap`, said the same way so the History card and the issues file agree with
  * the run's own window.
  */
+/** why something failed, in words: the recorded reason, then the error itself */
+export function failureWords(failed: { reason?: string; status?: number; error?: string }): string {
+  const error = failed.error ?? '';
+  const words =
+    failed.reason === 'maintenance' ? 'AO3 was down for maintenance'
+    : failed.reason === 'status' && failed.status ? `AO3 answered with status ${failed.status}`
+    : failed.reason === 'connection' ? 'AO3 could not be reached'
+    : failed.reason === 'no-data' ? 'the page AO3 served had nothing on it that could be read'
+    : '';
+  if (!words) return error;
+  return error && error !== words ? `${words} (${error})` : words;
+}
+
 export function describeGap(gap: IndexGap): string {
   if (gap.kind === 'work') {
-    return `Work ${gap.id}: its page on AO3 could not be read, so it was not indexed (${gap.error}).`;
+    return `Work ${gap.id}: its page on AO3 could not be read, so it was not indexed - ${failureWords(gap)}.`;
   }
   const walk = gap.walk === 'bookmarked' ? ' sorted by date bookmarked'
     : gap.walk === 'updated' ? ' sorted by date updated' : '';
@@ -130,7 +143,7 @@ export function describeGap(gap: IndexGap): string {
   const reached = gap.lastPage && date
     ? ` The last page read reached works ${kind} on ${date}; anything ${kind} before that was not reached.`
     : '';
-  return `${where} stopped at page ${gap.failedPage}${total}: ${gap.error}. ${read}${reached}`;
+  return `${where} stopped at page ${gap.failedPage}${total}: ${failureWords(gap)}. ${read}${reached}`;
 }
 
 /**

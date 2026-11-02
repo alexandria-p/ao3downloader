@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1975 python passed; 793 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1986 python passed; 799 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1104,8 +1104,13 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
 - **How a run that reached its end is judged** (`outcome_of`, from `close_record`): `failed`
   when it indexed nothing where it tried and downloaded nothing (`ERROR_ALL_INDEXING_FAILED`);
   `partial` when any index gap still stands **or** any failure does (FicHub's rescues aside);
-  else `success` - skipped bookmarks never count. A partial run is never a floor, so a scan
-  whose only problem was a download is not one either (the user's choice). Retrying one: the
+  else `success` - skipped bookmarks never count. **A partial run is a floor only when all its
+  indexing passed** (`floor_worthy`: no `indexFailures`, and no failure with `reason`
+  `maintenance`), through `runs.last_successful(statuses=)`; `/api/runs/floors` adds each one's
+  `missingDownloads`, and a quick scan whose automatic floor has some stops on the
+  `floor-warning` step (*Use it as the floor* / *Choose a different scan*). **Every failure and
+  gap records why** (`failure_reason`: `reason` maintenance / status + `status` / connection /
+  no-data / other), said by `failure_words` and the page's `failureWords`. Retrying one: the
   carry-on ways are refused (`RETRY_PARTIAL_DONE`, Download several fics excepted); with index
   failures the default is `reindex` and `RETRY_WARN_INDEX_FAILED` is shown (not for fic
   runs, whose `failed` re-reads each fic); with only download failures the default is `failed`

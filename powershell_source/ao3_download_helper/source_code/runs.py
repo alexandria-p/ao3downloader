@@ -366,7 +366,7 @@ def amend_run(fileops, name: str, fields: dict) -> None:
         pass
 
 
-def last_successful(fileops, match=None) -> dict | None:
+def last_successful(fileops, match=None, statuses=(STATUS_SUCCESS,)) -> dict | None:
     """The most recent run that actually finished, or None if there has never been one.
 
     What 'up to the last run' means for a quick scan. A run that failed, was stopped, or
@@ -379,11 +379,13 @@ def last_successful(fileops, match=None) -> dict | None:
     works it was never looking at. It takes a record and answers whether that run qualifies,
     rather than a list of action names, because whether a run covered everything can depend
     on the options it ran with and not only on which button it was. The caller decides -
-    this module deliberately knows nothing about what any of that means.
+    this module deliberately knows nothing about what any of that means. `statuses` widens
+    which endings count - a quick scan's floor also takes a partly finished run, by rules
+    `match` holds.
     """
 
     for record in read_runs(fileops):
-        if record.get('status') != STATUS_SUCCESS: continue
+        if record.get('status') not in statuses: continue
         if match is not None and not match(record): continue
         return record
     return None

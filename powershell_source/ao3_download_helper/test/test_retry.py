@@ -90,8 +90,8 @@ def test_the_line_said_names_the_pages_read_the_page_that_failed_and_the_date_re
     ao3.get_metadata(LINK, False)
 
     assert describe_listing_gap(ao3.index_failures[0]) == (
-        'indexing stopped: your bookmarks could not be read at page 3 of 3. pages 1 to 2 '
-        'were indexed (4 works). the last page read reached works bookmarked on 2025-01-17.')
+        'indexing stopped: your bookmarks could not be read at page 3 of 3 - the page would not load. '
+        'pages 1 to 2 were indexed (4 works). the last page read reached works bookmarked on 2025-01-17.')
 
 
 def test_a_walk_that_breaks_on_its_first_page_says_no_page_was_read(library):
@@ -190,14 +190,38 @@ def test_the_history_file_keeps_how_each_step_went():
     assert seen[-1] == {'login': progress.STEP_DONE, 'index': progress.STEP_FAILED}
 
 
-def test_a_partly_done_quick_scan_is_never_a_floor(library):
+def test_a_quick_scan_whose_indexing_failed_is_never_a_floor(library):
     write_run(library, id='a' * 32, action=server.ACTION_BOOKMARKS, status=runs.STATUS_SUCCESS,
               started='2025-01-01T09:00:00')
     write_run(library, id='b' * 32, action=server.ACTION_QUICK, status=runs.STATUS_PARTIAL,
-              started='2025-06-01T09:00:00')
+              started='2025-06-01T09:00:00', indexFailures=[{'kind': 'listing'}])
 
     assert server.quick_scan_floor(library) == '2025-01-01'
     assert [run['id'] for run in server.floor_runs(library)] == ['a' * 32]
+
+
+def test_a_quick_scan_whose_only_failures_were_downloads_is_a_floor(library):
+    write_run(library, id='a' * 32, action=server.ACTION_BOOKMARKS, status=runs.STATUS_SUCCESS,
+              started='2025-01-01T09:00:00')
+    write_run(library, id='b' * 32, action=server.ACTION_QUICK, status=runs.STATUS_PARTIAL,
+              started='2025-06-01T09:00:00',
+              failures=[{'id': '7', 'link': 'https://archiveofourown.org/works/7',
+                         'error': 'EPUB: 404', 'reason': 'status', 'status': 404}])
+
+    assert server.quick_scan_floor(library) == '2025-06-01'
+    [newest, _] = server.floor_runs(library)
+    assert server.missing_downloads(newest) == ['7']
+
+
+def test_a_quick_scan_that_met_ao3_maintenance_is_not_a_floor(library):
+    write_run(library, id='a' * 32, action=server.ACTION_BOOKMARKS, status=runs.STATUS_SUCCESS,
+              started='2025-01-01T09:00:00')
+    write_run(library, id='b' * 32, action=server.ACTION_QUICK, status=runs.STATUS_PARTIAL,
+              started='2025-06-01T09:00:00',
+              failures=[{'id': '7', 'link': 'https://archiveofourown.org/works/7',
+                         'error': strings.ERROR_AO3_DOWN, 'reason': 'maintenance'}])
+
+    assert server.quick_scan_floor(library) == '2025-01-01'
 
 # endregion
 

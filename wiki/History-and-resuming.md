@@ -7,13 +7,17 @@ Every run is written into the **History** tab (`runs/` in your library) the mome
 | **Running** | The helper is working on it now. Pinned at the top. *Not confirmed by the helper* means the helper hasn't answered yet; *on another helper* means another copy of the app started it. |
 | **Paused** | You pressed Pause. |
 | **Finished** | It reached the end and got everything it set out to: every listing page and fic indexed, every format downloaded. Bookmarks that were never works (series, external works, deleted works) don't count against it. |
-| **Partly finished** | It reached the end, but **some indexing failed** - a page of your bookmarks, a collection, or a fic's own page would not load (AO3 down or in maintenance, an error status such as 500, 401, 403 or 404, or a page that was not what was asked for) - or **some fics or formats could not be downloaded**. The entry says exactly what. It never counts as complete for a Quick Scan. |
+| **Partly finished** | It reached the end, but **some indexing failed** - a page of your bookmarks, a collection, or a fic's own page would not load (AO3 down or in maintenance, an error status such as 500, 401, 403 or 404, or a page that was not what was asked for) - or **some fics or formats could not be downloaded**. The entry says exactly what. It counts as a Quick Scan floor only when **all its indexing passed** and none of its failed downloads were down to AO3 maintenance - and then the Quick Scan warns first, naming the works it missed, and offers to choose a different scan. |
 | **Stopped** | You pressed Stop. |
 | **Abandoned** | A background run left paused too long. Ends like a stop. |
 | **Failed** | Something ended it early - login refused or lapsed, library unreachable - or **every part of its indexing failed and nothing was downloaded**. The reason is on the entry. |
 | **Interrupted** | The helper stopped, crashed or restarted mid-run. Its log goes up to its last save, at most about two minutes before. |
 
 Whatever the status, what the run saved stays saved.
+
+**Every failure says why**: *AO3 was down for maintenance*, *AO3 answered with status 404* (or
+401, 500...), *AO3 could not be reached*, or *the page AO3 served had nothing on it that could be
+read* - for a listing page, a fic's page, and a file alike, in History and in the issues file.
 
 ## Resuming
 

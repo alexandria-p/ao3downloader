@@ -139,6 +139,43 @@ def test_a_stop_while_reading_a_fic_again_is_not_a_gap():
 # endregion
 
 
+# region why it failed is recorded
+
+@pytest.mark.parametrize('error, wanted', [
+    (exceptions.Ao3DownException(strings.ERROR_AO3_DOWN), {'reason': 'maintenance'}),
+    (exceptions.InvalidStatusCodeException(strings.ERROR_INVALID_STATUS_CODE.format(404)),
+     {'reason': 'status', 'status': 404}),
+    (exceptions.TimeoutException('slow'), {'reason': 'connection'}),
+    (exceptions.Ao3DownloaderException(strings.ERROR_LISTING_UNREADABLE), {'reason': 'no-data'}),
+    (exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS), {'reason': 'no-data'}),
+    (ValueError('odd'), {'reason': 'other'}),
+    # a work several formats failed for, one of them for maintenance
+    (exceptions.DownloadException(f'EPUB: x; PDF: {strings.ERROR_AO3_DOWN}'), {'reason': 'maintenance'}),
+])
+def test_each_failure_records_why(error, wanted):
+    from source_code.ao3 import failure_reason
+    assert failure_reason(error) == wanted
+
+
+def test_a_listing_gap_says_why_it_stopped():
+    ao3 = walking(404, '<h2 class="heading">Error</h2>')
+    ao3.get_metadata(LINK, False)
+
+    [gap] = ao3.index_failures
+    assert (gap['reason'], gap['status']) == ('status', 404)
+    from source_code.ao3 import describe_listing_gap
+    assert 'AO3 answered with status 404' in describe_listing_gap(gap)
+
+
+def test_a_failed_download_says_why():
+    ao3 = an_ao3()
+    ao3.record_failure('https://archiveofourown.org/works/7',
+                       exceptions.Ao3DownException(strings.ERROR_AO3_DOWN))
+    assert ao3.failures[0]['reason'] == 'maintenance'
+
+# endregion
+
+
 # region retrying a run that was partly finished
 
 def a_partial(**fields) -> dict:

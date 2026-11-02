@@ -612,6 +612,37 @@
       floor are listed - completed, and covering the whole listing - and the helper says
       which those are, so the rule lives in one place
     -->
+    @if (step() === 'floor-warning') {
+      <section class="body">
+        @if (automaticFloor(); as floor) {
+          <div class="retry-warning floor-warning" role="note">
+            <p>
+              This quick scan will measure back to the last scan, which started
+              <strong>{{ baselineOf(floor).slice(0, 10) }}</strong> - but that scan could not
+              download {{ floor.missingDownloads?.length }}
+              {{ floor.missingDownloads?.length === 1 ? 'work' : 'works' }}:
+              {{ floor.missingDownloads?.join(', ') }}.
+            </p>
+            <p>
+              Its indexing all passed, so it still covers everything up to then. Would you still
+              like to use it as the floor, or choose a different scan to measure back to?
+            </p>
+          </div>
+        } @else {
+          <p class="hint">Reading your scan history...</p>
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
+        <button type="button" class="button" [disabled]="!automaticFloor()" (click)="chooseAnotherFloor()">
+          Choose a different scan
+        </button>
+        <button type="button" class="button primary" [disabled]="!automaticFloor()" (click)="useAutomaticFloor()">
+          Use it as the floor
+        </button>
+      </footer>
+    }
+
     @if (step() === 'floor') {
       <section class="body">
         <p>Choose the scan to measure back to. This run indexes everything changed since it started.</p>
@@ -639,6 +670,11 @@
                   <strong>{{ baselineOf(run).slice(0, 10) }}</strong>
                   {{ run.actionName || run.action }}
                   <span class="dim">- started {{ run.started.slice(11, 16) }}@if (run.finished) {, finished {{ run.finished.slice(0, 10) }} {{ run.finished.slice(11, 16) }}}</span>
+                  @if (run.missingDownloads?.length) {
+                    <span class="hint warn">
+                      Partly finished - could not download {{ run.missingDownloads!.join(', ') }}
+                    </span>
+                  }
                 </span>
               </label>
             }

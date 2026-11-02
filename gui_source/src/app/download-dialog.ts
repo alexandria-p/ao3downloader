@@ -50,6 +50,8 @@ type Step =
   | 'options'
   /** a quick scan choosing which earlier scan to measure back to */
   | 'floor'
+  /** a quick scan whose floor would be a scan that could not download some works */
+  | 'floor-warning'
   /** a custom run choosing which unfinished run to pick up where it left off */
   | 'resume'
   | 'acknowledge'
@@ -1205,15 +1207,46 @@ export class DownloadDialog implements OnDestroy {
       return;
     }
     if (this.picksFloorRun()) {
-      this.step.set('floor');
-      // asked for fresh each time: a scan may have finished since the dialog opened
+      this.toFloorPage();
+      return;
+    }
+    if (this.action() === 'quick' && this.coverage() === 'all') {
+      // the floor the helper will measure back to is the newest scan that qualifies. one that
+      // could not download some works still does - but say so, and offer another
+      this.step.set('floor-warning');
       this.floorRuns.set(null);
-      void this.jobs
-        .loadFloorRuns(this.library.store())
-        .then((runs) => this.floorRuns.set(runs ?? []));
+      void this.jobs.loadFloorRuns(this.library.store()).then((runs) => {
+        this.floorRuns.set(runs ?? []);
+        if (this.step() === 'floor-warning' && !this.automaticFloor()?.missingDownloads?.length) {
+          this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+        }
+      });
       return;
     }
     this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+  }
+
+  /** the floor a quick scan measures back to when none is chosen: the newest that qualifies */
+  protected readonly automaticFloor = computed(() => this.floorRuns()?.[0] ?? null);
+
+  private toFloorPage(): void {
+    this.step.set('floor');
+    // asked for fresh each time: a scan may have finished since the dialog opened
+    this.floorRuns.set(null);
+    void this.jobs
+      .loadFloorRuns(this.library.store())
+      .then((runs) => this.floorRuns.set(runs ?? []));
+  }
+
+  /** the warning answered: measure back to it anyway */
+  protected useAutomaticFloor(): void {
+    this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+  }
+
+  /** the warning answered: pick another scan to measure back to */
+  protected chooseAnotherFloor(): void {
+    this.coverage.set('run');
+    this.toFloorPage();
   }
 
   /**

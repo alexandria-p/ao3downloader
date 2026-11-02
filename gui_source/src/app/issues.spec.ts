@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { issueCount, issuesOf, issuesReport } from './issues';
+import { describeGap, failureWords, issueCount, issuesOf, issuesReport } from './issues';
 import { RunHistory } from './jobs';
 
 function aRun(over: Partial<RunHistory> = {}): RunHistory {
@@ -52,5 +52,27 @@ describe('issuesReport', () => {
     expect(report.split('\n').filter((x) => x.startsWith('## '))).toEqual([
       '## 1 work that could not be downloaded',
     ]);
+  });
+});
+
+describe('why something failed, in words', () => {
+  it('names maintenance, a status, a connection and an empty page', () => {
+    expect(failureWords({ reason: 'maintenance', error: 'ao3 is down' }))
+      .toBe('AO3 was down for maintenance (ao3 is down)');
+    expect(failureWords({ reason: 'status', status: 404, error: 'Request failed with status code 404' }))
+      .toBe('AO3 answered with status 404 (Request failed with status code 404)');
+    expect(failureWords({ reason: 'connection', error: '' })).toBe('AO3 could not be reached');
+    expect(failureWords({ reason: 'no-data', error: 'x' }))
+      .toBe('the page AO3 served had nothing on it that could be read (x)');
+  });
+
+  it('falls back to the error itself for anything else, and for older records', () => {
+    expect(failureWords({ reason: 'other', error: 'odd' })).toBe('odd');
+    expect(failureWords({ error: 'odd' })).toBe('odd');
+  });
+
+  it('says why a listing stopped', () => {
+    expect(describeGap({ kind: 'listing', failedPage: 3, error: 'e', reason: 'status', status: 403 }))
+      .toContain('stopped at page 3: AO3 answered with status 403');
   });
 });

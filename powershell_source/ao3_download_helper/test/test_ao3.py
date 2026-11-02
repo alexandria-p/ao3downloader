@@ -1197,7 +1197,7 @@ def test_a_work_that_fails_is_remembered_with_its_number():
 
     assert ao3.failures == [{'id': '111',
                              'link': 'https://archiveofourown.org/works/111',
-                             'error': 'EPUB: gone'}]
+                             'error': 'EPUB: gone', 'reason': 'other'}]
 
 
 def test_a_format_that_fails_does_not_stop_the_formats_after_it(capsys):

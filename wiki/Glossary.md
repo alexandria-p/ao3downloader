@@ -11,7 +11,7 @@ The words this project uses. `TERMINOLOGY.md` in the repository has the full lis
 | **Run** | One press of a button, from login to report. |
 | **Step** | One stage of a run, ticked off in the run window. |
 | **Walk** | Reading a listing page by page, 20 works a page. |
-| **Floor** | The date a walk stops at - for a Quick Scan, the date of the last complete scan; for a date range, its start. A retry keeps the first attempt's. |
+| **Floor** | The date a walk stops at - for a Quick Scan, the date of the last scan that read your whole listing (a partly finished one counts only if all its indexing passed, after a warning); for a date range, its start. A retry keeps the first attempt's. |
 | **Ceiling** | On a retry, the newest date a walk wants anything from - the day the first attempt started, or a date range's end. Fics dated after it are left for the next scan. |
 | **Retry** | A new run of a run that has ended, picking up wherever you choose - see [[History and resuming]]. |
 | **Resume** | Un-pausing a run that is still going. |

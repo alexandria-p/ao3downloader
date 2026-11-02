@@ -609,6 +609,55 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('since the last successful');
   });
 
+  it('warns before measuring back to a scan that could not download some works', async () => {
+    jobs.floorRunsOnRecord = [
+      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7', '9'] },
+      scanOnRecord('a', '2026-08-01T09:00:00'),
+    ];
+    await open('quick');
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('floor-warning');
+    const said = element.querySelector('.floor-warning')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(said).toContain('could not download 2 works: 7, 9');
+
+    // using it goes on as usual, measuring back to it
+    button('Use it as the floor')!.click();
+    await fixture.whenStable();
+    expect(currentStep()).not.toBe('floor-warning');
+    expect(currentStep()).not.toBe('floor');
+  });
+
+  it('lets another scan be chosen instead of one that could not download some works', async () => {
+    jobs.floorRunsOnRecord = [
+      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] },
+      scanOnRecord('a', '2026-08-01T09:00:00'),
+    ];
+    await open('quick');
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    button('Choose a different scan')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('floor');
+    // the partly finished one is still listed, saying what it missed
+    expect(element.querySelector('.floor-runs')?.textContent).toContain('could not download 7');
+  });
+
+  it('asks nothing when the last scan got everything', async () => {
+    jobs.floorRunsOnRecord = [scanOnRecord('a', '2026-08-01T09:00:00')];
+    await open('quick');
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).not.toBe('floor-warning');
+  });
+
   it('sends no floor for a quick scan measuring back to its last run as usual', async () => {
     await open('quick');
     await advanceTo('running');

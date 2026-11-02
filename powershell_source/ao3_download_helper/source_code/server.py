@@ -30,7 +30,7 @@ import requests
 
 from source_code import access, dropbox_library, exceptions, fichub, settings_file, indexing, parse_soup, parse_text, progress, runs, strings, updater as updates
 from source_code.actions import shared
-from source_code.ao3 import SORT_DATE_SELECTORS, Ao3, index_gaps, was_bookmark
+from source_code.ao3 import REASON_MAINTENANCE, SORT_DATE_SELECTORS, failure_reason, Ao3, index_gaps, was_bookmark
 from source_code.fileio import FileOps
 from source_code.repo import Repository
 from source_code.storage import PageStorage
@@ -2346,7 +2346,8 @@ def run_work(job: Job, fileops: FileOps, repo: Repository, report) -> None:
         # work rather than of the run: FicHub may still have it, and is asked at the end
         ao3.record_failure(link, e)
         ao3.log_error({'link': link}, e)
-        ao3.index_failures.append({'kind': 'work', 'id': str(work), 'link': link, 'error': str(e)})
+        ao3.index_failures.append({'kind': 'work', 'id': str(work), 'link': link, 'error': str(e),
+                                   **failure_reason(e)})
         print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
         print(strings.AO3_INFO_ONE_WORK_NOT_INDEXED.format(work))
         job.steps.fail_current()
@@ -2438,7 +2439,7 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
             ao3.record_failure(link, e)
             ao3.log_error({'link': link}, e)
             ao3.index_failures.append({'kind': 'work', 'id': str(work), 'link': link,
-                                       'error': str(e)})
+                                       'error': str(e), **failure_reason(e)})
             print(strings.AO3_INFO_ONE_WORK_UNREADABLE.format(e))
             print(strings.AO3_INFO_ONE_WORK_NOT_INDEXED.format(work))
             continue
@@ -2654,7 +2655,8 @@ def quick_scan_floor(fileops: FileOps) -> str:
       that day, so measuring back to one would skip it permanently.
     """
 
-    last = runs.last_successful(fileops, match=covered_the_whole_listing)
+    last = runs.last_successful(fileops, match=floor_worthy,
+                                statuses=(runs.STATUS_SUCCESS, runs.STATUS_PARTIAL))
     if not last: return ''
     # when its reach began: the moment its login worked, or its first attempt's if resumed
     return runs.baseline_of(last)[:10]
@@ -2737,10 +2739,35 @@ def floors_among(records: list[dict]) -> list[dict]:
     the run history itself and asks this which of it qualifies, so the rule lives here once.
     """
 
-    return [record for record in records
-            if isinstance(record, dict)
-            and record.get('status') == runs.STATUS_SUCCESS
-            and covered_the_whole_listing(record)]
+    return [record for record in records if isinstance(record, dict) and floor_worthy(record)]
+
+
+def floor_worthy(record: dict) -> bool:
+    """Whether a run can be a floor: it covered the whole listing, and indexed all of it.
+
+    A finished run can. So can a **partly finished** one whose indexing all passed and whose
+    only failures were downloads - every work ao3 had updated by the time it began was seen,
+    which is all a floor promises - **unless any of them failed for ao3's maintenance**: an
+    outage says nothing about the works, and a run that met one may have met it sooner than
+    its failures show. A partly finished floor is offered with its missing works named
+    (`missing_downloads`), so the page can warn before a quick scan measures back to it.
+    """
+
+    if not covered_the_whole_listing(record): return False
+    status = record.get('status')
+    if status == runs.STATUS_SUCCESS: return True
+    if status != runs.STATUS_PARTIAL or record.get('indexFailures'): return False
+    failures = [x for x in record.get('failures') or [] if isinstance(x, dict)]
+    return not any(x.get('reason') == REASON_MAINTENANCE
+                   or strings.ERROR_AO3_DOWN in str(x.get('error') or '') for x in failures)
+
+
+def missing_downloads(record: dict) -> list[str]:
+    """The works a partly finished floor could not download, by number."""
+
+    if record.get('status') != runs.STATUS_PARTIAL: return []
+    return [str(x.get('id')) for x in record.get('failures') or []
+            if isinstance(x, dict) and x.get('id')]
 
 
 def chosen_floor(fileops: FileOps, run_id: str) -> str:
@@ -4474,7 +4501,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self.send_json(400, {'error': 'invalid json'})
                 return
-            self.send_json(200, {'runs': floors_among(records if isinstance(records, list) else [])})
+            # a partly finished floor names the works it could not download, for the warning
+            self.send_json(200, {'runs': [
+                {**record, 'missingDownloads': missing_downloads(record)}
+                for record in floors_among(records if isinstance(records, list) else [])]})
             return
 
         if self.path == '/api/runs/retryable':
