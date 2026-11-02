@@ -2142,7 +2142,7 @@ not to break:
   sent on `change` (left, or Enter), never on `input`, so a half-typed number is not written;
   only a value that differs is sent, and one the helper refuses is put back as the file has it.
   The update banner reads its flag once, so choosing it sets `UpdateCheck.dismissed` too.
-- **The tab says first, in one sentence, that prompts and formats are this browser's**
+- **The tab says first that "do not ask again" choices and default formats are this browser's**
   (`.browser-note`) - kept short at the user's request.
 - **Reset to defaults opens a window listing every value it would change** (`resetChanges`:
   only those that differ, as current -> **default**, grouped Prompts / Download formats /

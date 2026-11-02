@@ -301,11 +301,15 @@ describe('UserSettings', () => {
   // endregion
   // region where it is kept, and putting it all back
 
-  it('says up front, in one sentence, that prompts and formats are kept by this browser', async () => {
+  it('says up front that "do not ask again" choices and formats are kept by this browser', async () => {
     await open();
 
     const note = (element.querySelector('.browser-note')?.textContent ?? '').replace(/\s+/g, ' ').trim();
-    expect(note).toBe('Prompts and download formats are saved in this browser only, so a different browser or device keeps its own.');
+    expect(note).toBe(
+      "'Do not ask again' options and any changes to your default file formats are saved to this browser. " +
+        'Changing browsers on your device will use a different set of settings that are saved to that browser.',
+    );
+    expect(element.querySelector('.browser-note strong')?.textContent).toBe('that');
   });
 
   it('shows each setting\'s default beside it', async () => {
