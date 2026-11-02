@@ -181,7 +181,7 @@ def question_timeout_seconds() -> float:
     return setting_integer(strings.INI_QUESTION_TIMEOUT, ANSWER_TIMEOUT_SECONDS // 60) * 60
 
 
-def configured_answer(name: str, builtin: dict) -> dict:
+def configured_answer(name: str, builtin: dict, chosen: str | None = None) -> dict:
     """The default a question takes when nobody answers it, as settings.ini says.
 
     Only the choice changes; anything else the built-in default carries (the undated
@@ -191,6 +191,9 @@ def configured_answer(name: str, builtin: dict) -> dict:
 
     key = ANSWER_SETTING_FOR.get(name)
     if not key: return dict(builtin)
+    if chosen in strings.INI_ANSWER_CHOICES.get(key, ()):
+        # the run's own, from the page's User settings, comes before settings.ini's
+        return {**builtin, 'choice': chosen}
     try:
         choice = FileOps().get_ini_value(key, '').strip().lower()
     except Exception:
@@ -503,6 +506,11 @@ class Job:
         self.resume: dict | None = None
         # a background run's up-front answers are the same thing, given before it started
         self.prior_answers: dict[str, dict] = dict(answers or {})
+        # what the page's own User settings say unanswered questions take, and how long they
+        # wait - sent by a page whose helper's settings.ini it cannot edit (a hosted copy).
+        # None leaves settings.ini in force. see `run_question_settings`
+        self.answer_defaults: dict[str, str] = {}
+        self.question_timeout_minutes: int | None = None
         # the moment the login succeeded, or the first attempt's when resuming
         self.baseline = ''
 
@@ -548,7 +556,7 @@ class Job:
         # a stop always gets the built-in default, which changes nothing (bar FicHub's, which
         # a stopped run never acts on); every other unanswered question takes settings.ini's
         stopped = dict(default)
-        default = configured_answer(name, default)
+        default = configured_answer(name, default, self.answer_defaults.get(name))
         prior = self.prior_answers.get(name)
         if prior is not None:
             # a resumed run does not ask again what the attempt before it was already told,
@@ -562,7 +570,8 @@ class Job:
             print(strings.AO3_INFO_BACKGROUND_DEFAULT.format(default.get('choice')))
             return dict(default)
 
-        timeout = question_timeout_seconds()
+        timeout = (question_timeout_seconds() if self.question_timeout_minutes is None
+                   else self.question_timeout_minutes * 60)
         if timeout <= 0:
             # set to take the default at once: said, so the log shows why nobody was asked
             print(strings.AO3_INFO_QUESTION_NOT_ASKED.format(default.get('choice')))
@@ -1229,6 +1238,28 @@ def background_answers(raw) -> dict[str, dict]:
             raise ValueError('dating the undated files needs the date to give them')
         answers[name] = {'choice': choice, 'date': date}
     return answers
+
+
+def run_question_settings(defaults, timeout) -> tuple[dict[str, str], int | None]:
+    """The default answers and question timeout a page's User settings sent with a run,
+    checked before it starts: each answer one `strings.INI_ANSWER_CHOICES` offers for its
+    question, the timeout a whole number of minutes. Neither sent leaves settings.ini's."""
+
+    chosen: dict[str, str] = {}
+    if defaults is not None:
+        if not isinstance(defaults, dict):
+            raise ValueError('the default answers have to be given by question')
+        for name, choice in defaults.items():
+            key = ANSWER_SETTING_FOR.get(name)
+            if not key: raise ValueError(f"there is no question called '{name}'")
+            if choice not in strings.INI_ANSWER_CHOICES[key]:
+                raise ValueError(f"'{choice}' is not a default answer to '{name}' - it is one of "
+                                 f"{', '.join(strings.INI_ANSWER_CHOICES[key])}")
+            chosen[name] = choice
+    if timeout is None: return chosen, None
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout < 0:
+        raise ValueError('the question timeout is a whole number of minutes, 0 or more')
+    return chosen, timeout
 
 
 def active_jobs() -> list[dict]:
@@ -4726,8 +4757,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             library = dropbox_library.DropboxChannel(dropbox['refreshToken'], dropbox['appKey'])
 
+        try:
+            answer_defaults, question_timeout = run_question_settings(
+                body.get('answerDefaults'), body.get('questionTimeoutMinutes'))
+        except ValueError as e:
+            self.send_json(400, {'error': str(e)})
+            return
+
         job = Job(action, filetypes, username, options, url, background=background,
                   library=library, answers=answers)
+        job.answer_defaults = answer_defaults
+        job.question_timeout_minutes = question_timeout
         # only a label, written into the history file: which helper the page started it on
         job.helper = str(body.get('helper') or '')[:300]
         # one run at a time, checked and taken under the same lock so two starts arriving

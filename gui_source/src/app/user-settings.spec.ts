@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
 import { Jobs, ServerConfig } from './jobs';
 import {
+  ANSWER_DEFAULTS_KEY,
   BROWSER_NOTICE_KEY,
+  QUESTION_TIMEOUT_KEY,
   DEFAULT_FILETYPES_KEY,
   FOLDER_WARNING_KEY,
   HIDE_WARNING_KEY,
@@ -312,6 +314,33 @@ describe('UserSettings', () => {
 
     expect(element.querySelector('.ini')).toBeNull();
     expect(vi.mocked(TestBed.inject(HelperConnection).call).mock.calls.map((c) => c[0])).not.toContain('/api/settings-file');
+  });
+
+  it('on a hosted copy, lets this browser choose what unanswered questions take, starting from the helper\'s', async () => {
+    TestBed.inject(HelperConnection).settings.set({ ...DEFAULT_PAGE_CONFIG, helperUrl: 'https://helper.example.com' });
+    TestBed.inject(Jobs).config.set({ ...CONFIG, settings: { ...CONFIG.settings!,
+      answerDefaults: { fichub: 'no' }, questionTimeoutMinutes: 20 } });
+    await open();
+
+    const fichub = element.querySelector<HTMLSelectElement>('[data-question-setting="fichub"] select')!;
+    expect(fichub.value).toBe('no');
+    expect(element.querySelector<HTMLInputElement>('[data-question-setting="timeout"] input')!.value).toBe('20');
+
+    choose('[data-question-setting="overwrite-older"] select', 'yes');
+    await leave('[data-question-setting="timeout"] input', '5');
+    expect(JSON.parse(localStorage.getItem(ANSWER_DEFAULTS_KEY)!)).toEqual({ 'overwrite-older': 'yes' });
+    expect(localStorage.getItem(QUESTION_TIMEOUT_KEY)).toBe('5');
+
+    // and Reset puts them back to the helper's
+    element.querySelector<HTMLButtonElement>('.reset-all')?.click();
+    await settle();
+    const listed = element.querySelector('.reset-window, [role="dialog"]')?.textContent ?? '';
+    expect(listed).toContain('Minutes a question waits for you');
+  });
+
+  it('keeps no question defaults of its own where settings.ini holds them', async () => {
+    await open();
+    expect(element.querySelector('.questions')).toBeNull();
   });
 
   // endregion

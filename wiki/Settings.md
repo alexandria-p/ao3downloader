@@ -63,7 +63,9 @@ message at the bottom says so. Prompts and formats are kept in this browser only
 | `PageOrigin` | *(empty)* | The page allowed to use a hosted helper, e.g. `https://you.github.io`. |
 | `SavePassword` | `false` | Left over from the console app. The web page never stores a password. |
 
-The default answers are also what a background run takes when it was not told, and what the run window's up-front answers start from. A stop always takes the answer that changes nothing. **Reset to defaults** puts all of these back to the values above.
+The default answers are also what a background run takes when it was not told. A stop always takes the answer that changes nothing. **Reset to defaults** puts all of these back to the values above.
+
+**On a hosted copy** the page can't edit settings.ini, so User settings has its own **Questions a run may ask** section instead: the minutes a question waits and each default answer, saved to this browser. They're sent with every run, and a background run's up-front answers start from them. Reset to defaults goes back to the hosted copy's own (the values above unless its deployment changed them).
 
 ## Your file is only ever added to
 

@@ -1,13 +1,21 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { HelperConnection } from './helper-connection';
-import { Jobs, ServerConfig } from './jobs';
+import { Jobs, QuestionName, ServerConfig } from './jobs';
 import {
+  BUILT_IN_ANSWERS,
+  BUILT_IN_QUESTION_TIMEOUT,
+  QUESTION_DEFAULTS,
+  QuestionDefault,
   PROMPTS,
   PROMPT_AREAS,
   Prompt,
   UPDATE_BANNER_KEY,
   promptAsks,
+  saveAnswerDefaults,
   saveDefaultFiletypes,
+  saveQuestionTimeout,
+  savedAnswerDefaults,
+  savedQuestionTimeout,
   setPromptAsks,
   startingFiletypes,
 } from './preferences';
@@ -34,7 +42,7 @@ interface IniFile {
 
 /** one value Reset to defaults would change, as its window lists it */
 export interface ResetChange {
-  group: 'Prompts' | 'Download formats' | 'settings.ini';
+  group: 'Prompts' | 'Download formats' | 'Questions' | 'settings.ini';
   name: string;
   current: string;
   default: string;
@@ -90,6 +98,27 @@ export class UserSettings implements OnDestroy {
   protected readonly local = this.helper.isLocal();
   protected readonly ini = signal<IniFile | null>(null);
 
+  /**
+   * A hosted copy's question defaults, kept by this browser (its settings.ini cannot be
+   * edited from here): what is saved, and what the helper's own deployment says when not.
+   */
+  protected readonly questions = QUESTION_DEFAULTS;
+  private readonly savedAnswers = signal(savedAnswerDefaults());
+  private readonly savedTimeout = signal(savedQuestionTimeout());
+  protected helperAnswer(name: QuestionName): string {
+    return this.config()?.settings?.answerDefaults?.[name] ?? BUILT_IN_ANSWERS[name];
+  }
+  protected answer(name: QuestionName): string {
+    return this.savedAnswers()[name] ?? this.helperAnswer(name);
+  }
+  protected helperTimeout(): number {
+    return this.config()?.settings?.questionTimeoutMinutes ?? BUILT_IN_QUESTION_TIMEOUT;
+  }
+  protected readonly questionTimeout = computed(() => this.savedTimeout() ?? this.helperTimeout());
+  protected choiceLabel(question: QuestionDefault, value: string): string {
+    return question.choices.find((c) => c.value === value)?.label ?? value;
+  }
+
   /** the Reset to defaults window is open */
   protected readonly confirmingReset = signal(false);
 
@@ -112,6 +141,20 @@ export class UserSettings implements OnDestroy {
       const now = order(this.formats());
       const fresh = order([...config.forced, ...(config.defaults ?? [])]);
       if (now !== fresh) changes.push({ group: 'Download formats', name: 'Formats a run starts with', current: now, default: fresh });
+    }
+    if (!this.local) {
+      if (this.questionTimeout() !== this.helperTimeout()) {
+        changes.push({ group: 'Questions', name: 'Minutes a question waits for you',
+                       current: String(this.questionTimeout()), default: String(this.helperTimeout()) });
+      }
+      for (const question of QUESTION_DEFAULTS) {
+        const now = this.answer(question.name);
+        const fresh = this.helperAnswer(question.name);
+        if (now !== fresh) {
+          changes.push({ group: 'Questions', name: question.label,
+                         current: this.choiceLabel(question, now), default: this.choiceLabel(question, fresh) });
+        }
+      }
     }
     const file = this.ini();
     if (file?.editable) {
@@ -182,6 +225,30 @@ export class UserSettings implements OnDestroy {
     this.say(`Saved: "${prompt.name}" - ${asks ? 'ask always' : 'do not ask again'}`);
   }
 
+  protected setAnswer(question: QuestionDefault, value: string): void {
+    if (!question.choices.some((c) => c.value === value)) return;
+    const answers = { ...this.savedAnswers() };
+    // the same as the helper's is not kept, so a later change to the deployment still shows
+    if (value === this.helperAnswer(question.name)) delete answers[question.name];
+    else answers[question.name] = value;
+    saveAnswerDefaults(answers);
+    this.savedAnswers.set(answers);
+    this.say(`Saved: "${question.label}" - ${this.choiceLabel(question, value)} - from the next run`);
+  }
+
+  protected setQuestionTimeout(value: string, input?: HTMLInputElement): void {
+    const minutes = Number(value);
+    if (value.trim() === '' || !Number.isInteger(minutes) || minutes < 0) {
+      if (input) input.value = String(this.questionTimeout());
+      this.say('Not saved: the wait is a whole number of minutes, 0 or more', 'problem');
+      return;
+    }
+    const kept = minutes === this.helperTimeout() ? null : minutes;
+    saveQuestionTimeout(kept);
+    this.savedTimeout.set(kept);
+    this.say(`Saved: questions wait ${minutes} minute${minutes === 1 ? '' : 's'} - from the next run`);
+  }
+
   protected isForced(filetype: string): boolean {
     return this.config()?.forced.includes(filetype) ?? false;
   }
@@ -219,11 +286,17 @@ export class UserSettings implements OnDestroy {
     this.asking.set(Object.fromEntries(PROMPTS.map((p) => [p.key, 'ask' as Asking])));
     this.updates.dismissed.set(false);
     saveDefaultFiletypes(null);
+    saveAnswerDefaults(null);
+    saveQuestionTimeout(null);
+    this.savedAnswers.set({});
+    this.savedTimeout.set(null);
     const config = this.config();
     if (config) this.formats.set(startingFiletypes(config));
 
     if (!this.ini()?.editable) {
-      this.say('Reset: every prompt asks always, and runs start with the app\'s default formats');
+      this.say(this.local
+        ? 'Reset: every prompt asks always, and runs start with the app\'s default formats'
+        : 'Reset: every prompt asks always, runs start with the app\'s default formats, and questions take the app\'s default answers');
       return;
     }
     try {

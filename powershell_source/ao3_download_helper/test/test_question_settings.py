@@ -178,3 +178,36 @@ def test_a_deploy_refuses_an_answer_the_question_does_not_have():
     assert deploy_config.checked(strings.INI_FICHUB_ANSWER, 'No', 'yes') == 'no'
 
 # endregion
+
+
+# region a hosted page's own choices, sent with the run
+
+def test_a_run_s_own_default_answers_come_before_settings_ini_s():
+    settings(FicHubAnswer='yes')
+    job = a_job()
+    job.background = True
+    job.answer_defaults = {server.FICHUB_QUESTION: 'no'}
+
+    assert job.ask(QUESTION, {'choice': 'yes'}) == {'choice': 'no'}
+
+
+def test_a_run_s_own_question_timeout_comes_before_settings_ini_s():
+    settings(QuestionTimeoutMinutes=30, FicHubAnswer='no')
+    job = a_job()
+    job.question_timeout_minutes = 0
+    job.emit = MagicMock()
+
+    assert job.ask(QUESTION, {'choice': 'yes'}) == {'choice': 'no'}
+    job.emit.assert_not_called()
+
+
+def test_what_the_page_sends_is_checked_before_the_run_starts():
+    assert server.run_question_settings({'fichub': 'no'}, 5) == ({'fichub': 'no'}, 5)
+    assert server.run_question_settings(None, None) == ({}, None)
+    for defaults, timeout in [({'fichub': 'maybe'}, None), ({'nothing': 'yes'}, None),
+                              ({'undated': 'stamp'}, None), (None, -1), (None, '5'),
+                              (None, True), ('yes', None)]:
+        with pytest.raises(ValueError):
+            server.run_question_settings(defaults, timeout)
+
+# endregion

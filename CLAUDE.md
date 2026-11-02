@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2005 python passed; 802 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2008 python passed; 805 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -914,6 +914,16 @@ date. A misspelt value leaves the built-in. The question event carries `default`
 `timeoutMinutes` for the panel's `.question-default` line; `/api/config` sends
 `answerDefaults`, which the dialog's up-front background answers start from
 (`startFromDefaults`). `QuestionTimeoutMinutes` 0 takes the default without asking.
+
+**A hosted copy's are kept by the browser**, since its settings.ini cannot be edited from the
+page: User settings shows *Questions a run may ask* only when `!HelperConnection.isLocal()`
+(`QUESTION_DEFAULTS`, `ao3.answerDefaults`, `ao3.questionTimeoutMinutes`; only values that
+differ from the helper's are stored, and Reset drops them). The dialog sends them with every
+run (`questionSettings`: `answerDefaults`, `questionTimeoutMinutes`), never from a local page;
+`run_question_settings` checks them in `do_POST` and they become `Job.answer_defaults` /
+`question_timeout_minutes`, ahead of settings.ini. A background run's up-front answers start
+from the browser's, then the helper's `answerDefaults`, then the built-in. Ordinary runs are
+**not** offered up-front answers - at the user's request they stay as they are.
 
 The waits are settings too, read where they are used with the old constants as fallbacks:
 `RequestTimeoutSeconds`, `StillWaitingSeconds`, `MaintenanceRetries`,

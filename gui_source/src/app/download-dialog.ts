@@ -35,7 +35,7 @@ import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, issueCount, issuesReport } from './issues';
-import { SYNC_ACK_KEY, startingFiletypes } from './preferences';
+import { SYNC_ACK_KEY, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
 
 type Step =
   /**
@@ -1037,6 +1037,22 @@ export class DownloadDialog implements OnDestroy {
     if (floor) this.quickFloorAnswer.set(floor);
   }
 
+  /** this browser's default answers - only a hosted copy keeps any */
+  private browserAnswers(): Partial<Record<QuestionName, string>> {
+    return this.helper.isLocal() ? {} : savedAnswerDefaults();
+  }
+
+  /** what a hosted copy's User settings say about questions, sent with every run */
+  private questionSettings(): Pick<StartRequest, 'answerDefaults' | 'questionTimeoutMinutes'> {
+    if (this.helper.isLocal()) return {};
+    const answers = savedAnswerDefaults();
+    const timeout = savedQuestionTimeout();
+    return {
+      ...(Object.keys(answers).length ? { answerDefaults: answers } : {}),
+      ...(timeout === null ? {} : { questionTimeoutMinutes: timeout }),
+    };
+  }
+
   /** the up-front answers, for the questions this run could ask */
   private readonly backgroundAnswers = computed<BackgroundAnswers>(() => {
     const answers: BackgroundAnswers = {};
@@ -1103,7 +1119,9 @@ export class DownloadDialog implements OnDestroy {
   private async init(): Promise<void> {
     const config = await this.jobs.loadConfig();
     if (!config) return;
-    this.startFromDefaults(config.settings?.answerDefaults ?? {});
+    // a hosted copy's own User settings come before its helper's; a helper on this
+    // computer has settings.ini for them, edited from the same tab
+    this.startFromDefaults({ ...(config.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
 
     // read after the await, not before: inputs are set once the constructor has returned
     const attaching = this.attachTo();
@@ -1425,11 +1443,12 @@ export class DownloadDialog implements OnDestroy {
         background
           ? {
               ...this.startRequest(resumed),
+              ...this.questionSettings(),
               background: true,
               answers: this.backgroundAnswers(),
               dropbox: this.dropbox.handover(),
             }
-          : this.startRequest(resumed),
+          : { ...this.startRequest(resumed), ...this.questionSettings() },
       );
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));

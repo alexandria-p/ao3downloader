@@ -10,6 +10,7 @@
  * only means a prompt is shown again, or the helper's own default file types are ticked.
  */
 
+import type { QuestionName } from './jobs';
 import { safeGet, safeRemove, safeSet } from './storage';
 
 export const BROWSER_NOTICE_KEY = 'ao3.browserNoticeSeen';
@@ -18,6 +19,8 @@ export const HIDE_WARNING_KEY = 'ao3.hideWarningOff';
 export const SYNC_ACK_KEY = 'ao3.syncAcknowledged';
 export const UPDATE_BANNER_KEY = 'ao3.updateCheckDismissed';
 export const DEFAULT_FILETYPES_KEY = 'ao3.defaultFiletypes';
+export const ANSWER_DEFAULTS_KEY = 'ao3.answerDefaults';
+export const QUESTION_TIMEOUT_KEY = 'ao3.questionTimeoutMinutes';
 
 export type PromptArea = 'Your library' | 'Runs' | 'Updates';
 
@@ -128,4 +131,73 @@ export function startingFiletypes(config: { filetypes: string[]; forced: string[
   const chosen = saved ?? config.defaults ?? config.forced;
   const offered = chosen.filter((x) => config.filetypes.includes(x));
   return [...config.forced, ...offered.filter((x) => !config.forced.includes(x))];
+}
+
+/**
+ * The questions a run can stop to ask, with the answers each may default to - the same
+ * lists as the helper's `strings.INI_ANSWER_CHOICES`, built-in default first. On a helper on
+ * this computer they are settings.ini's; on a hosted copy, whose settings.ini the page cannot
+ * edit, this browser keeps its own (`savedAnswerDefaults`), sent with every run and used to
+ * fill a background run's up-front answers.
+ */
+export interface QuestionDefault {
+  name: QuestionName;
+  label: string;
+  choices: { value: string; label: string }[];
+}
+
+export const QUESTION_DEFAULTS: QuestionDefault[] = [
+  { name: 'undated', label: 'Files with no date in their name',
+    choices: [{ value: 'skip', label: 'Leave them as they are' }, { value: 'refresh', label: 'Download them again' }] },
+  { name: 'quick-floor', label: 'A quick scan with no earlier scan to measure back to',
+    choices: [{ value: 'full', label: 'Read the whole listing' }, { value: 'since', label: 'Go back to when the index was last written' }] },
+  { name: 'duplicates', label: 'Older copies beside the newest',
+    choices: [{ value: 'leave', label: 'Leave them' }, { value: 'newest', label: 'Keep only the newest' }] },
+  { name: 'fichub', label: 'Ask FicHub for works AO3 would not give',
+    choices: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+  { name: 'fichub-outdated', label: 'Take an older FicHub copy of a format you have none of',
+    choices: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+  { name: 'overwrite-older', label: 'Let an overwriting run replace a copy newer than the one it writes',
+    choices: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes' }] },
+];
+
+/** the built-in default of each question: what it took before any of this was a setting */
+export const BUILT_IN_ANSWERS = Object.fromEntries(
+  QUESTION_DEFAULTS.map((q) => [q.name, q.choices[0].value]),
+) as Record<QuestionName, string>;
+export const BUILT_IN_QUESTION_TIMEOUT = 30;
+
+/** this browser's default answers, only those that are real answers to their question */
+export function savedAnswerDefaults(): Partial<Record<QuestionName, string>> {
+  const raw = safeGet(ANSWER_DEFAULTS_KEY);
+  if (!raw) return {};
+  try {
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object') return {};
+    const kept: Partial<Record<QuestionName, string>> = {};
+    for (const q of QUESTION_DEFAULTS) {
+      if (q.choices.some((c) => c.value === saved[q.name])) kept[q.name] = saved[q.name];
+    }
+    return kept;
+  } catch {
+    return {};
+  }
+}
+
+export function saveAnswerDefaults(answers: Partial<Record<QuestionName, string>> | null): void {
+  if (answers === null || Object.keys(answers).length === 0) safeRemove(ANSWER_DEFAULTS_KEY);
+  else safeSet(ANSWER_DEFAULTS_KEY, JSON.stringify(answers));
+}
+
+/** this browser's question timeout in minutes, or null for the helper's */
+export function savedQuestionTimeout(): number | null {
+  const raw = safeGet(QUESTION_TIMEOUT_KEY);
+  if (raw === null || raw === '') return null;
+  const minutes = Number(raw);
+  return Number.isInteger(minutes) && minutes >= 0 ? minutes : null;
+}
+
+export function saveQuestionTimeout(minutes: number | null): void {
+  if (minutes === null) safeRemove(QUESTION_TIMEOUT_KEY);
+  else safeSet(QUESTION_TIMEOUT_KEY, String(minutes));
 }

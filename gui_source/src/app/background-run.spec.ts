@@ -14,6 +14,7 @@ import {
   ServerConfig,
   StartRequest,
 } from './jobs';
+import { ANSWER_DEFAULTS_KEY, QUESTION_TIMEOUT_KEY } from './preferences';
 
 const CONFIG: ServerConfig = {
   username: 'Someone',
@@ -315,6 +316,27 @@ describe('Running in the background', () => {
       fichub: { choice: 'no' },
       'fichub-outdated': { choice: 'yes' },
     });
+  });
+
+  it('starts from this browser\'s default answers before the helper\'s, and sends them with the run', async () => {
+    jobs.answerDefaults = { fichub: 'no', duplicates: 'newest' };
+    localStorage.setItem(ANSWER_DEFAULTS_KEY, JSON.stringify({ fichub: 'yes', undated: 'refresh' }));
+    localStorage.setItem(QUESTION_TIMEOUT_KEY, '5');
+    inDropbox();
+    await open('quick');
+    await toCredentials();
+    await tickBackground();
+    await startIt();
+
+    expect(jobs.started[0].answers).toEqual({
+      'quick-floor': { choice: 'full' },
+      undated: { choice: 'refresh' },
+      duplicates: { choice: 'newest' },
+      fichub: { choice: 'yes' },
+      'fichub-outdated': { choice: 'yes' },
+    });
+    expect(jobs.started[0].answerDefaults).toEqual({ fichub: 'yes', undated: 'refresh' });
+    expect(jobs.started[0].questionTimeoutMinutes).toBe(5);
   });
 
   it('sends the answers given, and the date undated files are to be given', async () => {

@@ -497,6 +497,12 @@ export interface StartRequest {
   answers?: BackgroundAnswers;
   /** a background run's way into the library; sealed with the login when there is a key */
   dropbox?: DropboxHandover | null;
+  /**
+   * What unanswered questions take, and after how many minutes, from this browser's User
+   * settings - sent only by a page whose helper's settings.ini it cannot edit (a hosted copy)
+   */
+  answerDefaults?: Partial<Record<QuestionName, string>>;
+  questionTimeoutMinutes?: number;
 }
 
 /** the questions a run can stop to ask, by the name the helper gives them */
