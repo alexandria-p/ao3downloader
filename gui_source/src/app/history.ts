@@ -129,7 +129,9 @@ export class History {
       case 'success':
         return 'Finished';
       case 'partial':
-        return 'Partly finished - indexing did not finish';
+        return (run.indexFailures?.length ?? 0) > 0
+          ? 'Partly finished - some indexing failed'
+          : 'Partly finished - some fics or formats could not be downloaded';
       case 'stopped':
         return 'Stopped';
       case 'failed':

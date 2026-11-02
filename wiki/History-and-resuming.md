@@ -6,11 +6,11 @@ Every run is written into the **History** tab (`runs/` in your library) the mome
 | --- | --- |
 | **Running** | The helper is working on it now. Pinned at the top. *Not confirmed by the helper* means the helper hasn't answered yet; *on another helper* means another copy of the app started it. |
 | **Paused** | You pressed Pause. |
-| **Finished** | It reached the end. Some works may still have failed - see its issues. |
-| **Partly finished** | It reached the end, but its **indexing broke off** - a page of your bookmarks, a collection or a fic would not load. The card says exactly where: which pages were read, which failed, and how far back in date it got. It never counts as complete for a Quick Scan. |
+| **Finished** | It reached the end and got everything it set out to: every listing page and fic indexed, every format downloaded. Bookmarks that were never works (series, external works, deleted works) don't count against it. |
+| **Partly finished** | It reached the end, but **some indexing failed** - a page of your bookmarks, a collection, or a fic's own page would not load (AO3 down or in maintenance, an error status such as 500, 401, 403 or 404, or a page that was not what was asked for) - or **some fics or formats could not be downloaded**. The entry says exactly what. It never counts as complete for a Quick Scan. |
 | **Stopped** | You pressed Stop. |
 | **Abandoned** | A background run left paused too long. Ends like a stop. |
-| **Failed** | Something ended it early - login refused or lapsed, library unreachable. The reason is on the entry. |
+| **Failed** | Something ended it early - login refused or lapsed, library unreachable - or **every part of its indexing failed and nothing was downloaded**. The reason is on the entry. |
 | **Interrupted** | The helper stopped, crashed or restarted mid-run. Its log goes up to its last save, at most about two minutes before. |
 
 Whatever the status, what the run saved stays saved.
@@ -31,6 +31,16 @@ Before it goes on, the Retry window lists **the original run's dates and setting
 Quick Scan, back to its floor and up to the day it first started; for a date range, the range;
 its file types and the options it had ticked - and asks you to tick that you understand the
 retry uses those, not today's date or settings chosen now.
+
+**Retrying a partly finished run.** It reached the end, so there is nothing to carry on from -
+both carry-on choices are greyed out (except on Download several fics). Instead:
+
+- **If some indexing failed**, a warning says so and *Start its indexing from the top* is chosen
+  for you - a fic that was not indexed cannot be downloaded, so it may have missed some.
+- **If only downloads failed**, *Just the works it could not get* is chosen for you: it takes the
+  fics and formats still missing and gets just those.
+- **Download several fics** is chosen *Just the fics it could not get* either way - it reads each
+  of those fics' pages again, so it is safe after an indexing failure too.
 
 ### The ways to retry
 

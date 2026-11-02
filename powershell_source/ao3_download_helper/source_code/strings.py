@@ -649,6 +649,15 @@ RETRY_NO_INDEX = 'Only a full scan, quick scan, custom run or collection run can
 RETRY_NO_DOWNLOADS = 'It never got as far as settling which works to check and download.'
 RETRY_NO_FAILURES = 'Every work it set out to get arrived - there is nothing that failed to retry.'
 RETRY_FAILED_WRONG_ACTION = 'Only a scan, a collection run or a fic run can retry just the works it could not get.'
+RETRY_PARTIAL_DONE = ('It reached the end, so there is nothing to carry on from - start its '
+                      'indexing or its downloads from the top, or retry just the works it could '
+                      'not get.')
+RETRY_WARN_INDEX_FAILED = ('Some of its indexing failed, so it may have missed fics - and a fic '
+                           'that was not indexed cannot be downloaded. We strongly recommend '
+                           'starting its indexing from the top.')
+RETRY_WARN_DOWNLOADS_FAILED = ('Its indexing finished, but some fics or formats could not be '
+                               'downloaded. We strongly recommend retrying just the works it '
+                               'could not get.')
 RETRY_ALL_DONE = ('It finished both its indexing and its downloads, so there is nothing to carry '
                   'on from - start its indexing or its downloads from the top, or retry just '
                   'the works it could not get.')
@@ -670,6 +679,8 @@ AO3_INFO_INDEX_GAP_DATE = 'the last page read reached works {} on {}.'
 AO3_INFO_INDEX_GAP_WORK = 'indexing stopped for work {}: its page could not be read ({})'
 ERROR_LINKS_LIST = 'Error encountered while getting links list. List may not be complete.'
 ERROR_HTTP_REQUEST = 'Unrecoverable error encountered while making web request'
+ERROR_LISTING_UNREADABLE = 'ao3 answered with a page that is not a listing - nothing on it could be indexed'
+ERROR_ALL_INDEXING_FAILED = 'Every part of its indexing failed, and nothing was downloaded.'
 ERROR_INVALID_STATUS_CODE = 'Request failed with status code {}'
 ERROR_TIMEOUT = 'Request exceeded the timeout limit of {} seconds'
 ERROR_CLOUDFLARE = 'Cloudflare challenge or error page detected'

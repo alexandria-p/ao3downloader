@@ -196,9 +196,10 @@ export interface RunStep {
  */
 /**
  * How a run ended. `abandoned` is a background run the helper ended because it was left
- * paused past `PausedRunTimeoutMinutes` - ended the way a stop ends one. `partial` ended as it
- * should, but some of its indexing broke off (`indexFailures` says where) - never a floor
- * for a quick scan.
+ * paused past `PausedRunTimeoutMinutes` - ended the way a stop ends one. `partial` reached its end
+ * but some indexing failed (`indexFailures` says where) or some fic or format could not be
+ * downloaded - never a floor for a quick scan. `failed` includes a run whose indexing failed
+ * everywhere it tried and got nothing.
  */
 export type RunStatus =
   | 'running'

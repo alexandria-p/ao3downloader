@@ -259,8 +259,13 @@ def test_several_fics_can_also_carry_on_from_where_they_stopped():
 
 
 @pytest.mark.parametrize('record, wanted', [
-    # indexing broke off: carry on with it
-    (a_record(status=runs.STATUS_PARTIAL, indexFailures=[{'kind': 'listing'}]), server.RETRY_INDEX),
+    # it reached the end, but some indexing failed: index everything again
+    (a_record(status=runs.STATUS_PARTIAL, indexFailures=[{'kind': 'listing'}]), server.RETRY_REINDEX),
+    # it reached the end, and only downloads failed: just those
+    (a_record(status=runs.STATUS_PARTIAL,
+              failures=[{'id': '9', 'link': 'https://archiveofourown.org/works/9'}]),
+     server.RETRY_FAILED),
+    # stopped while indexing: carry on with it
     (a_record(progress={'steps': {'index': progress.STEP_FAILED}}), server.RETRY_INDEX),
     # stopped after settling its works: carry on with the downloads
     (a_record(progress={'scope': ['1'], 'steps': {'index': progress.STEP_DONE}}),
@@ -350,7 +355,7 @@ def started(library, record_id: str, mode: str) -> server.Job:
                                     server.ACTION_COLLECTION])
 @pytest.mark.parametrize('mode', [server.RETRY_TOP, server.RETRY_INDEX])
 def test_every_scan_and_collection_run_can_be_retried(library, action, mode):
-    write_run(library, id='s' * 32, action=action, status=runs.STATUS_PARTIAL,
+    write_run(library, id='s' * 32, action=action, status=runs.STATUS_STOPPED,
               url='https://archiveofourown.org/collections/yuletide', progress={'walks': {}})
 
     job = started(library, 's' * 32, mode)
@@ -378,7 +383,7 @@ def test_a_fic_run_from_before_runs_kept_their_links_cannot_be_retried(library):
 
 def test_a_retry_is_a_new_run_of_its_own_linked_both_ways_to_the_one_it_retries(library):
     earlier = write_run(library, id='a' * 32, action=server.ACTION_QUICK,
-                        status=runs.STATUS_PARTIAL, baseline='2025-03-01T10:00:00',
+                        status=runs.STATUS_STOPPED, baseline='2025-03-01T10:00:00',
                         progress={'floor': '2025-02-01'})
     job = started(library, 'a' * 32, server.RETRY_INDEX)
     job.record = runs.RunRecord(library, job.id, job.action, 'Quick Scan', job.filetypes,

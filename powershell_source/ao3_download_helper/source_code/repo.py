@@ -57,6 +57,8 @@ class Repository:
     # how long apart. maintenance is usually minutes or hours, not seconds, so the full
     # MaxRetries would only spend a quarter of an hour per request learning nothing new
     maintenance_retries = 2
+    # the status of the last page `get_soup` fetched
+    last_status: int | None = None
     maintenance_delay = 30
 
 
@@ -275,8 +277,11 @@ class Repository:
     def get_soup(self, url: str) -> BeautifulSoup:
         """Get BeautifulSoup object from a url."""
 
-        html = self.my_request('GET', url).text
-        soup = BeautifulSoup(html, 'html.parser')
+        response = self.my_request('GET', url)
+        # kept for whoever asked, so a page ao3 answered with 401, 403 or 404 - served like
+        # any other - can be told from the page that was wanted (`Ao3.fetch_page`)
+        self.last_status = response.status_code
+        soup = BeautifulSoup(response.text, 'html.parser')
         return soup
 
 

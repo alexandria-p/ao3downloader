@@ -400,7 +400,10 @@ class Ao3:
                 progress.report(self.progress, progress.PAGE, page=asking, total=asking_of,
                                 listingPage=current, listingTotal=shown_total, fetching=True)
                 self.fileops.write_log({'link': link, 'message': strings.INFO_STARTING_PAGE, 'level': 'debug'})
-                thesoup = self.repo.get_soup(link)
+                thesoup = self.fetch_page(link)
+                if not parse_soup.get_blurbs(thesoup) and not parse_soup.looks_like_listing(thesoup):
+                    # not a listing at all: an end to the walk taken from it would be a guess
+                    raise exceptions.Ao3DownloaderException(strings.ERROR_LISTING_UNREADABLE)
                 if total_pages is None:
                     total_pages = parse_soup.get_total_pages(thesoup)
                 page_records = []
@@ -646,7 +649,7 @@ class Ao3:
         read of the library (in Dropbox, a download) on its way to FicHub.
         """
 
-        soup = self.proceed(self.repo.get_soup(link))
+        soup = self.fetch_page(link, work=True)
         stats = parse_soup.get_work_stats(soup)
         if 'error' in stats:
             raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
@@ -686,14 +689,41 @@ class Ao3:
         caller turns into a recorded failure - the entry it already had stays as it was.
         """
 
-        soup = self.proceed(self.repo.get_soup(record.get('link') or ''))
-        stats = parse_soup.get_work_stats(soup)
-        if 'error' in stats:
-            raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
+        try:
+            soup = self.fetch_page(record.get('link') or '', work=True)
+            stats = parse_soup.get_work_stats(soup)
+            if 'error' in stats:
+                raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
+        except (exceptions.CancelledException, exceptions.SessionExpiredException,
+                exceptions.PausedException):
+            raise
+        except Exception as e:
+            # a fic that could not be re-read is a gap in this run's index, not only a file
+            # it could not get: the run is only partly done, and says which
+            self.index_failures.append({'kind': 'work', 'id': str(record.get('id') or ''),
+                                        'link': record.get('link') or '', 'error': str(e)})
+            raise
 
         fresh = {**record, **stats, **page_bookmark_state(soup, record)}
         self.save_metadata(fresh)
         return fresh
+
+    def fetch_page(self, url: str, work: bool = False):
+        """An ao3 page read for indexing, refused unless it is the page that was asked for.
+
+        Ao3 serves 401, 403 and 404 as pages like any other, and read as a listing one has no
+        bookmarks - which used to end a walk as though it had reached the end. Any status
+        outside 2xx is a failure here, with the status in its reason. A work's page goes
+        through `proceed` first, so a deleted or locked work still says so in its own words.
+        """
+
+        soup = self.repo.get_soup(url)
+        if work: soup = self.proceed(soup)
+        status = getattr(self.repo, 'last_status', None)
+        if isinstance(status, int) and not 200 <= status < 300:
+            raise exceptions.InvalidStatusCodeException(
+                strings.ERROR_INVALID_STATUS_CODE.format(status))
+        return soup
 
 
     def download_indexed(self, records: list[dict], visited: list[str] | None = None,
@@ -922,7 +952,7 @@ class Ao3:
         total_pages = None
         while True:
             self.check_cancelled()
-            soup = self.repo.get_soup(link)
+            soup = self.fetch_page(link)
             yield soup
             if total_pages is None:
                 total_pages = parse_soup.get_total_pages(soup)
@@ -1549,7 +1579,7 @@ class Ao3:
             total = None
             while True:
                 self.check_cancelled()
-                soup = self.repo.get_soup(page)
+                soup = self.fetch_page(page)
                 if header is None: header = parse_soup.get_series_page_metadata(soup, series_id)
                 if total is None: total = parse_soup.get_total_pages(soup)
                 for blurb in parse_soup.get_blurbs(soup):
@@ -1815,7 +1845,7 @@ class Ao3:
             total = None
             while True:
                 self.check_cancelled()
-                soup = self.repo.get_soup(page)
+                soup = self.fetch_page(page)
                 if header is None: header = parse_soup.get_series_page_metadata(soup, series_id)
                 if total is None: total = parse_soup.get_total_pages(soup)
                 readings = []

@@ -1247,6 +1247,10 @@ def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
     if action == ACTION_COLLECTION and not record.get('url'): return strings.RESUME_NO_LINK
     if action in FIC_ACTIONS and not record.get('url'): return strings.RETRY_NO_FIC_LINKS
     if mode == RETRY_TOP: return ''
+    if mode in (RETRY_INDEX, RETRY_DOWNLOADS) and action != ACTION_WORKS and \
+            record.get('status') == runs.STATUS_PARTIAL:
+        # it reached the end: there is nothing to carry on from, only what it missed
+        return strings.RETRY_PARTIAL_DONE
     if mode in (RETRY_INDEX, RETRY_DOWNLOADS) and finished_both(record):
         return strings.RETRY_ALL_DONE
     if action == ACTION_WORKS and mode == RETRY_DOWNLOADS:
@@ -1277,6 +1281,13 @@ def retry_default(record: dict, available: set[str]) -> str:
     retries just those; anything else starts again from the top.
     """
 
+    if record.get('status') == runs.STATUS_PARTIAL:
+        # some of its indexing failed: everything is indexed again (a fic run re-reads its
+        # failed fics anyway); only downloads failed: just those
+        if record.get('indexFailures') and record.get('action') not in FIC_ACTIONS and \
+                RETRY_REINDEX in available:
+            return RETRY_REINDEX
+        if RETRY_FAILED in available: return RETRY_FAILED
     steps = ((record.get('progress') or {}).get('steps') or {}) if isinstance(
         record.get('progress'), dict) else {}
     index_steps = ('index', 'bookmarked', 'collections', 'collection')
@@ -1322,6 +1333,11 @@ def retryable_among(records: list[dict], active: set[str]) -> list[dict]:
                 any(isinstance(x, dict) and x.get('status') == runs.STATUS_SUCCESS
                     and covered_the_whole_listing(x) for x in records[:index]):
             warnings.append(strings.RESUME_NEWER_SCAN)
+        if record.get('status') == runs.STATUS_PARTIAL:
+            if record.get('indexFailures') and record.get('action') not in FIC_ACTIONS:
+                warnings.append(strings.RETRY_WARN_INDEX_FAILED)
+            elif record.get('failures'):
+                warnings.append(strings.RETRY_WARN_DOWNLOADS_FAILED)
         found.append({**record, 'retry': retry_choices(record, active), 'warnings': warnings})
     return found
 
@@ -1705,6 +1721,30 @@ def force_stop(job: Job) -> dict | None:
     return written
 
 
+def outcome_of(ao3, error: str = '') -> tuple[str, str]:
+    """How a run that reached its end went, from what it could and could not get.
+
+    - **failed**: its indexing failed everywhere it tried - nothing indexed - and nothing was
+      downloaded (or nothing needed to be)
+    - **partial**: some indexing failed (a listing page, a collection, a fic's own page), or
+      a fic or a format could not be downloaded - and something still came of it
+    - **success**: everything it set out to index and get, it did. Bookmarks that were never
+      works (series, external, deleted) were never there to get, so they do not count
+
+    Neither partial nor failed is ever a floor a quick scan measures back to. A failure
+    FicHub made good in the end is not one.
+    """
+
+    gaps = index_gaps(ao3)
+    failures = list(getattr(ao3, 'failures', None) or [])
+    reindexed = getattr(ao3, 'reindexed', None) or set()
+    downloaded = getattr(ao3, 'downloaded', None) or set()
+    if gaps and not reindexed and not downloaded:
+        return runs.STATUS_FAILED, error or strings.ERROR_ALL_INDEXING_FAILED
+    if gaps or failures: return runs.STATUS_PARTIAL, error
+    return runs.STATUS_SUCCESS, error
+
+
 def close_record(job: Job, status: str, error: str = '') -> None:
     """Finish this run's history file, whatever happened to the run.
 
@@ -1715,9 +1755,7 @@ def close_record(job: Job, status: str, error: str = '') -> None:
 
     if not job.record: return
     try:
-        # a run that ended as it should, but whose indexing broke off somewhere, is only
-        # partly done - and so never a floor a quick scan measures back to
-        if status == runs.STATUS_SUCCESS and index_gaps(job.ao3): status = runs.STATUS_PARTIAL
+        if status == runs.STATUS_SUCCESS: status, error = outcome_of(job.ao3, error)
         job.record.collect(job.ao3)
         job.record.finish(status, error)
     except Exception:

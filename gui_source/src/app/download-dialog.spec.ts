@@ -3355,6 +3355,17 @@ describe('DownloadDialog', () => {
       expect(button('Continue')!.disabled).toBe(false);
     });
 
+  it('shows the chosen run\'s warnings in a panel of their own', async () => {
+    jobs.retryableOnRecord = [ended({
+      warnings: ['Some of its indexing failed, so it may have missed fics.'],
+    })];
+    await toRetryPage();
+    await pick();
+
+    expect(element.querySelector('.retry-warning')?.textContent)
+      .toContain('Some of its indexing failed');
+  });
+
   it('names a date range as the dates a retry keeps', async () => {
     jobs.retryableOnRecord = [ended({
       action: 'custom', actionName: 'Custom run',

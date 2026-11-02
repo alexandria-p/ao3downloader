@@ -637,6 +637,18 @@ def full_url(href: str) -> str:
     return strings.AO3_BASE_URL + href
 
 
+def looks_like_listing(soup: BeautifulSoup) -> bool:
+    """Whether a page is an ao3 listing at all - one with an index list, or a heading that
+    says what it lists (an empty listing still has its '0 Bookmarks by ...'). A page that is
+    neither - a login page, an error page ao3 served as 200 - has no blurbs either, and must
+    not be taken for the end of the listing."""
+
+    if soup.select_one('ol.index'): return True
+    return any(word in heading.get_text(' ', strip=True)
+               for heading in soup.select('h2.heading')
+               for word in ('Bookmark', 'Work', 'Collection', 'Series'))
+
+
 def get_blurbs(soup: BeautifulSoup) -> list[Tag]:
     """Get every work/bookmark blurb element from an ao3 listing page."""
 

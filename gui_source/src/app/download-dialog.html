@@ -693,6 +693,13 @@
           </fieldset>
 
           @if (chosenResume(); as run) {
+            @if (run.warnings.length) {
+              <div class="retry-warning" role="note">
+                @for (warning of run.warnings; track $index) {
+                  <p>{{ warning }}</p>
+                }
+              </div>
+            }
             @if (stepsOf(run).length) {
               <div class="retry-steps">
                 <p><strong>How it went</strong></p>

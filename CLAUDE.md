@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1957 python passed; 792 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1975 python passed; 793 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1101,8 +1101,23 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
 - **Every run saves how each step went** (`Steps.on_change` -> progress `steps`) **and its plan**
   (`stepPlan`, written with the record), which the Retry step lists, naming the last step that
   finished.
-- **Indexing that breaks off makes a run `partial`** (`runs.STATUS_PARTIAL`, set in
-  `close_record` from `ao3.index_gaps`): `get_metadata` records the listing, pages read, failed
+- **How a run that reached its end is judged** (`outcome_of`, from `close_record`): `failed`
+  when it indexed nothing where it tried and downloaded nothing (`ERROR_ALL_INDEXING_FAILED`);
+  `partial` when any index gap still stands **or** any failure does (FicHub's rescues aside);
+  else `success` - skipped bookmarks never count. A partial run is never a floor, so a scan
+  whose only problem was a download is not one either (the user's choice). Retrying one: the
+  carry-on ways are refused (`RETRY_PARTIAL_DONE`, Download several fics excepted); with index
+  failures the default is `reindex` and `RETRY_WARN_INDEX_FAILED` is shown (not for fic
+  runs, whose `failed` re-reads each fic); with only download failures the default is `failed`
+  and `RETRY_WARN_DOWNLOADS_FAILED`. The Retry step shows a run's warnings in `.retry-warning`.
+- **Indexing failures are caught, not taken for the end of a listing.** Every page read for
+  indexing goes through `Ao3.fetch_page`, which raises on any status outside 2xx
+  (`Repository.last_status`, set by `get_soup`) - ao3 serves 401/403/404 as pages, and one read
+  as a listing had no bookmarks and ended the walk as though complete. A listing page with no
+  blurbs that is not a listing at all (`parse_soup.looks_like_listing`: an `ol.index`, or a
+  heading naming what it lists) raises `ERROR_LISTING_UNREADABLE`. `refresh_one` records a fic
+  it cannot re-read as a `work` gap before re-raising.
+- **Indexing that breaks off is recorded** (`ao3.index_gaps`): `get_metadata` records the listing, pages read, failed
   page, works, and the dates on the last page read (`index_failures`, `describe_listing_gap`);
   a collection listing and a fic page do the same. `finish_walk_step` marks the step failed
   (`Steps.fail`). `partial` is not `success`, so it is never a floor. A fic FicHub supplied in
