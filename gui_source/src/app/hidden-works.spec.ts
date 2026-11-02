@@ -198,7 +198,7 @@ describe('the listing, with works from elsewhere and works hidden', () => {
     const select = element.querySelector<HTMLSelectElement>('select[name="originFilter"]')!;
     expect(Array.from(select.options).map((o) => o.textContent?.trim())).toEqual([
       'Anywhere', 'Your AO3 bookmarks', 'An AO3 collection',
-      'Imported from external source (coming soon)', 'Downloaded by ID or URL', 'Unknown',
+      'Imported (upcoming)', 'Downloaded by ID or URL', 'Unknown',
     ]);
     // an upcoming feature: there, but not yet choosable
     expect(Array.from(select.options).find((o) => o.value === 'external')?.disabled).toBe(true);

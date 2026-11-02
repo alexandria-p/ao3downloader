@@ -92,7 +92,7 @@ export type Origin = 'bookmarks' | 'collection' | 'external' | 'link' | 'other';
 export const ORIGINS: { origin: Origin; label: string; upcoming?: boolean }[] = [
   { origin: 'bookmarks', label: 'Your AO3 bookmarks' },
   { origin: 'collection', label: 'An AO3 collection' },
-  { origin: 'external', label: 'Imported from external source (coming soon)', upcoming: true },
+  { origin: 'external', label: 'Imported (upcoming)', upcoming: true },
   { origin: 'link', label: 'Downloaded by ID or URL' },
   { origin: 'other', label: 'Unknown' },
 ];
