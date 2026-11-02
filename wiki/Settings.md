@@ -25,7 +25,8 @@ Prompts and formats are kept by **this browser** - another browser, a private wi
 another device has its own, and clearing the site's data resets them. settings.ini is a file
 on your computer, the same in every browser.
 
-**Reset to defaults**, at the top, asks first, then sets every prompt to **Ask always**, the
+**Reset to defaults**, at the top, first lists every value it would change - what it is
+now, and the default it goes back to - then sets every prompt to **Ask always**, the
 formats to the app's own, and every settings.ini value to the one your copy came with - for
 the Windows, Mac and Linux apps, the values the release was built with. Each setting shows
 its default beside it.

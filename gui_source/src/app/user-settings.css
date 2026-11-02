@@ -43,24 +43,102 @@ h4 {
   font-size: 0.88rem;
 }
 
-.confirm-reset {
-  margin: 0 0 14px;
-  padding: 12px 16px;
-  border: 1px solid #9a7a3d;
+/* the Reset window: the same modal shell as the others, under the feedback tab (1000) */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(680px, 100%);
+  max-height: min(80vh, 720px);
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
-  background: #3a3222;
-  font-size: 0.9rem;
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 
-.confirm-reset p,
-.confirm-reset ul {
-  margin: 0 0 8px;
-}
-
-.confirm-actions {
+.dialog header,
+.dialog footer {
   display: flex;
   gap: 8px;
+  align-items: center;
+  padding: 12px 16px;
+}
+
+.dialog header {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog header h2 {
+  margin: 0;
+}
+
+.dialog footer {
   justify-content: flex-end;
+  border-top: 1px solid var(--border);
+}
+
+.dialog .body {
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.icon {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
+.changes {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.changes th,
+.changes td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.changes thead th {
+  border-top: none;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.changes tbody th {
+  font-weight: 400;
+}
+
+.change-group {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.changes .current {
+  color: var(--text-dim);
 }
 
 .default {

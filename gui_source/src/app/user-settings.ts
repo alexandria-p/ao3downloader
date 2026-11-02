@@ -1,4 +1,4 @@
-import { Component, OnDestroy, inject, signal } from '@angular/core';
+import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { HelperConnection } from './helper-connection';
 import { Jobs, ServerConfig } from './jobs';
 import {
@@ -30,6 +30,14 @@ interface IniFile {
   settings: IniSetting[];
 }
 
+/** one value Reset to defaults would change, as its window lists it */
+export interface ResetChange {
+  group: 'Prompts' | 'Download formats' | 'settings.ini';
+  name: string;
+  current: string;
+  default: string;
+}
+
 export interface Toast {
   text: string;
   kind: 'saved' | 'problem';
@@ -58,6 +66,7 @@ export const PROBLEM_TOAST_MS = 6000;
   selector: 'app-user-settings',
   templateUrl: './user-settings.html',
   styleUrl: './user-settings.css',
+  host: { '(document:keydown.escape)': 'escape()' },
 })
 export class UserSettings implements OnDestroy {
   private readonly jobs = inject(Jobs);
@@ -79,8 +88,39 @@ export class UserSettings implements OnDestroy {
   protected readonly local = this.helper.isLocal();
   protected readonly ini = signal<IniFile | null>(null);
 
-  /** the Reset to defaults question is open */
+  /** the Reset to defaults window is open */
   protected readonly confirmingReset = signal(false);
+
+  /**
+   * Every value Reset would change - only those that differ from their default, so the
+   * window shows exactly what pressing it does. Worked out from what is on screen, which
+   * is what has been saved: every change here is saved as it is made.
+   */
+  protected readonly resetChanges = computed<ResetChange[]>(() => {
+    const changes: ResetChange[] = [];
+    const askingNow = this.asking();
+    for (const prompt of PROMPTS) {
+      if (askingNow[prompt.key] === 'skip') {
+        changes.push({ group: 'Prompts', name: prompt.name, current: 'Do not ask again', default: 'Ask always' });
+      }
+    }
+    const config = this.config();
+    if (config) {
+      const order = (list: string[]) => config.filetypes.filter((x) => list.includes(x)).join(', ');
+      const now = order(this.formats());
+      const fresh = order([...config.forced, ...(config.defaults ?? [])]);
+      if (now !== fresh) changes.push({ group: 'Download formats', name: 'Formats a run starts with', current: now, default: fresh });
+    }
+    const file = this.ini();
+    if (file?.editable) {
+      for (const setting of file.settings) {
+        if (setting.value !== setting.default) {
+          changes.push({ group: 'settings.ini', name: setting.key, current: setting.value || '(empty)', default: setting.default || '(empty)' });
+        }
+      }
+    }
+    return changes;
+  });
 
   readonly toast = signal<Toast | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -91,6 +131,18 @@ export class UserSettings implements OnDestroy {
 
   ngOnDestroy(): void {
     clearTimeout(this.toastTimer);
+  }
+
+  /** a toast left from the last change would sit over the window's list, so it goes */
+  protected openReset(): void {
+    clearTimeout(this.toastTimer);
+    this.toast.set(null);
+    this.confirmingReset.set(true);
+  }
+
+  /** Escape shuts the Reset window without changing anything */
+  protected escape(): void {
+    this.confirmingReset.set(false);
   }
 
   private async load(): Promise<void> {

@@ -301,13 +301,11 @@ describe('UserSettings', () => {
   // endregion
   // region where it is kept, and putting it all back
 
-  it('says up front that most of this is kept by this browser, and that settings.ini is not', async () => {
+  it('says up front, in one sentence, that prompts and formats are kept by this browser', async () => {
     await open();
 
-    const note = element.querySelector('.browser-note')?.textContent ?? '';
-    expect(note).toContain('saved in this browser');
-    expect(note).toContain('different browser');
-    expect(note).toContain('settings.ini is different');
+    const note = (element.querySelector('.browser-note')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(note).toBe('Prompts and download formats are saved in this browser only, so a different browser or device keeps its own.');
   });
 
   it('shows each setting\'s default beside it', async () => {
@@ -322,7 +320,7 @@ describe('UserSettings', () => {
 
     element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
     await settle();
-    expect(element.querySelector('.confirm-reset')?.textContent).toContain('Ask always');
+    expect(element.querySelector('.modal [role=dialog]')).not.toBeNull();
     Array.from(element.querySelectorAll<HTMLButtonElement>('.confirm-reset button'))
       .find((b) => b.textContent?.trim() === 'Cancel')!.click();
     await settle();
@@ -341,6 +339,16 @@ describe('UserSettings', () => {
 
     element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
     await settle();
+    // every value that will change, current then default
+    const rows = Array.from(element.querySelectorAll('.changes tbody tr')).map((r) =>
+      Array.from(r.children).map((c) => c.textContent?.replace(/\s+/g, ' ').trim()),
+    );
+    expect(rows).toEqual([
+      ...PROMPTS.map((p) => [`Prompts ${p.name}`, 'Do not ask again', '→ Ask always']),
+      ['Download formats Formats a run starts with', 'JSON, PDF', '→ JSON, HTML'],
+      ['settings.ini ExtraWaitTime', '15', '→ 40'],
+    ]);
+    expect(element.querySelector('.changes tbody tr:last-child .default-value strong')?.textContent).toBe('40');
     element.querySelector<HTMLButtonElement>('.confirm-reset button.confirm')!.click();
     await settle();
 
@@ -364,11 +372,36 @@ describe('UserSettings', () => {
     element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
     await settle();
     expect(element.querySelector('.confirm-reset')?.textContent).not.toContain('settings.ini');
+    expect(element.querySelectorAll('.changes tbody tr')).toHaveLength(1);
     element.querySelector<HTMLButtonElement>('.confirm-reset button.confirm')!.click();
     await settle();
 
     expect(localStorage.getItem(SYNC_ACK_KEY)).toBeNull();
     expect(posted).toEqual([]);
+  });
+
+  it('says when everything is already at its default, and offers nothing to press', async () => {
+    iniAnswer = { editable: true, file: 'settings.ini', settings: INI.map((x) => ({ ...x, value: x.default })) };
+    await open();
+
+    element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
+    await settle();
+
+    expect(element.querySelector('.confirm-reset .nothing')?.textContent).toContain('already at its default');
+    expect(element.querySelector<HTMLButtonElement>('.confirm-reset button.confirm')!.disabled).toBe(true);
+  });
+
+  it('shuts the Reset window on Escape, changing nothing', async () => {
+    localStorage.setItem(SYNC_ACK_KEY, 'true');
+    await open();
+    element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
+    await settle();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+
+    expect(element.querySelector('.confirm-reset')).toBeNull();
+    expect(localStorage.getItem(SYNC_ACK_KEY)).toBe('true');
   });
 
   // endregion
