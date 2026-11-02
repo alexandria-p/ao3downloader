@@ -169,6 +169,44 @@ attempt. It stops at the same floor as before.
 **A walk the earlier attempt finished is not walked again** - its works are taken from the
 index, and the checklist marks it *done in the earlier run*.
 
+### Before carrying on, a retry checks what it is carrying on from
+
+A retry that takes on the earlier attempt's progress first checks that progress still holds:
+
+- **Indexed works.** Every work the earlier attempt's progress names (its walks, its series
+  walk, its non-bookmarks and date-range fics, the works it settled on, the works it saved
+  formats of) must still have an index file. One whose file is gone - deleted by hand, a
+  library restored from a backup - is indexed again from its own page, one request each; one
+  that will not index is a failure, offered to FicHub at the end.
+- **Downloads.** Every format it saved whole must still be in the folder, **dated as the
+  index says**: the date in the file's name the same as its index entry's `date_updated`. A
+  file that is missing, undated or dated otherwise is not done after all, and is fetched
+  again.
+- **Which run last wrote an entry.** Every index entry now names the run that last wrote it
+  (`last_indexed_by`, beside `last_indexed`, never part of a reading). When it is not this
+  retry or an attempt it carries on from, the entry has been rewritten since by another run -
+  the files are still judged against it, since it is the newest the index knows, and the
+  retry says so.
+
+A retry from the top carries nothing, so it checks nothing. Each line of the check is in the
+run's log.
+
+### Every retry choice, on every scan
+
+`test/test_retry_matrix.py` runs the full scan, the quick scan (with and without a date
+range) and the custom run (all your bookmarks, and a date range) through every way of
+retrying - each place indexing can stop, downloads from the top, carrying on with downloads
+(a fic partway through its formats included), and just the works it could not get - with
+overwriting on for the runs that offer it. What it checks is the requests: which listing
+pages, and which files.
+
+- **Overwriting** carries through a retry, as every option does. *Start its downloads from
+  the top* then fetches every format again; *carry on* still passes over what the earlier
+  attempt saved, since it already overwrote those.
+- **Downloads from the top** behaves as a fresh run's downloads do: the scans fetch a fic in
+  every format when it is missing any (their download step goes fic by fic); the custom run's
+  date range goes format by format, so it keeps a current copy even in a fic missing others.
+
 ### The quick scan, specifically
 
 - The floor is **the earlier attempt's floor**, not one worked out afresh: runs have finished

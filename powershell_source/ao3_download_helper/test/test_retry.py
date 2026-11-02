@@ -459,6 +459,14 @@ def downloader(library: FileOps) -> tuple[Ao3, list[tuple[str, str]]]:
                images=False), fetched
 
 
+def already_saved(library: FileOps, work: int, formats: list[str]) -> None:
+    """What an earlier attempt left: the work's index entry, and these formats on disk."""
+    ao3, _ = downloader(library)
+    ao3.save_metadata(a_fic(work))
+    ao3.filetypes = list(formats)
+    ao3.download_one_indexed(a_fic(work), 50, {}, 1, 1)
+
+
 def test_carrying_on_fetches_only_the_formats_and_fics_the_earlier_attempt_had_not_saved(library):
     # 8 fics: the first 5 had every format saved, the 6th only its html, the last 2 nothing
     ao3, fetched = downloader(library)
@@ -501,6 +509,7 @@ def test_only_the_ways_that_carry_on_pass_over_what_the_earlier_attempt_saved(li
     write_run(library, id='d' * 32, action=server.ACTION_BOOKMARKS, status=runs.STATUS_STOPPED,
               progress={'scope': ['6'], 'formatsDone': {'6': ['HTML']}},
               failures=[{'id': '6', 'link': 'https://archiveofourown.org/works/6'}])
+    already_saved(library, 6, ['HTML'])
     job = started(library, 'd' * 32, mode)
     ao3, fetched = downloader(library)
 
@@ -517,6 +526,7 @@ def test_carrying_on_passes_over_what_was_saved_even_on_a_run_that_overwrites(li
     write_run(library, id='o' * 32, action=server.ACTION_BOOKMARKS, status=runs.STATUS_STOPPED,
               options={'overwrite': True},
               progress={'scope': ['6'], 'formatsDone': {'6': ['HTML', 'EPUB', 'PDF', 'MOBI']}})
+    already_saved(library, 6, FORMATS)
     job = started(library, 'o' * 32, server.RETRY_DOWNLOADS)
     ao3, fetched = downloader(library)
     job.ao3 = ao3

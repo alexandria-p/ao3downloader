@@ -727,6 +727,20 @@ AO3_INFO_RESUME_COLLECTION_SHORT = ('collection {}: found {} works of the {} it 
                                     'the front since, so reading pages 1 to {} again')
 AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: the earlier attempt '
                               'did not save a date to carry on from')
+# a retry checking what its earlier attempt says it did, before carrying on from it
+AO3_INFO_RETRY_CHECK_INDEX = 'checking the {} works the earlier attempt indexed still have their index files'
+AO3_INFO_RETRY_INDEX_OK = 'every one of them does'
+AO3_INFO_RETRY_INDEX_MISSING = '{} have no index file any more, so they are indexed again from their own pages: {}'
+AO3_INFO_RETRY_REINDEXING = 'indexing work {} again'
+AO3_INFO_RETRY_CHECK_DOWNLOADS = 'checking the files the earlier attempt saved for {} works are still there, dated as the index says'
+AO3_INFO_RETRY_DOWNLOADS_OK = 'every one of them is'
+AO3_INFO_RETRY_DOWNLOADS_DROPPED = '{} files will be fetched again'
+AO3_INFO_RETRY_FETCH_AGAIN = 'work {} {}: fetching again - {}'
+AO3_INFO_RETRY_NO_ENTRY = 'it has no index entry to compare it with'
+AO3_INFO_RETRY_FILE_MISSING = 'the file is not in the folder'
+AO3_INFO_RETRY_FILE_DATE = 'the file is dated {}, the index {}'
+AO3_INFO_RETRY_NO_DATE = 'no date'
+AO3_INFO_RETRY_INDEX_REWRITTEN = 'work {}: its index entry was rewritten since by another run ({}) - its files are checked against that'
 AO3_INFO_RESUME_FROM_CEILING = 'nothing after {} is wanted from this listing, so the walk starts there'
 AO3_INFO_RESUME_LOOKING = 'looking for where the earlier attempt stopped (fics dated {1}): page {0}'
 AO3_INFO_RESUME_FOUND = 'the first fic dated {1} or earlier is now on page {0} - carrying on from there'

@@ -26,6 +26,8 @@ The Retry window shows how each step went and the last one that finished, and of
 - **Carry on from where its indexing stopped** - walks that finished are taken from your index; one that broke off carries on from the date it had got down to - found again however far the pages have moved since; then everything is checked and downloaded.
 - **Start its downloads from the top** - every work it had settled on, checked and downloaded again (every format, on a run that overwrites).
 - **Carry on from where its downloads stopped** - only what it hadn't saved yet: nothing for a fic it finished, the missing formats of one it was partway through, every format of one it never reached.
+
+Before carrying on, a retry checks the earlier attempt's work is still there: every fic it indexed still has its index file (one that does not is indexed again), and every file it saved is still in the folder with the date the index has (one that is missing or dated differently is fetched again).
 - **Just the works it could not get** - only its failures, and only their missing formats. For a fic run, just those fics.
 
 The one that picks up from the first step that did not finish is chosen for you. Also under **Custom run > Retry an earlier run**.

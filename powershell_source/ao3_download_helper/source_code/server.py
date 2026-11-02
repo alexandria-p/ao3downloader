@@ -540,10 +540,18 @@ class Job:
         saved whole, so they are not fetched again."""
 
         self._ao3 = value
+        # a test may stand a mock in for the class itself
+        real = isinstance(Ao3, type) and isinstance(value, Ao3)
+        if real: value.run_id = self.id
         done = self.earlier_progress().get('formatsDone') if getattr(self, 'resume', None) else None
         if value is not None and isinstance(done, dict):
             value.formats_done = {str(work): {str(x).upper() for x in formats or []}
                                   for work, formats in done.items()}
+        if real and getattr(self, 'resume', None) and \
+                not getattr(self, 'carried_checked', False):
+            # once, before the run leans on anything its earlier attempt says it did
+            self.carried_checked = True
+            check_carried(self, value)
 
     def earlier_progress(self) -> dict:
         """How far the run this one resumes had got; empty when it resumes nothing."""
@@ -1289,6 +1297,109 @@ def retryable_among(records: list[dict], active: set[str]) -> list[dict]:
             warnings.append(strings.RESUME_NEWER_SCAN)
         found.append({**record, 'retry': retry_choices(record, active), 'warnings': warnings})
     return found
+
+
+def carried_works(earlier: dict) -> set[str]:
+    """Every work an earlier attempt's progress says it indexed or settled."""
+
+    found: set[str] = set()
+
+    def take(values) -> None:
+        for value in values or []:
+            if isinstance(value, (str, int)) and str(value): found.add(str(value))
+
+    take(earlier.get('scope'))
+    for walk in (earlier.get('walks') or {}).values():
+        if isinstance(walk, dict): take(walk.get('works'))
+    for key in ('seriesWorks', 'nonBookmarksDone', 'updateDone'):
+        take(earlier.get(key))
+    take((earlier.get('formatsDone') or {}).keys())
+    return found
+
+
+def check_carried(job: Job, ao3: Ao3) -> None:
+    """Before a retry carries on, check what its earlier attempt says it did is still so.
+
+    **Indexed:** every work the earlier attempt's progress names must have its index file. A
+    work whose file is gone (deleted by hand, a library restored from a backup) is indexed
+    again from its own page - one request each - so everything after has an entry to work
+    from; one that will not index is a failure, offered to FicHub at the end.
+
+    **Downloaded:** every format it saved whole (`formatsDone`) must still be in the folder,
+    with the date in its name the same as its index entry's `date_updated`. A file that is
+    missing, undated, or dated otherwise is not done after all, and is fetched again. The
+    entry's `last_indexed_by` says which run last wrote it: when that is not this run or an
+    attempt it carries on from, the entry has been rewritten since - the file is still judged
+    against it, since it is the newest the index knows, and the run says so.
+
+    Only what the retry carries on from is checked: a retry from the top carries nothing.
+    """
+
+    earlier = job.earlier_progress()
+    fileops = ao3.fileops
+    chain = {str(x) for x in [job.resume.get('id'), job.resume.get('first'),
+                               *(earlier.get('chain') or [])] if x}
+    job.checkpoint(chain=sorted(chain | {job.id}))
+
+    works = carried_works(earlier)
+    if works:
+        print(strings.AO3_INFO_RETRY_CHECK_INDEX.format(len(works)))
+        entries = ao3.list_entries(strings.INDEXING_FOLDER_NAME)
+        missing = sorted((w for w in works if w not in entries), key=lambda x: (len(x), x))
+        if not missing:
+            print(strings.AO3_INFO_RETRY_INDEX_OK)
+        else:
+            print(strings.AO3_INFO_RETRY_INDEX_MISSING.format(len(missing), ', '.join(missing)))
+            for work in missing:
+                link = f'{strings.AO3_BASE_URL}/works/{work}'
+                print(strings.AO3_INFO_RETRY_REINDEXING.format(work))
+                try:
+                    ao3.index_one_work(link)
+                except (exceptions.CancelledException, exceptions.SessionExpiredException):
+                    raise
+                except Exception as e:
+                    ao3.record_failure(link, e)
+                    # nothing to judge its files against now
+                    ao3.formats_done.pop(work, None)
+
+    done = getattr(ao3, 'formats_done', None)
+    if not isinstance(done, dict) or not done: return
+    print(strings.AO3_INFO_RETRY_CHECK_DOWNLOADS.format(len(done)))
+    entries = indexed_entries(ao3, fileops, set(done))
+    formats = sorted({f for saved in done.values() for f in saved})
+    try:
+        existing = shared.scan_downloaded_works(fileops.worksfolder, formats,
+                                                storage=fileops.storage)
+    except Exception:
+        existing = {}
+    dropped = 0
+    for work in sorted(done, key=lambda x: (len(x), x)):
+        entry = entries.get(work)
+        wanted = parse_text.get_date_stamp((entry or {}).get('date_updated'))
+        writer = str((entry or {}).get(indexing.LAST_INDEXED_BY) or '')
+        if entry and writer and writer not in chain | {job.id}:
+            print(strings.AO3_INFO_RETRY_INDEX_REWRITTEN.format(work, writer))
+        for filetype in sorted(done[work]):
+            copy = (existing.get(work) or {}).get(filetype)
+            if not entry:
+                problem = strings.AO3_INFO_RETRY_NO_ENTRY
+            elif not copy:
+                problem = strings.AO3_INFO_RETRY_FILE_MISSING
+            elif not wanted or copy.get('date') != wanted:
+                problem = strings.AO3_INFO_RETRY_FILE_DATE.format(
+                    copy.get('date') or strings.AO3_INFO_RETRY_NO_DATE,
+                    wanted or strings.AO3_INFO_RETRY_NO_DATE)
+            else:
+                continue
+            done[work].discard(filetype)
+            dropped += 1
+            print(strings.AO3_INFO_RETRY_FETCH_AGAIN.format(work, filetype, problem))
+        if not done[work]: del done[work]
+    print(strings.AO3_INFO_RETRY_DOWNLOADS_OK if not dropped
+          else strings.AO3_INFO_RETRY_DOWNLOADS_DROPPED.format(dropped))
+    # this run's progress started as a copy of the earlier attempt's: it must not pass on
+    # formats that turned out not to be there
+    job.checkpoint(formatsDone={work: sorted(saved) for work, saved in done.items()})
 
 
 def records_by_id(fileops: FileOps, ids) -> list[dict]:

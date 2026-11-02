@@ -175,6 +175,8 @@ class Ao3:
         # told after each listing page is written, and after each series is walked, so a
         # run can save how far it got - see server.walk_listing. None when nobody asks
         self.on_page = None
+        # the run writing the index, stamped on every entry it writes (`last_indexed_by`)
+        self.run_id = ''
         self.on_series = None
         # whether the last listing walk reached its natural end - the last page, a page
         # limit, a floor or a known fic - rather than being stopped or failing partway
@@ -1655,7 +1657,8 @@ class Ao3:
             path = path or self.entry_path(document)
             # keep whatever readings the file already holds, and add this one only if it
             # says something new
-            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
+            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on,
+                                    run_id=self.run_id)
             self.fileops.save_json(path, merged)
             self.remember_entry(path)
             if document.get('id'): self.reindexed.add(str(document['id']))
@@ -1670,7 +1673,8 @@ class Ao3:
 
         try:
             path = path or self.entry_path(document, subfolder)
-            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
+            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on,
+                                    run_id=self.run_id)
             self.fileops.save_json(path, merged)
             self.remember_entry(path)
             if subfolder == strings.EXTERNAL_INDEX_FOLDER_NAME and document.get('id'):

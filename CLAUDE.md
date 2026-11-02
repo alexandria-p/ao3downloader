@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1878 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1935 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1108,7 +1108,14 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
   the first attempt started (both quick scan walks), or a date range's end - and indexes only
   fics dated on or before it (`get_metadata(ceiling=, ceiling_on=)`, inclusive); one that broke
   off starts at the older of that and the date reached, searching from its last page. A first
-  attempt ignores `ceiling`. A retry of a retry keeps the first attempt's floor and baseline. **The walk itself (`get_metadata`) is unchanged** - only the
+  attempt ignores `ceiling`. A retry of a retry keeps the first attempt's floor and baseline.
+- **A retry checks what it carries on from** (`check_carried`, run once from the `Job.ao3`
+  setter): every work its earlier progress names (`carried_works`) must have an index file,
+  or is indexed again from its page; every `formatsDone` format must be on disk dated as its
+  entry's `date_updated`, or is dropped from `formatsDone` and fetched again. Every entry
+  names the run that last wrote it (`indexing.LAST_INDEXED_BY`, from `Ao3.run_id`; never in a
+  reading - `BOOKKEEPING_FIELDS` are stripped before `split`), and progress keeps the retry
+  `chain`. `test/test_retry_matrix.py` runs every scan through every retry choice. **The walk itself (`get_metadata`) is unchanged** - only the
   page it starts on.
 - **`prepare_resume` replaces the job's action, file types and options** with the earlier
   run's before the checklist is built. Recorded answers are reused through `Job.prior_answers`.
