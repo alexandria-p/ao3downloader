@@ -341,6 +341,7 @@ Used by: quick scan.
 Used by: custom run (date range).
 - Walks your bookmarks sorted by date updated, stopping at the range's start date.
 - Shown as skipped when told to skip indexing.
+- **Retried:** starts at the page holding the range's end (or the date it reached, if older), and stops at the range's start; with no end, from page 1 or the date reached; skipped if the earlier attempt finished it.
 
 ### Find indexed works updated in that date range
 Used by: custom run (date range).

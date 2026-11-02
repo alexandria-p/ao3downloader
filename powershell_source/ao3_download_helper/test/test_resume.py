@@ -403,6 +403,56 @@ def test_a_quick_scan_over_a_date_range_retries_each_walk_from_its_ceiling_to_it
     assert job.progress()['walks'][B]['done'] and job.progress()['walks'][U]['done']
 
 
+@pytest.mark.parametrize('dates, walk, wanted_requests', [
+    pytest.param({'dateFrom': '2025-01-08', 'dateTo': '2025-01-19'}, None,
+                 [(U, 1), (U, 2), (U, 2), (U, 3), (U, 4)],
+                 id='ceiling and floor: did not start - ceiling to floor'),
+    pytest.param({'dateFrom': '2025-01-08', 'dateTo': '2025-01-19'},
+                 {'page': 2, 'anchor': UPDATED_PLACE, 'done': False,
+                  'works': ['24', '23', '12', '11', '10', '9']},
+                 [(U, 2), (U, 3), (U, 3), (U, 4)],
+                 id='ceiling and floor: stopped - date reached to floor'),
+    pytest.param({'dateFrom': '2025-01-08', 'dateTo': '2025-01-19'},
+                 {'page': 4, 'anchor': UPDATED_PLACE, 'done': True,
+                  'works': ['24', '23', '12', '11', '10', '9', '8', '7']},
+                 [], id='ceiling and floor: finished - from the index'),
+    pytest.param({'dateFrom': '2025-01-08', 'dateTo': ''}, None,
+                 [(U, 1), (U, 2), (U, 3), (U, 4)],
+                 id='floor only: did not start - page 1 to floor'),
+    pytest.param({'dateFrom': '2025-01-08', 'dateTo': ''},
+                 {'page': 2, 'anchor': UPDATED_PLACE, 'done': False,
+                  'works': ['24', '23', '12', '11', '10', '9']},
+                 [(U, 2), (U, 3), (U, 3), (U, 4)],
+                 id='floor only: stopped - date reached to floor'),
+    pytest.param({'dateFrom': '', 'dateTo': '2025-01-19'}, None,
+                 [(U, 1), (U, 2), (U, 2), (U, 3), (U, 4)],
+                 id='ceiling only: did not start - ceiling to the end'),
+])
+def test_a_custom_run_over_dates_retries_its_walk_from_its_ceiling_to_its_floor(
+        library, dates, walk, wanted_requests):
+    writer, _ = an_ao3(library, {})
+    for work in range(7, 25):
+        writer.save_metadata({'id': str(work), 'title': f'Work {work}', 'authors': ['A'],
+                              'link': f'https://archiveofourown.org/works/{work}',
+                              'date_updated': f'{work:02d} Jan 2025'})
+    _, repo = an_ao3(library, listing([24, 23], [12, 11], [10, 9], [8, 7], link=UPDATED_LINK))
+    job, _ = a_job(library, server.ACTION_CUSTOM, earlier={'walks': {U: walk} if walk else {}})
+    job.options.update({'dates': True, **dates})
+    job.steps = server.Steps(None, server.step_plan(job))
+
+    with patch.object(server, 'index_series_and_non_bookmarks', return_value=[]), \
+         patch.object(server, 'refresh_and_download') as downloading, \
+         patch.object(server, 'finish_run'):
+        server.run_custom(job, library, repo, None)
+
+    assert [(U, parse_text.get_page_number(c.args[0]))
+            for c in repo.get_soup.call_args_list] == wanted_requests
+    low, high = dates['dateFrom'] or '2025-01-01', dates['dateTo'] or '2025-12-31'
+    assert sorted(int(r['id']) for r in downloading.call_args.args[3]) == [
+        w for w in range(7, 25) if low <= f'2025-01-{w:02d}' <= high]
+    assert job.progress()['walks'][U]['done']
+
+
 def test_a_first_attempt_over_a_date_range_still_walks_from_page_1(library):
     ao3, repo = an_ao3(library, listing([22, 21], [20, 19]))
     job, _ = a_job(library)

@@ -198,8 +198,19 @@ index, and the checklist marks it *done in the earlier run*.
   walks end the retry saved as finished, so a retry of the retry skips both.
   `test_a_quick_scan_carries_on_its_two_walks_from_wherever_it_stopped` and
   `test_a_quick_scan_over_a_date_range_retries_each_walk_from_its_ceiling_to_its_floor` run all
-  five cases, without a date range and with one. The custom run's date range walk is retried
-  from the range's end the same way.
+  five cases, without a date range and with one.
+
+### The custom run, specifically
+
+- **Over a date range** it has one walk, by date updated, and retries it the same way, with
+  whichever ends the range has: from the page holding the range's end (or the date it
+  reached, if it broke off further down) to the range's start. With no end it starts at page
+  1, or the date reached; with no start it runs to the end of the listing. A walk it finished
+  is taken from the index. `test_a_custom_run_over_dates_retries_its_walk_from_its_ceiling_to_its_floor`
+  runs each.
+- **Over all your bookmarks** it is one walk by date bookmarked, carried on from the date it
+  reached like the full scan's.
+- **Over a slice of pages** it can only be retried from the top - page numbers move.
 - Either way, the *by date updated* walk may read past the first attempt's start on its way
   down, so it keeps only works AO3 updated **up to the first attempt's baseline** - the
   **ceiling**. Anything updated after that is the next quick scan's to find, measured from the
