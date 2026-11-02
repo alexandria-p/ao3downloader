@@ -178,12 +178,16 @@ NOT_EDITABLE = LEFT_OUT + (strings.INI_HELPER_URL, strings.INI_REQUIRE_PASSCODE,
 BOOLEAN = 'boolean'
 INTEGER = 'integer'
 TEXT = 'text'
+# one of a fixed list - a question's default answer (`strings.INI_ANSWER_CHOICES`)
+CHOICE = 'choice'
 VALUE_LINE = re.compile(r'^(\s*)([A-Za-z][A-Za-z0-9]*)(\s*=\s*)(.*?)(\s*)$')
 
 
-def kind_of(default: str) -> str:
-    """What sort of value a setting takes, judged by its default in the template."""
+def kind_of(default: str, key: str = '') -> str:
+    """What sort of value a setting takes, judged by its default in the template - or, for
+    a question's default answer, the answers that question has."""
 
+    if key in strings.INI_ANSWER_CHOICES: return CHOICE
     if default.strip().lower() in ('true', 'false'): return BOOLEAN
     if re.fullmatch(r'\d+', default.strip()): return INTEGER
     return TEXT
@@ -241,13 +245,16 @@ def editable_settings(text: str, template: str | None = None,
     for key, block in blocks_of(template):
         if key in NOT_EDITABLE: continue
         default = built.get(key.lower(), VALUE_LINE.match(block.split('\n')[-1]).group(4))
-        settings.append({
+        setting = {
             'key': key,
             'value': have.get(key.lower(), default),
             'default': default,
-            'kind': kind_of(default),
+            'kind': kind_of(default, key),
             'about': about(block),
-        })
+        }
+        if setting['kind'] == CHOICE:
+            setting['choices'] = list(strings.INI_ANSWER_CHOICES[key])
+        settings.append(setting)
     return settings
 
 
@@ -266,6 +273,12 @@ def checked_value(setting: dict, value) -> str:
         if isinstance(value, bool) or not re.fullmatch(r'\d+', text):
             raise ValueError(f'{setting["key"]} takes a whole number of 0 or more')
         return str(int(text))
+    if setting['kind'] == CHOICE:
+        choices = strings.INI_ANSWER_CHOICES[setting['key']]
+        text = str(value).strip().lower()
+        if text not in choices:
+            raise ValueError(f'{setting["key"]} takes one of: {", ".join(choices)}')
+        return text
     text = str(value)
     if '\n' in text or '\r' in text: raise ValueError(f'{setting["key"]} takes one line')
     return text.strip()

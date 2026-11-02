@@ -268,6 +268,22 @@ describe('UserSettings', () => {
     expect(posted).toEqual([{ EnableDebugTools: 'true' }]);
   });
 
+  it('offers a question\'s default answer as a list of the answers it has', async () => {
+    iniAnswer = { editable: true, file: 'settings.ini', settings: [
+      { key: 'FicHubAnswer', value: 'yes', default: 'yes', kind: 'choice', choices: ['yes', 'no'],
+        about: 'whether to ask FicHub' },
+    ] };
+    await open();
+
+    const options = [...element.querySelectorAll('[data-setting="FicHubAnswer"] option')]
+      .map((x) => x.textContent?.trim());
+    expect(options).toEqual(['yes', 'no']);
+
+    choose('[data-setting="FicHubAnswer"] select', 'no');
+    await settle();
+    expect(posted).toEqual([{ FicHubAnswer: 'no' }]);
+  });
+
   it('says when the helper would not take a value, and puts back what the file still says', async () => {
     await open();
     const helper = TestBed.inject(HelperConnection);

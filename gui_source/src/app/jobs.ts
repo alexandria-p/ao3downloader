@@ -54,6 +54,10 @@ export interface ServerSettings {
   debugTools?: boolean;
   /** minutes a paused background run is kept before the helper abandons it; 0 is never */
   pausedRunTimeoutMinutes?: number;
+  /** minutes a question waits for its answer before taking its default; 0 is at once */
+  questionTimeoutMinutes?: number;
+  /** what each question answers itself with when nobody answers it, from settings.ini */
+  answerDefaults?: Partial<Record<QuestionName, string>>;
 }
 
 export interface ServerConfig {
@@ -454,6 +458,9 @@ export interface JobEvent {
   indexed?: string;
   /** on an `overwrite-older` question: the date of the copy on disk, newer than `date` */
   newer?: string;
+  /** a question's: the answer it takes if nobody gives one, and after how many minutes */
+  default?: string;
+  timeoutMinutes?: number;
   seconds?: number;
   until?: string;
   error?: string;

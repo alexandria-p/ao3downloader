@@ -425,6 +425,9 @@ export class DownloadDialog implements OnDestroy {
   protected readonly askedIndexed = signal('');
   /** on an `overwrite-older` question: the date of the copy on disk */
   protected readonly askedNewer = signal('');
+  /** what the question answers itself with if nobody does, and after how many minutes */
+  protected readonly askedDefault = signal('');
+  protected readonly askedTimeout = signal(0);
   /** whether the 'give them a date' half of the question is showing */
   protected readonly choosingDate = signal(false);
   protected readonly stampDate = signal(today());
@@ -1011,6 +1014,29 @@ export class DownloadDialog implements OnDestroy {
   /** how far back a quick scan goes with nothing to measure to - everything, by default */
   protected readonly quickFloorAnswer = signal<'full' | 'since'>('full');
 
+  /**
+   * A background run's up-front answers start from what settings.ini says each question
+   * answers itself with (`answerDefaults`), so they match what an unanswered question would
+   * take. A value the page does not know leaves the built-in one.
+   */
+  private startFromDefaults(defaults: Partial<Record<QuestionName, string>>): void {
+    const pick = <T extends string>(value: string | undefined, allowed: readonly T[]) =>
+      allowed.find((x) => x === value);
+    const undated = pick(defaults.undated, ['skip', 'refresh'] as const);
+    if (undated) this.undatedAnswer.set(undated);
+    const duplicates = pick(defaults.duplicates, ['leave', 'newest'] as const);
+    if (duplicates) this.duplicatesAnswer.set(duplicates);
+    const yesNo = ['yes', 'no'] as const;
+    const fichub = pick(defaults.fichub, yesNo);
+    if (fichub) this.fichubAnswer.set(fichub);
+    const older = pick(defaults['fichub-outdated'], yesNo);
+    if (older) this.fichubOutdatedAnswer.set(older);
+    const overwrite = pick(defaults['overwrite-older'], yesNo);
+    if (overwrite) this.overwriteOlderAnswer.set(overwrite);
+    const floor = pick(defaults['quick-floor'], ['full', 'since'] as const);
+    if (floor) this.quickFloorAnswer.set(floor);
+  }
+
   /** the up-front answers, for the questions this run could ask */
   private readonly backgroundAnswers = computed<BackgroundAnswers>(() => {
     const answers: BackgroundAnswers = {};
@@ -1077,6 +1103,7 @@ export class DownloadDialog implements OnDestroy {
   private async init(): Promise<void> {
     const config = await this.jobs.loadConfig();
     if (!config) return;
+    this.startFromDefaults(config.settings?.answerDefaults ?? {});
 
     // read after the await, not before: inputs are set once the constructor has returned
     const attaching = this.attachTo();
@@ -1657,6 +1684,8 @@ export class DownloadDialog implements OnDestroy {
         this.askedFormats.set(event.formats ?? []);
         this.askedIndexed.set(event.indexed ?? '');
         this.askedNewer.set(event.newer ?? '');
+        this.askedDefault.set(event.default ?? '');
+        this.askedTimeout.set(event.timeoutMinutes ?? 0);
         this.choosingDate.set(false);
         this.answering.set(false);
         break;

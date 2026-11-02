@@ -1306,6 +1306,18 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('before file names carried a date');
   });
 
+  it('says what an unanswered question will take, and after how long', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'fichub', count: 1, ids: ['75354806'],
+                 choices: ['yes', 'no'], default: 'yes', timeoutMinutes: 5 } as JobEvent);
+    await fixture.whenStable();
+
+    const said = element.querySelector('.question-default')?.textContent ?? '';
+    expect(said).toContain('within 5 minutes');
+    expect(said).toContain('yes');
+  });
+
   it('tries FicHub when told to, and leaves the works when told not to', async () => {
     await askedAboutFicHub();
     button('Try FicHub')!.click();

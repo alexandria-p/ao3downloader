@@ -44,10 +44,26 @@ message at the bottom says so. Prompts and formats are kept in this browser only
 | `EnableDebugTools` | `false` | Shows the debug runs and the debug panel in the run window. |
 | `EnableConsoleLogging` | `false` | Prints every request and every line a run says to the helper's window. Always on in the Windows/Mac/Linux app. Never prints your password or passcode. |
 | `PausedRunTimeoutMinutes` | `10` | Minutes a paused background run waits before it's abandoned. `0` never. |
+| `QuestionTimeoutMinutes` | `30` | Minutes a question a run stops to ask waits for you before it takes its default answer (below). `0` takes the default at once. |
+| `UndatedFilesAnswer` | `skip` | Files with no date in their name: `skip` leaves them, `refresh` downloads them again. |
+| `QuickScanFloorAnswer` | `full` | A quick scan with nothing to measure back to: `full` reads the whole listing, `since` goes back to when the index was last written. |
+| `DuplicateCopiesAnswer` | `leave` | Older copies beside the newest: `leave` keeps them, `newest` deletes the older ones. |
+| `FicHubAnswer` | `yes` | Ask FicHub for works AO3 would not give. |
+| `FicHubOlderCopyAnswer` | `yes` | Take a format FicHub only has an older version of, when you have no copy at all. |
+| `OverwriteNewerCopyAnswer` | `no` | Let an overwriting run replace a copy newer than the one it is writing. |
+| `RequestTimeoutSeconds` | `60` | How long one request to AO3 may take before it's tried again. |
+| `StillWaitingSeconds` | `15` | How often the log says "still waiting" while a request is slow. |
+| `MaintenanceRetries` | `2` | Extra tries when AO3 shows its maintenance page. |
+| `MaintenanceRetrySeconds` | `30` | Seconds between those tries. |
+| `RetryMaxWaitSeconds` | `30` | The longest wait before retrying a failed request (the wait doubles each time). |
+| `LibraryTimeoutMinutes` | `15` | How long a run waits for the page to read or write a library file. |
+| `PageGoneSeconds` | `30` | How long a run waits for a closed or dropped page to come back before giving up. |
 | `HelperUrl` | `http://127.0.0.1:4400` | Where the page finds the helper. Only changes for a [[hosted copy|Hosting your own copy]]. |
 | `RequirePasscode` | `false` | Makes the helper refuse every request without the passcode. For a hosted copy. |
 | `PageOrigin` | *(empty)* | The page allowed to use a hosted helper, e.g. `https://you.github.io`. |
 | `SavePassword` | `false` | Left over from the console app. The web page never stores a password. |
+
+The default answers are also what a background run takes when it was not told, and what the run window's up-front answers start from. A stop always takes the answer that changes nothing. **Reset to defaults** puts all of these back to the values above.
 
 ## Your file is only ever added to
 

@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1990 python passed; 799 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2005 python passed; 802 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -898,6 +898,31 @@ looking like a change. It is idempotent - normalising twice changes nothing.
 last recorded, so a fic that had finished by then is invisible however much was added after.
 The ui has an `acknowledge` step that must be ticked before the login for exactly this, and
 points at the bookmarks run instead, which re-reads the listing and catches those.
+
+### Question defaults and time limits are settings
+
+Every question's unanswered answer is a settings.ini key (`strings.INI_ANSWER_CHOICES`,
+`server.ANSWER_SETTING_FOR`, `configured_answer`): `UndatedFilesAnswer` skip,
+`QuickScanFloorAnswer` full, `DuplicateCopiesAnswer` leave, `FicHubAnswer` yes,
+`FicHubOlderCopyAnswer` yes, `OverwriteNewerCopyAnswer` no. Each is the `choice` kind
+(`settings_file.CHOICE`, a select in User settings, checked by `checked_value` and by
+`deploy_config.checked`); the built-in default is the first of its choices and the
+template's, so Reset to defaults restores it. `Job.ask` takes it on a timeout, on a
+background run not told, and for an empty answer - **never on a stop**, which keeps the
+caller's built-in default (the one that changes nothing). `stamp` is not offered: it needs a
+date. A misspelt value leaves the built-in. The question event carries `default` and
+`timeoutMinutes` for the panel's `.question-default` line; `/api/config` sends
+`answerDefaults`, which the dialog's up-front background answers start from
+(`startFromDefaults`). `QuestionTimeoutMinutes` 0 takes the default without asking.
+
+The waits are settings too, read where they are used with the old constants as fallbacks:
+`RequestTimeoutSeconds`, `StillWaitingSeconds`, `MaintenanceRetries`,
+`MaintenanceRetrySeconds`, `RetryMaxWaitSeconds` (`Repository.__init__` through
+`Repository.setting` - a stand-in fileops keeps the class values), `LibraryTimeoutMinutes`
+and `PageGoneSeconds` (`Job.storage_call`). **Deliberately not settings**: the poll slices
+(`ANSWER_POLL_SECONDS`, `pause_slice`), `STREAM_HEARTBEAT_SECONDS`, `KEEP_AWAKE_SECONDS`
+(Render's sleep), `LOGIN_MAX_AGE_SECONDS` (security), `LOG_FLUSH_SECONDS`, the updater's and
+Dropbox's own request limits, and the page's own timers. `test_question_settings.py` holds it.
 
 ### Debug tools, off unless settings.ini asks
 
@@ -1875,7 +1900,7 @@ hanging, and all three matter:
 
 - the wait is in `ANSWER_POLL_SECONDS` slices, checking `job.cancel` each time, so a stop
   releases a run nobody is answering
-- `ANSWER_TIMEOUT_SECONDS` gives up after 30 minutes, so a closed tab cannot leave a thread
+- `QuestionTimeoutMinutes` (settings.ini, `question_timeout_seconds`; 30 by default, `ANSWER_TIMEOUT_SECONDS` the fallback) gives up after that long, so a closed tab cannot leave a thread
   waiting for an answer that can never arrive
 - **the default is always `skip`** - the option that changes nothing. Whatever goes wrong,
   a run must not rename or refetch a library on its own

@@ -1332,6 +1332,13 @@
           more than one question can stop a run, and they are answered through the same
           endpoint - so the panel is keyed on which one is being asked, not on the count
         -->
+        @if (asking() && askedDefault()) {
+          <p class="question-default">
+            If nobody answers within {{ askedTimeout() | number }} minute{{ askedTimeout() === 1 ? '' : 's' }},
+            the run carries on with: <strong>{{ askedDefault() }}</strong>
+            (change this in User settings).
+          </p>
+        }
         @if (asking() && question() === 'quick-floor') {
           <div class="question">
             <p class="question-text">

@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 import deploy_config
+from source_code import strings
 from deploy_config import DeployError
 
 
@@ -83,7 +84,10 @@ def test_every_key_in_the_template_is_set_from_its_variable():
     for key in keys:
         if deploy_config.variable_for(key) in given: continue
         default = deploy_config.template_keys(template())[key]
+        # a question's default answer is set to its other answer
+        choices = strings.INI_ANSWER_CHOICES.get(key)
         given[deploy_config.variable_for(key)] = (
+            choices[-1] if choices else
             'true' if default == 'false' else 'false' if default == 'true' else '7')
 
     resolved = deploy_config.resolve(given, template())

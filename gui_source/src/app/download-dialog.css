@@ -864,3 +864,10 @@ fieldset.bare:disabled {
 .retry-modes .unavailable {
   opacity: 0.6;
 }
+
+/* what an unanswered question will take, and when - so stepping away is not a surprise */
+.question-default {
+  margin: 0 0 0.5rem;
+  font-size: 0.9em;
+  opacity: 0.85;
+}

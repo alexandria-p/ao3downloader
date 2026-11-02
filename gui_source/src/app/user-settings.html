@@ -140,6 +140,17 @@
                     <option value="false" [selected]="setting.value === 'false'">false</option>
                   </select>
                 }
+                @case ('choice') {
+                  <select
+                    [attr.aria-label]="setting.key"
+                    [value]="setting.value"
+                    (change)="editIni(setting, $any($event.target).value, $any($event.target))"
+                  >
+                    @for (choice of setting.choices ?? []; track choice) {
+                      <option [value]="choice" [selected]="setting.value === choice">{{ choice }}</option>
+                    }
+                  </select>
+                }
                 @case ('integer') {
                   <input
                     type="number"

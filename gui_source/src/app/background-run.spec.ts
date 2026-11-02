@@ -63,9 +63,11 @@ class FakeJobs extends Jobs {
   }
 
   timeout = 10;
+  answerDefaults: Record<string, string> | undefined;
 
   override async loadConfig(): Promise<ServerConfig | null> {
-    const config = { ...CONFIG, settings: { ...CONFIG.settings!, pausedRunTimeoutMinutes: this.timeout } };
+    const config = { ...CONFIG, settings: { ...CONFIG.settings!, pausedRunTimeoutMinutes: this.timeout,
+                                             answerDefaults: this.answerDefaults } };
     this.config.set(config);
     this.available.set(true);
     return config;
@@ -292,6 +294,25 @@ describe('Running in the background', () => {
       duplicates: { choice: 'leave' },
       // the one that does something: the works it asks about are missing anyway
       fichub: { choice: 'yes' },
+      'fichub-outdated': { choice: 'yes' },
+    });
+  });
+
+  it('starts from the default answers settings.ini gives, where it gives them', async () => {
+    jobs.answerDefaults = { fichub: 'no', 'quick-floor': 'since', undated: 'refresh',
+                            duplicates: 'nonsense' };
+    inDropbox();
+    await open('quick');
+    await toCredentials();
+    await tickBackground();
+    await startIt();
+
+    expect(jobs.started[0].answers).toEqual({
+      'quick-floor': { choice: 'since' },
+      undated: { choice: 'refresh' },
+      // a value the question does not have leaves the built-in default
+      duplicates: { choice: 'leave' },
+      fichub: { choice: 'no' },
       'fichub-outdated': { choice: 'yes' },
     });
   });

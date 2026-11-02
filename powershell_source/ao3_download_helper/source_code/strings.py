@@ -50,6 +50,39 @@ INI_CONSOLE_LOGGING = 'EnableConsoleLogging'
 # how long a background run may sit paused before the helper abandons it
 INI_PAUSED_RUN_TIMEOUT = 'PausedRunTimeoutMinutes'
 INI_DEFAULT_PAUSED_RUN_TIMEOUT = 10
+# how long a question waits for an answer before taking its default; 0 takes it at once
+INI_QUESTION_TIMEOUT = 'QuestionTimeoutMinutes'
+INI_DEFAULT_QUESTION_TIMEOUT = 30
+# what each question answers itself with when nobody does - on a timeout, a stop, and a
+# background run that was not told. today's answers are the template's defaults
+INI_UNDATED_ANSWER = 'UndatedFilesAnswer'
+INI_QUICK_FLOOR_ANSWER = 'QuickScanFloorAnswer'
+INI_DUPLICATES_ANSWER = 'DuplicateCopiesAnswer'
+INI_FICHUB_ANSWER = 'FicHubAnswer'
+INI_FICHUB_OUTDATED_ANSWER = 'FicHubOlderCopyAnswer'
+INI_OVERWRITE_OLDER_ANSWER = 'OverwriteNewerCopyAnswer'
+# each of those settings, the answers it may be, and the one it is when unset or misread
+INI_ANSWER_CHOICES = {
+    # not 'stamp': dating files needs a date, which only someone answering can give
+    INI_UNDATED_ANSWER: ('skip', 'refresh'),
+    INI_QUICK_FLOOR_ANSWER: ('full', 'since'),
+    INI_DUPLICATES_ANSWER: ('leave', 'newest'),
+    INI_FICHUB_ANSWER: ('yes', 'no'),
+    INI_FICHUB_OUTDATED_ANSWER: ('yes', 'no'),
+    INI_OVERWRITE_OLDER_ANSWER: ('no', 'yes'),
+}
+# how long one request to ao3 may take in all, and how often a run says it is still waiting
+INI_REQUEST_TIMEOUT = 'RequestTimeoutSeconds'
+INI_STILL_WAITING = 'StillWaitingSeconds'
+# ao3's maintenance page: how many more tries, how far apart
+INI_MAINTENANCE_RETRIES = 'MaintenanceRetries'
+INI_MAINTENANCE_DELAY = 'MaintenanceRetrySeconds'
+# the longest a retry of a failed request waits before asking again
+INI_RETRY_MAX_DELAY = 'RetryMaxWaitSeconds'
+# how long a run waits for the page to read or write the library, and how long for a page
+# that has gone to come back
+INI_LIBRARY_TIMEOUT = 'LibraryTimeoutMinutes'
+INI_PAGE_GONE = 'PageGoneSeconds'
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
 # a hosted helper: every request needs the passcode, whose value is an environment variable
@@ -734,6 +767,8 @@ AO3_INFO_RESUME_NO_STEP = 'before its first step'
 AO3_INFO_RESUME_ANSWER = 'using the answer the earlier attempt was given: {}'
 AO3_INFO_ABANDONED = 'this background run was left paused for {} minutes, so the helper has abandoned it. everything it saved is kept - resume it from the History tab, or start the same run again and it carries on from what is still missing.'
 AO3_INFO_BACKGROUND_ANSWER = 'using the answer given before this background run started: {}'
+AO3_INFO_QUESTION_NOT_ASKED = 'settings.ini says to take the default here without asking (QuestionTimeoutMinutes is 0), so it takes: {}'
+AO3_INFO_QUESTION_TIMED_OUT = 'nobody answered in time (QuestionTimeoutMinutes), so it takes the default: {}'
 AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it takes the default: {}'
 AO3_INFO_RESUME_SCOPE = ('the earlier attempt had finished indexing - checking and downloading '
                          'its {} works')

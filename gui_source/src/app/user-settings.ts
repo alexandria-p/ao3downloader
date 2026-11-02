@@ -20,7 +20,9 @@ export interface IniSetting {
   key: string;
   value: string;
   default: string;
-  kind: 'boolean' | 'integer' | 'text';
+  kind: 'boolean' | 'integer' | 'text' | 'choice';
+  /** a 'choice' setting's answers */
+  choices?: string[];
   about: string;
 }
 

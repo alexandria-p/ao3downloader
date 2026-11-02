@@ -155,6 +155,49 @@ CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
                FICHUB_OUTDATED_QUESTION: FICHUB_OUTDATED_CHOICES,
                OVERWRITE_OLDER_QUESTION: OVERWRITE_OLDER_CHOICES}
 
+# which settings.ini key holds each question's default answer
+ANSWER_SETTING_FOR = {UNDATED_QUESTION: strings.INI_UNDATED_ANSWER,
+                      QUICK_QUESTION: strings.INI_QUICK_FLOOR_ANSWER,
+                      DUPLICATES_QUESTION: strings.INI_DUPLICATES_ANSWER,
+                      FICHUB_QUESTION: strings.INI_FICHUB_ANSWER,
+                      FICHUB_OUTDATED_QUESTION: strings.INI_FICHUB_OUTDATED_ANSWER,
+                      OVERWRITE_OLDER_QUESTION: strings.INI_OVERWRITE_OLDER_ANSWER}
+
+
+def setting_integer(key: str, fallback: int, minimum: int = 0) -> int:
+    """A whole-number setting from settings.ini, or `fallback` when it cannot be read.
+    Never below `minimum`: a time limit of 0 would give up before anything was tried."""
+
+    try:
+        value = FileOps().get_ini_value_integer(key, fallback)
+    except Exception:
+        return fallback
+    return max(minimum, value) if isinstance(value, int) else fallback
+
+
+def question_timeout_seconds() -> float:
+    """How long a question waits for its answer (`QuestionTimeoutMinutes`); 0 is at once."""
+
+    return setting_integer(strings.INI_QUESTION_TIMEOUT, ANSWER_TIMEOUT_SECONDS // 60) * 60
+
+
+def configured_answer(name: str, builtin: dict) -> dict:
+    """The default a question takes when nobody answers it, as settings.ini says.
+
+    Only the choice changes; anything else the built-in default carries (the undated
+    question's empty date) is kept. A value the question does not offer is ignored, so a
+    typo in settings.ini leaves the built-in default - the one that was chosen on purpose.
+    """
+
+    key = ANSWER_SETTING_FOR.get(name)
+    if not key: return dict(builtin)
+    try:
+        choice = FileOps().get_ini_value(key, '').strip().lower()
+    except Exception:
+        return dict(builtin)
+    if choice not in strings.INI_ANSWER_CHOICES.get(key, ()): return dict(builtin)
+    return {**builtin, 'choice': choice}
+
 # a background run keeps every event for a page that reattaches, but not every line it
 # printed: hours of 'new download:' would be megabytes replayed to a page that shows the
 # last few hundred. the older lines are dropped from what is replayed, never from the run
@@ -366,6 +409,12 @@ def read_settings(fileops: FileOps) -> dict:
         # how long a paused background run is kept before it is abandoned - the page warns
         # with this number before a background run is paused
         'pausedRunTimeoutMinutes': paused_run_timeout(),
+        'questionTimeoutMinutes': question_timeout_seconds() // 60,
+        # what each question answers itself with - the page starts a background run's
+        # up-front answers from these
+        'answerDefaults': {
+            name: configured_answer(name, {'choice': strings.INI_ANSWER_CHOICES[key][0]})['choice']
+            for name, key in ANSWER_SETTING_FOR.items()},
     }
 
 
@@ -495,7 +544,12 @@ class Job:
         the option that changes nothing - except FicHub's, see `FICHUB_QUESTION`.
         """
 
-        prior = self.prior_answers.get(str(question.get('name') or ''))
+        name = str(question.get('name') or '')
+        # a stop always gets the built-in default, which changes nothing (bar FicHub's, which
+        # a stopped run never acts on); every other unanswered question takes settings.ini's
+        stopped = dict(default)
+        default = configured_answer(name, default)
+        prior = self.prior_answers.get(name)
         if prior is not None:
             # a resumed run does not ask again what the attempt before it was already told,
             # and a background run was told before it started
@@ -508,14 +562,23 @@ class Job:
             print(strings.AO3_INFO_BACKGROUND_DEFAULT.format(default.get('choice')))
             return dict(default)
 
+        timeout = question_timeout_seconds()
+        if timeout <= 0:
+            # set to take the default at once: said, so the log shows why nobody was asked
+            print(strings.AO3_INFO_QUESTION_NOT_ASKED.format(default.get('choice')))
+            return dict(default)
+
         self.answer = {}
         self.answered.clear()
-        self.emit({'type': progress.QUESTION, **question})
+        self.emit({'type': progress.QUESTION, **question,
+                   'default': default.get('choice'), 'timeoutMinutes': timeout / 60})
 
         waited = 0.0
         while not self.answered.is_set():
-            if self.cancel.is_set(): return default
-            if waited >= ANSWER_TIMEOUT_SECONDS: return default
+            if self.cancel.is_set(): return stopped
+            if waited >= timeout:
+                print(strings.AO3_INFO_QUESTION_TIMED_OUT.format(default.get('choice')))
+                return default
             self.answered.wait(timeout=ANSWER_POLL_SECONDS)
             waited += ANSWER_POLL_SECONDS
 
@@ -604,10 +667,12 @@ class Job:
         self.events.put(event)
 
         waited = 0.0
+        limit = setting_integer(strings.INI_LIBRARY_TIMEOUT, STORAGE_TIMEOUT_SECONDS // 60, 1) * 60
+        grace = setting_integer(strings.INI_PAGE_GONE, PAGE_GRACE_SECONDS)
         try:
             while not done.wait(ANSWER_POLL_SECONDS):
                 waited += ANSWER_POLL_SECONDS
-                if waited >= STORAGE_TIMEOUT_SECONDS or self.page_gone():
+                if waited >= limit or self.page_gone(grace):
                     raise OSError(strings.ERROR_PAGE_GONE)
             with self.lock:
                 return self.storage_pending[request]['answer']
@@ -632,10 +697,11 @@ class Job:
         with self.lock:
             return [x['event'] for x in self.storage_pending.values()]
 
-    def page_gone(self) -> bool:
+    def page_gone(self, grace: float | None = None) -> bool:
+        grace = PAGE_GRACE_SECONDS if grace is None else grace
         with self.lock:
             return (self.listeners == 0
-                    and time.monotonic() - self.last_listener > PAGE_GRACE_SECONDS)
+                    and time.monotonic() - self.last_listener > grace)
 
     def page_connected(self, connected: bool) -> None:
         with self.lock:

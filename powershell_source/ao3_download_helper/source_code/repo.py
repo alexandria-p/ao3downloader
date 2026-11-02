@@ -74,6 +74,16 @@ class Repository:
         self.extra_wait = fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0)
         self.max_retries = fileops.get_ini_value_integer(strings.INI_MAX_RETRIES, 0)
         self.max_timeouts = fileops.get_ini_value_integer(strings.INI_MAX_TIMEOUTS, 3)
+        # the time limits below are settings; the class's values are the defaults, and what a
+        # settings.ini that cannot be read (or a test's stand-in) leaves in force
+        self.timeout = self.setting(strings.INI_REQUEST_TIMEOUT, type(self).timeout, 1)
+        self.waiting_note = self.setting(strings.INI_STILL_WAITING, type(self).waiting_note, 1)
+        self.maintenance_retries = self.setting(strings.INI_MAINTENANCE_RETRIES,
+                                                type(self).maintenance_retries)
+        self.maintenance_delay = self.setting(strings.INI_MAINTENANCE_DELAY,
+                                              type(self).maintenance_delay)
+        self.retry_max_delay = self.setting(strings.INI_RETRY_MAX_DELAY,
+                                            type(self).retry_max_delay)
         # True once logged in, False for a run told not to, None until either is known
         self.logged_in: bool | None = None
         # set once a request has given up on ao3's maintenance page: every later request to
@@ -568,6 +578,17 @@ class Repository:
             '_cf_chl_opt',
         ]
         return any(marker in response.text.lower() for marker in cloudflare_markers)
+
+
+    def setting(self, key: str, fallback, minimum: int = 0):
+        """A whole-number setting, or `fallback` when settings.ini has none or cannot say."""
+
+        try:
+            value = self.fileops.get_ini_value_integer(key, fallback)
+        except Exception:
+            return fallback
+        if not isinstance(value, int) or isinstance(value, bool): return fallback
+        return max(minimum, value)
 
 
     def get_delay(self, attempt: int) -> float:
