@@ -737,6 +737,38 @@
   margin: 0 0 4px;
 }
 
+/* the origin icon every entry carries, coloured like its badge */
+.origin-icon {
+  display: inline-flex;
+  vertical-align: middle;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  color: #c9b8ea;
+}
+
+.origin-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.origin-icon svg[fill='none'] {
+  fill: none;
+}
+
+.origin-icon.bookmarks {
+  color: #e07a7a;
+}
+
+.origin-icon.collection {
+  color: #a6d8c2;
+}
+
+.origin-icon.other {
+  color: var(--text-dim);
+}
+
 .badge.origin {
   border-color: #6b5a8a;
   color: #c9b8ea;

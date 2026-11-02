@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2008 python passed; 805 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2008 python passed; 806 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2189,7 +2189,7 @@ or found through a collection was on disk and in the index but nowhere in the pa
 bookmarked series brought in (in that series' card - `from_series`, **or** a bookmarked series'
 `work_ids` listing it, since an entry can lack `from_series`), and a series you did not
 bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `link`
-(`from_link`) / `other` (unknown), in that order, for the badge and the **Came from** filter.
+(`from_link`) / `other` (unknown), in that order, for the badge, the **Came from** filter, and the `.origin-icon` every entry carries (an inline svg per origin, named by `originLabel` from `ORIGINS`, so the icon and the filter cannot word it differently).
 **`external` (*Imported from external source*) is an upcoming feature**: in `ORIGINS` with
 `upcoming`, shown disabled, and `originOf` never returns it yet. A fic FicHub supplied is not
 it - FicHub is a fallback, and the fic is wherever its run put it. **`from_link` is written by the fic runs alone**

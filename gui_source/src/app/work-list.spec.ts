@@ -647,6 +647,25 @@ describe('WorkList provenance', () => {
     await TestBed.configureTestingModule({ imports: [WorkList] }).compileComponents();
   });
 
+  it('gives every entry an icon naming where it came from, as the Came from filter does', async () => {
+    await listing([
+      { ...LIBRARY[0], bookmarked: true },
+      { ...LIBRARY[1], bookmarked: false, from_collections: ['some_collection'] },
+      { ...LIBRARY[0], id: '901', bookmarked: false, from_link: true },
+      { ...LIBRARY[1], id: '902', bookmarked: false },
+    ]);
+
+    const icons = [...element.querySelectorAll('.origin-icon')];
+    // in whatever order the listing sorts them
+    expect(icons.map((x) => x.getAttribute('aria-label')).sort()).toEqual([
+      'Came from: An AO3 collection',
+      'Came from: Downloaded by ID or URL',
+      'Came from: Unknown',
+      'Came from: Your AO3 bookmarks',
+    ]);
+    expect(icons.every((x) => x.querySelector('svg'))).toBe(true);
+  });
+
   it('marks a work whose entry came from FicHub, saying which formats did', async () => {
     await listing([
       { ...LIBRARY[0], retrieved_from: { site: 'fichub', downloaded: ['EPUB', 'PDF'] } },

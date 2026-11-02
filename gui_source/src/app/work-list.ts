@@ -329,6 +329,12 @@ export class WorkList {
     }
   }
 
+  /** where an entry came from, worded as the Came from filter words it - the icon's name */
+  protected originLabel(work: Bookmark): string {
+    const origin = originOf(work);
+    return 'Came from: ' + (ORIGINS.find((x) => x.origin === origin)?.label ?? 'Unknown');
+  }
+
   protected originTitle(work: Bookmark): string {
     switch (originOf(work)) {
       case 'collection':
