@@ -280,7 +280,7 @@
               <label class="check">
                 <input type="radio" name="coverage" [checked]="coverage() === 'resume'"
                        (change)="coverage.set('resume')" />
-                <span>[EXPERIMENTAL] Pick up where an earlier run left off</span>
+                <span>[EXPERIMENTAL] Retry an earlier run</span>
               </label>
             }
 
@@ -658,38 +658,32 @@
       the rule lives in one place; the ones that cannot are listed, greyed, saying why
     -->
     @if (step() === 'resume') {
-      <section class="body">
+      <section class="body retry">
         <p class="warning">
-          <strong>[EXPERIMENTAL]</strong> Picks the run up where it left off, as that run, with
-          its settings. See RESUMING.md for exactly what each step does when resumed.
+          <strong>[EXPERIMENTAL]</strong> Runs an earlier run again, as that run, with its
+          settings - from the top, or carrying on from where it stopped. See RESUMING.md.
         </p>
 
-        @if (resumableRuns() === null) {
+        @if (retryableRuns() === null) {
           <p class="hint">Reading your run history...</p>
-        } @else if (resumableRuns()!.length === 0) {
-          <p class="warning">
-            There are no unfinished full scans, quick scans or custom runs to pick up.
-          </p>
+        } @else if (retryableRuns()!.length === 0) {
+          <p class="warning">There are no earlier runs to retry.</p>
         } @else {
           <fieldset class="floor-runs">
-            <legend>Unfinished runs</legend>
-            @for (run of resumableRuns(); track run.id) {
-              <label class="check" [class.unavailable]="!run.resumable"
-                     [title]="run.resumable ? '' : run.reason">
+            <legend>Earlier runs</legend>
+            @for (run of retryableRuns(); track run.id) {
+              <label class="check" [class.unavailable]="!run.retry.default"
+                     [title]="run.retry.default ? '' : 'It cannot be retried'">
                 <input type="radio" name="resumeRun" [value]="run.id"
-                       [disabled]="!run.resumable"
+                       [disabled]="!run.retry.default"
                        [checked]="resumeRun() === run.id"
-                       (change)="resumeRun.set(run.id)" />
+                       (change)="chooseRetryRun(run.id)" />
                 <span>
                   <strong>{{ run.actionName || run.action }}</strong>
                   <span class="dim">
                     - started {{ run.started.slice(0, 10) }} {{ run.started.slice(11, 16) }},
-                    {{ run.status }}
-                    @if (run.progress?.stepLabel) { at <em>{{ run.progress!.stepLabel }}</em>}
+                    {{ statusWord(run.status) }}
                   </span>
-                  @if (!run.resumable) {
-                    <span class="hint">{{ run.reason }}</span>
-                  }
                   @for (warning of run.warnings; track $index) {
                     <span class="hint warn">{{ warning }}</span>
                   }
@@ -697,11 +691,52 @@
               </label>
             }
           </fieldset>
+
+          @if (chosenResume(); as run) {
+            @if (stepsOf(run).length) {
+              <div class="retry-steps">
+                <p><strong>How it went</strong></p>
+                <ol>
+                  @for (step of stepsOf(run); track step.id) {
+                    <li [attr.data-outcome]="step.outcome">
+                      {{ step.label }} - <span class="outcome">{{ outcomeWord(step.outcome) }}</span>
+                    </li>
+                  }
+                </ol>
+                @if (lastFinishedStep(run); as last) {
+                  <p class="hint">The last step it finished was <strong>{{ last }}</strong>.</p>
+                }
+              </div>
+            }
+
+            <fieldset class="retry-modes">
+              <legend>Retry it</legend>
+              @for (choice of run.retry.modes; track choice.mode) {
+                <label class="check" [class.unavailable]="!choice.available"
+                       [title]="choice.available ? '' : choice.reason">
+                  <input type="radio" name="retryMode" [value]="choice.mode"
+                         [disabled]="!choice.available"
+                         [checked]="retryMode() === choice.mode"
+                         (change)="retryMode.set(choice.mode)" />
+                  <span>
+                    {{ retryLabel(choice.mode, run) }}
+                    @if (choice.mode === run.retry.default) {
+                      <span class="dim">(picks up from the first step that did not finish)</span>
+                    }
+                    @if (!choice.available) {
+                      <span class="hint">{{ choice.reason }}</span>
+                    }
+                  </span>
+                </label>
+              }
+            </fieldset>
+          }
         }
       </section>
       <footer>
         <button type="button" class="button subtle" (click)="backFrom('resume')">Back</button>
-        <button type="button" class="button primary" [disabled]="!chosenResume()?.resumable"
+        <button type="button" class="button primary"
+                [disabled]="!chosenResume()?.retry?.default || !retryMode()"
                 (click)="afterResume()">
           Continue
         </button>

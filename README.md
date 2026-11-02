@@ -195,7 +195,7 @@ the helper can only reach that folder through the open page.
   and **Continue in background** closes the window again and leaves it going.
 - Pausing a background run asks first: one left paused for 10 minutes
   (`PausedRunTimeoutMinutes`) is **abandoned** - the helper ends it, keeping everything it
-  saved, and it can be resumed from History.
+  saved, and it can be retried from History.
 - Restarting the helper - closing its window, or deploying a new version of a hosted one -
   ends a background run. What it saved stays saved, and starting it again carries on from
   what is still missing.
@@ -209,7 +209,7 @@ the helper can only reach that folder through the open page.
   everything up to about its last two minutes. A run that is stopped, abandoned or fails
   saves everything on the way out.
 - If the helper is shut down mid-run, the run's History entry says **Running - not
-  confirmed by the helper** until the helper is back, then **Interrupted**, with Resume
+  confirmed by the helper** until the helper is back, then **Interrupted**, with Retry
   offered. Nothing is marked interrupted while the helper cannot be asked, since a hosted
   one may just be waking up with the run still going.
 
@@ -230,10 +230,13 @@ run logged in as - the username only; the password is never written down anywher
 | **Failed** | Something ended it early - AO3 refused the login, the login lapsed partway, or the library could not be reached. The reason is on its entry. |
 | **Interrupted** | It never got to say how it ended: the helper stopped, crashed or restarted (a deploy does this) while it was going. Marked once the helper answers without it. Its log and issues go up to its last save - at most about two minutes before it was cut off. |
 
-Anything that did not finish can be carried on: a full scan, quick scan, custom run or
-collection run offers **Resume**, which picks up where it got to (a collection run from the
-page of the collection it had reached), and anything else you start again. Every
-run skips what is already downloaded and current, so going again only costs what is missing.
+Any run that has ended can be run again with **Retry** [EXPERIMENTAL] in History - from the
+top, or carrying on from the first step that did not finish: its indexing (a walk that broke off
+goes on from where it stopped), its downloads, or just the works it could not get. A retry is a
+new run, so it can be retried too. A run whose indexing broke off is **Partly finished**: its
+History entry says which pages were read, which failed and how far back in date it got, and it
+never counts as complete for a quick scan. Every run skips what is already downloaded and
+current, so going again only costs what is missing. See `RESUMING.md`.
 
 # Original Readme
 
@@ -370,7 +373,7 @@ Both also offer **Include subcollections** and **Include parent collections**. W
 
 Every run but the debug ones ends by noting, on each indexed work, which of your saved collections hold it (`from_collections`), in its cleanup step. A collection run notes its collections on every work they hold that is already in your index - so a bookmark you had indexed learns which of your collections hold it even with **Index and download encountered works** left off. A full, quick or custom scan or a single fic checks every work it covered against the collections already saved, so a work you bookmark after indexing a collection that holds it is noted too - and a resumed run covers what its earlier attempt indexed. None of this makes an AO3 request.
 
-History shows the link a collection run was pointed at. An unfinished collection run offers **Resume** [EXPERIMENTAL]: it saves its place after every page of each collection, so a resumed run skips the collections already finished and carries on from the page it reached (see `RESUMING.md`).
+History shows the link a collection run was pointed at. A collection run can be retried with **Retry** [EXPERIMENTAL]: it saves its place after every page of each collection, so a retry that carries on skips the collections already finished and carries on from the page it reached (see `RESUMING.md`).
 
 Clicking a collection opens what was recorded about it - maintainers, tags, challenge type, counts, the collection it belongs to and any subcollections - along with the works in it, in the same listing the Bookmarks tab uses. A collection records only the *work numbers* it holds, so a work that is in your bookmarks index is shown in full. A collection can also hold works you have never bookmarked: those are still listed, in the collection's own order, but by work number alone with a link to the work on AO3 - because the number really is all that is known about them. A line above the table says how many of them there are. A parent or subcollection that has been indexed too opens in the page; one that has not links out to AO3.
 

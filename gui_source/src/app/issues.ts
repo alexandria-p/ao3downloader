@@ -1,7 +1,9 @@
-import { RunHistory, WorkFailure } from './jobs';
+import { IndexGap, RunHistory, WorkFailure } from './jobs';
 
 /** everything a run reported that needs a person's attention, by kind */
 export interface RunIssues {
+  /** where indexing broke off - a listing, a collection, or a fic's own page */
+  indexGaps?: IndexGap[];
   /** works that should have downloaded and did not */
   failures: WorkFailure[];
   /** new copies downloaded where the older copy could not be deleted, or was not confirmed */
@@ -15,6 +17,7 @@ export interface RunIssues {
 /** how many entries there are across every kind */
 export function issueCount(issues: RunIssues): number {
   return (
+    (issues.indexGaps?.length ?? 0) +
     issues.failures.length +
     issues.keptCopies.length +
     issues.notRemoved.length +
@@ -32,6 +35,7 @@ export function issueCount(issues: RunIssues): number {
  */
 export function issuesOf(run: RunHistory): RunIssues {
   return {
+    indexGaps: run.indexFailures ?? [],
     failures: run.failures ?? [],
     keptCopies: run.keptCopies ?? [],
     notRemoved: (run.removals ?? [])
@@ -65,6 +69,12 @@ export function issuesReport(issues: RunIssues, heading = 'Issues from this run'
   };
 
   section(
+    plural(issues.indexGaps?.length ?? 0, 'place indexing did not finish',
+      'places indexing did not finish'),
+    'what, where it stopped, how far it got',
+    (issues.indexGaps ?? []).map((gap) => clean(describeGap(gap))),
+  );
+  section(
     plural(issues.failures.length, 'work that could not be downloaded',
       'works that could not be downloaded'),
     'work id, link, reason',
@@ -94,6 +104,33 @@ export function issuesReport(issues: RunIssues, heading = 'Issues from this run'
     issues.skipped.map((row) => [row.id ?? '', row.link ?? '', clean(row.error)].join('\t')),
   );
   return lines.join('\n') + '\n';
+}
+
+/**
+ * Exactly where indexing broke off, in words: which listing or collection, the pages read, the
+ * page that failed, and how far back in date the listing got - the helper's
+ * `describe_listing_gap`, said the same way so the History card and the issues file agree with
+ * the run's own window.
+ */
+export function describeGap(gap: IndexGap): string {
+  if (gap.kind === 'work') {
+    return `Work ${gap.id}: its page on AO3 could not be read, so it was not indexed (${gap.error}).`;
+  }
+  const walk = gap.walk === 'bookmarked' ? ' sorted by date bookmarked'
+    : gap.walk === 'updated' ? ' sorted by date updated' : '';
+  const where = gap.kind === 'collection'
+    ? `The ${gap.items ?? 'works'} of collection ${gap.collection}`
+    : `Your bookmarks${walk}`;
+  const total = gap.totalPages ? ` of ${gap.totalPages}` : '';
+  const read = gap.lastPage
+    ? `Pages ${gap.firstPage ?? 1} to ${gap.lastPage} were indexed (${gap.works ?? 0} works).`
+    : 'No page was indexed before it.';
+  const date = gap.sort === 'updated' ? gap.reachedUpdated : gap.reachedBookmarked;
+  const kind = gap.sort === 'updated' ? 'updated' : 'bookmarked';
+  const reached = gap.lastPage && date
+    ? ` The last page read reached works ${kind} on ${date}; anything ${kind} before that was not reached.`
+    : '';
+  return `${where} stopped at page ${gap.failedPage}${total}: ${gap.error}. ${read}${reached}`;
 }
 
 /**

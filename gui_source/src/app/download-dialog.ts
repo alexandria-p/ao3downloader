@@ -17,7 +17,9 @@ import {
   JobEvent,
   JobOptions,
   Jobs,
-  ResumableRun,
+  RetryMode,
+  RetryableRun,
+  RunStatus,
   RunHistory,
   baselineOf,
   RunStep,
@@ -91,6 +93,9 @@ export function parseWorkList(text: string): { ids: string[]; unknown: string[] 
  * out of `config.forced`, because what makes it special is what it *is* - the index - and
  * not that it happens to be on a list of locked types.
  */
+/** the workflows the helper retries as themselves - its RESUME_ACTIONS */
+const RETRY_AS_ITSELF = ['bookmarks', 'quick', 'custom', 'collections', 'collection'];
+
 const METADATA = 'JSON';
 
 const USERNAME_KEY = 'ao3.username';
@@ -175,13 +180,67 @@ export class DownloadDialog implements OnDestroy {
   protected readonly resuming = computed(
     () => this.action() === 'custom' && this.coverage() === 'resume',
   );
-  /** the unfinished runs on offer, once they have been asked for */
-  protected readonly resumableRuns = signal<ResumableRun[] | null>(null);
+  /** the earlier runs on offer for retrying, once they have been asked for */
+  protected readonly retryableRuns = signal<RetryableRun[] | null>(null);
   /** the id of the one chosen */
   protected readonly resumeRun = signal('');
   protected readonly chosenResume = computed(
-    () => this.resumableRuns()?.find((run) => run.id === this.resumeRun()) ?? null,
+    () => this.retryableRuns()?.find((run) => run.id === this.resumeRun()) ?? null,
   );
+  /** how the chosen run is retried - its own default until another is picked */
+  protected readonly retryMode = signal<RetryMode | ''>('');
+
+  protected chooseRetryRun(id: string): void {
+    this.resumeRun.set(id);
+    this.retryMode.set(this.chosenResume()?.retry.default ?? '');
+  }
+
+  /** a run's steps as it set out to take them, and how each went - older runs saved none */
+  protected stepsOf(run: RetryableRun): { id: string; label: string; outcome: string }[] {
+    const plan = run.progress?.stepPlan ?? [];
+    const outcomes = run.progress?.steps ?? {};
+    return plan.map(([id, label]) => ({ id, label, outcome: outcomes[id] ?? 'pending' }));
+  }
+
+  /** the label of the last step that finished before the first one that did not */
+  protected lastFinishedStep(run: RetryableRun): string {
+    let last = '';
+    for (const step of this.stepsOf(run)) {
+      if (step.outcome === 'done' || step.outcome === 'skipped' || step.outcome === 'earlier') {
+        last = step.label;
+      } else break;
+    }
+    return last;
+  }
+
+  protected outcomeWord(outcome: string): string {
+    return (
+      { done: 'finished', skipped: 'skipped', earlier: 'done by an earlier attempt',
+        failed: 'failed', running: 'did not finish', pending: 'not reached' } as Record<string, string>
+    )[outcome] ?? outcome;
+  }
+
+  protected statusWord(status: RunStatus): string {
+    return (
+      { success: 'finished', partial: 'partly finished', failed: 'failed', stopped: 'stopped',
+        interrupted: 'interrupted', abandoned: 'abandoned', running: 'interrupted' } as Record<string, string>
+    )[status] ?? status;
+  }
+
+  protected retryLabel(mode: RetryMode, run: RetryableRun): string {
+    switch (mode) {
+      case 'top':
+        return run.action === 'quick'
+          ? 'From the top - the same window again, back to its floor and up to when it first started'
+          : 'From the top';
+      case 'index':
+        return 'Carry on from its indexing - walks it finished are taken from the index, one that broke off goes on from where it stopped';
+      case 'downloads':
+        return 'Carry on from its downloads - the works it had settled on, checked and downloaded';
+      case 'failed':
+        return `Just the ${run.retry.failedWorks} ${run.retry.failedWorks === 1 ? 'work' : 'works'} it could not get`;
+    }
+  }
   /** the earlier scans a quick scan can be measured back to, once they have been asked for */
   protected readonly floorRuns = signal<RunHistory[] | null>(null);
   /** the id of the one chosen */
@@ -1078,10 +1137,12 @@ export class DownloadDialog implements OnDestroy {
     if (this.resuming()) {
       this.step.set('resume');
       // asked for fresh each time: a run may have been interrupted since the dialog opened
-      this.resumableRuns.set(null);
-      void this.jobs
-        .loadResumableRuns(this.library.store())
-        .then((runs) => this.resumableRuns.set(runs ?? []));
+      this.retryableRuns.set(null);
+      void this.jobs.loadRetryableRuns(this.library.store()).then((runs) => {
+        this.retryableRuns.set(runs ?? []);
+        // a run chosen from History arrives with its default way of retrying picked
+        if (this.resumeRun()) this.chooseRetryRun(this.resumeRun());
+      });
       return;
     }
     if (this.picksFloorRun()) {
@@ -1102,7 +1163,7 @@ export class DownloadDialog implements OnDestroy {
    */
   protected afterResume(): void {
     const chosen = this.chosenResume();
-    if (!chosen?.resumable) return;
+    if (!chosen?.retry.default || !this.retryMode()) return;
     const options = chosen.options ?? {};
     this.series.set(!!options['series']);
     this.images.set(!!options['images']);
@@ -1310,9 +1371,14 @@ export class DownloadDialog implements OnDestroy {
   }
 
   /** what the run is started with - everything but whether it runs in the background */
-  private startRequest(resumed: ResumableRun | null): StartRequest {
+  private startRequest(resumed: RetryableRun | null): StartRequest {
     return {
-      action: resumed ? (resumed.action as JobAction) : this.action(),
+      // a retry goes as the earlier run's own workflow where the helper resumes that kind, and
+      // as a custom run otherwise (a fic run, a debug run) - the helper takes the workflow, file
+      // types and options from the earlier run's record either way
+      action: resumed
+        ? (RETRY_AS_ITSELF.includes(resumed.action) ? (resumed.action as JobAction) : 'custom')
+        : this.action(),
       filetypes: this.chosenFiletypes(),
       options: {
         // a slice is only sent by the run that asked for one. the inputs keep whatever
@@ -1343,6 +1409,7 @@ export class DownloadDialog implements OnDestroy {
         floorRun: this.picksFloorRun() ? this.floorRun() : '',
         // the helper takes everything else from that run's own record
         resume: resumed ? resumed.id : '',
+        retryMode: resumed ? this.retryMode() || undefined : undefined,
         // only a run pointed at fics by hand can go without a login
         skipLogin: !this.logsIn(),
       } satisfies JobOptions,

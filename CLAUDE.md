@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1786 python passed; 786 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1838 python passed; 789 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1049,33 +1049,53 @@ The predicate takes the whole record rather than a set of action names because w
 covered everything depends on the options it ran with, not only on which button it was -
 which is exactly the date-range quick scan.
 
-### A run can be resumed, and says how far it got [EXPERIMENTAL]
+### A run can be retried, and says how far it got [EXPERIMENTAL]
 
-`RESUMING.md` (project root) is the full account; this is what not to break.
+`RESUMING.md` (project root) is the full account; this is what not to break. **Retry** replaced
+the old Resume button; **Resume** now means only un-pausing a run still going.
 
+- **Any ended run can be retried, and a retry is a new run** (its own id and history file,
+  `resumes`/`resumesFirst` back, `resumedBy` on the earlier one) - so a retry can be retried.
+  `retryable_among` (`POST /api/runs/retryable`) lists every run but one still going, each with
+  `retry_choices`: the four `RETRY_MODES` with `retry_problem` for each, `failedWorks`, and a
+  `default` from `retry_default` - the first step that did not finish (index broke off ->
+  `index`; stopped with a scope -> `downloads`; finished with failures -> `failed`; else `top`).
+  Fic runs get `top` and `failed` only.
+- **`retryMode` decides what of the earlier progress is taken on** (`retry_progress`, from
+  `prepare_resume`): `top` keeps only `floor` - with the copied baseline as ceiling, a quick scan
+  covers the **same window** again; `index` drops `scope` and the step markers, so indexing
+  runs again (finished walks from the index, a broken one from its anchor); `downloads` takes it
+  all (straight to `scope`, as the old resume did); `failed` is `floor` plus `scope` = the
+  failures. For a fic run `failed` sets `job.url` to the failed links (and `work`/`works` by
+  count). `''` is the old resume, kept for its rules (`resume_problem`).
+- **A retry request carries no link**, and `do_POST` skips the link checks when `resume` is set
+  - a collection retry used to be refused there. The page sends the earlier run's own action when
+  it is one of `RESUME_ACTIONS`, and `custom` otherwise (fic and debug runs), since `do_POST`
+  clears `resume` for any other action.
+- **Every run saves how each step went** (`Steps.on_change` -> progress `steps`) **and its plan**
+  (`stepPlan`, written with the record), which the Retry step lists, naming the last step that
+  finished.
+- **Indexing that breaks off makes a run `partial`** (`runs.STATUS_PARTIAL`, set in
+  `close_record` from `ao3.index_gaps`): `get_metadata` records the listing, pages read, failed
+  page, works, and the dates on the last page read (`index_failures`, `describe_listing_gap`);
+  a collection listing and a fic page do the same. `finish_walk_step` marks the step failed
+  (`Steps.fail`). `partial` is not `success`, so it is never a floor. A fic FicHub supplied in
+  the end is not a gap.
 - **`baseline` is what floors measure back to**, not `started` - `runs.baseline_of`, used by
   `quick_scan_floor` and `chosen_floor`. It is set in `begin_record` the moment the login
-  works, and a resumed run copies its **first** attempt's, so a finished resume measures back
-  to when that chain first looked at ao3. Older records fall back to `started`.
+  works, and a retry copies its **first** attempt's.
 - **`interrupted` is written by the page, never the helper.** `Jobs.settleInterrupted` marks a
-  `running` record the helper does not list in `GET /api/jobs` - which is every one of them
-  when the helper is not running. The app runs it (with a spinner) before any run window
-  opens.
+  `running` record the helper does not list in `GET /api/jobs`.
 - **A run saves `progress` as it goes** (`RunRecord.checkpoint`, written at once, never
-  batched - a batched checkpoint is one an interrupted run never writes). Walks go through
-  `walk_listing`, which records each page's last bookmark (the **anchor**) via
-  `Ao3.on_page`; `Ao3.walk_finished` says whether a walk reached its natural end, because
-  `get_metadata` swallows its own errors and returns what it had.
-- **Listings sorted by date bookmarked resume from the anchor** (`find_anchor` goes by the
-  page's dates to choose a direction); **listings sorted by date updated always restart** -
-  an updated fic jumps to the top, so no place in them holds. That is why the full scan and
-  the custom run now ask for `AO3_SORT_BY_BOOKMARKED` by name: the search depends on it.
-- **After indexing, nothing needs tracking.** The saved `scope` is re-checked and downloaded;
-  what already arrived is current, so the ordinary rules skip it.
+  batched). Walks go through `walk_listing`, which records each page's last bookmark (the
+  **anchor**) via `Ao3.on_page`; `Ao3.walk_finished` says whether a walk reached its natural
+  end, because `get_metadata` swallows its own errors and returns what it had.
+- **Listings sorted by date bookmarked carry on from the anchor** (`find_anchor`); **listings
+  sorted by date updated always restart** - an updated fic jumps to the top.
 - **`prepare_resume` replaces the job's action, file types and options** with the earlier
-  run's before the checklist is built, so a resumed quick scan is a quick scan whatever the
-  page sent. Recorded answers are reused through `Job.prior_answers`, inside `Job.ask`.
-- **A custom run over a slice is refused** (`resume_problem`): page numbers move.
+  run's before the checklist is built. Recorded answers are reused through `Job.prior_answers`.
+- **A custom run over a slice can only be retried from the top** (`RESUME_SLICE`): page
+  numbers move.
 
 ### A quick scan stops where ao3 stopped changing things
 

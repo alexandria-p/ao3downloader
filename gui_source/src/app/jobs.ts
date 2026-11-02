@@ -135,6 +135,8 @@ export interface JobOptions {
    * record and takes its workflow, file types and options from it - see RESUMING.md.
    */
   resume?: string;
+  /** how that run is retried - the helper's RETRY_MODES */
+  retryMode?: RetryMode;
 }
 
 /** what to do about downloaded files that carry no date, asked part way through a run */
@@ -194,15 +196,56 @@ export interface RunStep {
  */
 /**
  * How a run ended. `abandoned` is a background run the helper ended because it was left
- * paused past `PausedRunTimeoutMinutes` - ended the way a stop ends one, and resumable.
+ * paused past `PausedRunTimeoutMinutes` - ended the way a stop ends one. `partial` ended as it
+ * should, but some of its indexing broke off (`indexFailures` says where) - never a floor
+ * for a quick scan.
  */
 export type RunStatus =
   | 'running'
   | 'success'
+  | 'partial'
   | 'failed'
   | 'stopped'
   | 'interrupted'
   | 'abandoned';
+
+/**
+ * One place a run's indexing broke off. A listing or a collection's listing says which pages
+ * were read (`firstPage` to `lastPage`, null when none were), the page that failed, and how far
+ * back in date it got; a fic run's fic says which work's own page would not read.
+ */
+export interface IndexGap {
+  kind: 'listing' | 'collection' | 'work';
+  /** which of the run's walks: 'all', 'bookmarked' or 'updated' */
+  walk?: string;
+  listing?: string;
+  /** the date the listing is in order of: 'bookmarked', 'updated', or '' for ao3's default */
+  sort?: string;
+  collection?: string;
+  /** a collection's 'works' or 'bookmarked items' */
+  items?: string;
+  firstPage?: number;
+  lastPage?: number | null;
+  failedPage?: number;
+  totalPages?: number | null;
+  works?: number;
+  reachedBookmarked?: string;
+  reachedUpdated?: string;
+  id?: string;
+  link?: string;
+  error: string;
+}
+
+/** how a run can be retried - see the helper's RETRY_MODES */
+export type RetryMode = 'top' | 'index' | 'downloads' | 'failed';
+
+export interface RetryChoices {
+  modes: { mode: RetryMode; available: boolean; reason: string }[];
+  /** the way that picks up from its first step that did not finish; '' when none can */
+  default: RetryMode | '';
+  /** how many works it could not get */
+  failedWorks: number;
+}
 
 /** something a run stopped to ask, what was answered, and what came of it */
 export interface RunChoice {
@@ -267,17 +310,24 @@ export interface RunHistory {
   /** how many lines of the run window's account its history file holds, and how many it dropped */
   logLines?: number;
   logTrimmed?: number;
-  /** how far the run got, as it saved it - see RESUMING.md */
-  progress?: { step?: string; stepLabel?: string } & Record<string, unknown>;
+  /** where its indexing broke off - absent on older runs */
+  indexFailures?: IndexGap[];
+  /**
+   * How far the run got, as it saved it - see RESUMING.md. `stepPlan` is the steps it set out
+   * to take, `steps` how each had gone when it last saved.
+   */
+  progress?: {
+    step?: string;
+    stepLabel?: string;
+    stepPlan?: [string, string][];
+    steps?: Record<string, string>;
+  } & Record<string, unknown>;
 }
 
-/** an unfinished run, as offered for resuming */
-export interface ResumableRun extends RunHistory {
-  /** whether it can be picked up at all */
-  resumable: boolean;
-  /** why not, when it cannot */
-  reason: string;
-  /** things worth knowing before picking it up */
+/** a run that has ended, as offered for retrying */
+export interface RetryableRun extends RunHistory {
+  retry: RetryChoices;
+  /** things worth knowing before retrying it */
   warnings: string[];
 }
 
@@ -621,17 +671,17 @@ export class Jobs {
    * The unfinished scans that could be picked up, newest first, each saying whether it can
    * be and what to know first. The rule is the helper's, so it is asked, as for floors.
    */
-  async loadResumableRuns(store: LibraryStore | null): Promise<ResumableRun[] | null> {
+  async loadRetryableRuns(store: LibraryStore | null): Promise<RetryableRun[] | null> {
     if (!store) return null;
     try {
       await this.settleInterrupted(store);
-      const response = await this.helper.call(`/api/runs/resumable`, {
+      const response = await this.helper.call(`/api/runs/retryable`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runs: await readRunHistory(store) }),
       });
       if (!response.ok) throw new Error(String(response.status));
-      return ((await response.json()) as { runs: ResumableRun[] }).runs ?? [];
+      return ((await response.json()) as { runs: RetryableRun[] }).runs ?? [];
     } catch {
       return null;
     }

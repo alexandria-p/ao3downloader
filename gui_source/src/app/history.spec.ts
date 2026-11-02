@@ -129,21 +129,36 @@ describe('History', () => {
     expect(emitted).toEqual(['abc']);
   });
 
-  it('explains why a custom run over a slice cannot be resumed', async () => {
+  it('offers Retry on a custom run over a slice too - the run window says what it can do', async () => {
     await show([aRun({ action: 'custom', status: 'failed', progress: {},
                        options: { pages: 5, start: 1 } })]);
 
     const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
-    expect(button.disabled).toBe(true);
-    expect(button.title).toContain('same page numbers no longer hold the same bookmarks');
+    expect(button.textContent?.trim()).toBe('Retry [EXPERIMENTAL]');
+    expect(button.disabled).toBe(false);
   });
 
-  it('offers nothing to resume for a finished run, or one that is not a scan', async () => {
-    await show([aRun({ action: 'quick' }), aRun({ id: 'x', file: 'x.json', status: 'failed' })]);
-    expect(element.querySelector('.run-resume')).toBeNull();
+  it('offers Retry on every run that has ended - finished and failed ones, fic runs too', async () => {
+    await show([
+      aRun({ action: 'quick' }),
+      aRun({ id: 'x', file: 'x.json', status: 'failed' }),
+      aRun({ id: 'w', file: 'w.json', action: 'works', status: 'partial',
+             url: 'https://archiveofourown.org/works/1' }),
+    ]);
+
+    expect(Array.from(element.querySelectorAll('button')).filter((b) => b.textContent?.includes('Retry')).length).toBe(3);
   });
 
-  it('links a resumed run and the run it picked up, both ways', async () => {
+  it('offers no Retry on a run still going - it is paused and resumed in its own window', async () => {
+    jobs.activeRuns.set([{ ...going, id: 'abc' }]);
+    // the helper is still running it, so it is not settled as interrupted
+    jobs.leaveRunning = true;
+    await show([aRun({ status: 'running', finished: null })]);
+
+    expect(Array.from(element.querySelectorAll('button')).filter((b) => b.textContent?.includes('Retry')).length).toBe(0);
+  });
+
+  it('links a retry and the run it retried, both ways', async () => {
     await show([
       aRun({ id: 'later', file: 'b.json', action: 'quick', started: '2026-09-14T09:00:00',
              resumes: 'abc', baseline: '2026-09-13T12:01:00' }),
@@ -151,8 +166,8 @@ describe('History', () => {
     ]);
 
     const said = (element.textContent ?? '').replace(/\s+/g, ' ');
-    expect(said).toContain('Picks up where the run from');
-    expect(said).toContain('Resumed by the run from');
+    expect(said).toContain('A retry of the run from');
+    expect(said).toContain('Retried by the run from');
   });
 
   it('does not call a stopped run a failure', async () => {
@@ -521,19 +536,19 @@ describe('History', () => {
 
   // region abandoned runs
 
-  it('calls a run the helper ended for being left paused abandoned, and offers to resume it', async () => {
+  it('calls a run the helper ended for being left paused abandoned, and offers to retry it', async () => {
     await show([aRun({ action: 'quick', actionName: 'Quick Scan', status: 'abandoned',
                        progress: { step: 'index', stepLabel: 'Index bookmarks' } })]);
 
     expect(element.querySelector('.run-status')?.textContent).toContain('Abandoned');
     expect(element.textContent).toContain('left paused, so the helper ended it');
     expect(Array.from(element.querySelectorAll('button')).some(
-      (b) => b.textContent?.includes('Resume'))).toBe(true);
+      (b) => b.textContent?.includes('Retry'))).toBe(true);
   });
 
-  it('says to start again a run that cannot be resumed', async () => {
+  it('offers Retry on an abandoned run of any workflow', async () => {
     await show([aRun({ action: 'sync', status: 'abandoned' })]);
-    expect(element.textContent).toContain('Start the same run again');
+    expect(element.querySelector('.run-resume button')?.textContent).toContain('Retry');
   });
 
   it('says when a paused run in progress will be abandoned', async () => {
@@ -702,24 +717,33 @@ describe('History', () => {
     expect(buttons).not.toContain('Run again');
   });
 
-  it('offers Resume on an unfinished collection run', async () => {
+  it('offers Retry on an unfinished collection run', async () => {
     const emitted: string[] = [];
     await show([aRun({ action: 'collection', status: 'interrupted', progress: {},
                        url: 'https://archiveofourown.org/collections/x' })]);
     fixture.componentInstance.resume.subscribe((id) => emitted.push(id));
 
     const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
-    expect(button.textContent?.trim()).toBe('Resume [EXPERIMENTAL]');
-    expect(button.disabled).toBe(false);
+    expect(button.textContent?.trim()).toBe('Retry [EXPERIMENTAL]');
     button.click();
     expect(emitted).toEqual(['abc']);
   });
 
-  it('says a collection run with no saved link cannot be resumed', async () => {
-    await show([aRun({ action: 'collection', status: 'stopped', progress: {} })]);
+  it('calls a run whose indexing broke off partly finished, and says exactly where it stopped', async () => {
+    await show([aRun({ action: 'bookmarks', status: 'partial', indexFailures: [{
+      kind: 'listing', walk: 'all', sort: 'bookmarked', firstPage: 1, lastPage: 12,
+      failedPage: 13, totalPages: 80, works: 240, reachedBookmarked: '2023-05-01',
+      error: 'the page would not load',
+    }] })]);
 
-    expect(element.querySelector<HTMLButtonElement>('.run-resume button')!.disabled).toBe(true);
-    expect(element.textContent).toContain('before collection runs saved their link');
+    expect(element.querySelector('.run-status')?.textContent).toContain('Partly finished');
+    const said = (element.querySelector('.index-gaps')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(said).toContain('Indexing did not finish');
+    expect(said).toContain('Your bookmarks stopped at page 13 of 80: the page would not load.');
+    expect(said).toContain('Pages 1 to 12 were indexed (240 works).');
+    expect(said).toContain('reached works bookmarked on 2023-05-01');
+    // and it is one of the run's issues
+    expect(element.querySelector('.run-issues')?.textContent).toContain('Download issues (1)');
   });
 
   // endregion

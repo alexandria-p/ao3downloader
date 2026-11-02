@@ -7,6 +7,7 @@ Every run is written into the **History** tab (`runs/` in your library) the mome
 | **Running** | The helper is working on it now. Pinned at the top. *Not confirmed by the helper* means the helper hasn't answered yet; *on another helper* means another copy of the app started it. |
 | **Paused** | You pressed Pause. |
 | **Finished** | It reached the end. Some works may still have failed - see its issues. |
+| **Partly finished** | It reached the end, but its **indexing broke off** - a page of your bookmarks, a collection or a fic would not load. The card says exactly where: which pages were read, which failed, and how far back in date it got. It never counts as complete for a Quick Scan. |
 | **Stopped** | You pressed Stop. |
 | **Abandoned** | A background run left paused too long. Ends like a stop. |
 | **Failed** | Something ended it early - login refused or lapsed, library unreachable. The reason is on the entry. |
@@ -14,25 +15,25 @@ Every run is written into the **History** tab (`runs/` in your library) the mome
 
 Whatever the status, what the run saved stays saved.
 
-## Resuming [experimental]
+## Retrying [experimental]
 
-**Resume** on a stopped, failed, abandoned or interrupted run carries on as that same run, with its settings. Also under **Custom run > Pick up where an earlier run left off**.
+**Retry** is on every run that has ended, whatever its status, and every workflow. It starts a **new run** (with its own History entry), so a retry can be retried too. **Resume** now only means un-pausing a run that is still going.
 
-| Run | Resumable |
-| --- | --- |
-| Full scan, Quick Scan, custom run (all bookmarks or date range) | Yes |
-| Collection runs | Yes |
-| Custom run over a slice of pages | No - page numbers move as bookmarks change |
-| Specific fic, debug runs | No - just start again |
+The Retry window shows how each step went and the last one that finished, and offers:
 
-How it picks up:
+- **From the top** - the whole run again. A Quick Scan covers the same dates as the first attempt.
+- **Carry on from its indexing** - walks that finished are taken from your index; one that broke off carries on from where it stopped; then everything is checked and downloaded.
+- **Carry on from its downloads** - straight to the works it had settled on.
+- **Just the works it could not get** - only its failures. For a fic run, just those fics.
+
+The one that picks up from the first step that did not finish is chosen for you. Also under **Custom run > Retry an earlier run**.
+
+How it carries on:
 
 - **Walks by date bookmarked** carry on from the page holding the last bookmark saved. If that bookmark has moved, it looks a few pages either way, then starts over.
 - **Walks by date updated** start from the top again, since updated fics jump to the front.
-- **After indexing**, it goes straight to checking and downloading the works the first attempt covered.
 - **Collection runs** skip finished collections and carry on from each listing's last saved page, read again in case works shifted.
 - **Answers** the first attempt gave to questions are reused.
+- A custom run over a slice of pages can only be retried from the top - page numbers move as bookmarks change.
 
-A resumed scan keeps its first attempt's start time, so the next Quick Scan measures back to when the chain began.
-
-Anything that can't be resumed can simply be run again: every run skips what is already downloaded and current.
+A retried scan keeps its first attempt's start time, so the next Quick Scan measures back to when the chain began.

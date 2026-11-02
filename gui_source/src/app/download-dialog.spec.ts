@@ -8,7 +8,7 @@ import {
   AnswerChoice,
   JobAction,
   JobEvent,
-  ResumableRun,
+  RetryableRun,
   RunHistory,
   Jobs,
   ServerConfig,
@@ -64,11 +64,11 @@ class FakeJobs extends Jobs {
     return this.activeRuns();
   }
 
-  /** the unfinished runs the helper would offer for resuming */
-  resumableOnRecord: ResumableRun[] = [];
+  /** the ended runs the helper would offer for retrying */
+  retryableOnRecord: RetryableRun[] = [];
 
-  override async loadResumableRuns(): Promise<ResumableRun[] | null> {
-    return this.resumableOnRecord;
+  override async loadRetryableRuns(): Promise<RetryableRun[] | null> {
+    return this.retryableOnRecord;
   }
 
   /** how many times the history was checked for interrupted runs */
@@ -3163,44 +3163,62 @@ describe('DownloadDialog', () => {
 
   // endregion
 
-  // region picking up an earlier run
+  // region retrying an earlier run
 
-  function unfinished(over: Partial<ResumableRun> = {}): ResumableRun {
+  const ALL_MODES = (available: Partial<Record<string, string>> = {}) =>
+    (['top', 'index', 'downloads', 'failed'] as const).map((mode) => ({
+      mode, available: !(mode in available), reason: available[mode] ?? '',
+    }));
+
+  function ended(over: Partial<RetryableRun> = {}): RetryableRun {
     return {
       file: 'r.json', id: 'r1', action: 'quick', actionName: 'Quick Scan',
-      started: '2026-09-20T21:15:00', finished: null, status: 'interrupted',
+      started: '2026-09-20T21:15:00', finished: null, status: 'partial',
       filetypes: ['JSON', 'PDF'], options: { series: true, nonBookmarks: true },
       reindexed: [], downloaded: [], updated: [], choices: [], failures: [], skipped: [],
-      error: '', progress: { step: 'download', stepLabel: 'Download or update works as necessary' },
-      resumable: true, reason: '', warnings: [], ...over,
+      error: '',
+      progress: {
+        step: 'download', stepLabel: 'Download or update works as necessary',
+        stepPlan: [['login', 'Log in'], ['bookmarked', 'Index newly bookmarked'],
+                   ['index', 'Index recently updated'], ['download', 'Download']],
+        steps: { login: 'done', bookmarked: 'done', index: 'failed', download: 'done' },
+      },
+      retry: { modes: ALL_MODES({ failed: 'Every work it set out to get arrived.' }),
+               default: 'index', failedWorks: 0 },
+      warnings: [], ...over,
     };
   }
 
-  async function toResumePage() {
+  async function toRetryPage() {
     await open('custom');
     await advanceTo('options');
-    checkbox('Pick up where an earlier run left off')!.click();
+    checkbox('Retry an earlier run')!.click();
     await fixture.whenStable();
     button('Continue')!.click();
     await fixture.whenStable();
   }
 
-  it('offers picking up an earlier run as an experimental choice on a custom run only',
+  async function pick(id = 'r1') {
+    element.querySelector<HTMLInputElement>(`input[name="resumeRun"][value="${id}"]`)!.click();
+    await fixture.whenStable();
+  }
+
+  it('offers retrying an earlier run as an experimental choice on a custom run only',
     async () => {
       await open('custom');
       await advanceTo('options');
-      expect(checkbox('[EXPERIMENTAL] Pick up where an earlier run left off')).toBeDefined();
+      expect(checkbox('[EXPERIMENTAL] Retry an earlier run')).toBeDefined();
 
       fixture.destroy();
       await open('quick');
       await advanceTo('options');
-      expect(checkbox('Pick up where an earlier run left off')).toBeUndefined();
+      expect(checkbox('Retry an earlier run')).toBeUndefined();
     });
 
-  it('greys out every other option once resuming is chosen', async () => {
+  it('greys out every other option once retrying is chosen', async () => {
     await open('custom');
     await advanceTo('options');
-    checkbox('Pick up where an earlier run left off')!.click();
+    checkbox('Retry an earlier run')!.click();
     await fixture.whenStable();
 
     for (const label of ['Skip indexing', 'Overwrite existing downloads',
@@ -3210,32 +3228,53 @@ describe('DownloadDialog', () => {
     }
   });
 
-  it('lists the unfinished runs, and says why one cannot be picked up', async () => {
-    jobs.resumableOnRecord = [
-      unfinished({ warnings: ['It has already been resumed once.'] }),
-      unfinished({ id: 'r2', action: 'custom', actionName: 'Custom run', resumable: false,
-                   reason: 'A custom run over a slice of your bookmarks listing cannot be resumed' }),
+  it('lists every ended run, finished ones included, with any warnings', async () => {
+    jobs.retryableOnRecord = [
+      ended({ warnings: ['It has already been resumed once.'] }),
+      ended({ id: 'r2', status: 'success', actionName: 'Full Scan',
+              retry: { modes: ALL_MODES({ index: 'x', downloads: 'x', failed: 'x' }),
+                       default: 'top', failedWorks: 0 } }),
     ];
-    await toResumePage();
+    await toRetryPage();
 
     expect(currentStep()).toBe('resume');
     const said = element.querySelector('.floor-runs')?.textContent ?? '';
     expect(said).toContain('Quick Scan');
-    expect(said).toContain('Download or update works as necessary');
+    expect(said).toContain('partly finished');
+    expect(said).toContain('Full Scan');
+    expect(said).toContain('finished');
     expect(said).toContain('It has already been resumed once.');
-
-    const [ok, slice] = element.querySelectorAll<HTMLInputElement>('input[name="resumeRun"]');
-    expect(ok.disabled).toBe(false);
-    expect(slice.disabled).toBe(true);
-    // said on hover, and in words beside it
-    expect(slice.closest('label')!.title).toContain('cannot be resumed');
     expect(button('Continue')!.disabled).toBe(true);
   });
 
-  it('starts the run as the one it picks up, with that run\'s file types', async () => {
-    jobs.resumableOnRecord = [unfinished()];
-    await toResumePage();
-    element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.click();
+  it('says how each step went, the last one that finished, and offers carrying on from there',
+    async () => {
+      jobs.retryableOnRecord = [ended()];
+      await toRetryPage();
+      await pick();
+
+      const steps = Array.from(element.querySelectorAll('.retry-steps li'))
+        .map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+      expect(steps).toEqual([
+        'Log in - finished', 'Index newly bookmarked - finished',
+        'Index recently updated - failed', 'Download - finished',
+      ]);
+      expect(element.querySelector('.retry-steps .hint')?.textContent)
+        .toContain('The last step it finished was Index newly bookmarked');
+
+      // the helper's default is picked, and a way it cannot be retried is greyed with why
+      const modes = Array.from(element.querySelectorAll<HTMLInputElement>('input[name="retryMode"]'));
+      expect(modes.find((m) => m.checked)?.value).toBe('index');
+      const failed = modes.find((m) => m.value === 'failed')!;
+      expect(failed.disabled).toBe(true);
+      expect(failed.closest('label')!.title).toContain('Every work it set out to get arrived');
+    });
+
+  it('starts the retry as the run it retries, with the way of retrying chosen', async () => {
+    jobs.retryableOnRecord = [ended()];
+    await toRetryPage();
+    await pick();
+    element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
     await fixture.whenStable();
     button('Continue')!.click();
     await fixture.whenStable();
@@ -3254,10 +3293,30 @@ describe('DownloadDialog', () => {
     expect(started.action).toBe('quick');
     expect(started.filetypes).toEqual(['JSON', 'PDF']);
     expect(started.options.resume).toBe('r1');
+    expect(started.options.retryMode).toBe('top');
   });
 
-  it('opens set to resume a run picked from the history', async () => {
-    jobs.resumableOnRecord = [unfinished()];
+  it('retries a fic run as a custom run, which the helper turns back into the fic run', async () => {
+    jobs.retryableOnRecord = [ended({
+      action: 'works', actionName: 'Download several fics', status: 'failed',
+      failures: [{ id: '7', link: 'https://archiveofourown.org/works/7', error: 'gone' }],
+      retry: { modes: ALL_MODES().filter((m) => m.mode === 'top' || m.mode === 'failed'),
+               default: 'failed', failedWorks: 1 },
+    })];
+    await toRetryPage();
+    await pick();
+
+    expect(element.querySelector('.retry-modes')?.textContent).toContain('Just the 1 work it could not get');
+    button('Continue')!.click();
+    await fixture.whenStable();
+    await advanceTo('running');
+
+    expect(jobs.started[0].action).toBe('custom');
+    expect(jobs.started[0].options.retryMode).toBe('failed');
+  });
+
+  it('opens set to retry a run picked from the history, with its default way picked', async () => {
+    jobs.retryableOnRecord = [ended()];
     fixture = TestBed.createComponent(DownloadDialog);
     fixture.componentRef.setInput('action', 'custom');
     fixture.componentRef.setInput('resumeFrom', 'r1');
@@ -3265,10 +3324,11 @@ describe('DownloadDialog', () => {
     element = fixture.nativeElement as HTMLElement;
     await advanceTo('options');
 
-    expect(checkbox('Pick up where an earlier run left off')!.checked).toBe(true);
+    expect(checkbox('Retry an earlier run')!.checked).toBe(true);
     button('Continue')!.click();
     await fixture.whenStable();
     expect(element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.checked).toBe(true);
+    expect(element.querySelector<HTMLInputElement>('input[name="retryMode"]:checked')!.value).toBe('index');
   });
 
   // endregion

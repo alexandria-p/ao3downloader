@@ -1189,7 +1189,7 @@ def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
     options = record.get('options') or {}
     progress_so_far = record.get('progress') if isinstance(record.get('progress'), dict) else None
     if action == ACTION_COLLECTION and not record.get('url'): return strings.RESUME_NO_LINK
-    if action == ACTION_WORKS and not record.get('url'): return strings.RETRY_NO_FIC_LINKS
+    if action in FIC_ACTIONS and not record.get('url'): return strings.RETRY_NO_FIC_LINKS
     if mode == RETRY_TOP: return ''
     if mode == RETRY_FAILED:
         if action not in RESUME_ACTIONS and action not in FIC_ACTIONS:
@@ -4292,8 +4292,11 @@ class Handler(BaseHTTPRequestHandler):
 
         url = (body.get('url') or '').strip()
         # checked here rather than on the thread, so a bad link is a straight answer to the
-        # request instead of a job that starts and immediately fails
-        if action == ACTION_WORK:
+        # request instead of a job that starts and immediately fails. not for a retry: it
+        # carries no link of its own - the run takes the earlier run's, from its record
+        if options['resume']:
+            pass
+        elif action == ACTION_WORK:
             link = work_link(url)
             if not link:
                 self.send_json(400, {'error': strings.ERROR_NOT_A_WORK_LINK})

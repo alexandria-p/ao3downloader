@@ -6,7 +6,7 @@ scan. Any run that has ended can be retried: from the top, carrying on with its 
 from its downloads, or only the works it could not get.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from bs4 import BeautifulSoup
@@ -320,3 +320,117 @@ def test_an_unknown_retry_mode_is_dropped_rather_than_trusted():
     assert server.resolve_options({'retryMode': 'everything'})['retryMode'] == ''
 
 # endregion
+
+
+# region every kind of run can be retried, a retry is a run of its own, and it can be retried
+
+def started(library, record_id: str, mode: str) -> server.Job:
+    """A retry of the run `record_id`, taken on as the run thread does before it logs in."""
+    job = server.Job(server.ACTION_CUSTOM, ['JSON'], 'Someone',
+                     server.resolve_options({'resume': record_id, 'retryMode': mode}))
+    server.prepare_resume(job, library)
+    return job
+
+
+@pytest.mark.parametrize('action', [server.ACTION_BOOKMARKS, server.ACTION_QUICK,
+                                    server.ACTION_CUSTOM, server.ACTION_COLLECTIONS,
+                                    server.ACTION_COLLECTION])
+@pytest.mark.parametrize('mode', [server.RETRY_TOP, server.RETRY_INDEX])
+def test_every_scan_and_collection_run_can_be_retried(library, action, mode):
+    write_run(library, id='s' * 32, action=action, status=runs.STATUS_PARTIAL,
+              url='https://archiveofourown.org/collections/yuletide', progress={'walks': {}})
+
+    job = started(library, 's' * 32, mode)
+
+    assert job.action == action
+    assert job.options['retryMode'] == mode
+
+
+@pytest.mark.parametrize('action, url', [
+    (server.ACTION_WORK, 'https://archiveofourown.org/works/1'),
+    (server.ACTION_WORKS, 'https://archiveofourown.org/works/1\nhttps://archiveofourown.org/works/2'),
+])
+def test_a_fic_run_can_be_retried_from_the_top_with_the_fics_it_was_given(library, action, url):
+    write_run(library, id='w' * 32, action=action, status=runs.STATUS_SUCCESS, url=url)
+
+    job = started(library, 'w' * 32, server.RETRY_TOP)
+
+    assert job.action == action and job.url == url
+
+
+def test_a_fic_run_from_before_runs_kept_their_links_cannot_be_retried(library):
+    record = a_record(action=server.ACTION_WORK)
+    assert server.retry_problem(record, server.RETRY_TOP, set()) == strings.RETRY_NO_FIC_LINKS
+
+
+def test_a_retry_is_a_new_run_of_its_own_linked_both_ways_to_the_one_it_retries(library):
+    earlier = write_run(library, id='a' * 32, action=server.ACTION_QUICK,
+                        status=runs.STATUS_PARTIAL, baseline='2025-03-01T10:00:00',
+                        progress={'floor': '2025-02-01'})
+    job = started(library, 'a' * 32, server.RETRY_INDEX)
+    job.record = runs.RunRecord(library, job.id, job.action, 'Quick Scan', job.filetypes,
+                                job.options)
+
+    server.begin_record(job, library)
+
+    assert job.id != earlier['id']
+    assert job.record.data['resumes'] == 'a' * 32
+    assert runs.find_run(library, 'a' * 32)['resumedBy'] == job.id
+    # still measuring from when the first attempt logged in
+    assert job.record.data['baseline'] == '2025-03-01T10:00:00'
+    assert len(runs.read_runs(library)) == 2
+
+
+def test_a_retry_can_itself_be_retried_and_keeps_the_first_attempts_window(library):
+    write_run(library, id='a' * 32, action=server.ACTION_QUICK, status=runs.STATUS_PARTIAL,
+              baseline='2025-03-01T10:00:00', progress={'floor': '2025-02-01'})
+    # the first retry, which itself broke off
+    write_run(library, id='b' * 32, action=server.ACTION_QUICK, status=runs.STATUS_FAILED,
+              baseline='2025-03-01T10:00:00', resumes='a' * 32, resumesFirst='a' * 32,
+              progress={'floor': '2025-02-01'}, options={'retryMode': 'index'})
+
+    assert server.retry_choices(runs.find_run(library, 'b' * 32), set())['default']
+    job = started(library, 'b' * 32, server.RETRY_TOP)
+
+    assert job.resume['id'] == 'b' * 32 and job.resume['first'] == 'a' * 32
+    assert job.resume['baseline'] == '2025-03-01T10:00:00'
+    assert job.resume['progress'] == {'floor': '2025-02-01'}
+
+
+def test_a_retry_of_a_fic_runs_failures_can_be_retried_in_turn(library):
+    write_run(library, id='f' * 32, action=server.ACTION_WORKS, status=runs.STATUS_PARTIAL,
+              url='https://archiveofourown.org/works/1\nhttps://archiveofourown.org/works/2',
+              failures=[{'id': '2', 'link': 'https://archiveofourown.org/works/2'}])
+    job = started(library, 'f' * 32, server.RETRY_FAILED)
+    # the retry is a single fic run now, and records the one fic it was given
+    assert job.action == server.ACTION_WORK
+    write_run(library, id='g' * 32, action=job.action, status=runs.STATUS_PARTIAL, url=job.url,
+              failures=[{'id': '2', 'link': 'https://archiveofourown.org/works/2'}])
+
+    again = started(library, 'g' * 32, server.RETRY_FAILED)
+
+    assert again.action == server.ACTION_WORK
+    assert again.url == 'https://archiveofourown.org/works/2'
+
+
+@pytest.mark.parametrize('action', [server.ACTION_COLLECTION, server.ACTION_WORK,
+                                    server.ACTION_WORKS])
+def test_a_retry_request_carries_no_link_and_is_not_refused_for_it(action):
+    # the run takes the earlier run's link from its record, after the request is accepted
+    sent = {}
+    handler = MagicMock()
+    handler.path = '/api/jobs'
+    handler.read_json.return_value = {
+        'action': server.ACTION_CUSTOM if action != server.ACTION_COLLECTION else action,
+        'username': 'Someone', 'password': 'a-password', 'filetypes': ['JSON'],
+        'options': {'resume': 'r' * 32, 'retryMode': 'top'}}
+    handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
+
+    with patch.object(server.threading, 'Thread'):
+        server.Handler.do_POST(handler)
+
+    assert sent['status'] == 202, sent
+    assert sent['body']['options']['retryMode'] == 'top'
+
+# endregion
+

@@ -1,45 +1,60 @@
-# Resuming interrupted runs [EXPERIMENTAL]
+# Retrying runs [EXPERIMENTAL]
 
-How a full scan, quick scan, custom run or collection run that did not finish can be picked up
-where it left off, and why each part works the way it does. The words used here are defined in
+How any run that has ended can be run again - from the top, or carrying on from the first step
+that did not finish - and why each part works the way it does. (This was *Resume*; **Resume**
+now means only un-pausing a run that is still going, in its own window.) The words used here are defined in
 `TERMINOLOGY.md`.
 
-## Which runs can be resumed
+## Which runs can be retried
 
-| Run | Resumable? |
-| --- | --- |
-| Full scan | Yes |
-| Quick scan | Yes, with or without a date range |
-| Custom run over **all bookmarks** (indexing or not) | Yes |
-| Custom run over **a date range** | Yes |
-| Custom run over **a slice of your bookmarks listing** | **No** - see below |
-| Index my collections, Index collection by URL | Yes - see [Collection runs](#collection-runs). A collection-by-URL run from before runs saved their link cannot be |
-| Specific fic, the debug runs | No - they are short, so starting again is the resume |
+**Every run that has ended**: finished, partly finished, failed, stopped, interrupted or
+abandoned, of every workflow - and a retry is a new run with its own history file, so a retry
+can itself be retried. A run still going is not offered: it is paused and resumed in its own
+window.
 
-A run can be resumed when it **stopped**, **failed**, was **abandoned** or was **interrupted**, and was made by a
-version of the app that saves its progress (older runs have nothing to pick up from).
+| Way to retry | What it does | Offered on |
+| --- | --- | --- |
+| **From the top** | The same run again from its first step. A quick scan covers the **same window** as the first attempt: back to its floor, and up to when the first attempt started. | Every run (a fic run needs the links it was given, which older fic runs did not keep) |
+| **Carry on from its indexing** | Walks it finished are taken from the index; one that broke off carries on from where it stopped (see below); everything is then checked and downloaded. | Full, quick and custom scans, collection runs (not a custom run over a slice - see below) |
+| **Carry on from its downloads** | Straight to the works it had settled on, checked and downloaded - nothing is indexed again. | Those runs, once they got as far as checking their files |
+| **Just the works it could not get** | Downloads only the works in its failures list. For a fic run, runs again over just those fics. | Any scan, collection run or fic run with failures |
 
-**Why a slice cannot be resumed.** A slice is chosen by page number, and page numbers do not
-stay put: every bookmark added or removed since moves every page after it. A resumed slice
-would be covering different bookmarks from the ones it was asked for, so it is listed but
-greyed out, and says why when you hover over it.
+The window picks **the way that carries on from the first step that did not finish**: a run whose
+indexing broke off carries on with its indexing, one stopped after settling its works carries on
+with its downloads, a finished run with failures retries just those, and a clean finished run
+starts from the top. It also lists how each step went (`stepPlan` and `steps` in the history
+file) and names the last one that finished.
 
-Any unfinished run is offered, including one that has already been resumed, or one older than
-a scan that has since finished. Those come with a warning, because resuming them will mostly
-go over ground already covered.
+**Why a slice cannot carry on.** A slice is chosen by page number, and page numbers do not
+stay put: every bookmark added or removed since moves every page after it. Carrying on would
+cover different bookmarks from the ones it was asked for, so only *from the top* is offered.
+
+A run that has already been retried, or one older than a scan that has since finished, comes
+with a warning, because retrying it will mostly go over ground already covered.
+
+## Partly finished runs
+
+A run that ended as it should, but whose **indexing broke off** - a page of your bookmarks that
+would not load after its retries, a collection's listing, a fic's own page - is `partial`, not
+`success`. What it indexed is kept and downloaded; the rest was never reached. Its history file
+says exactly where (`indexFailures`): which listing or collection, the pages read, the page that
+failed, the works indexed, and how far back in date the last page read reached. The checklist
+marks the index step **failed**, and the History card and the issues file say the same.
+
+**A partly finished run is never a floor for a quick scan** - only a `success` is - so the next
+quick scan measures back to an earlier complete run, and nothing beyond the break is skipped.
 
 ## Where to find it
 
-- **Custom run → What this run covers → [EXPERIMENTAL] Pick up where an earlier run left off.**
-  Every other option on the page is then greyed out, and the next page lists the unfinished
-  runs to choose from, each saying how far it got.
-- **History tab → Resume [EXPERIMENTAL]** on an unfinished run's card opens that same custom
-  run with the run already chosen.
+- **History tab → Retry [EXPERIMENTAL]** on any ended run's card opens a custom run with that run
+  chosen and its default way of retrying picked.
+- **Custom run → What this run covers → [EXPERIMENTAL] Retry an earlier run** lists every ended
+  run to choose from.
 
 The file types page shows the earlier run's file types, locked. The run then starts **as the
-earlier run's own workflow** - a resumed quick scan is a quick scan, a resumed full scan is a
-full scan - with its file types and options. The helper reads all of that from the earlier
-run's own history file, so nothing the page sends can change it.
+earlier run's own workflow** - a retried quick scan is a quick scan - with its file types and
+options. The helper reads all of that from the earlier run's own history file, so nothing the
+page sends can change it; a retry request carries no link of its own, and is not checked for one.
 
 ## How an interrupted run is recognised
 
