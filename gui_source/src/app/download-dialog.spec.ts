@@ -3203,6 +3203,11 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  async function acknowledge() {
+    element.querySelector<HTMLInputElement>('input[name="retryAcknowledged"]')!.click();
+    await fixture.whenStable();
+  }
+
   it('offers retrying an earlier run as an experimental choice on a custom run only',
     async () => {
       await open('custom');
@@ -3284,6 +3289,7 @@ describe('DownloadDialog', () => {
     await pick();
     element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
     await fixture.whenStable();
+    await acknowledge();
     button('Continue')!.click();
     await fixture.whenStable();
 
@@ -3315,12 +3321,50 @@ describe('DownloadDialog', () => {
     await pick();
 
     expect(element.querySelector('.retry-modes')?.textContent).toContain('Just the 1 work it could not get');
+    await acknowledge();
     button('Continue')!.click();
     await fixture.whenStable();
     await advanceTo('running');
 
     expect(jobs.started[0].action).toBe('custom');
     expect(jobs.started[0].options.retryMode).toBe('failed');
+  });
+
+  it('asks for the original run\'s dates and settings to be acknowledged before going on',
+    async () => {
+      jobs.retryableOnRecord = [ended({
+        baseline: '2026-09-20T21:15:00', options: { series: true, overwrite: true },
+        progress: { ...ended().progress, floor: '2026-09-01' },
+      })];
+      await toRetryPage();
+      await pick();
+
+      const terms = element.querySelector('.retry-terms')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(terms).toContain('Back to 2026-09-01, and up to 2026-09-20');
+      expect(terms).toContain('File types: JSON, PDF');
+      expect(terms).toContain('overwrite existing downloads');
+      expect(terms).toContain('get all works from encountered series');
+      expect(button('Continue')!.disabled).toBe(true);
+
+      await acknowledge();
+      expect(button('Continue')!.disabled).toBe(false);
+
+      // picking another way of retrying the same run keeps the tick
+      element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
+      await fixture.whenStable();
+      expect(button('Continue')!.disabled).toBe(false);
+    });
+
+  it('names a date range as the dates a retry keeps', async () => {
+    jobs.retryableOnRecord = [ended({
+      action: 'custom', actionName: 'Custom run',
+      options: { dates: true, dateFrom: '2026-01-01', dateTo: '2026-02-01' },
+    })];
+    await toRetryPage();
+    await pick();
+
+    expect(element.querySelector('.retry-dates')?.textContent)
+      .toContain('Fics AO3 updated from 2026-01-01 to 2026-02-01');
   });
 
   it('opens set to retry a run picked from the history, with its default way picked', async () => {

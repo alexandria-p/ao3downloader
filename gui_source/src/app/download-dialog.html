@@ -730,13 +730,34 @@
                 </label>
               }
             </fieldset>
+
+            @if (retryTerms(run); as terms) {
+              <div class="retry-terms">
+                <p><strong>It runs with the original run's dates and settings</strong></p>
+                <p class="retry-dates">{{ terms.dates }}</p>
+                <ul>
+                  @for (line of terms.settings; track $index) {
+                    <li>{{ line }}</li>
+                  }
+                </ul>
+                <label class="check">
+                  <input type="checkbox" name="retryAcknowledged"
+                         [checked]="retryAcknowledged()"
+                         (change)="retryAcknowledged.set($any($event.target).checked)" />
+                  <span>
+                    I understand this retry uses the date(s) of the original run and the original
+                    run's settings, as above - not today's date, and not settings chosen now.
+                  </span>
+                </label>
+              </div>
+            }
           }
         }
       </section>
       <footer>
         <button type="button" class="button subtle" (click)="backFrom('resume')">Back</button>
         <button type="button" class="button primary"
-                [disabled]="!chosenResume()?.retry?.default || !retryMode()"
+                [disabled]="!chosenResume()?.retry?.default || !retryMode() || !retryAcknowledged()"
                 (click)="afterResume()">
           Continue
         </button>

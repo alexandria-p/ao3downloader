@@ -828,6 +828,23 @@ fieldset.bare:disabled {
   color: var(--text-dim);
 }
 
+.retry-terms {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #5a7f9a;
+  border-radius: 5px;
+  background: #22323d;
+}
+
+.retry-terms p {
+  margin: 0 0 6px;
+}
+
+.retry-terms ul {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
 .retry-modes {
   margin-top: 10px;
 }

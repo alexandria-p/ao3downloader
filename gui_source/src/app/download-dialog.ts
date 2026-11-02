@@ -190,9 +190,57 @@ export class DownloadDialog implements OnDestroy {
   /** how the chosen run is retried - its own default until another is picked */
   protected readonly retryMode = signal<RetryMode | ''>('');
 
+  /** ticked to say the retry is understood to run with the original run's dates and settings */
+  protected readonly retryAcknowledged = signal(false);
+
   protected chooseRetryRun(id: string): void {
     this.resumeRun.set(id);
     this.retryMode.set(this.chosenResume()?.retry.default ?? '');
+    // a different run has different dates and settings, so it is acknowledged afresh
+    this.retryAcknowledged.set(false);
+  }
+
+  /**
+   * What a retry of `run` will use, said before it is acknowledged: the dates it measures by
+   * and the settings it runs with - both the original run's, carried through every retry in a
+   * chain, never today's or whatever the window would offer now.
+   */
+  protected retryTerms(run: RetryableRun): { dates: string; settings: string[] } {
+    const options = run.options ?? {};
+    const day = (value: unknown) => String(value ?? '').slice(0, 10);
+    const began = day(baselineOf(run));
+    const ranged = !!options['dates'];
+    let dates: string;
+    if (run.action === 'quick') {
+      const floor = ranged ? day(options['dateFrom']) : day(run.progress?.['floor']);
+      const end = ranged ? day(options['dateTo']) : '';
+      const ceiling = end && end < began ? end : began;
+      dates = `Back to ${floor || 'the start of your bookmarks (it had no floor)'}, and up to ` +
+        `${ceiling} - fics dated after that are left for your next scan.`;
+    } else if (run.action === 'custom' && ranged) {
+      dates = `Fics AO3 updated from ${day(options['dateFrom']) || 'any date'} to ` +
+        `${day(options['dateTo']) || 'any date'}.`;
+    } else {
+      dates = `Its first attempt started ${began}, and that is the date it is measured from.`;
+    }
+    const named: Record<string, string> = {
+      overwrite: 'overwrite existing downloads',
+      series: 'get all works from encountered series',
+      nonBookmarks: 'check non-bookmarks for updates',
+      images: 'save embedded images',
+      collectionWorks: 'index and download encountered works',
+      subcollections: 'follow subcollections',
+      parentCollections: 'follow parent collections',
+      skipLogin: 'without logging in',
+    };
+    const on = Object.entries(named).filter(([key]) => options[key] === true).map(([, name]) => name);
+    if (options['reindex'] === false) on.push('skip indexing');
+    const settings = [
+      `${run.actionName || run.action}, as it was run`,
+      `File types: ${(run.filetypes ?? []).join(', ') || 'none'}`,
+      `Options: ${on.length ? on.join('; ') : 'none ticked'}`,
+    ];
+    return { dates, settings };
   }
 
   /** a run's steps as it set out to take them, and how each went - older runs saved none */
@@ -1167,7 +1215,7 @@ export class DownloadDialog implements OnDestroy {
    */
   protected afterResume(): void {
     const chosen = this.chosenResume();
-    if (!chosen?.retry.default || !this.retryMode()) return;
+    if (!chosen?.retry.default || !this.retryMode() || !this.retryAcknowledged()) return;
     const options = chosen.options ?? {};
     this.series.set(!!options['series']);
     this.images.set(!!options['images']);

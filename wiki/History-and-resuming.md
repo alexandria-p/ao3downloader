@@ -27,6 +27,11 @@ interrupted or abandoned - from its History entry, or from **Custom run > Retry 
 run**. A retry is a **new run** with its own History entry, linked both ways to the run it
 retries, so a retry can be retried in turn.
 
+Before it goes on, the Retry window lists **the original run's dates and settings** - for a
+Quick Scan, back to its floor and up to the day it first started; for a date range, the range;
+its file types and the options it had ticked - and asks you to tick that you understand the
+retry uses those, not today's date or settings chosen now.
+
 ### The ways to retry
 
 | Choice | What it does |
