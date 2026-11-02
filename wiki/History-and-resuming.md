@@ -46,15 +46,27 @@ downloads stopped*; finished with failures → *just the works it could not get*
 
 ### Which choices each workflow has
 
-| Workflow | Choices |
-| --- | --- |
-| **Full Scan** | All six. |
-| **Quick Scan** (with or without a date range) | All six. |
-| **Custom run** - all bookmarks, or a date range | All six. |
-| **Custom run** - a slice of pages | From the top, start its indexing from the top, just the works it could not get. Page numbers move as bookmarks change, so a slice cannot be carried on. |
-| **Index your collections** / **index a collection by link** | All six. |
-| **Download a fic** / **download several fics** | From the top, just the fics it could not get. |
-| The debug runs (combined run, update incomplete, new bookmarks only) | From the top. |
+| Workflow | From the top | Start its indexing from the top | Carry on from where its indexing stopped | Start its downloads from the top | Carry on from where its downloads stopped | Just the works it could not get |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Full Scan** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Quick Scan** (with or without a date range) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Custom run** - all bookmarks, or a date range | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Custom run** - a slice of pages | ✓ | ✓ | – | – | – | ✓ |
+| **Index your collections** / **index a collection by link** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Download a fic** / **download several fics** | ✓ | – | – | – | – | ✓ (just those fics) |
+| **Debug runs** (combined run, update incomplete, new bookmarks only) | ✓ | – | – | – | – | – |
+
+- The two download choices also need the run to have **reached its downloads** - a run stopped
+  while indexing has them greyed out. *Just the works it could not get* needs the run to have
+  had failures.
+- **Carry on from where its indexing stopped** differs by workflow: the Full Scan and a custom
+  run over all bookmarks walk by date bookmarked with no ceiling (a walk that never started
+  begins at page 1); a Quick Scan's two walks and a custom date range walk from their ceiling;
+  collection runs take finished collections from your index and carry on each unfinished one
+  from its last saved page. See below.
+- **A slice of pages cannot be carried on**: page numbers move as bookmarks change.
+- **The fic runs** have no listing to walk; instead of carrying on they retry just the fics they
+  could not get, and only those fics' missing formats.
 
 ### How a walk is picked up again
 
