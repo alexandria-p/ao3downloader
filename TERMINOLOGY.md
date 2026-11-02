@@ -45,7 +45,7 @@ the same thing in conversation.
 - **Report** - the end-of-run lists of what failed, was skipped, or needs checking.
 - **Run status** [outcome] - what a run's History entry says about how it went. Every status keeps what the run saved, and offers **Download log** and (when there are any) **Download issues**:
   - **In progress - running** - the helper is working on it now; pinned at the top of History. Its own entry says *Running*, or *Running - not confirmed by the helper* (the helper has not answered yet), or *Running on another helper* (started from another copy of the app on the same library). Record status `running`.
-  - **In progress - paused** - the user pressed Pause; it waits before its next request, never mid-save. Not a record status: the record still says `running`. A background run left paused becomes *Abandoned*; any other stays paused until resumed or stopped.
+  - **In progress - paused** - the user pressed Pause; it holds at once wherever it is - before or during a request (the login included), during a wait, or between library reads and writes - and Resume does the interrupted thing again; never mid-save. Not a record status: the record still says `running`. A background run left paused becomes *Abandoned*; any other stays paused until resumed or stopped.
   - **Finished** [successful] - reached its end. Individual works may still have failed; they are in its issues. Record status `success`.
   - **Stopped** - the user pressed Stop; it ended at the next safe point. Record status `stopped`.
   - **Abandoned** - see below. Record status `abandoned`.
