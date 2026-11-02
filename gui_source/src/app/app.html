@@ -417,9 +417,13 @@
     </p>
     @if (feedbackOffered()) {
       <p class="hint">
-        No GitHub account? Use the <strong>Feedback</strong> tab on the right edge of the page -
-        it opens an issue for you, and can attach your latest run's log.
+        No GitHub account? Send feedback instead - it opens an issue for you, and can attach your
+        latest run's log. The <strong>Feedback</strong> tab on the right edge of every page opens
+        the same form.
       </p>
+      <button type="button" class="button primary send-feedback" (click)="openFeedback()">
+        Send feedback
+      </button>
     }
   </section>
 } @else {

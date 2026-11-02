@@ -228,7 +228,8 @@ export class Feedback implements OnDestroy {
     this.unmountCheck();
   }
 
-  protected show(): void {
+  /** opens the form - from the tab, or from the Report a bug page's button */
+  show(): void {
     if (this.stage() === 'sent') this.reset();
     this.open.set(true);
   }

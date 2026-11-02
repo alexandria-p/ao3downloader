@@ -66,6 +66,10 @@ export class App {
   protected readonly issuesUrl = computed(() => `${this.repositoryUrl()}/issues`);
   /** whether the feedback tab is there to point at - only on a copy built with its Worker */
   protected readonly feedbackOffered = computed(() => !!this.helper.settings().feedbackUrl);
+  /** the Report a bug page's button opens the same window the Feedback tab does */
+  protected openFeedback(): void {
+    this.feedback()?.show();
+  }
   /** only the Windows, Mac or Linux app can install an update itself; anywhere else the banner links it */
   protected readonly canUpdate = this.updates.canUpdate;
   protected readonly updateProgress = this.updates.updating;
@@ -114,6 +118,7 @@ export class App {
   protected readonly warning = signal(false);
 
   /** the fallback picker, for browsers with no directory picker of their own */
+  private readonly feedback = viewChild(Feedback);
   private readonly folderInput = viewChild<ElementRef<HTMLInputElement>>('folderInput');
 
   /**

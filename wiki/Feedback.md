@@ -2,7 +2,8 @@
 
 The **Feedback** tab sits on the right edge of the hosted page and of the Windows, Mac and Linux
 apps. Hover over it and it slides out; click it to open the form. It works in the middle of a run,
-too.
+too - the tab and the form sit above the run window. The **Report a bug** tab has a **Send
+feedback** button that opens the same form.
 
 1. Choose **Positive** or **Negative**.
 2. Write what you want to say.

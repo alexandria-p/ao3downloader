@@ -8,6 +8,7 @@ import { Bookmark, BookmarksExport } from './bookmarks';
 import { Collection } from './collections';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
+import { Turnstile } from './feedback';
 import { StorageChoice } from './storage-choice';
 
 function work(id: number): Bookmark {
@@ -763,6 +764,35 @@ describe('App', () => {
     );
     // something to read, not a folder to act on - no run buttons
     expect(element.querySelector('.actions')).toBeNull();
+  });
+
+  it('opens the feedback form from a button on the Report a bug page', async () => {
+    // no Cloudflare in jsdom
+    vi.spyOn(TestBed.inject(Turnstile), 'render').mockResolvedValue('widget');
+    vi.spyOn(TestBed.inject(Turnstile), 'remove').mockImplementation(() => {});
+    TestBed.inject(HelperConnection).settings.update((c) => ({
+      ...c,
+      feedbackUrl: 'https://feedback.example.com',
+      turnstileSiteKey: 'site-key',
+    }));
+    const { fixture, element } = await render(1);
+    tab(element, 'Report a bug')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('app-feedback .modal')).toBeNull();
+
+    element.querySelector<HTMLButtonElement>('.report-bug button.send-feedback')!.click();
+    await fixture.whenStable();
+
+    // the same window the Feedback tab opens, not a second form
+    expect(element.querySelectorAll('app-feedback .modal [role=dialog]')).toHaveLength(1);
+  });
+
+  it('offers no feedback button on the Report a bug page when this copy cannot send it', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'Report a bug')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('.report-bug button.send-feedback')).toBeNull();
   });
 
   it('says its version and links the repository on every tab', async () => {

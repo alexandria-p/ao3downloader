@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1752 python passed; 756 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **1752 python passed; 758 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -505,8 +505,12 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   wrote** (`downloadAttempt`, through `issues.saveText`) and GitHub's new-issue page in a new
   tab, pre-filled with the title and message (`newIssueFilled`). The message is capped and the
   log left out, because the address carries it.
-- **Its window is z-index 200**, above a run window and the passcode gate (100). The tab is
-  110, so it can still be clicked while the gate is up.
+- **The tab is z-index 1000 and its window 1001**, far above a run window (50) and the passcode
+  gate and setup overlay (100), so it can be clicked mid-run or while the gate is up, and a layer
+  added later cannot slip over it unnoticed. `app-feedback` is also the last element in
+  `app.html`. **The Report a bug page has a Send feedback button** (`App.openFeedback`, through
+  `viewChild(Feedback)` and its public `show()`), shown only when the tab is: it opens the same
+  window, never a second form.
 - **Turnstile is behind an injectable seam** (`Turnstile`), like `FolderStore`, because there
   is no Cloudflare in jsdom.
 

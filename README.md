@@ -167,7 +167,8 @@ variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TI
 ## Feedback
 
 The hosted page and the Windows, Mac and Linux apps have a **Feedback** tab on the right edge
-of the page. It opens a short form: positive or negative, a message, and optionally a name
+of the page, above everything else, a run window included; the **Report a bug** tab's **Send
+feedback** button opens the same form. It opens a short form: positive or negative, a message, and optionally a name
 and the log of your latest run, with your AO3 username taken out of it. Sending it opens a
 public GitHub issue in this repository, labelled `feedback`, with no GitHub account needed. The
 page links the issue as soon as it exists. It goes through a small Cloudflare Worker, not
