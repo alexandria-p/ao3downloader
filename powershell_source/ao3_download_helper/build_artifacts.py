@@ -518,7 +518,7 @@ one fic, and downloads it in the formats you pick. A link to any chapter of it w
 line or separated by commas, spaces or semicolons, up to 500. Each is indexed in turn, then
 all are downloaded; FicHub is offered once, at the end, for every fic that failed.
 
-Every run's options offer **Skip AO3 login?**, unticked by default and not recommended:
+Every run's login page offers **Skip AO3 login?**, unticked by default and not recommended:
 logged out, private bookmarks are not picked up, fics restricted to AO3 users can't be
 reached, and the run may have to fall back on FicHub. A run reading your own bookmarks or
 collections still asks for your username, but never your password.

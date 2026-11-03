@@ -857,6 +857,29 @@ fieldset.bare:disabled {
   padding-left: 20px;
 }
 
+/* what the earlier attempt ran into - amber, like History's things to check, not failure red */
+.retry-issues {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #8a6d3b;
+  border-radius: 5px;
+  background: #33291a;
+}
+
+.retry-issues p {
+  margin: 0 0 6px;
+}
+
+.retry-issues ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.retry-issue-details {
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
 .retry-modes {
   margin-top: 10px;
 }

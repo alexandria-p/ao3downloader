@@ -37,7 +37,7 @@ Each run asks its options, then which file types, then your login.
 - **Save embedded images separately** - custom run only. Usually unnecessary: images are already inside the downloaded work.
 - **Index and download encountered works** - collection runs only. Off: just records which works the collection holds. On: indexes and downloads them too.
 - **Include subcollections / parent collections** - collection runs only. Follows the family, each collection once, up to 200.
-- **Skip AO3 login?** - on every run, off by default. Not recommended: logged out, private bookmarks are missed and fics restricted to AO3 users can't be reached, so they may have to come from FicHub instead. Scans of your own bookmarks or collections still ask for your username, never your password.
+- **Skip AO3 login?** - on every run's login page, off by default. Not recommended: logged out, private bookmarks are missed and fics restricted to AO3 users can't be reached, so they may have to come from FicHub instead. Scans of your own bookmarks or collections still ask for your username, never your password.
 
 ## Questions a run may stop to ask
 
@@ -59,7 +59,7 @@ Closing the page or stopping takes the answer that changes nothing - except for 
 
 ## Background runs
 
-Tick **Run as background task** on the login step to let the helper finish with the page closed.
+Tick **Run as background task** on its own page, just before the login, to let the helper finish with the page closed.
 
 - Only on the [[hosted copy|Hosting your own copy]] - the bundle and the Windows, Mac and Linux apps don't offer it, since their helper stops when you close its window.
 - Dropbox libraries only - the helper can't reach a folder on your computer without the page.

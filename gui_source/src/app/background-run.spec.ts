@@ -137,9 +137,13 @@ function currentStep(): string {
   return element.querySelector('.dialog')?.getAttribute('data-step') ?? '';
 }
 
-/** walk to the login step, by where the dialog is rather than by counting clicks */
+/**
+ * walk to where a run is asked whether to go in the background - its own page, just before
+ * the login, on a hosted copy; the login page itself on a page whose helper is on this
+ * computer, which has no such page - by where the dialog is rather than by counting clicks
+ */
 async function toCredentials(): Promise<void> {
-  for (let guard = 0; guard < 8 && currentStep() !== 'credentials'; guard++) {
+  for (let guard = 0; guard < 8 && !['background', 'credentials'].includes(currentStep()); guard++) {
     if (currentStep() === 'acknowledge') {
       element.querySelector<HTMLInputElement>('input[name="acknowledge"]')!.click();
       await fixture.whenStable();
@@ -169,6 +173,10 @@ function questionsOffered(): string[] {
 }
 
 async function startIt(label = 'Start in the background'): Promise<void> {
+  if (currentStep() === 'background') {
+    button('Continue')!.click();
+    await fixture.whenStable();
+  }
   const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
   password.value = 'a-password';
   password.dispatchEvent(new Event('input'));
@@ -239,6 +247,11 @@ describe('Running in the background', () => {
     const said = element.querySelector('.background-warning')?.textContent ?? '';
     expect(said).toContain('No other run can start until it has finished');
     expect(said).toContain('Restarting the helper ends the run');
+    // the choice is a page of its own, before the login
+    expect(currentStep()).toBe('background');
+    button('Continue')!.click();
+    await fixture.whenStable();
+    expect(currentStep()).toBe('credentials');
     expect(button('Start in the background')).toBeTruthy();
   });
 
@@ -375,7 +388,8 @@ describe('Running in the background', () => {
     date.dispatchEvent(new Event('input'));
     await fixture.whenStable();
 
-    expect(button('Start in the background')!.disabled).toBe(true);
+    // the answers are on their own page, which cannot be left with one that will not do
+    expect(button('Continue')!.disabled).toBe(true);
   });
 
   // endregion

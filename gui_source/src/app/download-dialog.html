@@ -576,32 +576,6 @@
 
         </fieldset>
 
-        <fieldset class="login-choice">
-          <legend>Logging in</legend>
-          <label class="check">
-            <input
-              type="checkbox"
-              name="skipLogin"
-              [checked]="skipLogin()"
-              (change)="skipLogin.set($any($event.target).checked)"
-            />
-            <span>Skip AO3 login?</span>
-          </label>
-          @if (skipLogin()) {
-            <div class="warning skip-login-warning">
-              <p><strong>This is not recommended.</strong></p>
-              <p>
-                Without logging in, AO3 shows this run only what anyone can see. Private
-                bookmarks will not be picked up, and fics their authors have restricted to AO3
-                users will fail - the run may have to fall back on fetching those from FicHub
-                instead.
-              </p>
-              @if (needsUsername()) {
-                <p>You will still be asked for your AO3 username, to find your bookmarks and collections - but not your password.</p>
-              }
-            </div>
-          }
-        </fieldset>
 
       </section>
       <footer>
@@ -785,6 +759,30 @@
                 {{ statusWord(run.status) }}
               </span>
             </p>
+            <div class="retry-issues">
+              <p><strong>What went wrong last time</strong></p>
+              @if (retryIssues().length) {
+                <ul>
+                  @for (issue of retryIssues(); track $index) {
+                    <li>
+                      {{ issue.summary }}
+                      @if (issue.details.length) {
+                        <ul class="retry-issue-details">
+                          @for (line of issue.details; track $index) {
+                            <li>{{ line }}</li>
+                          }
+                          @if (issue.more) {
+                            <li class="dim">and {{ issue.more | number }} more - History lists them all</li>
+                          }
+                        </ul>
+                      }
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <p class="dim">Nothing - its record holds no failures, gaps or copies to check.</p>
+              }
+            </div>
             @if (run.warnings.length) {
               <div class="retry-warning" role="note">
                 @for (warning of run.warnings; track $index) {
@@ -1037,82 +1035,9 @@
       </footer>
     }
 
-    <!-- step 2: who you are -->
-    @if (step() === 'credentials') {
-      <form class="body" (submit)="submit($event)">
-        @if (!logsIn()) {
-          <p class="not-logging-in">
-            <strong>Not logging in to AO3</strong>,
-            {{ resuming() ? 'as the run you are retrying did' : 'as you chose' }}. Private bookmarks will not be
-            picked up, fics only logged-in users can see will fail, and the run will offer to try
-            FicHub for them at the end.
-          </p>
-          @if (needsUsername()) {
-            <label class="field">
-              <span>Username</span>
-              <input
-                type="text"
-                name="username"
-                autocomplete="username"
-                required
-                [value]="username()"
-                (input)="setUsername($any($event.target).value)"
-              />
-            </label>
-            <p class="hint">Your username finds your bookmarks and collections. No password is needed or sent.</p>
-            <label class="check">
-              <input
-                type="checkbox"
-                [checked]="remember()"
-                (change)="toggleRemember($any($event.target).checked)"
-              />
-              <span>Remember my username</span>
-            </label>
-          }
-        } @else {
-        <p>Log in to AO3 so restricted works and your own bookmarks are visible.</p>
-
-        <label class="field">
-          <span>Username</span>
-          <input
-            type="text"
-            name="username"
-            autocomplete="username"
-            required
-            [value]="username()"
-            (input)="setUsername($any($event.target).value)"
-          />
-        </label>
-
-        <label class="field">
-          <span>Password</span>
-          <input
-            type="password"
-            name="password"
-            autocomplete="current-password"
-            required
-            [value]="password()"
-            (input)="setPassword($any($event.target).value)"
-          />
-        </label>
-
-        <label class="check">
-          <input
-            type="checkbox"
-            [checked]="remember()"
-            (change)="toggleRemember($any($event.target).checked)"
-          />
-          <span>Remember my username</span>
-        </label>
-
-        <p class="hint">
-          Only the username is saved by this page. Your password is sent straight to AO3 to log
-          in and is never stored here - let your browser's password manager keep it if you want
-          it filled in next time.
-        </p>
-        }
-
-        @if (offersBackground()) {
+    <!-- running in the background, and its answers up front: a hosted copy only -->
+    @if (step() === 'background') {
+      <section class="body">
           <div class="background-choice" [class.blocked]="backgroundBlocked()">
             <label class="check">
               <input
@@ -1292,6 +1217,107 @@
               }
             }
           </div>
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="backFrom('background')">
+          {{ hasStepBefore('background') ? 'Back' : 'Cancel' }}
+        </button>
+        <button type="button" class="button primary" [disabled]="!backgroundAnswersReady()"
+                (click)="step.set('credentials')">
+          Continue
+        </button>
+      </footer>
+    }
+
+    <!-- step 2: who you are, or that you are going without logging in -->
+    @if (step() === 'credentials') {
+      <form class="body" (submit)="submit($event)">
+        <div class="login-choice">
+          <label class="check">
+            <input
+              type="checkbox"
+              name="skipLogin"
+              [checked]="skipLogin()"
+              (change)="skipLogin.set($any($event.target).checked)"
+            />
+            <span>Skip AO3 login?</span>
+          </label>
+          @if (skipLogin()) {
+            <div class="warning skip-login-warning">
+              <p><strong>This is not recommended.</strong></p>
+              <p>
+                Without logging in, AO3 shows this run only what anyone can see. Private
+                bookmarks will not be picked up, and fics their authors have restricted to AO3
+                users will fail - the run may have to fall back on fetching those from FicHub
+                instead.
+              </p>
+            </div>
+          }
+        </div>
+
+        @if (logsIn()) {
+        <p>Log in to AO3 so restricted works and your own {{ listingWord() }} are visible.</p>
+
+        <label class="field">
+          <span>Username</span>
+          <input
+            type="text"
+            name="username"
+            autocomplete="username"
+            required
+            [value]="username()"
+            (input)="setUsername($any($event.target).value)"
+          />
+        </label>
+
+        <label class="field">
+          <span>Password</span>
+          <input
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            required
+            [value]="password()"
+            (input)="setPassword($any($event.target).value)"
+          />
+        </label>
+
+        <label class="check">
+          <input
+            type="checkbox"
+            [checked]="remember()"
+            (change)="toggleRemember($any($event.target).checked)"
+          />
+          <span>Remember my username</span>
+        </label>
+
+        <p class="hint">
+          Only the username is saved by this page. Your password is sent straight to AO3 to log
+          in and is never stored here - let your browser's password manager keep it if you want
+          it filled in next time.
+        </p>
+        } @else if (needsUsername()) {
+          <!-- logged out, a scan of your own listing still finds it by your name -->
+          <p>Enter your username to scan your public {{ listingWord() }}.</p>
+          <label class="field">
+            <span>Username</span>
+            <input
+              type="text"
+              name="username"
+              autocomplete="username"
+              required
+              [value]="username()"
+              (input)="setUsername($any($event.target).value)"
+            />
+          </label>
+          <label class="check">
+            <input
+              type="checkbox"
+              [checked]="remember()"
+              (change)="toggleRemember($any($event.target).checked)"
+            />
+            <span>Remember my username</span>
+          </label>
         }
       </form>
       <footer>

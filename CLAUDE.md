@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2056 python passed; 850 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2056 python passed; 853 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -574,8 +574,8 @@ config), what to do with the zip, and this page's version when it has one.
 
 ### A run can carry on in the background
 
-*Run as background task* (on every workflow's login step) starts a run the helper finishes
-with the page closed. The rules that matter:
+*Run as background task* (a `background` step of its own, after any acknowledgement and
+just before the login) starts a run the helper finishes with the page closed. The rules that matter:
 
 - **Only on the hosted copy.** `DownloadDialog.offersBackground` is `!HelperConnection.isLocal()`:
   a page whose helper is on this computer - the bundle, the Windows, Mac and Linux apps, a dev
@@ -595,7 +595,7 @@ with the page closed. The rules that matter:
   written, logged or put in the history. `do_POST` refuses a background run without one, and
   an ordinary run never gets one even if sent it. The page sends **no** background fields at
   all on an ordinary run - a spec holds that.
-- **Questions are answered before it starts.** Nobody will be there, so the login step lists
+- **Questions are answered before it starts.** Nobody will be there, so the background step lists
   the questions the workflow could ask (`backgroundQuestions`, mirroring when the helper asks:
   undated and duplicates when it downloads, not undated when it overwrites, quick-floor on a
   quick scan with nothing chosen to measure to) and sends them as `answers`.
@@ -1192,6 +1192,12 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
   step in the plan done, earlier or skipped; else `status == success`) greys `index` and
   `downloads` with `RETRY_ALL_DONE`. **Download several fics has `downloads`** (single fic does
   not): `run_works` passes over fics with every format in `formats_done`, unlooked-up.
+- **The retry page says what went wrong last time** (`.retry-issues`, `attemptIssues` in
+  `issues.ts`, read off the run's own record as History reads it): how it ended (failed, stopped,
+  interrupted, abandoned, and its `error`), where indexing broke off (`describeGap`), the works it
+  could not download (`failureWords`), copies to check by hand and older copies not removed - the
+  first `ATTEMPT_ISSUES_SHOWN` (5) of each, then how many more. Skipped bookmarks are left out:
+  retrying cannot make one a work. A record with none says *Nothing*.
 - **A retry is acknowledged first**, on a page of its own after the list (`retry-how`): it shows
   `retryTerms` (the original run's floor and ceiling or range, file types and ticked options) and
   Continue stays disabled until `retryAcknowledged` is ticked - reset whenever another run is
@@ -2100,8 +2106,12 @@ minutes), said before and after (`AO3_INFO_INDEX_CHECK`, then `_FOUND` with the 
 failure that never reads the library and goes to FicHub at the end. No other workflow uses
 `index_one_work`.
 
-**Every run may skip the login** (`skipLogin`, the last thing on every options step - which
-is why every run now has one, `hasOptions`). With it the password is neither required nor
+**Every run may skip the login** (`skipLogin`, at the top of the login page itself - so a run
+with nothing else to choose still has no options step, `hasOptions`). Ticked, the sentence
+above the boxes changes: a run that still needs the username says *Enter your username to
+scan your public bookmarks* (or *collections*, `listingWord`) and shows only that box; one
+that needs none shows neither sentence nor boxes. On a retry `needsUsername` follows the
+earlier run's action. With it the password is neither required nor
 kept; the runs that read your own listing (`USERNAME_ACTIONS`) still need the username,
 since the url is built from it, and `do_POST` answers 400 without one - every other run's
 username is emptied. Logged out, ao3 shows only what anyone may see, so private bookmarks are

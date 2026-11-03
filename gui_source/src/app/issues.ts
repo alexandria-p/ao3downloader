@@ -162,3 +162,71 @@ export function saveText(text: string, name: string): void {
   // the save has its own copy once started, so the handle can go
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
+
+/** one kind of trouble an earlier attempt ran into: a sentence, and the first few cases */
+export interface AttemptIssue {
+  summary: string;
+  details: string[];
+  /** how many cases there were beyond the ones in `details` */
+  more: number;
+}
+
+/** how many cases of each kind the retry page names before saying how many more */
+export const ATTEMPT_ISSUES_SHOWN = 5;
+
+/**
+ * What went wrong on a run, for the retry page - so whoever retries it knows what the retry
+ * is up against before choosing how. Read from the run's own record, as History reads it:
+ * how it ended, where its indexing broke off, what it could not download, and what it left
+ * to check by hand. Bookmarks that were never works are left out - retrying cannot change
+ * them. Empty when the record holds nothing that went wrong.
+ */
+export function attemptIssues(run: RunHistory): AttemptIssue[] {
+  const found: AttemptIssue[] = [];
+  const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+  const add = <T>(summary: string, items: T[], say: (item: T) => string) => {
+    found.push({
+      summary,
+      details: items.slice(0, ATTEMPT_ISSUES_SHOWN).map(say),
+      more: Math.max(0, items.length - ATTEMPT_ISSUES_SHOWN),
+    });
+  };
+  const ending: Partial<Record<RunHistory['status'], string>> = {
+    failed: 'It failed',
+    stopped: 'It was stopped before it finished',
+    interrupted: 'It was interrupted - the helper went away before it finished',
+    abandoned: 'It was abandoned after being left paused',
+  };
+  const ended = ending[run.status];
+  if (ended || run.error) {
+    const why = run.error ? (ended ? `${ended}: ${run.error}` : run.error) : `${ended}.`;
+    found.push({ summary: why, details: [], more: 0 });
+  }
+  const issues = issuesOf(run);
+  const gaps = issues.indexGaps ?? [];
+  if (gaps.length) {
+    add(`Its indexing broke off in ${plural(gaps.length, 'place', 'places')}.`, gaps, describeGap);
+  }
+  if (issues.failures.length) {
+    add(
+      `${plural(issues.failures.length, 'work', 'works')} could not be downloaded.`,
+      issues.failures,
+      (x) => `${x.id ? `Work ${x.id}` : x.link}: ${failureWords(x)}`,
+    );
+  }
+  if (issues.keptCopies.length) {
+    add(
+      `${plural(issues.keptCopies.length, 'copy needs', 'copies need')} checking by hand.`,
+      issues.keptCopies,
+      (x) => `${x.file ?? x.id ?? x.link}: ${x.error}`,
+    );
+  }
+  if (issues.notRemoved.length) {
+    add(
+      `${plural(issues.notRemoved.length, 'older copy was', 'older copies were')} not removed.`,
+      issues.notRemoved,
+      (x) => `${x.file ?? x.id}${x.error ? `: ${x.error}` : ''}`,
+    );
+  }
+  return found;
+}
