@@ -682,6 +682,11 @@ RETRY_STILL_RUNNING = 'That run is still going - wait for it to finish, or stop 
 RETRY_NO_INDEX = 'Only a full scan, quick scan, custom run or collection run can carry on with its indexing.'
 RETRY_NO_DOWNLOADS = 'It never got as far as settling which works to check and download.'
 RETRY_NO_FAILURES = 'Every work it set out to get arrived - there is nothing that failed to retry.'
+# a run that did not finish - stopped, force stopped, interrupted, abandoned, failed or partly
+# done - has no failures to retry, but did not get everything either: never say it did
+RETRY_NO_FAILURES_UNFINISHED = ('This run did not get everything it set out to get, but nothing it '
+                                'tried to download failed - so there is nothing for this choice to '
+                                'retry. Choose another way to retry it.')
 RETRY_FAILED_WRONG_ACTION = 'Only a scan, a collection run or a fic run can retry just the works it could not get.'
 RETRY_PARTIAL_DONE = ('It reached the end, so there is nothing to carry on from - start its '
                       'indexing or its downloads from the top, or retry just the works it could '

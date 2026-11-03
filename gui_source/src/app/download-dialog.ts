@@ -343,7 +343,10 @@ export class DownloadDialog implements OnDestroy {
         }
         return 'Carry on from where its downloads stopped - only the formats it had not saved yet: nothing for a fic it finished, the rest of one it was partway through, every format of one it never reached';
       case 'failed':
-        return `Just the ${run.retry.failedWorks} ${run.retry.failedWorks === 1 ? 'work' : 'works'} it could not get`;
+        // with none, a count of 0 reads as a promise that nothing went missing
+        return run.retry.failedWorks
+          ? `Just the ${run.retry.failedWorks} ${run.retry.failedWorks === 1 ? 'work' : 'works'} it could not get`
+          : 'Just the works it could not get (none failed)';
     }
   }
   /** the earlier scans a quick scan can be measured back to, once they have been asked for */

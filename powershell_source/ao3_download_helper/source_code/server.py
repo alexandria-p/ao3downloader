@@ -1393,7 +1393,10 @@ def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
     if mode == RETRY_FAILED:
         if action not in RESUME_ACTIONS and action not in FIC_ACTIONS:
             return strings.RETRY_FAILED_WRONG_ACTION
-        return '' if failed_work_ids(record) else strings.RETRY_NO_FAILURES
+        if failed_work_ids(record): return ''
+        # only a run that finished everything can say everything arrived
+        return strings.RETRY_NO_FAILURES if record.get('status') == runs.STATUS_SUCCESS \
+            else strings.RETRY_NO_FAILURES_UNFINISHED
     if action not in RESUME_ACTIONS: return strings.RETRY_NO_INDEX
     if action == ACTION_CUSTOM and not options.get('dates') and \
             (int(options.get('pages') or 0) or int(options.get('start') or 1) > 1):
