@@ -169,6 +169,25 @@ export async function readRunHistory(store: LibraryStore): Promise<RunHistory[]>
   return found;
 }
 
+/**
+ * The history newest first, PARALLEL_READS records at a time, for a caller that may stop
+ * early - the newest scan a quick scan can measure back to is usually in the first batch.
+ */
+export async function* runHistoryBatches(store: LibraryStore): AsyncGenerator<RunHistory[]> {
+  const files = (await store.list('runs', false))
+    .filter((path) => /\.json$/i.test(path))
+    .sort()
+    .reverse()
+    .slice(0, HISTORY_LIMIT);
+  for (let next = 0; next < files.length; next += PARALLEL_READS) {
+    const read = await readEach(files.slice(next, next + PARALLEL_READS), (path) =>
+      readRunRecord(store, path),
+    );
+    const batch = read.filter((record): record is RunHistory => record !== null);
+    if (batch.length) yield batch;
+  }
+}
+
 async function readRunRecord(store: LibraryStore, path: string): Promise<RunHistory | null> {
   try {
     const record = JSON.parse((await store.read(path)) ?? '') as RunHistory & { log?: string[] };

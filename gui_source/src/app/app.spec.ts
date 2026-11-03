@@ -457,7 +457,7 @@ describe('App', () => {
     expect(actionLabels(element)).toContain('Quick Scan');
   });
 
-  it('gets a quick scan ready all at once, naming whatever is still going, before its window opens',
+  it('gets a run window ready all at once, naming whatever is still going, before it opens',
     async () => {
       const library = TestBed.inject(Library);
       library.data.set(exportOf(1));
@@ -465,16 +465,13 @@ describe('App', () => {
       const jobs = TestBed.inject(Jobs);
       let settled: (n: number) => void = () => undefined;
       let connected: (c: null) => void = () => undefined;
-      let floored: (r: []) => void = () => undefined;
       const settle = vi.spyOn(jobs, 'settleInterrupted').mockImplementation(
         () => new Promise<number>((resolve) => (settled = resolve)),
       );
       const config = vi.spyOn(jobs, 'loadConfig').mockImplementation(
         () => new Promise((resolve) => (connected = resolve)),
       );
-      const floors = vi.spyOn(jobs, 'loadFloorRuns').mockImplementation(
-        () => new Promise((resolve) => (floored = resolve)),
-      );
+      const floors = vi.spyOn(jobs, 'loadFloorRuns');
       const tick = async () => {
         await new Promise((done) => setTimeout(done, 0));
         fixture.detectChanges();
@@ -490,24 +487,19 @@ describe('App', () => {
         .find((b) => b.textContent?.includes('Quick Scan'))!.click();
       await tick();
 
-      // all three started together, the history read once for the check and the floors
+      // both started together; the scans to measure back to wait for the window's own choices
       expect(settle).toHaveBeenCalledTimes(1);
       expect(config.mock.calls.length).toBe(before + 1);
-      expect(floors).toHaveBeenCalledTimes(1);
-      expect(settle.mock.calls[0][1]).toBe(floors.mock.calls[0][1]);
+      expect(floors).not.toHaveBeenCalled();
       expect(notice()).toContain('Checking your run history');
       expect(element.querySelector('app-download-dialog')).toBeNull();
 
       settled(0);
       await tick();
       expect(notice()).toContain('Connecting to the helper');
-
-      connected(null);
-      await tick();
-      expect(notice()).toContain('Reading your scan history');
       expect(element.querySelector('app-download-dialog')).toBeNull();
 
-      floored([]);
+      connected(null);
       await tick();
       expect(notice()).toBeNull();
       expect(element.querySelector('app-download-dialog')).toBeTruthy();

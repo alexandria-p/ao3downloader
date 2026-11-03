@@ -6,6 +6,7 @@ import {
   noteRunEnded,
   readRunHistory,
   readUnsettledRuns,
+  runHistoryBatches,
 } from './library-store';
 import { HelperConnection } from './helper-connection';
 import { DropboxHandover } from './dropbox';
@@ -594,10 +595,7 @@ export class Jobs {
    * Asked of the helper rather than filtered here, so the rule for what counts as a floor
    * lives in one place - the same place that enforces it when the run starts.
    */
-  async loadFloorRuns(
-    store: LibraryStore | null,
-    history?: RunHistory[],
-  ): Promise<RunHistory[] | null> {
+  async loadFloorRuns(store: LibraryStore | null): Promise<RunHistory[] | null> {
     if (!store) return null;
     try {
       // the history is read out of the library here; which of it qualifies is the helper's
@@ -605,11 +603,35 @@ export class Jobs {
       const response = await this.helper.call(`/api/runs/floors`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // a history already read - for the interrupted-run check, say - is not read twice
-        body: JSON.stringify({ runs: history ?? (await readRunHistory(store)) }),
+        body: JSON.stringify({ runs: await readRunHistory(store) }),
       });
       if (!response.ok) throw new Error(String(response.status));
       return ((await response.json()) as { runs: RunHistory[] }).runs ?? [];
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The newest run a quick scan would measure back to, or null when there is none (or the
+   * helper cannot say). Read newest first a few records at a time, each batch put to the
+   * helper, stopping at the first that qualifies - so a library whose last scan was a floor
+   * downloads a handful of records, not the whole history.
+   */
+  async loadNewestFloor(store: LibraryStore | null): Promise<RunHistory | null> {
+    if (!store) return null;
+    try {
+      for await (const batch of runHistoryBatches(store)) {
+        const response = await this.helper.call(`/api/runs/floors`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runs: batch }),
+        });
+        if (!response.ok) throw new Error(String(response.status));
+        const floors = ((await response.json()) as { runs: RunHistory[] }).runs ?? [];
+        if (floors.length) return floors[0];
+      }
+      return null;
     } catch {
       return null;
     }
@@ -666,13 +688,12 @@ export class Jobs {
    * Whatever cannot be read or rewritten is left as it is: this is a correction, never worth
    * failing over.
    */
-  async settleInterrupted(store: LibraryStore | null, history?: RunHistory[]): Promise<number> {
+  async settleInterrupted(store: LibraryStore | null): Promise<number> {
     if (!store) return 0;
     let settled = 0;
     try {
-      // only the records not already known to have ended - see readUnsettledRuns - unless the
-      // caller has the whole history in hand already, read for the scans to measure back to
-      const running = (history ?? (await readUnsettledRuns(store))).filter(
+      // only the records not already known to have ended - see readUnsettledRuns
+      const running = (await readUnsettledRuns(store)).filter(
         (run) => run.status === 'running' && this.isThisHelpers(run),
       );
       if (!running.length) return 0;

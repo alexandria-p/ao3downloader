@@ -296,7 +296,6 @@
 
 @if (dialogAction(); as action) {
   <app-download-dialog [action]="action" [resumeFrom]="resumeFrom()" [attachTo]="attachTo()"
-                       [floorsAhead]="floorsAhead()"
                        (closed)="dialogClosed()" />
 }
 

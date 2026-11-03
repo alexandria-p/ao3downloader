@@ -173,3 +173,28 @@ describe('Jobs.forceStop', () => {
     await expect(new Jobs().forceStop('gone', runsFolder({}))).rejects.toThrow();
   });
 });
+
+describe('Jobs.loadNewestFloor', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('stops reading at the first batch holding a scan to measure back to', async () => {
+    const records: Record<string, object> = {};
+    for (let n = 10; n < 40; n++) records[`2026${n}.json`] = run(`r${n}`, 'success');
+    const store = runsFolder(records);
+    const reads: string[] = [];
+    const read = store.read;
+    store.read = async (path: string) => {
+      reads.push(path);
+      return read(path);
+    };
+    // the helper says every run it is shown qualifies
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) =>
+      new Response(JSON.stringify({ runs: JSON.parse(String(init?.body)).runs }))));
+
+    const floor = await new Jobs().loadNewestFloor(store);
+
+    expect(floor?.id).toBe('r39');
+    // one batch of the thirty, not the whole history
+    expect(reads.length).toBeLessThan(10);
+  });
+});

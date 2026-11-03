@@ -19,8 +19,7 @@ import { Faq } from './faq';
 import { Feedback } from './feedback';
 import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
-import { ActiveRun, JobAction, Jobs, RunHistory } from './jobs';
-import { readRunHistory } from './library-store';
+import { ActiveRun, JobAction, Jobs } from './jobs';
 import { HelperConnection } from './helper-connection';
 import { Library, describeReadProgress } from './library';
 import { LibraryFreshness } from './freshness';
@@ -114,8 +113,8 @@ export class App {
   protected readonly activeRun = computed(() => this.jobs.activeRuns()[0] ?? null);
   /**
    * What is still being done before a run window opens, all of it at once: the run history
-   * checked for interrupted runs, the helper woken and asked for its config, and - for a quick
-   * scan - the scans it may measure back to. The notice names the first still going
+   * checked for interrupted runs, and the helper woken and asked for its config. The notice
+   * names the first still going
    */
   protected readonly preparing = signal<readonly Preparation[]>([]);
   protected readonly checkingRuns = computed(() => this.preparing().length > 0);
@@ -123,8 +122,7 @@ export class App {
     const left = this.preparing();
     return PREPARATIONS.find((step) => left.includes(step.id))?.note ?? '';
   });
-  /** the scans a quick scan may measure back to, read before its window opened */
-  protected readonly floorsAhead = signal<RunHistory[] | null>(null);
+
   /**
    * Whether the one-off browser note is up.
    *
@@ -152,30 +150,18 @@ export class App {
   protected async openRun(action: JobAction): Promise<void> {
     if (this.checkingRuns() || this.activeRun()) return;
     const store = this.library.store();
-    const quick = action === 'quick';
-    this.floorsAhead.set(null);
-    this.preparing.set(quick ? ['history', 'helper', 'floors'] : ['history', 'helper']);
+    this.preparing.set(['history', 'helper']);
     const finished = (id: Preparation) => () =>
       this.preparing.update((left) => left.filter((step) => step !== id));
 
-    // all at once. the helper's config is the run window's first request, and a hosted helper
-    // asleep since its last run (Render's free tier) takes most of a minute to wake - so that
-    // starts now rather than after the history. a quick scan's floors need the whole history,
-    // so it is read once and serves the interrupted-run check as well
-    const history = quick && store ? readRunHistory(store).catch(() => null) : null;
-    const settle = (history
-      ? history.then((runs) => this.jobs.settleInterrupted(store, runs ?? undefined))
-      : this.jobs.settleInterrupted(store)
-    ).finally(finished('history'));
+    // both at once. the helper's config is the run window's first request, and a hosted
+    // helper asleep since its last run (Render's free tier) takes most of a minute to wake -
+    // so that starts now rather than after the history. the scans a quick scan measures back
+    // to are read in its window, and only as far as its choices need
+    const settle = this.jobs.settleInterrupted(store).finally(finished('history'));
     const config = this.jobs.loadConfig().finally(finished('helper'));
-    const floors = history
-      ? history
-          .then((runs) => this.jobs.loadFloorRuns(store, runs ?? undefined))
-          .finally(finished('floors'))
-      : Promise.resolve(null);
     try {
-      const [, , ahead] = await Promise.all([settle, config, floors]);
-      this.floorsAhead.set(ahead);
+      await Promise.all([settle, config]);
     } finally {
       this.preparing.set([]);
     }
@@ -477,11 +463,10 @@ export class App {
  * value that will not parse (an old file's free-text retrieval time) is shown as it was written.
  */
 /** what openRun does before a window opens, in the order its notice names them */
-type Preparation = 'history' | 'helper' | 'floors';
+type Preparation = 'history' | 'helper';
 const PREPARATIONS: { id: Preparation; note: string }[] = [
   { id: 'history', note: 'Checking your run history...' },
   { id: 'helper', note: 'Connecting to the helper...' },
-  { id: 'floors', note: 'Reading your scan history...' },
 ];
 
 export function shownTime(value: string | Date): string {

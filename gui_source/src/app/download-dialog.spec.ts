@@ -61,6 +61,10 @@ class FakeJobs extends Jobs {
     return this.floorRunsOnRecord;
   }
 
+  override async loadNewestFloor(): Promise<RunHistory | null> {
+    return this.floorRunsOnRecord[0] ?? null;
+  }
+
   override async refreshActiveRuns(): Promise<ActiveRun[] | null> {
     return this.activeRuns();
   }
@@ -623,21 +627,35 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('since the last successful');
   });
 
-  it('uses the scans read before its window opened, without asking for them again', async () => {
-    const asked = vi.spyOn(jobs, 'loadFloorRuns');
-    fixture = TestBed.createComponent(DownloadDialog);
-    fixture.componentRef.setInput('action', 'quick');
-    fixture.componentRef.setInput('floorsAhead', [
+  it('reads only the newest floor for "since my last run", and the whole list only when choosing', async () => {
+    jobs.floorRunsOnRecord = [
       { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] },
-    ]);
-    await fixture.whenStable();
-    element = fixture.nativeElement as HTMLElement;
+      scanOnRecord('a', '2026-08-01T09:00:00'),
+    ];
+    const all = vi.spyOn(jobs, 'loadFloorRuns');
+    const newest = vi.spyOn(jobs, 'loadNewestFloor');
+    await open('quick');
     await advanceTo('options');
     button('Continue')!.click();
     await fixture.whenStable();
 
     expect(currentStep()).toBe('floor-warning');
-    expect(asked).not.toHaveBeenCalled();
+    expect(newest).toHaveBeenCalledTimes(1);
+    expect(all).not.toHaveBeenCalled();
+
+    button('Choose a different scan')!.click();
+    await fixture.whenStable();
+    expect(currentStep()).toBe('floor');
+    expect(all).toHaveBeenCalledTimes(1);
+
+    // back and on again: what was read is kept for as long as the window is open
+    button('Back')?.click();
+    await fixture.whenStable();
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+    expect(all).toHaveBeenCalledTimes(1);
+    expect(newest).toHaveBeenCalledTimes(1);
   });
 
   it('warns before measuring back to a scan that could not download some works', async () => {

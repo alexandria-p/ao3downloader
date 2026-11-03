@@ -146,20 +146,23 @@ export class DownloadDialog implements OnDestroy {
    */
   readonly attachTo = input<ActiveRun | null>(null);
   /**
-   * The scans a quick scan may measure back to, read as its window was being opened (with the
-   * run history, in one read). Used the first time they are wanted; asked for again after
+   * The newest scan a quick scan would measure back to, once read: undefined until then, null
+   * when there is none. 'Anything that has changed since my last run' needs only this, so only
+   * the newest records are read for it - never the whole history (`Jobs.loadNewestFloor`).
    */
-  readonly floorsAhead = input<RunHistory[] | null>(null);
-  private floorsAheadUsed = false;
+  private readonly newestFloor = signal<RunHistory | null | undefined>(undefined);
+  /** the whole list is being read - asked for once, kept for as long as the window is open */
+  private floorsLoading = false;
 
-  /** the scans to measure back to: read ahead the first time, asked for fresh after */
-  private floorRunsNow(): Promise<RunHistory[] | null> {
-    const ahead = this.floorsAhead();
-    if (ahead && !this.floorsAheadUsed) {
-      this.floorsAheadUsed = true;
-      return Promise.resolve(ahead);
-    }
-    return this.jobs.loadFloorRuns(this.library.store());
+  /** every scan to measure back to, read the first time it is wanted and kept after */
+  private loadAllFloors(): void {
+    if (this.floorRuns() !== null || this.floorsLoading) return;
+    this.floorsLoading = true;
+    void this.jobs.loadFloorRuns(this.library.store()).then((runs) => {
+      this.floorsLoading = false;
+      this.floorRuns.set(runs ?? []);
+      this.newestFloor.set(runs?.[0] ?? null);
+    });
   }
   readonly closed = output<void>();
 
@@ -1297,10 +1300,16 @@ export class DownloadDialog implements OnDestroy {
       // the floor the helper will measure back to is the newest scan that qualifies. one that
       // could not download some works still does - but say so, and offer another
       this.step.set('floor-warning');
-      this.floorRuns.set(null);
-      void this.floorRunsNow().then((runs) => {
-        this.floorRuns.set(runs ?? []);
-        if (this.step() === 'floor-warning' && !this.automaticFloor()?.missingDownloads?.length) {
+      const known = this.newestFloor();
+      const newest: Promise<RunHistory | null> =
+        known !== undefined
+          ? Promise.resolve(known)
+          : this.jobs.loadNewestFloor(this.library.store()).then((floor) => {
+              this.newestFloor.set(floor);
+              return floor;
+            });
+      void newest.then((floor) => {
+        if (this.step() === 'floor-warning' && !floor?.missingDownloads?.length) {
           this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
         }
       });
@@ -1310,13 +1319,12 @@ export class DownloadDialog implements OnDestroy {
   }
 
   /** the floor a quick scan measures back to when none is chosen: the newest that qualifies */
-  protected readonly automaticFloor = computed(() => this.floorRuns()?.[0] ?? null);
+  protected readonly automaticFloor = computed(() => this.newestFloor() ?? null);
 
+  /** the whole list is read only here, once someone chooses to pick a scan themselves */
   private toFloorPage(): void {
     this.step.set('floor');
-    // asked for fresh each time: a scan may have finished since the dialog opened
-    this.floorRuns.set(null);
-    void this.floorRunsNow().then((runs) => this.floorRuns.set(runs ?? []));
+    this.loadAllFloors();
   }
 
   /** the warning answered: measure back to it anyway */
