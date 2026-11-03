@@ -93,3 +93,46 @@ def test_a_retry_s_ceiling_is_its_first_attempt_s_day_in_the_person_s_ao3_zone()
 def test_the_helper_says_whether_it_can_look_up_a_zone():
     # the Windows app's build fails on false: a zone database has to be packed in there
     assert server.zone_lookup_works() is True
+
+
+# region a typed range, kept in UTC and compared in the AO3 zone
+
+def test_a_typed_range_end_is_kept_as_a_utc_moment():
+    assert server.range_moment('2023-12-31T13:00:00+00:00') == '2023-12-31T13:00:00+00:00'
+    assert server.range_moment('2024-01-01T00:00:00+11:00') == '2023-12-31T13:00:00+00:00'
+    # an older page sent a bare day, kept as one
+    assert server.range_moment('2024-01-01') == '2024-01-01'
+    assert server.range_moment('rubbish') == ''
+
+
+def test_a_typed_range_is_compared_as_the_days_it_is_in_the_ao3_zone():
+    job = a_job('Australia/Sydney', '', resume=False)
+    job.options = {'dateFrom': '2023-12-31T13:00:00+00:00', 'dateTo': '2024-06-30T13:59:59+00:00'}
+    assert server.range_day(job, 'dateFrom') == '2024-01-01'
+    assert server.range_day(job, 'dateTo') == '2024-06-30'
+
+
+def test_a_quick_scan_keeps_its_floor_as_the_utc_moment_it_stands_for(monkeypatch):
+    last = {'id': 'r', 'status': runs.STATUS_SUCCESS, 'baseline': '2026-11-03T02:00:00+00:00'}
+    monkeypatch.setattr(runs, 'last_successful', lambda *a, **k: last)
+    assert server.quick_scan_floor_at(MagicMock()) == '2026-11-03T02:00:00+00:00'
+    assert server.quick_scan_floor(MagicMock(), zone('America/New_York')) == '2026-11-02'
+
+
+def test_the_newest_index_time_is_the_latest_moment_not_the_latest_day():
+    records = [{'last_indexed': '2026-11-03T01:00:00+00:00'},
+               {'last_indexed': '2026-11-02T23:00:00+00:00'}, {'last_indexed': ''}]
+    assert server.newest_indexed_at(records) == '2026-11-03T01:00:00+00:00'
+    assert server.newest_indexed_on(records, zone('America/New_York')) == '2026-11-02'
+
+# endregion
+
+
+# region times a run's own lines say
+
+def test_a_run_s_lines_say_a_kept_time_in_the_ao3_zone_and_name_it():
+    assert runs.shown('2026-11-03T10:15:00+00:00', zone('Australia/Sydney')) == \
+        '2026-11-03 21:15 Australia/Sydney'
+    assert runs.shown('2026-11-03T10:15:00+00:00') == '2026-11-03 10:15 UTC'
+
+# endregion

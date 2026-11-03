@@ -74,9 +74,10 @@ def file_stamp(stamp: str) -> str:
     return at.strftime('%Y%m%dT%H%M%SZ')
 
 
-def shown(stamp: str) -> str:
-    """A recorded time as a run's own lines say it: `YYYY-MM-DD HH:MM UTC`, or, for an older
-    record's naive local time, as it was written."""
+def shown(stamp: str, zone=None) -> str:
+    """A recorded (UTC) time as a run's own lines say it: in the person's AO3 zone when the run
+    was given one, named - `2026-11-03 21:15 Australia/Sydney` - else `YYYY-MM-DD HH:MM UTC`. An
+    older record's naive local time is said as it was written."""
 
     text = str(stamp or '')
     try:
@@ -84,7 +85,15 @@ def shown(stamp: str) -> str:
     except ValueError:
         return text[:16].replace('T', ' ')
     if at.tzinfo is None: return text[:16].replace('T', ' ')
+    if zone is not None:
+        return f"{at.astimezone(zone).strftime('%Y-%m-%d %H:%M')} {zone_name(zone)}"
     return at.astimezone(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
+
+def zone_name(zone) -> str:
+    """A zone as a line names it: its IANA name (`Australia/Sydney`)."""
+
+    return str(getattr(zone, 'key', None) or zone)
 
 
 def snapshot(record: 'RunRecord') -> dict:

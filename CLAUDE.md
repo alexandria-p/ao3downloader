@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2028 python passed; 828 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2033 python passed; 832 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1028,9 +1028,17 @@ takes one this computer cannot look up as UTC, said in the log. The run says its
 (`AO3_INFO_AO3_ZONE`) and records it (`ao3TimeZone`). An older record's naive time is taken
 as written. **`tzdata` is a dependency** because Windows has no zone database: `package_app`
 packs it (`--collect-data tzdata`), `/api/config` says `zoneLookup`, and `build-windows.yml`
-fails without it. **A date range the person types is a date in their AO3 zone** - the same zone
-AO3 dates fics in - so it is compared as typed, and the run window says which zone
-(`.range-zone`).
+fails without it. **Floors, ceilings and typed ranges are entered in the AO3 zone, kept in
+UTC, and dated in the AO3 zone again to compare.** A typed range is sent as the UTC moment its
+older day begins and its newer day ends there (`zonedDayToUtc`; the run window says which zone,
+`.range-zone`) and kept so (`range_moment`; a bare day from an older page is kept as one);
+`range_day` dates it for the walk. A quick scan's floor is kept in progress as the moment it
+stands for (`quick_scan_floor_at`, `chosen_floor_at`, `newest_indexed_at`, the range's
+`dateFrom`) and compared as `ao3_day` of it; an older record's day floor reads as itself. The
+page shows kept moments as days in the zone (`utcToZonedDay`, the Retry step's terms). **Every
+time shown is in the AO3 zone**: the page through `inAo3Zone` (log lines, List refreshed,
+Last indexed, History, abandon times), a run's own lines through `runs.shown(stamp, zone)`
+and `Repository.zone` (AO3's break), naming the zone. Log stamps stay UTC as kept.
 
 **The file is written when the run starts, not when it ends.** A run killed mid-flight
 cannot write its own epitaph, so a record still saying `running` *is* the evidence that it

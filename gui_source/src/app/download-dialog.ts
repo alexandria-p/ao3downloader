@@ -36,7 +36,7 @@ import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, issueCount, issuesReport } from './issues';
-import { SYNC_ACK_KEY, ao3TimeZone, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
+import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
 
 type Step =
   /**
@@ -75,7 +75,7 @@ export interface LogLine {
 
 /** a log line's time as the window shows it: the reader's own zone, to the second */
 export function lineTime(at: Date): string {
-  return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return at.toLocaleTimeString([], inAo3Zone({ hour: '2-digit', minute: '2-digit', second: '2-digit' }));
 }
 
 /** the most fics one 'several fics' run takes - the helper's MAX_WORK_LINKS */
@@ -222,7 +222,8 @@ export class DownloadDialog implements OnDestroy {
    */
   protected retryTerms(run: RetryableRun): { dates: string; settings: string[] } {
     const options = run.options ?? {};
-    const day = (value: unknown) => String(value ?? '').slice(0, 10);
+    // every kept moment, said as the day it is in the person's AO3 zone
+    const day = (value: unknown) => utcToZonedDay(value);
     const began = day(baselineOf(run));
     const ranged = !!options['dates'];
     let dates: string;
@@ -947,7 +948,7 @@ export class DownloadDialog implements OnDestroy {
     const at = this.jobs.activeRuns().find((run) => run.id === this.runId())?.abandonsAt;
     const when = at ? new Date(at) : null;
     return when && !Number.isNaN(when.getTime())
-      ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? when.toLocaleTimeString([], inAo3Zone({ hour: '2-digit', minute: '2-digit' }))
       : '';
   });
 
@@ -1125,7 +1126,7 @@ export class DownloadDialog implements OnDestroy {
     this.runId.set(run.id);
     this.runningInBackground.set(true);
     this.held.set(run.paused);
-    this.append(`showing the ${run.actionName} started ${new Date(run.started).toLocaleString()}`);
+    this.append(`showing the ${run.actionName} started ${new Date(run.started).toLocaleString([], inAo3Zone())}`);
     this.stop = this.jobs.stream(run.id, (event) => this.onEvent(event), () => this.onStreamEnd());
   }
 
@@ -1559,10 +1560,12 @@ export class DownloadDialog implements OnDestroy {
         // a window of time and a slice of the listing are alternatives, so the one not
         // chosen is not sent at all rather than sent and ignored
         dates: this.picksDates() && this.useDates(),
-        dateFrom: this.useDates() ? this.dateFrom() : '',
+        // typed in the person's AO3 zone, sent as the UTC moments that day begins and the
+        // newer end's ends - how the helper keeps them; it dates them in that zone again
+        dateFrom: this.useDates() ? zonedDayToUtc(this.dateFrom()) : '',
         // an open-topped window has no newer end, so it must not carry one left behind
         // from a moment when 'between two dates' was ticked
-        dateTo: this.useDates() && this.betweenDates() ? this.dateTo() : '',
+        dateTo: this.useDates() && this.betweenDates() ? zonedDayToUtc(this.dateTo(), true) : '',
         floorRun: this.picksFloorRun() ? this.floorRun() : '',
         // the helper takes everything else from that run's own record
         resume: resumed ? resumed.id : '',

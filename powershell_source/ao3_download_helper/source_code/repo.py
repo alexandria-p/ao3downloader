@@ -59,6 +59,8 @@ class Repository:
     maintenance_retries = 2
     # the status of the last page `get_soup` fetched
     last_status: int | None = None
+    # the zone a run's lines say a time in (the person's AO3 zone); None is UTC
+    zone = None
     maintenance_delay = 30
 
 
@@ -418,12 +420,14 @@ class Repository:
                     pause_time = 300  # default to 5 minutes in case there was a problem getting retry-after
                 if pause_time <= 0:
                     pause_time = 300  # default to 5 minutes if retry-after is an invalid value
-                # in UTC and said so, as every time the app writes is
-                now = datetime.datetime.now(datetime.timezone.utc)
+                # said in the person's AO3 zone when the run has one, else UTC - named either way
+                zone = self.zone or datetime.timezone.utc
+                label = str(getattr(self.zone, 'key', None) or 'UTC') if self.zone else 'UTC'
+                now = datetime.datetime.now(zone)
                 later = now + datetime.timedelta(0, pause_time)
-                print(strings.MESSAGE_TOO_MANY_REQUESTS.format(pause_time, now.strftime('%H:%M:%S UTC'), later.strftime('%H:%M:%S UTC')))
+                print(strings.MESSAGE_TOO_MANY_REQUESTS.format(pause_time, now.strftime('%H:%M:%S ') + label, later.strftime('%H:%M:%S ') + label))
                 progress.report(self.progress, progress.PAUSED, seconds=pause_time,
-                                until=later.strftime('%H:%M:%S UTC'))
+                                until=later.strftime('%H:%M:%S ') + label)
                 self.pause(pause_time)
                 print(strings.MESSAGE_RESUMING)
                 progress.report(self.progress, progress.RESUMED)

@@ -22,8 +22,10 @@ settings come from its deployment, so the tab does not offer them there.
   It starts as this browser's own. AO3's listings give only a date, so a scan turns its floor
   and ceiling - the moment the last scan started, kept in UTC - into a date in this zone before
   comparing: a fic AO3 dates on or after it is never passed over. Each run's log says which
-  zone it used. A date range you type for a scan is taken as dates in this zone too, and the
-  run window says so. Reset to defaults puts it back to this browser's.
+  zone it used. A date range you type for a scan is taken as dates in this zone too (the run
+  window says so), saved as UTC, and compared as dates in this zone again. Every time the page
+  shows - the run window's log, History, *List refreshed* - is in this zone. Reset to defaults
+  puts it back to this browser's.
 - **settings.ini** - the settings below, on a copy whose helper runs on your computer. The
   hosting settings (`HelperUrl`, `RequirePasscode`, `PageOrigin`) are left to the file itself.
 

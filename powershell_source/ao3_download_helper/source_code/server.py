@@ -354,8 +354,11 @@ def resolve_options(requested) -> dict:
         'dates': bool(given.get('dates')),
         # a run pointed at fics by hand may go without logging in - see SKIP_LOGIN_ACTIONS
         'skipLogin': bool(given.get('skipLogin')),
-        'dateFrom': parse_text.get_date_stamp(given.get('dateFrom') or ''),
-        'dateTo': parse_text.get_date_stamp(given.get('dateTo') or ''),
+        # a typed range: the page sends each end as the UTC moment it begins (from) or ends
+        # (to) in the person's AO3 zone, and it is kept so. `range_day` dates it in that zone
+        # again before AO3's dates are compared. a bare date (an older page) is kept as one
+        'dateFrom': range_moment(given.get('dateFrom')),
+        'dateTo': range_moment(given.get('dateTo')),
         # a quick scan told which earlier scan to measure back to, by that run's id. only the
         # id travels: the date is read off the run's own record, so a request cannot invent one
         'floorRun': str(given.get('floorRun') or '').strip(),
@@ -1030,6 +1033,8 @@ def run_job(job: Job, password: str) -> None:
                             held=job.held.is_set) as repo:
                 # a pause lands between the library's reads and writes too, not only at ao3
                 if isinstance(fileops.storage, PageStorage): fileops.storage.gate = repo.hold_if_asked
+                # the zone a run's own lines say a time in - the person's AO3 zone
+                repo.zone = job.ao3_zone
                 job.emit({'type': progress.STARTED, 'action': job.action,
                           'filetypes': job.filetypes, 'options': job.options})
                 # which zone the floors and ceilings are turned into dates in, said up front -
@@ -1193,7 +1198,7 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
              RETRY_REDOWNLOAD: strings.AO3_INFO_RETRY_REDOWNLOAD,
              RETRY_DOWNLOADS: strings.AO3_INFO_RETRY_DOWNLOADS,
              RETRY_FAILED: strings.AO3_INFO_RETRY_FAILED.format(failed)}[mode],
-            runs.shown(earlier.get('started')),
+            runs.shown(earlier.get('started'), job.ao3_zone),
             earlier.get('status') or ''))
     # what the earlier attempt was actually told wins; a background run's up-front answers
     # stand in for any question it never reached. not from the top: that asks everything again
@@ -1205,7 +1210,7 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
                                 if isinstance(c, dict) and c.get('question') and c.get('choice')}}
     print(strings.AO3_INFO_RESUMING.format(
         earlier.get('actionName') or earlier['action'],
-        runs.shown(earlier.get('started')),
+        runs.shown(earlier.get('started'), job.ao3_zone),
         (earlier.get('progress') or {}).get('stepLabel') or strings.AO3_INFO_RESUME_NO_STEP))
 
 
@@ -1639,6 +1644,27 @@ def ao3_zone(name):
         return ZoneInfo(name)
     except Exception:
         return None
+
+
+def range_moment(value) -> str:
+    """A typed range end as it is kept: a UTC moment `YYYY-MM-DDTHH:MM:SS+00:00`, or a bare
+    `YYYY-MM-DD` from a page that sent one. Anything else is '' - no limit at that end, the
+    safe direction, as `get_date_stamp` has always made it."""
+
+    text = str(value or '').strip()
+    try:
+        at = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return parse_text.get_date_stamp(text)
+    if at.tzinfo is None: return parse_text.get_date_stamp(text[:10])
+    return at.astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def range_day(job, key: str) -> str:
+    """A typed range end (`dateFrom`/`dateTo`) as the day it is in the person's AO3 zone - what
+    AO3's dates are compared with."""
+
+    return ao3_day(job.options.get(key), job.ao3_zone)
 
 
 def zone_lookup_works() -> bool:
@@ -2659,7 +2685,7 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     # a date range gives both walks their floor directly, and a ceiling too; otherwise the
     # floor comes from an earlier scan
     window = bool(job.options['dates'])
-    ceiling = job.options['dateTo'] if window else ''
+    ceiling = range_day(job, 'dateTo') if window else ''
     earlier = job.earlier_progress()
     if job.resume and job.baseline:
         # a resumed scan finishes the first attempt's work, which reached up to the moment
@@ -2669,33 +2695,40 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
 
     # the user may have picked the scan to measure back to, in which case nothing is worked
     # out or asked
-    floor = (chosen_floor(fileops, job.options['floorRun'], job.ao3_zone)
-             if job.options.get('floorRun') else '')
+    # the floor is kept as the UTC moment it stands for (`floor_at`) and compared as the day
+    # that moment is in the person's AO3 zone (`floor`)
+    floor_at = (chosen_floor_at(fileops, job.options['floorRun'])
+                if job.options.get('floorRun') else '')
     if job.resume and 'floor' in earlier:
         # the floor the first attempt measured back to, not one worked out afresh - the runs
-        # on record have changed since, and this is still that run
-        floor = str(earlier.get('floor') or '')
+        # on record have changed since, and this is still that run. an older record kept a day
+        floor_at = str(earlier.get('floor') or '')
+        floor = ao3_day(floor_at, job.ao3_zone)
         print(strings.AO3_INFO_RESUME_FLOOR.format(floor or strings.AO3_INFO_DATE_ANY))
     elif window:
-        floor = job.options['dateFrom']
+        floor_at = job.options['dateFrom']
+        floor = range_day(job, 'dateFrom')
         print(strings.AO3_INFO_QUICK_WINDOW.format(floor or strings.AO3_INFO_DATE_ANY,
                                                     ceiling or strings.AO3_INFO_DATE_NOW))
-    elif floor:
+    elif floor_at:
+        floor = ao3_day(floor_at, job.ao3_zone)
         print(strings.AO3_INFO_QUICK_CHOSEN_FLOOR.format(floor))
     else:
         if job.options.get('floorRun'):
             # it was checked when the run was started, so this is a history file removed in
             # between. falling back to the usual rules beats guessing at a date
             print(strings.AO3_INFO_QUICK_CHOSEN_GONE)
-        floor = quick_scan_floor(fileops, job.ao3_zone)
+        floor_at = quick_scan_floor_at(fileops)
+        floor = ao3_day(floor_at, job.ao3_zone)
         if floor:
             print(strings.AO3_INFO_QUICK_FLOOR.format(floor))
         else:
             # nothing qualifies as a floor, but an index already here is worth measuring from
             # if the user says so - see settle_quick_floor
-            floor = settle_quick_floor(job, fileops, report)
+            floor_at = settle_quick_floor(job, fileops, report)
+            floor = ao3_day(floor_at, job.ao3_zone)
             if not floor: print(strings.AO3_INFO_QUICK_NO_FLOOR)
-    job.checkpoint(floor=floor)
+    job.checkpoint(floor=floor_at)
 
     records: list[dict] = []
     if metadata:
@@ -2815,12 +2848,16 @@ def quick_scan_floor(fileops: FileOps, zone=None) -> str:
       that day, so measuring back to one would skip it permanently.
     """
 
+    return ao3_day(quick_scan_floor_at(fileops), zone)
+
+
+def quick_scan_floor_at(fileops: FileOps) -> str:
+    """The moment `quick_scan_floor` stands for, in UTC as it is kept: when the last run that
+    qualifies began its reach (its login, or its first attempt's if resumed). '' for none."""
+
     last = runs.last_successful(fileops, match=floor_worthy,
                                 statuses=(runs.STATUS_SUCCESS, runs.STATUS_PARTIAL))
-    if not last: return ''
-    # when its reach began: the moment its login worked, or its first attempt's if resumed -
-    # as the day AO3 would date it
-    return ao3_day(runs.baseline_of(last), zone)
+    return runs.baseline_of(last) if last else ''
 
 
 def newest_indexed_on(records: list[dict], zone=None) -> str:
@@ -2831,10 +2868,21 @@ def newest_indexed_on(records: list[dict], zone=None) -> str:
     date the index itself can offer as a floor.
     """
 
-    newest = ''
+    return ao3_day(newest_indexed_at(records), zone)
+
+
+def newest_indexed_at(records: list[dict]) -> str:
+    """The latest `last_indexed` moment across the index, as written (UTC), or ''."""
+
+    newest, newest_at = '', None
     for record in records:
-        stamp = ao3_day(record.get(indexing.LAST_INDEXED), zone)
-        if len(stamp) == 10 and stamp > newest: newest = stamp
+        stamp = str(record.get(indexing.LAST_INDEXED) or '')
+        try:
+            at = datetime.datetime.fromisoformat(stamp)
+        except ValueError:
+            continue
+        if at.tzinfo is None: at = at.replace(tzinfo=datetime.timezone.utc)
+        if newest_at is None or at > newest_at: newest, newest_at = stamp, at
     return newest
 
 
@@ -2852,13 +2900,14 @@ def settle_quick_floor(job: Job, fileops: FileOps, report) -> str:
     that cannot leave a gap. Whatever goes wrong here, a quick scan must not quietly decide
     to look at less than it should.
 
-    Returns the date to index back to, or '' for the whole listing.
+    Returns the moment to index back to (UTC, as kept), or '' for the whole listing.
     """
 
     records = shared.read_index(fileops)
     if not records: return ''
 
-    indexed_on = newest_indexed_on(records, job.ao3_zone)
+    indexed_at = newest_indexed_at(records)
+    indexed_on = ao3_day(indexed_at, job.ao3_zone)
     if not indexed_on: return ''
 
     print(strings.AO3_INFO_QUICK_ASKING.format(len(records), indexed_on))
@@ -2877,7 +2926,7 @@ def settle_quick_floor(job: Job, fileops: FileOps, report) -> str:
 
     if choice == QUICK_SINCE_INDEX:
         print(strings.AO3_INFO_QUICK_SINCE_INDEX.format(indexed_on))
-        return indexed_on
+        return indexed_at
 
     print(strings.AO3_INFO_QUICK_CHOSE_FULL)
     return ''
@@ -2932,12 +2981,20 @@ def missing_downloads(record: dict) -> list[str]:
 
 
 def chosen_floor(fileops: FileOps, run_id: str, zone=None) -> str:
-    """The day a chosen earlier scan started, or '' when it is not a run that can be one."""
+    """The day a chosen earlier scan started, in the person's AO3 zone, or '' when it is not a
+    run that can be one."""
+
+    return ao3_day(chosen_floor_at(fileops, run_id), zone)
+
+
+def chosen_floor_at(fileops: FileOps, run_id: str) -> str:
+    """The moment a chosen earlier scan's reach began (UTC, as kept), or '' when it is not a
+    run that can be one."""
 
     if not run_id: return ''
     for record in floor_runs(fileops):
         if str(record.get('id') or '') == run_id:
-            return ao3_day(runs.baseline_of(record), zone)
+            return runs.baseline_of(record)
     return ''
 
 
@@ -4118,8 +4175,9 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
     pass re-reads before it decides what to download.
     """
 
-    start = job.options['dateFrom']
-    end = job.options['dateTo']
+    # the typed range, as days in the person's AO3 zone - the dates AO3's are compared with
+    start = range_day(job, 'dateFrom')
+    end = range_day(job, 'dateTo')
     metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
 
     restore_series(job, ao3)

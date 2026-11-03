@@ -1,3 +1,4 @@
+import { inAo3Zone } from './preferences';
 import {
   Component,
   DestroyRef,
@@ -148,7 +149,7 @@ export class App {
     const parsed = new Date(stamp);
     return Number.isNaN(parsed.getTime())
       ? ''
-      : parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      : parsed.toLocaleTimeString([], inAo3Zone({ hour: '2-digit', minute: '2-digit' }));
   }
 
   /** from the banner: the history, where the run in progress is pinned to the top */
@@ -434,5 +435,5 @@ export class App {
 export function shownTime(value: string | Date): string {
   const at = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(at.getTime())) return String(value);
-  return at.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return at.toLocaleString([], inAo3Zone({ dateStyle: 'medium', timeStyle: 'short' }));
 }

@@ -15,7 +15,7 @@ import {
   StartRequest,
   UndatedChoice,
 } from './jobs';
-import { AO3_TIME_ZONE_KEY } from './preferences';
+import { AO3_TIME_ZONE_KEY, zonedDayToUtc } from './preferences';
 
 const CONFIG: ServerConfig = {
   username: 'Someone',
@@ -843,9 +843,11 @@ describe('DownloadDialog', () => {
     await chooseWindow('2024-01-01', '2024-06-30');
 
     expect(element.querySelector('.range-zone')?.textContent).toContain('Australia/Sydney');
-    // and the dates go to the helper as typed
+    // and the dates go to the helper as the UTC moments they stand for
     await advanceTo('running');
-    expect(jobs.started[0].options.dateFrom).toBe('2024-01-01');
+    // typed in the AO3 zone, sent as the UTC moment that day begins there
+    expect(jobs.started[0].options.dateFrom).toBe('2023-12-31T13:00:00+00:00');
+    expect(jobs.started[0].options.dateTo).toBe('2024-06-30T13:59:59+00:00');
     expect(jobs.started[0].ao3TimeZone).toBe('Australia/Sydney');
   });
 
@@ -857,8 +859,8 @@ describe('DownloadDialog', () => {
     await advanceTo('running');
 
     expect(jobs.started[0].options.dates).toBe(true);
-    expect(jobs.started[0].options.dateFrom).toBe('2024-01-01');
-    expect(jobs.started[0].options.dateTo).toBe('2024-06-30');
+    expect(jobs.started[0].options.dateFrom).toBe(zonedDayToUtc('2024-01-01'));
+    expect(jobs.started[0].options.dateTo).toBe(zonedDayToUtc('2024-06-30', true));
   });
 
   // 'since a date' is open at the top, so there is no newer end to send. a date left over
@@ -875,7 +877,7 @@ describe('DownloadDialog', () => {
 
     await advanceTo('running');
 
-    expect(jobs.started[0].options.dateFrom).toBe('2024-01-01');
+    expect(jobs.started[0].options.dateFrom).toBe(zonedDayToUtc('2024-01-01'));
     expect(jobs.started[0].options.dateTo).toBe('');
   });
 
@@ -2312,7 +2314,7 @@ describe('DownloadDialog', () => {
     await advanceTo('running');
 
     expect(jobs.started[0].options.dates).toBe(true);
-    expect(jobs.started[0].options.dateFrom).toBe('2026-01-01');
+    expect(jobs.started[0].options.dateFrom).toBe(zonedDayToUtc('2026-01-01'));
   });
 
   it('leaves a quick scan measuring back to the last run unless told otherwise', async () => {

@@ -1,3 +1,4 @@
+import { inAo3Zone } from './preferences';
 import { Component, effect, inject, signal, untracked, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
@@ -226,7 +227,7 @@ export class History {
   protected timeOf(stamp: string | undefined): string {
     const parsed = stamp ? new Date(stamp) : null;
     return parsed && !Number.isNaN(parsed.getTime())
-      ? parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? parsed.toLocaleTimeString([], inAo3Zone({ hour: '2-digit', minute: '2-digit' }))
       : '';
   }
 
@@ -234,11 +235,11 @@ export class History {
     return describeGap(gap);
   }
 
-  /** when it ran, in the reader's own locale rather than as an iso stamp */
+  /** when it ran, in the person's AO3 zone rather than as an iso stamp */
   protected when(stamp: string | null): string {
     if (!stamp) return '';
     const parsed = new Date(stamp);
-    return Number.isNaN(parsed.getTime()) ? stamp : parsed.toLocaleString();
+    return Number.isNaN(parsed.getTime()) ? stamp : parsed.toLocaleString([], inAo3Zone());
   }
 
   /** the settings worth showing back, as words rather than as a json dump */

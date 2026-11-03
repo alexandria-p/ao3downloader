@@ -242,3 +242,65 @@ export function saveAo3TimeZone(zone: string | null): void {
   if (zone === null) safeRemove(AO3_TIME_ZONE_KEY);
   else safeSet(AO3_TIME_ZONE_KEY, zone);
 }
+
+/**
+ * Formatting options that show a time in the person's AO3 zone - every time the page shows
+ * is in it, as the dates AO3's are compared against are. A zone this browser cannot name
+ * (a hand-edited value) leaves the browser's own rather than throwing.
+ */
+export function inAo3Zone(options: Intl.DateTimeFormatOptions = {}): Intl.DateTimeFormatOptions {
+  const timeZone = ao3TimeZone();
+  try {
+    new Intl.DateTimeFormat([], { timeZone });
+    return { ...options, timeZone };
+  } catch {
+    return options;
+  }
+}
+
+/** how far `zone` is ahead of UTC at the moment `utcMs`, in milliseconds */
+function zoneOffsetMs(utcMs: number, zone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(new Date(utcMs));
+  const v = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  return Date.UTC(+v['year'], +v['month'] - 1, +v['day'], +v['hour'] % 24, +v['minute'], +v['second']) - utcMs;
+}
+
+/** the zone to use: the AO3 one when this browser can name it, else UTC */
+function usableZone(): string {
+  const zone = ao3TimeZone();
+  try {
+    new Intl.DateTimeFormat([], { timeZone: zone });
+    return zone;
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * A day typed in the person's AO3 zone, as the UTC moment it begins - or, for the newer end
+ * of a range (`end`), the last second of it - written `YYYY-MM-DDTHH:MM:SS+00:00`, which is how
+ * the helper keeps it. '' for anything that is not a `YYYY-MM-DD` day.
+ */
+export function zonedDayToUtc(day: string, end = false): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day.trim());
+  if (!m) return '';
+  const zone = usableZone();
+  const local = Date.UTC(+m[1], +m[2] - 1, +m[3], end ? 23 : 0, end ? 59 : 0, end ? 59 : 0);
+  // the offset at the guess, then again at the answer, which settles a daylight-saving change
+  let at = local - zoneOffsetMs(local, zone);
+  at = local - zoneOffsetMs(at, zone);
+  return new Date(at).toISOString().replace(/\.\d{3}Z$/, '+00:00');
+}
+
+/** a kept moment as the day it is in the person's AO3 zone; a bare day is itself */
+export function utcToZonedDay(stamp: unknown): string {
+  const text = String(stamp ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const at = new Date(text);
+  if (!text || Number.isNaN(at.getTime())) return text.slice(0, 10);
+  // en-CA writes YYYY-MM-DD
+  return at.toLocaleDateString('en-CA', { timeZone: usableZone() });
+}
