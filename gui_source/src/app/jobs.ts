@@ -33,6 +33,8 @@ export type JobAction =
   | 'work'
   /** several fics, pasted as links or work numbers */
   | 'works'
+  /** works whose files are in the library with no index entry, found by the page */
+  | 'import'
   /** the full scan with its parts made optional */
   | 'custom'
   /** a full scan that stops at the works ao3 has not touched since the last run */
@@ -114,6 +116,11 @@ export interface JobOptions {
    * see, because the name and the date are both right and only the bytes are wrong.
    */
   overwrite: boolean;
+  /**
+   * An import: replace a copy you have when AO3 has a newer version than the date in its
+   * name. Off, an import fetches only the formats you do not have. The import's alone.
+   */
+  replaceOutdated?: boolean;
   /**
    * Check every non-bookmark in the index for updates too - the works it holds only because
    * something else led a run to them, such as another work's series. Not narrowed by a date

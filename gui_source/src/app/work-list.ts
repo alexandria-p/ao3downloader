@@ -322,6 +322,8 @@ export class WorkList {
       }
       case 'link':
         return 'Downloaded by ID or URL';
+      case 'external':
+        return 'Imported from an external source';
       case 'other':
         return 'Not in your AO3 bookmarks';
       default:
@@ -341,6 +343,8 @@ export class WorkList {
         return `Not in your AO3 bookmarks - it is here because an indexed collection holds it: ${(work.from_collections ?? []).join(', ')}`;
       case 'link':
         return 'Not in your AO3 bookmarks - downloaded by its link or work number';
+      case 'external':
+        return 'Not in your AO3 bookmarks - its file was already in your library, and an import indexed it';
       default:
         return 'Not in your AO3 bookmarks - where it came from is not recorded, such as an imported index';
     }

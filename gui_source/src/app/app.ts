@@ -18,8 +18,12 @@ import { DownloadDialog } from './download-dialog';
 import { Faq } from './faq';
 import { Feedback } from './feedback';
 import { History } from './history';
+import { ImportDialog } from './import-dialog';
+import { DatingResult, ImportRequest, LibraryImports } from './imports';
+import { IMPORT_OFFER_KEY } from './preferences';
+import { safeGet, safeSet, safeRemove } from './storage';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
-import { ActiveRun, JobAction, Jobs } from './jobs';
+import { ActiveRun, BUILT_IN_CONFIG, JobAction, Jobs } from './jobs';
 import { HelperConnection } from './helper-connection';
 import { Library, describeReadProgress } from './library';
 import { LibraryFreshness } from './freshness';
@@ -42,17 +46,17 @@ export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug' | 'se
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
-    CollectionsView, Feedback, PasscodeGate, SetupOverlay, UserSettings],
+    CollectionsView, Feedback, PasscodeGate, SetupOverlay, UserSettings, ImportDialog],
   styleUrl: './app.css',
   templateUrl: './app.html',
   // a tab coming back into view is when a run elsewhere is most likely to have finished
   host: { '(document:visibilitychange)': 'lookAgain()' },
 })
 export class App {
-  private readonly library = inject(Library);
+  protected readonly library = inject(Library);
   protected readonly freshness = inject(LibraryFreshness);
   protected readonly refreshing = this.library.refreshing;
-  private readonly jobs = inject(Jobs);
+  protected readonly jobs = inject(Jobs);
   private readonly storage = inject(StorageChoice);
   private readonly dropbox = inject(DropboxSession);
   private readonly helper = inject(HelperConnection);
@@ -102,6 +106,21 @@ export class App {
   protected readonly resumeFrom = signal('');
   /** a background run the window opens onto, from the history's View progress */
   protected readonly attachTo = signal<ActiveRun | null>(null);
+  /** an import's works and choices, for the run window it opens */
+  protected readonly importing = signal<ImportRequest | null>(null);
+
+  /** the library's works with files and no index entry, kept current */
+  protected readonly imports = inject(LibraryImports);
+  /** the formats an import can fetch: the helper's, or what any helper offers until it answers */
+  protected readonly importFormats = computed(
+    () => this.jobs.config()?.filetypes ?? BUILT_IN_CONFIG.filetypes,
+  );
+  /** whether the import window is up */
+  protected readonly importOpen = signal(false);
+  /** whether the import window opens by itself when a library turns out to have some */
+  protected readonly importOffered = signal(safeGet(IMPORT_OFFER_KEY) !== 'off');
+  /** the libraries the import window has opened by itself for already, this visit */
+  private readonly offeredFor = new WeakSet<object>();
 
   /**
    * The run the helper is working on, if any.
@@ -167,9 +186,43 @@ export class App {
     this.dialogAction.set(run.action);
   }
 
+  /** from the Works tab's notice: the import window, by hand */
+  protected openImport(): void {
+    if (this.activeRun() || this.dialogAction()) return;
+    this.importOpen.set(true);
+  }
+
+  /** the import window closed without starting a run - the files it dated are taken in */
+  protected importClosed(dated: DatingResult | null): void {
+    this.importOpen.set(false);
+    void this.takeInDating(dated);
+  }
+
+  /** the import window's choices made: on to the run window, which asks the rest */
+  protected importStart(chosen: { request: ImportRequest; dated: DatingResult | null }): void {
+    this.importOpen.set(false);
+    void this.takeInDating(chosen.dated);
+    this.importing.set(chosen.request);
+    this.openRun('import');
+  }
+
+  protected setImportOffered(offered: boolean): void {
+    this.importOffered.set(offered);
+    if (offered) safeRemove(IMPORT_OFFER_KEY);
+    else safeSet(IMPORT_OFFER_KEY, 'off');
+  }
+
+  /** the renamed files listed again, so the page opens them by their new names */
+  private async takeInDating(dated: DatingResult | null): Promise<void> {
+    if (!dated?.renamed.length) return;
+    await this.library.refreshAfterRun(dated.renamed.flatMap((x) => [x.from, x.to]));
+    void this.imports.check();
+  }
+
   /** the run window closed - whatever it was, what is running may have changed */
   protected dialogClosed(): void {
     this.dialogAction.set(null);
+    this.importing.set(null);
     this.resumeFrom.set('');
     this.attachTo.set(null);
     void this.jobs.refreshActiveRuns();
@@ -201,7 +254,8 @@ export class App {
   protected readonly dropboxAccount = this.dropbox.account;
   protected readonly dropboxError = this.dropbox.error;
   /** what setting a library up could not do - files it could not move, say */
-  protected readonly setupReport = inject(LibrarySetup).report;
+  private readonly librarySetup = inject(LibrarySetup);
+  protected readonly setupReport = this.librarySetup.report;
   /** where the library is in Dropbox - always the app folder, so there is nothing to pick */
   protected readonly appFolderPath = APP_FOLDER_PATH;
 
@@ -254,6 +308,28 @@ export class App {
     effect(() => {
       const read = this.library.lastRead();
       if (read) untracked(() => void this.jobs.settleInterrupted(read.store));
+    });
+    // whenever the index changes - a read, a refresh, a run's changes taken in - the works
+    // with files and no entry are worked out again: one listing of works/
+    effect(() => {
+      this.library.worksById();
+      const store = this.library.store();
+      untracked(() => void (store ? this.imports.check() : this.imports.found.set([])));
+    });
+    // offered by itself once per library per visit, and never while a run is going: the run
+    // reads and writes the library, and renaming files under it is not safe. a run ending
+    // changes the index, which checks again, and the offer is made then
+    effect(() => {
+      const found = this.imports.found();
+      const store = this.imports.checkedStore();
+      if (!found.length || !store || store !== this.library.store()) return;
+      if (this.activeRun() || this.dialogAction() || this.importOpen() || !this.importOffered()) return;
+      if (this.library.loading() || this.librarySetup.state() !== 'idle') return;
+      untracked(() => {
+        if (this.offeredFor.has(store)) return;
+        this.offeredFor.add(store);
+        this.importOpen.set(true);
+      });
     });
     // finishes a sign-in if this load is the way back from dropbox.com
     void this.dropbox.restore();

@@ -196,6 +196,12 @@ class Ao3:
         # formats of a work an overwriting run was told not to replace: the copy on disk is
         # newer than the version this run would write. by link, formats upper-case
         self.keep_formats: dict[str, set[str]] = {}
+        # what a kept format is said as: a newer copy kept on an overwriting run, or - on an
+        # import told not to replace outdated copies - whatever copy you have
+        self.keep_message = strings.AO3_INFO_KEEPING_NEWER
+        # the field marking a work a fic run indexed that is not your bookmark: by its link, or
+        # (an import) because its file was found in your library
+        self.origin_field = strings.FROM_LINK_FIELD
         # works this run could not download, in the order they were attempted. the log
         # records them too, but a run that leaves gaps should be able to say which ones
         # without anyone having to read a log file to find out.
@@ -712,7 +718,7 @@ class Ao3:
 
         fresh = {**record, **stats, **page_bookmark_state(soup, existing)}
         if not was_bookmark(existing) and fresh.get(strings.BOOKMARKED_FIELD) is not True:
-            fresh[strings.FROM_LINK_FIELD] = True
+            fresh[self.origin_field] = True
         # a work page is only ever a work's - an entry made here is typed like any other
         fresh.setdefault(strings.BOOKMARK_TYPE_FIELD, strings.BOOKMARK_TYPE_WORK)
         # the series it is part of, read off its own page, so a run asked to walk them can
@@ -894,7 +900,7 @@ class Ao3:
         formats = [x for x in self.filetypes if x.upper() not in kept
                    and not self.format_done(work, x) and x.upper() not in current]
         for filetype in self.filetypes:
-            if filetype.upper() in kept: print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
+            if filetype.upper() in kept: print(self.keep_message.format(filetype))
             elif self.format_done(work, filetype):
                 print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, work))
             elif filetype.upper() in current:

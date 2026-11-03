@@ -67,6 +67,10 @@ ACTION_SYNC = 'sync'
 ACTION_WORK = 'work'
 # several fics, pasted as links or work numbers - the single-fic run over a list
 ACTION_WORKS = 'works'
+# works whose files were found in your library with no index entry: the several-fics run over
+# them, marking each `from_import`, fetching only what is missing unless told to replace what
+# is outdated, and never overwriting a copy that is current
+ACTION_IMPORT = 'import'
 # the full scan with its parts made optional
 ACTION_CUSTOM = 'custom'
 # a full scan's shape, but stopping at the works ao3 has not touched since the last run
@@ -207,14 +211,15 @@ def configured_answer(name: str, builtin: dict, chosen: str | None = None) -> di
 BACKGROUND_KEPT_MESSAGES = 1000
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
-           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_WORKS, ACTION_CUSTOM, ACTION_QUICK)
+           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_WORKS, ACTION_CUSTOM, ACTION_QUICK,
+           ACTION_IMPORT)
 
 # actions that need a link from the caller rather than working it out from the username
-ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK, ACTION_WORKS)
+ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK, ACTION_WORKS, ACTION_IMPORT)
 
 # the runs pointed at fics by hand. a fic they index that is not your bookmark is marked
 # as having come in by its link (`from_link`)
-FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS, ACTION_IMPORT)
 
 # every run may be told not to log in (`skipLogin`). these still need a username without
 # one, because they read your own bookmarks or collections listing, found by your name -
@@ -226,6 +231,11 @@ USERNAME_ACTIONS = (ACTION_BOOKMARKS, ACTION_NEW, ACTION_SYNC, ACTION_CUSTOM, AC
 
 # the most fics one 'several fics' run takes. a paste of a whole library belongs to a scan
 MAX_WORK_LINKS = 500
+# an import names every unindexed work found in a library, which can be a great many more:
+# one request each, so a few thousand is still a run, if a long one
+MAX_IMPORT_LINKS = 5000
+# the fic runs that look up a list of fics and can carry on fic by fic
+LIST_ACTIONS = (ACTION_WORKS, ACTION_IMPORT)
 
 # the two collection runs. On their own they write only the collections' files; asked to
 # (`collectionWorks`) they index every work they meet as well, and download those
@@ -272,7 +282,7 @@ RETRY_FAILED = 'failed'
 RETRY_MODES = (RETRY_TOP, RETRY_REINDEX, RETRY_INDEX, RETRY_REDOWNLOAD, RETRY_DOWNLOADS,
                RETRY_FAILED)
 # the fic runs: retried by the fics they name, not by a listing
-FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS, ACTION_IMPORT)
 
 # json is always produced, so the ui shows it ticked and locked. it is what the web page
 # reads, and it costs nothing extra: the metadata comes off the listing page that has to be
@@ -347,6 +357,9 @@ def resolve_options(requested) -> dict:
         # answer to a damaged or truncated file, which no version check can see: the name
         # and the date are both right and only the bytes are wrong.
         'overwrite': bool(given.get('overwrite')),
+        # an import: replace a copy you have when ao3 has a newer version. off, an import
+        # fetches only the formats you do not have and leaves every copy you have alone
+        'replaceOutdated': bool(given.get('replaceOutdated')),
         # check every non-bookmark in the index for updates too. a listing of your bookmarks
         # never shows them, so without this they are only read again when something else
         # brings the run to them. not narrowed by a date range or a floor: see
@@ -831,6 +844,7 @@ def action_name(action: str) -> str:
         ACTION_SYNC: strings.ACTION_NAME_SYNC,
         ACTION_WORK: strings.ACTION_NAME_WORK,
         ACTION_WORKS: strings.ACTION_NAME_WORKS,
+        ACTION_IMPORT: strings.ACTION_NAME_IMPORT,
         ACTION_CUSTOM: strings.ACTION_NAME_CUSTOM,
         ACTION_QUICK: strings.ACTION_NAME_QUICK,
     }.get(action, action)
@@ -876,6 +890,12 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         if works and downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD))
+    elif job.action == ACTION_IMPORT:
+        # no series walk: an import is about the files you already have
+        plan.append(('index', strings.STEP_INDEX_IMPORT))
+        if downloads:
+            plan.append(('check', strings.STEP_CHECK_FILES))
+            plan.append(('download', strings.STEP_DOWNLOAD_IMPORT))
     elif job.action in (ACTION_WORK, ACTION_WORKS):
         one = job.action == ACTION_WORK
         plan.append(('index', strings.STEP_INDEX_ONE if one else strings.STEP_INDEX_MANY))
@@ -1198,7 +1218,9 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
         links = [str(x.get('link') or '') for x in earlier.get('failures') or []
                  if isinstance(x, dict) and x.get('link')]
         job.url = '\n'.join(links)
-        job.action = ACTION_WORKS if len(links) > 1 else ACTION_WORK
+        # an import stays an import, so the works it gets are still marked as imported
+        if job.action != ACTION_IMPORT:
+            job.action = ACTION_WORKS if len(links) > 1 else ACTION_WORK
     if mode:
         failed = len(failed_work_ids(earlier))
         print(strings.AO3_INFO_RETRYING.format(
@@ -1378,13 +1400,13 @@ def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
     if action == ACTION_COLLECTION and not record.get('url'): return strings.RESUME_NO_LINK
     if action in FIC_ACTIONS and not record.get('url'): return strings.RETRY_NO_FIC_LINKS
     if mode == RETRY_TOP: return ''
-    if mode in (RETRY_INDEX, RETRY_DOWNLOADS) and action != ACTION_WORKS and \
+    if mode in (RETRY_INDEX, RETRY_DOWNLOADS) and action not in LIST_ACTIONS and \
             record.get('status') == runs.STATUS_PARTIAL:
         # it reached the end: there is nothing to carry on from, only what it missed
         return strings.RETRY_PARTIAL_DONE
     if mode in (RETRY_INDEX, RETRY_DOWNLOADS) and finished_both(record):
         return strings.RETRY_ALL_DONE
-    if action == ACTION_WORKS and mode == RETRY_DOWNLOADS:
+    if action in LIST_ACTIONS and mode == RETRY_DOWNLOADS:
         # several fics carry on fic by fic: what the earlier attempt saved is passed over
         return '' if progress_so_far is not None else strings.RESUME_TOO_OLD
     if mode == RETRY_REINDEX:
@@ -1445,7 +1467,7 @@ def retry_choices(record: dict, active: set[str]) -> dict:
         # a fic run has no listing to carry on with: it is the fics, or the failed ones - and,
         # for several fics, carrying on from where it stopped
         kept = (RETRY_TOP, RETRY_DOWNLOADS, RETRY_FAILED) \
-            if record.get('action') == ACTION_WORKS else (RETRY_TOP, RETRY_FAILED)
+            if record.get('action') in LIST_ACTIONS else (RETRY_TOP, RETRY_FAILED)
         modes = [m for m in modes if m['mode'] in kept]
     available = {m['mode'] for m in modes if m['available']}
     return {'modes': modes, 'default': retry_default(record, available) if available else '',
@@ -2273,7 +2295,7 @@ def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[di
 
 def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
                      downloadtypes: list[str], report,
-                     overwrite: list[str] | None = None) -> None:
+                     overwrite: list[str] | None = None, keep_existing: bool = False) -> None:
     """Settle anything undated among these works, then download them.
 
     The same rule a full run downloads by, applied to whichever slice of the index the
@@ -2292,6 +2314,9 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
     job.steps.start('check')
     save_scope(job, records)
     plan = plan_refresh(job, fileops, records, downloadtypes, report, overwrite)
+    if keep_existing:
+        keep_existing_copies(records, plan, downloadtypes)
+        ao3.keep_message = strings.AO3_INFO_KEEPING_YOURS
     # an out-of-date copy is not 'already downloaded', so it must not be skipped
     visited = shared.already_downloaded(plan['existing'], downloadtypes, records, plan['stale'])
     ao3.superseded = plan['superseded']
@@ -2593,19 +2618,52 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     the rest of a series it goes on to walk is fetched where it is missing or behind.
     """
 
+    run_fic_list(job, fileops, repo, report, importing=False)
+
+
+def run_import(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """Index the works whose files were found in your library with no index entry, and fetch
+    the formats asked for.
+
+    The several-fics run over the works the page found, with three differences, all because
+    these are files you already have rather than fics asked for by hand:
+
+    - each entry it makes is marked `from_import` (unless the work turns out to be your
+      bookmark), so the Works tab lists it as *Imported*;
+    - it **never overwrites**. A copy is replaced only when ao3 has a newer version than the
+      date in its name, and only when the import was told to (`replaceOutdated`); otherwise
+      only the formats you do not have are fetched;
+    - undated files are left alone without asking: the page has just offered to date them, and
+      a file left undated there was left that way on purpose.
+
+    No series walk: an import is about what is in the folder.
+    """
+
+    run_fic_list(job, fileops, repo, report, importing=True)
+
+
+def run_fic_list(job: Job, fileops: FileOps, repo: Repository, report, importing: bool) -> None:
+    """Look up a list of fics, then download them - several fics, or an import."""
+
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
     links = [x for x in job.url.split('\n') if x.strip()]
     if not links:
-        raise exceptions.InvalidLinkException(strings.ERROR_NO_WORK_LINKS)
+        raise exceptions.InvalidLinkException(
+            strings.ERROR_NO_IMPORT_WORKS if importing else strings.ERROR_NO_WORK_LINKS)
 
-    job.options['overwrite'] = True
+    # a list asked for by hand replaces what it names; an import never does
+    job.options['overwrite'] = not importing
+    if importing:
+        job.options['series'] = False
     ao3 = Ao3(repo, fileops, downloadtypes, None, job.options['series'], job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
+    if importing: ao3.origin_field = strings.FROM_IMPORT_FIELD
     job.ao3 = ao3
 
     job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
-    print(strings.AO3_INFO_MANY_WORKS.format(len(links)))
+    print((strings.AO3_INFO_IMPORT_WORKS if importing
+           else strings.AO3_INFO_MANY_WORKS).format(len(links)))
 
     # carrying on: a fic the earlier attempt saved in every format is done - not looked up,
     # not fetched. one partway through is looked up and only its missing formats fetched
@@ -2653,8 +2711,13 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     if any(gap.get('kind') == 'work' for gap in ao3.index_failures): job.steps.fail('index')
     else: job.steps.done('index')
 
-    records = merge_by_work(records, index_marked_series(job, ao3, report))
-    download_planned(job, fileops, ao3, records, downloadtypes, report, overwrite=asked)
+    if importing:
+        keep = not job.options.get('replaceOutdated')
+        if keep and downloadtypes: print(strings.AO3_INFO_IMPORT_KEEPING)
+        download_planned(job, fileops, ao3, records, downloadtypes, report, keep_existing=keep)
+    else:
+        records = merge_by_work(records, index_marked_series(job, ao3, report))
+        download_planned(job, fileops, ao3, records, downloadtypes, report, overwrite=asked)
     finish_run(job, fileops, ao3, report)
 
 
@@ -3166,6 +3229,11 @@ def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: di
 
     print(strings.AO3_INFO_UNDATED.format(len(undated), files))
     print(strings.AO3_INFO_UNDATED_WORKS.format(', '.join(ids)))
+    if job.action == ACTION_IMPORT:
+        # the page offered to date these before the import started; one left undated there
+        # was left so on purpose, and is kept as it is
+        print(strings.AO3_INFO_IMPORT_UNDATED_KEPT)
+        return False, 0
     print(strings.AO3_INFO_UNDATED_WAITING)
 
     answer = job.ask(
@@ -3303,7 +3371,7 @@ def cleanup(job: Job, fileops: FileOps, ao3) -> None:
 # the runs whose cleanup notes which collections hold the works they covered: every
 # workflow but the debug ones (the combined run, new bookmarks only, update incomplete)
 LINKING_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM, ACTION_WORK, ACTION_WORKS,
-                   ACTION_COLLECTIONS, ACTION_COLLECTION)
+                   ACTION_COLLECTIONS, ACTION_COLLECTION, ACTION_IMPORT)
 
 
 def covered_works(job: Job, ao3) -> set[str]:
@@ -3664,7 +3732,8 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         record = fichub.entry_from(answer, link, entry)
         # a fic run asked for this one by its link: say so, unless it is your bookmark
         if job is not None and job.action in FIC_ACTIONS and not was_bookmark(entry):
-            record[strings.FROM_LINK_FIELD] = True
+            record[strings.FROM_IMPORT_FIELD if job.action == ACTION_IMPORT
+                   else strings.FROM_LINK_FIELD] = True
         title = record.get('title') or title
         print(strings.AO3_INFO_FICHUB_FOUND.format(failure['id'], title))
 
@@ -4330,6 +4399,33 @@ def keep_newer_copies(job: 'Job', records: list[dict], existing: dict, plan: dic
             if not missing and link in plan['stale']: plan['stale'].remove(link)
 
 
+def keep_existing_copies(records: list[dict], plan: dict, filetypes: list[str]) -> None:
+    """Keep every copy already in the folder, current or not - an import told not to replace
+    outdated copies.
+
+    Each format a work has a copy of leaves `superseded` for `plan['keep']`, which the
+    downloader passes over, and a work with no format missing leaves `stale`, so it is not
+    fetched at all. Formats with no copy are still fetched: that is what the import was asked
+    to do.
+    """
+
+    keep: dict[str, set[str]] = plan.setdefault('keep', {})
+    existing = plan.get('existing') or {}
+    for record in records:
+        link = record.get('link') or ''
+        have = existing.get(str(record.get('id') or '')) or {}
+        held = {x.upper() for x in filetypes if have.get(x.upper())}
+        if not held: continue
+        keep.setdefault(link, set()).update(held)
+        replacing = plan['superseded'].get(link)
+        if replacing is not None:
+            for filetype in list(replacing):
+                if filetype.upper() in held: replacing.pop(filetype, None)
+            if not replacing: plan['superseded'].pop(link, None)
+        missing = any(not have.get(x.upper()) for x in filetypes)
+        if not missing and link in plan['stale']: plan['stale'].remove(link)
+
+
 def say_what_each_format_needs(record: dict, existing: dict, filetypes: list[str],
                                plan: dict) -> list[str]:
     """Say what is going to happen to each requested format, and return the ones to fetch.
@@ -4517,6 +4613,7 @@ def runners() -> dict:
         ACTION_SYNC: run_sync,
         ACTION_WORK: run_work,
         ACTION_WORKS: run_works,
+        ACTION_IMPORT: run_import,
         ACTION_CUSTOM: run_custom,
         ACTION_QUICK: run_quick,
     }
@@ -4826,6 +4923,8 @@ class Handler(BaseHTTPRequestHandler):
         # into what a run may actually do - a stray flag must not make a routine run
         # re-fetch a whole library
         if action not in OVERWRITE_ACTIONS: options['overwrite'] = False
+        # the import's alone: every other run replaces what is outdated as a matter of course
+        if action != ACTION_IMPORT: options['replaceOutdated'] = False
         # the scans alone can be resumed; the run itself checks the one named can be
         if action not in RESUME_ACTIONS: options['resume'] = options['retryMode'] = ''
         # the same for checking non-bookmarks, which costs a request per work outside a series
@@ -4865,12 +4964,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # normalised now, so the run is handed a link rather than whatever was pasted
             url = link
-        elif action == ACTION_WORKS:
+        elif action in LIST_ACTIONS:
             links, unknown = work_links(url)
+            most = MAX_IMPORT_LINKS if action == ACTION_IMPORT else MAX_WORK_LINKS
+            too_many = (strings.ERROR_TOO_MANY_IMPORT_WORKS if action == ACTION_IMPORT
+                        else strings.ERROR_TOO_MANY_WORK_LINKS)
             problem = (strings.ERROR_NOT_WORK_LINKS.format(', '.join(unknown[:10]))
-                       if unknown else strings.ERROR_NO_WORK_LINKS if not links
-                       else strings.ERROR_TOO_MANY_WORK_LINKS.format(len(links), MAX_WORK_LINKS)
-                       if len(links) > MAX_WORK_LINKS else '')
+                       if unknown else (strings.ERROR_NO_IMPORT_WORKS if action == ACTION_IMPORT
+                                        else strings.ERROR_NO_WORK_LINKS) if not links
+                       else too_many.format(len(links), most) if len(links) > most else '')
             if problem:
                 self.send_json(400, {'error': problem})
                 return

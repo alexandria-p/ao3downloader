@@ -1,0 +1,201 @@
+<div class="backdrop" (click)="close()"></div>
+
+<div class="dialog" role="dialog" aria-modal="true" [attr.data-step]="step()"
+     (click)="$event.stopPropagation()">
+  <header>
+    <h2>Import works found in your library</h2>
+    @if (step() !== 'dating') {
+      <button type="button" class="icon" (click)="close()" aria-label="Close">&times;</button>
+    }
+  </header>
+
+  @if (step() === 'found') {
+    <section class="body">
+      <p class="found-count">
+        Your library has <strong>{{ works().length | number }}
+        {{ works().length === 1 ? 'work' : 'works' }}</strong>
+        ({{ fileCount() | number }} {{ fileCount() === 1 ? 'file' : 'files' }}) in
+        <code>works/</code> with no index entry. They are named for their work number, so they
+        can be looked up on AO3 and indexed.
+      </p>
+      @if (undated().length) {
+        <p>
+          {{ undated().length | number }} {{ undated().length === 1 ? 'file has' : 'files have' }}
+          no date in {{ undated().length === 1 ? 'its' : 'their' }} name, so a run cannot tell
+          whether AO3 has a newer version. You can give them one next.
+        </p>
+      }
+      <ul class="found-list">
+        @for (work of works().slice(0, shownWorks); track work.id) {
+          <li>
+            <span class="work-id">Work {{ work.id }}</span>
+            @for (file of work.files; track file.path) {
+              <span class="file-name" [class.undated]="!file.date">{{ file.name }}</span>
+            }
+          </li>
+        }
+        @if (works().length > shownWorks) {
+          <li class="dim">and {{ works().length - shownWorks | number }} more</li>
+        }
+      </ul>
+      @if (busy()) {
+        <p class="warning busy-note" role="note">
+          A run is in progress. Nothing can be renamed or imported until it has finished - this
+          will be offered again then.
+        </p>
+      }
+      <label class="check">
+        <input type="checkbox" name="askAgain" [checked]="!askAgain()"
+               (change)="askAgainChanged.emit(!$any($event.target).checked)" />
+        <span>Do not offer this by itself when a library opens (the Works tab still offers it)</span>
+      </label>
+    </section>
+    <footer>
+      <button type="button" class="button subtle" (click)="close()">Not now</button>
+      <button type="button" class="button primary" [disabled]="busy()" (click)="fromFound()">
+        Continue
+      </button>
+    </footer>
+  }
+
+  @if (step() === 'dates') {
+    <section class="body">
+      <p>
+        <strong>Would you like to give these files a date?</strong> It goes at the end of the
+        name, the way every download is named, and says which version of the work the file
+        holds - the day AO3 last updated it. A run compares it with AO3's to tell whether
+        your copy is outdated.
+      </p>
+      <p class="hint">
+        Not sure? Skip it. A skipped file keeps its name, and the import leaves it alone.
+      </p>
+      <div class="bulk">
+        <label>
+          <span>Date for all</span>
+          <input type="date" name="bulkDate" [value]="bulkDate()"
+                 (input)="bulkDate.set($any($event.target).value)" />
+        </label>
+        <button type="button" class="button" [disabled]="!bulkValid()" (click)="applyToAll()">
+          Use for all
+        </button>
+        <button type="button" class="button" (click)="skipAll()">Skip all</button>
+      </div>
+      <table class="dating">
+        <thead>
+          <tr><th>File</th><th>Date</th><th>Skip</th></tr>
+        </thead>
+        <tbody>
+          @for (file of undated(); track file.path) {
+            <tr [class.skipped]="isSkipped(file)" [attr.data-file]="file.path">
+              <td class="file-name">{{ file.name }}</td>
+              <td>
+                <input type="date" [attr.aria-label]="'Date for ' + file.name"
+                       [value]="dateOf(file)" [disabled]="isSkipped(file)"
+                       (input)="setDate(file, $any($event.target).value)" />
+              </td>
+              <td>
+                <input type="checkbox" [attr.aria-label]="'Skip ' + file.name"
+                       [checked]="isSkipped(file)"
+                       (change)="setSkipped(file, $any($event.target).checked)" />
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      @if (unsettled().length) {
+        <p class="hint unsettled">
+          {{ unsettled().length | number }} still {{ unsettled().length === 1 ? 'needs' : 'need' }}
+          a date or a skip.
+        </p>
+      }
+    </section>
+    <footer>
+      <button type="button" class="button subtle" (click)="backFrom('dates')">Back</button>
+      <button type="button" class="button primary"
+              [disabled]="unsettled().length > 0 || busy()" (click)="fromDates()">
+        {{ toDate().length ? 'Date ' + toDate().length + (toDate().length === 1 ? ' file' : ' files') + ' and continue' : 'Continue' }}
+      </button>
+    </footer>
+  }
+
+  @if (step() === 'dating') {
+    <section class="body">
+      <p class="dating-progress">
+        Dating files...
+        @if (datingProgress(); as p) { {{ p.done | number }} of {{ p.total | number }} }
+      </p>
+    </section>
+  }
+
+  @if (step() === 'fetch') {
+    <section class="body">
+      @if (dated(); as d) {
+        <p class="dated-said">
+          Dated {{ d.renamed.length | number }} {{ d.renamed.length === 1 ? 'file' : 'files' }}.
+          @if (d.failed.length) {
+            <span class="warning-text">
+              {{ d.failed.length | number }} could not be renamed and kept {{ d.failed.length === 1 ? 'its' : 'their' }} name:
+              {{ d.failed[0].path }} ({{ d.failed[0].error }}){{ d.failed.length > 1 ? ', ...' : '' }}
+            </span>
+          }
+        </p>
+      }
+      <fieldset>
+        <legend>Fetch their index entries from AO3 now?</legend>
+        <label class="check">
+          <input type="radio" name="fetchNow" [checked]="fetchNow()" (change)="fetchNow.set(true)" />
+          <span>Yes - look each work up on AO3 and index it</span>
+        </label>
+        <label class="check">
+          <input type="radio" name="fetchNow" [checked]="!fetchNow()" (change)="fetchNow.set(false)" />
+          <span>Not now - they stay unindexed, and this is offered again</span>
+        </label>
+      </fieldset>
+      @if (fetchNow()) {
+        <fieldset class="formats">
+          <legend>Also download them in other formats?</legend>
+          <p class="hint">
+            Ticking a format fetches it for every work that does not have it. Formats a work
+            already has are not fetched again (unless replacing outdated copies, below).
+          </p>
+          @for (format of offered(); track format) {
+            <label class="check">
+              <input type="checkbox" [attr.name]="'format-' + format"
+                     [checked]="picked().includes(format)"
+                     (change)="toggleFormat(format, $any($event.target).checked)" />
+              <span>
+                {{ format }}
+                @if (held().has(format)) { <span class="dim">(some already have it)</span> }
+              </span>
+            </label>
+          }
+        </fieldset>
+        <label class="check">
+          <input type="checkbox" name="replaceOutdated" [checked]="replaceOutdated()"
+                 (change)="replaceOutdated.set($any($event.target).checked)" />
+          <span>
+            Replace a copy you have when AO3 has a newer version than the date in its name
+            <span class="hint">A copy with no date is never replaced, and neither is one that is current.</span>
+          </span>
+        </label>
+        @if (tooMany()) {
+          <p class="warning" role="note">
+            One import takes at most {{ maxWorks | number }} works, so the first
+            {{ maxWorks | number }} are imported now and the rest are offered again afterwards.
+          </p>
+        }
+      }
+      @if (busy()) {
+        <p class="warning busy-note" role="note">
+          A run is in progress. It has to finish before an import can start.
+        </p>
+      }
+    </section>
+    <footer>
+      <button type="button" class="button subtle" (click)="backFrom('fetch')">Back</button>
+      <button type="button" class="button primary" [disabled]="fetchNow() && busy()" (click)="finish()">
+        {{ fetchNow() ? 'Continue to the run' : 'Done' }}
+      </button>
+    </footer>
+  }
+</div>

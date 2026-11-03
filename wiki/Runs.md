@@ -8,6 +8,7 @@ A **run** is one press of a button: it logs in to AO3, indexes, downloads, and r
 | **(Full scan) Reindex & Update All** | Bookmarks | Repairing the index, or catching a finished fic that was added to | Reads everything - hours on a large library |
 | **Download/update a specific fic** | Advanced options | One fic, by link or work number. Always re-downloads it | One fic |
 | **Download/update several fics** | Advanced options | A pasted list of links or work numbers (any separators, up to 500). Always re-downloads them | One fic each |
+| **Import works found in your library** | Offered when a library opens, and on the Works tab | Files in `works/` with no index entry: date them, index them, add formats | One fic each |
 | **Custom run** | Advanced options | A slice of pages, a date range, or working from the index without reading AO3 | Depends |
 | **Index my collections** | Collections | Your own collections | 1 request per 20 works |
 | **Index collection by URL** | Collections | Any collection, from a link | 1 request per 20 works |
@@ -78,3 +79,13 @@ Every run finishes with **Try FicHub** (when anything failed), then **Report any
 - **Copies to check by hand** - a new file saved, but an older copy couldn't be removed, or the save couldn't be confirmed.
 
 **History > Download issues** saves all of it as one text file.
+
+## Importing works already in your library
+
+When a library opens and `works/` has files named for a work number that your index has no entry for, the page offers to import them. The Works tab also says how many there are, with **Import...**.
+
+1. **Dates.** Files with no date in their name can be given one - each on its own, one date for all, or skipped. The date is the version the file holds (the day AO3 last updated it). Not sure? Skip it: the import leaves a skipped file alone.
+2. **Fetch from AO3 now?** Yes looks each work up and indexes it. Tick any **other formats** to download for works that don't have them, and **Replace a copy AO3 has a newer version of** if you want outdated copies replaced (off by default; undated and current copies are never replaced).
+3. Then the usual run window: background (on a hosted copy) and the login.
+
+Imported works show as **Imported from an external source** in the Works tab, unless they turn out to be your bookmarks. While another run is going nothing is renamed or started; the offer comes back once that run has finished. Turn the automatic offer off in User settings, or with the box on its first page.

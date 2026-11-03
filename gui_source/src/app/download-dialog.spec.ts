@@ -2537,6 +2537,60 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('.error')?.textContent).toContain('not-a-fic');
   });
 
+  describe('an import', () => {
+    const IMPORT = {
+      links: 'https://archiveofourown.org/works/1\nhttps://archiveofourown.org/works/2',
+      count: 2,
+      filetypes: ['JSON', 'EPUB'],
+      replaceOutdated: true,
+    };
+
+    async function openImport(request = IMPORT) {
+      fixture = TestBed.createComponent(DownloadDialog);
+      fixture.componentRef.setInput('action', 'import');
+      fixture.componentRef.setInput('importing', request);
+      await fixture.whenStable();
+      element = fixture.nativeElement as HTMLElement;
+    }
+
+    it('opens straight on the login, its works and formats chosen in the import window', async () => {
+      await openImport();
+      expect(currentStep()).toBe('credentials');
+      expect(element.textContent).toContain('Import works found in your library');
+      expect(element.textContent).toContain('2 works');
+      expect(element.textContent).toContain('EPUB');
+      expect(element.textContent).toContain('replacing a copy AO3 has a newer version of');
+      // the run needs no username of its own
+      checkbox('Skip AO3 login?')!.click();
+      await fixture.whenStable();
+      expect(element.querySelector('input[name="username"]')).toBeNull();
+    });
+
+    it('sends the works, the formats and whether to replace outdated copies', async () => {
+      await openImport();
+      await advanceTo('running');
+      const sent = jobs.started[0];
+      expect(sent.action).toBe('import');
+      expect(sent.url).toBe(IMPORT.links);
+      expect(sent.filetypes).toEqual(['JSON', 'EPUB']);
+      expect(sent.options.replaceOutdated).toBe(true);
+      expect(sent.options.overwrite).toBe(false);
+    });
+
+    it('keeps every copy you have unless told to replace outdated ones', async () => {
+      await openImport({ ...IMPORT, filetypes: ['JSON'], replaceOutdated: false });
+      expect(element.textContent).not.toContain('downloads');
+      await advanceTo('running');
+      expect(jobs.started[0].options.replaceOutdated).toBe(false);
+    });
+
+    it('is the only run that sends whether to replace outdated copies', async () => {
+      await open('works');
+      await advanceTo('running');
+      expect('replaceOutdated' in jobs.started[0].options).toBe(false);
+    });
+  });
+
   it('starts several fics with the paste as it was typed', async () => {
     await open('works');
     await advanceTo('running');

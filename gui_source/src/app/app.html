@@ -296,7 +296,14 @@
 
 @if (dialogAction(); as action) {
   <app-download-dialog [action]="action" [resumeFrom]="resumeFrom()" [attachTo]="attachTo()"
-                       (closed)="dialogClosed()" />
+                       [importing]="importing()" (closed)="dialogClosed()" />
+}
+
+@if (importOpen()) {
+  <app-import-dialog [works]="imports.found()" [store]="library.store()"
+                     [formats]="importFormats()" [busy]="!!activeRun()"
+                     [askAgain]="importOffered()" (askAgainChanged)="setImportOffered($event)"
+                     (closed)="importClosed($event)" (start)="importStart($event)" />
 }
 
 
@@ -402,6 +409,20 @@
   @if (refreshing()) {
     <p class="notice library-behind" role="status">
       A run has finished since this library was read - bringing the list up to date...
+    </p>
+  }
+  @if (imports.found().length && imports.checkedStore() === library.store()) {
+    <p class="notice unindexed-works" role="status">
+      <span>
+        {{ imports.found().length | number }}
+        {{ imports.found().length === 1 ? 'work in your library has' : 'works in your library have' }}
+        files but no index entry.
+      </span>
+      <button type="button" class="button" [disabled]="!!activeRun() || !!dialogAction()"
+              [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
+              (click)="openImport()">
+        Import...
+      </button>
     </p>
   }
   @if (data()) {

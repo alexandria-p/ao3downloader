@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2056 python passed; 853 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2077 python passed; 881 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2124,6 +2124,42 @@ console `Repository` keeps the old behaviour. The page's checkbox is unticked by
 shows a warning when ticked; its credentials step then asks for the username alone where one
 is needed (`needsUsername`, from `sentAction`), and a hosted page seals an empty password.
 
+### Works already in the library can be imported
+
+`imports.ts`, `import-dialog.ts` and `run_import`. A file in `works/` named for a work number
+(`workIdFromFilename`) with no index entry is **unindexed** (`unindexedWorks`, from one
+`store.list('works')` against `Library.worksById`; `LibraryImports.check` reruns it whenever
+`worksById` changes, so a read, a refresh and a run's changes taken in all count). What not to
+break:
+
+- **Never while a run is going.** `App` opens the import window by itself only with no
+  `activeRun`, no run window, the library read and set up - once per library per visit
+  (`offeredFor`), unless `ao3.importOfferOff` (a `PROMPTS` entry). The Works tab's
+  `.unindexed-works` notice offers it by hand, disabled with *Cannot be started while an active
+  run is in progress*. The window itself refuses to rename or start while `busy`. A run ending
+  changes the index, which checks again, and the offer comes back then. The helper's 409 is
+  the last guard against a run started elsewhere in the meantime.
+- **Dating is the page's**, before any run: `dateFiles` renames each file to `datedName`
+  (` YYYY-MM-DD` before the extension), through `LibraryStore.rename`, which never writes over
+  a file; one that fails is said and the rest carry on. `takeInDating` hands the renames to
+  `refreshAfterRun` so the listing opens them by their new names. A date has to be a real day
+  (`isFileDate`); every undated file needs a date or a skip before the page moves on.
+- **The run is the several-fics run with three differences** (`run_fic_list(importing=True)`):
+  entries are marked `from_import` (`Ao3.origin_field`; `rescue_one` too) - an identity field,
+  in `IDENTITY_FIELDS` - unless the work turns out to be your bookmark; it **never overwrites**
+  (`overwrite` false), and with `replaceOutdated` off `keep_existing_copies` moves every held
+  format into `plan['keep']` (said as `AO3_INFO_KEEPING_YOURS`, through `Ao3.keep_message`), so
+  only missing formats are fetched; and `settle_undated` asks nothing on an import
+  (`AO3_INFO_IMPORT_UNDATED_KEPT`) - the page offered to date them, so one left undated was left
+  so on purpose. No series walk. `replaceOutdated` is clamped off for every other action.
+- **The run window has no link, options or file types step for it** (`importing` input: links,
+  count, file types, `replaceOutdated`), only the background step and the login, with the
+  import's summary (`importBlurb`) on whichever comes first. Its background questions leave out
+  `undated`. It needs no username (`USERNAME_ACTIONS` leaves it out). At most
+  `MAX_IMPORT_LINKS` (5,000) works; the page imports the first that many and offers the rest
+  after. Retried as fic runs are (`FIC_ACTIONS`, `LIST_ACTIONS`): a retry of its failures stays
+  an import.
+
 ### Stop and pause land mid-request; force stop ends a run that will not
 
 `Repository.abandonable` runs each request (`fetch`: the request and `read_body`) on a thread
@@ -2267,11 +2303,11 @@ or found through a collection was on disk and in the index but nowhere in the pa
 `isListedEntry` now lists every entry but two, both still shown elsewhere: a work only a
 bookmarked series brought in (in that series' card - `from_series`, **or** a bookmarked series'
 `work_ids` listing it, since an entry can lack `from_series`), and a series you did not
-bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `link`
+bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `external` (`from_import`) / `link`
 (`from_link`) / `other` (unknown), in that order, for the badge, the **Came from** filter, and the `.origin-icon` every entry carries (an inline svg per origin, named by `originLabel` from `ORIGINS`, so the icon and the filter cannot word it differently).
-**`external` (*Imported (upcoming)*) is an upcoming feature**: in `ORIGINS` with
-`upcoming`, shown disabled, and `originOf` never returns it yet. A fic FicHub supplied is not
-it - FicHub is a fallback, and the fic is wherever its run put it. **`from_link` is written by the fic runs alone**
+**`external` (*Imported from an external source*) is `from_import`**, written by the import
+run alone (see **Works already in the library can be imported**), checked before `from_link`.
+A fic FicHub supplied is not it - FicHub is a fallback, and the fic is wherever its run put it. **`from_link` is written by the fic runs alone**
 (`index_one_work`, and `rescue_one` on a fic run), only when the work is not your bookmark
 (`ao3.was_bookmark`; an entry with no `bookmarked` counts as one), and is an **identity**
 field, so a later reading by any other run keeps it. The Filter panel also narrows to

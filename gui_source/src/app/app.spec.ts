@@ -1184,4 +1184,82 @@ describe('App', () => {
   });
 
   // endregion
+
+  // region works with files and no index entry
+
+  /** a library with these files in works/, as a run would list it */
+  function libraryWithFiles(paths: string[]): void {
+    openLibrary();
+    const library = TestBed.inject(Library);
+    const store = library.store()!;
+    library.store.set({ ...store, list: async () => paths });
+  }
+
+  async function settled(fixture: ComponentFixture<App>): Promise<void> {
+    // the listing is asked for, then the offer decided on
+    for (let i = 0; i < 3; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await fixture.whenStable();
+    }
+  }
+
+  it('offers to import works whose files have no index entry, once, when the library opens', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/1 Work 1 - Writer.html', 'works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    const offered = element.querySelector('app-import-dialog');
+    expect(offered?.textContent).toContain('1 work');
+    expect(element.querySelector('.unindexed-works')?.textContent).toContain('1 work in your library has');
+
+    Array.from(offered!.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Not now')!.click();
+    await settled(fixture);
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    // the index changing again does not bring it back by itself on this visit
+    TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
+    await settled(fixture);
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    // the Works tab still offers it
+    element.querySelector<HTMLButtonElement>('.unindexed-works button')!.click();
+    await settled(fixture);
+    expect(element.querySelector('app-import-dialog')).not.toBeNull();
+  });
+
+  it('does not offer an import while a run is going, and offers it once the run has ended', async () => {
+    localStorage.clear();
+    TestBed.inject(Jobs).activeRuns.set([going]);
+    libraryWithFiles(['works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    const notice = element.querySelector<HTMLButtonElement>('.unindexed-works button')!;
+    expect(notice.disabled).toBe(true);
+    expect(notice.title).toContain('active run is in progress');
+
+    TestBed.inject(Jobs).activeRuns.set([]);
+    await settled(fixture);
+    expect(element.querySelector('app-import-dialog')).not.toBeNull();
+  });
+
+  it('does not open the import by itself once told not to', async () => {
+    localStorage.clear();
+    localStorage.setItem('ao3.importOfferOff', 'off');
+    libraryWithFiles(['works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    expect(element.querySelector('.unindexed-works')).not.toBeNull();
+  });
+
+  // endregion
 });

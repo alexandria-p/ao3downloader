@@ -38,6 +38,7 @@ import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, attemptIssues, issueCount, issuesReport } from './issues';
+import { ImportRequest } from './imports';
 import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
 
 type Step =
@@ -160,6 +161,12 @@ export class DownloadDialog implements OnDestroy {
    * it would have had it been open all along.
    */
   readonly attachTo = input<ActiveRun | null>(null);
+  /**
+   * An import's works and what to do with them, chosen in the import window before this one
+   * opens (`ImportDialog`) - so an import has no link, options or file types step here, only
+   * the background choice (a hosted copy) and the login.
+   */
+  readonly importing = input<ImportRequest | null>(null);
   /**
    * The newest scan a quick scan would measure back to, once read: undefined until then, null
    * when there is none. 'Anything that has changed since my last run' needs only this, so only
@@ -547,6 +554,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Download/update a specific fic';
       case 'works':
         return 'Download/update several fics';
+      case 'import':
+        return 'Import works found in your library';
       case 'custom':
         return 'Custom run';
       case 'quick':
@@ -572,6 +581,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Indexes one fic and downloads it, in whichever formats you pick. Use it for a single work you want now, or to repair one copy.';
       case 'works':
         return 'The same as downloading a specific fic, for a whole list at once: paste their links or work numbers, and each is indexed, then all are downloaded.';
+      case 'import':
+        return this.importBlurb();
       case 'custom':
         return 'A full scan with its parts made optional - choose the pages to cover, or skip reading AO3 entirely and work from what is already indexed.';
       case 'quick':
@@ -582,6 +593,19 @@ export class DownloadDialog implements OnDestroy {
   });
 
   /** JSON is metadata rather than a work, so the update run cannot produce it */
+  /** what an import will do, in a sentence, from what the import window chose */
+  private importBlurb(): string {
+    const importing = this.importing();
+    const count = importing?.count ?? 0;
+    const works = `${count.toLocaleString()} ${count === 1 ? 'work' : 'works'}`;
+    const formats = (importing?.filetypes ?? []).filter((x) => x !== METADATA);
+    const fetch = formats.length
+      ? ` and downloads ${formats.join(', ')} for any that do not have ${formats.length === 1 ? 'it' : 'them'}` +
+        (importing?.replaceOutdated ? ', replacing a copy AO3 has a newer version of' : ', keeping every copy you have')
+      : '';
+    return `Looks up the ${works} found in your library with no index entry, indexes each one${fetch}. Each is marked as imported unless it turns out to be your bookmark.`;
+  }
+
   protected readonly metadataNotApplicable = computed(() => this.action() === 'update');
 
   /**
@@ -690,7 +714,8 @@ export class DownloadDialog implements OnDestroy {
    * pick - unless the run was asked to download the works in them too.
    */
   protected readonly picksFiletypes = computed(
-    () => !this.picksCollectionWorks() || this.collectionWorks(),
+    // an import's formats were chosen in the import window
+    () => this.action() !== 'import' && (!this.picksCollectionWorks() || this.collectionWorks()),
   );
   protected readonly needsLink = computed(
     () => this.action() === 'collection' || this.action() === 'work' || this.action() === 'works',
@@ -1089,13 +1114,15 @@ export class DownloadDialog implements OnDestroy {
     }
     // `downloads` already says no for a collections run not downloading their works
     if (this.downloads()) {
-      if (!this.overwrites()) asked.push('undated');
+      // an import leaves undated files alone without asking: the import window offered to date them
+      if (!this.overwrites() && this.action() !== 'import') asked.push('undated');
       asked.push('duplicates');
     }
     // a collections run that reads no works fetches none, so none can fail
-    if (this.picksFiletypes()) asked.push('fichub');
+    const readsWorks = this.picksFiletypes() || this.action() === 'import';
+    if (readsWorks) asked.push('fichub');
     // only comes up for a run that downloads, when FicHub's copy is older than the index
-    if (this.picksFiletypes() && this.downloads()) asked.push('fichub-outdated');
+    if (readsWorks && this.downloads()) asked.push('fichub-outdated');
     // only a run that replaces what you have can be about to replace it with something older
     if (this.downloads() && this.overwrites()) asked.push('overwrite-older');
     return asked;
@@ -1343,6 +1370,8 @@ export class DownloadDialog implements OnDestroy {
     // a window opened onto a run already going shows what the run said it was saving
     if (this.attachedTo()) return this.announcedFiletypes();
     if (this.resuming()) return this.chosenResume()?.filetypes ?? [];
+    const importing = this.importing();
+    if (this.action() === 'import' && importing) return importing.filetypes;
     // collections on their own are only ever indexed
     if (!this.picksFiletypes()) return [METADATA];
     if (!this.picksReindex()) return this.selected();
@@ -1825,12 +1854,16 @@ export class DownloadDialog implements OnDestroy {
         resume: resumed ? resumed.id : '',
         retryMode: resumed ? this.retryMode() || undefined : undefined,
         skipLogin: !this.logsIn(),
+        // an import's alone: whether a copy you have is replaced when AO3 has a newer version
+        ...(this.action() === 'import' ? { replaceOutdated: !!this.importing()?.replaceOutdated } : {}),
       } satisfies JobOptions,
       // nothing is sent for a run that will not log in, whatever is in the boxes - but a
       // run reading your own listing is found by your username, login or not
       username: this.logsIn() || this.needsUsername() ? this.username().trim() : '',
       password: this.logsIn() ? this.password() : '',
-      url: this.needsLink() ? this.collectionUrl().trim() : undefined,
+      url: this.needsLink()
+        ? this.collectionUrl().trim()
+        : this.action() === 'import' ? this.importing()?.links : undefined,
     };
   }
 

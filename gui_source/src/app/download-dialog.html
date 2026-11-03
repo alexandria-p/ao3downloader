@@ -1038,6 +1038,10 @@
     <!-- running in the background, and its answers up front: a hosted copy only -->
     @if (step() === 'background') {
       <section class="body">
+          <!-- an import has no other page to say what it will do -->
+          @if (action() === 'import') {
+            <p class="import-summary">{{ blurb() }}</p>
+          }
           <div class="background-choice" [class.blocked]="backgroundBlocked()">
             <label class="check">
               <input
@@ -1232,6 +1236,9 @@
     <!-- step 2: who you are, or that you are going without logging in -->
     @if (step() === 'credentials') {
       <form class="body" (submit)="submit($event)">
+        @if (action() === 'import' && !offersBackground()) {
+          <p class="import-summary">{{ blurb() }}</p>
+        }
         <div class="login-choice">
           <label class="check">
             <input
