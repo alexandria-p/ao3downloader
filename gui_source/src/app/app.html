@@ -231,6 +231,22 @@
   </button>
 </nav>
 
+@if (view() === 'bookmarks') {
+  <!-- at the top of the tab, for as long as there is anything to resolve - closing the window
+       leaves it here -->
+  @if (imports.hasIssues() && imports.checkedStore() === library.store()) {
+    <div class="import-issues" role="status">
+      <button type="button" class="button import-issues-button"
+              [disabled]="!!activeRun() || !!dialogAction()"
+              [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
+              (click)="openImport()">
+        Resolve issues found with import
+      </button>
+      <span class="import-issues-said">{{ importIssuesSaid() }}</span>
+    </div>
+  }
+}
+
 <!--
   the faq is something to read, not a folder to act on, so it carries no buttons - and
   nothing is offered at all until a folder is picked, because every run reads that folder
@@ -300,7 +316,8 @@
 }
 
 @if (importOpen()) {
-  <app-import-dialog [works]="imports.found()" [store]="library.store()"
+  <app-import-dialog [works]="imports.found()" [undatedElsewhere]="imports.undatedIndexed()"
+                     [store]="library.store()"
                      [formats]="importFormats()" [busy]="!!activeRun()"
                      [askAgain]="importOffered()" (askAgainChanged)="setImportOffered($event)"
                      (closed)="importClosed($event)" (start)="importStart($event)" />
@@ -409,20 +426,6 @@
   @if (refreshing()) {
     <p class="notice library-behind" role="status">
       A run has finished since this library was read - bringing the list up to date...
-    </p>
-  }
-  @if (imports.found().length && imports.checkedStore() === library.store()) {
-    <p class="notice unindexed-works" role="status">
-      <span>
-        {{ imports.found().length | number }}
-        {{ imports.found().length === 1 ? 'work in your library has' : 'works in your library have' }}
-        files but no index entry.
-      </span>
-      <button type="button" class="button" [disabled]="!!activeRun() || !!dialogAction()"
-              [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
-              (click)="openImport()">
-        Import...
-      </button>
     </p>
   }
   @if (data()) {

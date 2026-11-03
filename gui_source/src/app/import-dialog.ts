@@ -39,6 +39,8 @@ import { LibraryStore } from './library-store';
 })
 export class ImportDialog {
   readonly works = input.required<FoundWork[]>();
+  /** undated files of works the index does have - offered for dating beside the rest */
+  readonly undatedElsewhere = input<FoundFile[]>([]);
   readonly store = input<LibraryStore | null>(null);
   /** the formats the helper offers, JSON among them */
   readonly formats = input<string[]>(['HTML', 'EPUB', 'PDF', 'MOBI', 'AZW3', 'JSON']);
@@ -59,7 +61,9 @@ export class ImportDialog {
   protected readonly fileCount = computed(() =>
     this.works().reduce((n, w) => n + w.files.length, 0),
   );
-  protected readonly undated = computed(() => undatedFiles(this.works()));
+  protected readonly undated = computed(() => [...undatedFiles(this.works()), ...this.undatedElsewhere()]);
+  /** whether there is anything to import, or only files to date */
+  protected readonly importable = computed(() => this.works().length > 0);
   /** how many works are named on the first page before 'and N more' */
   protected readonly shownWorks = 30;
   protected readonly tooMany = computed(() => this.works().length > MAX_IMPORT_WORKS);
@@ -148,7 +152,7 @@ export class ImportDialog {
     const store = this.store();
     const chosen = new Map(this.toDate().map((f) => [f.path, this.dates()[f.path]]));
     if (!chosen.size || !store || this.busy()) {
-      this.step.set('fetch');
+      this.afterDating();
       return;
     }
     this.step.set('dating');
@@ -158,7 +162,13 @@ export class ImportDialog {
     );
     this.dated.set(result);
     this.datingProgress.set(null);
-    this.step.set('fetch');
+    this.afterDating();
+  }
+
+  /** on to the import - or, with nothing to import, done */
+  private afterDating(): void {
+    if (this.importable()) this.step.set('fetch');
+    else this.closed.emit(this.dated());
   }
 
   protected backFrom(step: 'dates' | 'fetch'): void {

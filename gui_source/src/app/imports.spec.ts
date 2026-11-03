@@ -7,6 +7,7 @@ import {
   importLinks,
   isFileDate,
   undatedFiles,
+  undatedIndexedFiles,
   unindexedWorks,
 } from './imports';
 import { Library } from './library';
@@ -67,6 +68,14 @@ describe('finding works with files and no index entry', () => {
       ['epub', ''],
       ['html', '2024-01-02'],
     ]);
+  });
+
+  it('finds the undated files of works the index does have', () => {
+    const found = undatedIndexedFiles(
+      ['works/7 A - B.html', 'works/7 A - B 2024-01-01.pdf', 'works/8 C - D.epub'],
+      new Set(['7']),
+    );
+    expect(found.map((f) => f.name)).toEqual(['7 A - B.html']);
   });
 
   it('reads an .htm file as html', () => {

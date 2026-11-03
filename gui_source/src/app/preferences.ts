@@ -76,7 +76,7 @@ export const PROMPTS: Prompt[] = [
     name: 'Offer to import works with no index entry',
     description:
       'When a library opens with downloaded works the index has no entry for, the window ' +
-      'offering to date and import them. With it off, the Works tab still offers it.',
+      'offering to date and import them. With it off, the Works tab\'s Resolve issues found with import button still opens it.',
     dismissed: 'off',
   },
   {

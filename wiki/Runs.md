@@ -82,7 +82,7 @@ Every run finishes with **Try FicHub** (when anything failed), then **Report any
 
 ## Importing works already in your library
 
-When a library opens and `works/` has files named for a work number that your index has no entry for, the page offers to import them. The Works tab also says how many there are, with **Import...**.
+When a library opens and `works/` has files named for a work number that your index has no entry for, the page offers to import them. While there is anything to sort out, the top of the Works tab has a **Resolve issues found with import** button that opens the same window - closing the window leaves the button there. Undated files of works already in your index are offered for dating too (with nothing else to import, the window finishes after the dates).
 
 1. **Dates.** Files with no date in their name can be given one - each on its own, one date for all, or skipped. The date is the version the file holds (the day AO3 last updated it). Not sure? Skip it: the import leaves a skipped file alone.
 2. **Fetch from AO3 now?** Yes looks each work up and indexes it. Tick any **other formats** to download for works that don't have them, and **Replace a copy AO3 has a newer version of** if you want outdated copies replaced (off by default; undated and current copies are never replaced).

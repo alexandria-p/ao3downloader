@@ -85,7 +85,7 @@ describe('ImportDialog', () => {
     const said = element.textContent ?? '';
     expect(said).toContain('3 works');
     expect(said).toContain('4 files');
-    expect(said).toContain('3 files have no date');
+    expect(said).toContain('3 files here');
     expect(element.querySelectorAll('.found-list .file-name.undated').length).toBe(3);
   });
 
@@ -206,6 +206,32 @@ describe('ImportDialog', () => {
     box.click();
     await fixture.whenStable();
     expect(changed).toEqual([false]);
+  });
+
+  it('dates undated files of indexed works too, and finishes there with nothing to import', async () => {
+    fixture = TestBed.createComponent(ImportDialog);
+    store = new MemoryStore();
+    fixture.componentRef.setInput('works', []);
+    fixture.componentRef.setInput('undatedElsewhere', [
+      { id: '7', path: 'works/7 G - H.html', name: '7 G - H.html', format: 'html', date: '' },
+    ]);
+    fixture.componentRef.setInput('store', store);
+    closed = [];
+    started = [];
+    fixture.componentInstance.closed.subscribe((x) => closed.push(x));
+    fixture.componentInstance.start.subscribe((x) => started.push(x));
+    await fixture.whenStable();
+    element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('.undated-elsewhere')?.textContent).toContain('1 file of a work already in your index has no date in its name');
+    expect(element.querySelector('.found-count')).toBeNull();
+    await click('Continue');
+    await type(dateBox('works/7 G - H.html'), '2024-02-03');
+    await click('Date 1 file and finish');
+
+    expect(store.renamed).toEqual([['works/7 G - H.html', 'works/7 G - H 2024-02-03.html']]);
+    expect(started).toEqual([]);
+    expect(closed[0]?.renamed).toHaveLength(1);
   });
 
   it('is closed by Not now, having changed nothing', async () => {

@@ -186,7 +186,18 @@ export class App {
     this.dialogAction.set(run.action);
   }
 
-  /** from the Works tab's notice: the import window, by hand */
+  /** what the Works tab's button has found, in a few words */
+  protected readonly importIssuesSaid = computed(() => {
+    const works = this.imports.found().length;
+    const undated = this.imports.found().reduce((n, w) => n + w.files.filter((f) => !f.date).length, 0) +
+      this.imports.undatedIndexed().length;
+    const parts = [];
+    if (works) parts.push(`${works.toLocaleString()} ${works === 1 ? 'work has' : 'works have'} files but no index entry`);
+    if (undated) parts.push(`${undated.toLocaleString()} ${undated === 1 ? 'file has no date in its name' : 'files have no date in their names'}`);
+    return parts.join('; ');
+  });
+
+  /** from the Works tab's button: the import window, by hand */
   protected openImport(): void {
     if (this.activeRun() || this.dialogAction()) return;
     this.importOpen.set(true);
@@ -320,9 +331,9 @@ export class App {
     // reads and writes the library, and renaming files under it is not safe. a run ending
     // changes the index, which checks again, and the offer is made then
     effect(() => {
-      const found = this.imports.found();
+      const found = this.imports.hasIssues();
       const store = this.imports.checkedStore();
-      if (!found.length || !store || store !== this.library.store()) return;
+      if (!found || !store || store !== this.library.store()) return;
       if (this.activeRun() || this.dialogAction() || this.importOpen() || !this.importOffered()) return;
       if (this.library.loading() || this.librarySetup.state() !== 'idle') return;
       untracked(() => {

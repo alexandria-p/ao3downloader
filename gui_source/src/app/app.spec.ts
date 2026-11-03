@@ -1214,7 +1214,8 @@ describe('App', () => {
 
     const offered = element.querySelector('app-import-dialog');
     expect(offered?.textContent).toContain('1 work');
-    expect(element.querySelector('.unindexed-works')?.textContent).toContain('1 work in your library has');
+    expect(element.querySelector('.import-issues')?.textContent).toContain('Resolve issues found with import');
+    expect(element.querySelector('.import-issues')?.textContent).toContain('1 work has files but no index entry');
 
     Array.from(offered!.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Not now')!.click();
     await settled(fixture);
@@ -1224,7 +1225,7 @@ describe('App', () => {
     await settled(fixture);
     expect(element.querySelector('app-import-dialog')).toBeNull();
     // the Works tab still offers it
-    element.querySelector<HTMLButtonElement>('.unindexed-works button')!.click();
+    element.querySelector<HTMLButtonElement>('.import-issues button')!.click();
     await settled(fixture);
     expect(element.querySelector('app-import-dialog')).not.toBeNull();
   });
@@ -1239,13 +1240,43 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('app-import-dialog')).toBeNull();
-    const notice = element.querySelector<HTMLButtonElement>('.unindexed-works button')!;
+    const notice = element.querySelector<HTMLButtonElement>('.import-issues button')!;
     expect(notice.disabled).toBe(true);
     expect(notice.title).toContain('active run is in progress');
 
     TestBed.inject(Jobs).activeRuns.set([]);
     await settled(fixture);
     expect(element.querySelector('app-import-dialog')).not.toBeNull();
+  });
+
+  it('offers undated files of works the index has, on the Works tab and by itself', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/1 Work 1 - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('.import-issues')?.textContent).toContain('1 file has no date in its name');
+    expect(element.querySelector('app-import-dialog')?.textContent).toContain('Work 1');
+  });
+
+  it('puts the button at the top of the Works tab, above the runs, and nowhere else', async () => {
+    localStorage.clear();
+    localStorage.setItem('ao3.importOfferOff', 'off');
+    libraryWithFiles(['works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    const issues = element.querySelector('.import-issues')!;
+    const runs = element.querySelector('.actions')!;
+    expect(issues.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    tab(element, 'Collections')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('.import-issues')).toBeNull();
   });
 
   it('does not open the import by itself once told not to', async () => {
@@ -1258,7 +1289,7 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('app-import-dialog')).toBeNull();
-    expect(element.querySelector('.unindexed-works')).not.toBeNull();
+    expect(element.querySelector('.import-issues')).not.toBeNull();
   });
 
   // endregion

@@ -14,14 +14,16 @@
  *   fetches the formats asked for.
  */
 
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal } from '@angular/core';
 import { dateFromFilename, workIdFromFilename } from './bookmarks';
 import { WORKS_FOLDER } from './library-setup';
 import { LibraryStore } from './library-store';
 import { Library, OpenableFormat, OPENABLE_FORMATS } from './library';
 
-/** one file of an unindexed work */
+/** one file in `works/` named for a work */
 export interface FoundFile {
+  /** the work number its name starts with */
+  id: string;
   /** its path in the library, `works/<name>` */
   path: string;
   name: string;
@@ -49,7 +51,21 @@ export function formatOf(name: string): OpenableFormat | null {
  * Only files directly in `works/`, which is the one place a run looks for them.
  */
 export function unindexedWorks(paths: Iterable<string>, indexed: ReadonlySet<string>): FoundWork[] {
-  const found = new Map<string, FoundFile[]>();
+  return byWork(workFiles(paths).filter((f) => !indexed.has(f.id)));
+}
+
+/**
+ * The files of works the index **does** have whose names carry no date. A run cannot tell
+ * whether AO3 has a newer version of one, and stops to ask about it - so they are offered for
+ * dating up front too, beside the unindexed works.
+ */
+export function undatedIndexedFiles(paths: Iterable<string>, indexed: ReadonlySet<string>): FoundFile[] {
+  return byWork(workFiles(paths).filter((f) => indexed.has(f.id) && !f.date)).flatMap((w) => w.files);
+}
+
+/** every file directly in works/ that is one of the formats a run downloads, named for a work */
+function workFiles(paths: Iterable<string>): FoundFile[] {
+  const found: FoundFile[] = [];
   for (const raw of paths) {
     const path = raw.replace(/^\/+/, '');
     const parts = path.split('/');
@@ -57,14 +73,19 @@ export function unindexedWorks(paths: Iterable<string>, indexed: ReadonlySet<str
     const name = parts[1];
     const format = formatOf(name);
     const id = workIdFromFilename(name);
-    if (!format || !id || indexed.has(id)) continue;
-    const files = found.get(id) ?? [];
-    files.push({ path, name, format, date: dateFromFilename(name) });
-    found.set(id, files);
+    if (!format || !id) continue;
+    found.push({ id, path, name, format, date: dateFromFilename(name) });
   }
-  return [...found.entries()]
+  return found;
+}
+
+/** files grouped by work - by work number, smallest first, so a list reads in order */
+function byWork(files: FoundFile[]): FoundWork[] {
+  const works = new Map<string, FoundFile[]>();
+  for (const file of files) works.set(file.id, [...(works.get(file.id) ?? []), file]);
+  return [...works.entries()]
     .sort(([a], [b]) => a.length - b.length || a.localeCompare(b))
-    .map(([id, files]) => ({ id, files: files.sort((a, b) => a.name.localeCompare(b.name)) }));
+    .map(([id, list]) => ({ id, files: list.sort((a, b) => a.name.localeCompare(b.name)) }));
 }
 
 /** the files among these works with no date in their name */
@@ -149,6 +170,10 @@ export const MAX_IMPORT_WORKS = 5000;
 export class LibraryImports {
   private readonly library = inject(Library);
   readonly found = signal<FoundWork[]>([]);
+  /** files of indexed works with no date in their name */
+  readonly undatedIndexed = signal<FoundFile[]>([]);
+  /** whether anything was found to resolve: works with no index entry, or undated files */
+  readonly hasIssues = computed(() => this.found().length > 0 || this.undatedIndexed().length > 0);
   /** the store the last check was of, so a check of a library since closed is dropped */
   readonly checkedStore = signal<LibraryStore | null>(null);
   private generation = 0;
@@ -158,6 +183,7 @@ export class LibraryImports {
     const generation = ++this.generation;
     if (!store) {
       this.found.set([]);
+      this.undatedIndexed.set([]);
       this.checkedStore.set(null);
       return;
     }
@@ -166,6 +192,7 @@ export class LibraryImports {
       const paths = await store.list(WORKS_FOLDER, false);
       if (generation !== this.generation || store !== this.library.store()) return;
       this.found.set(unindexedWorks(paths, indexed));
+      this.undatedIndexed.set(undatedIndexedFiles(paths, indexed));
       this.checkedStore.set(store);
     } catch {
       // the library could not be listed: whatever was found before is kept until it can
