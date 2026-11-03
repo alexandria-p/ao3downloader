@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2028 python passed; 827 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2028 python passed; 828 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1028,7 +1028,9 @@ takes one this computer cannot look up as UTC, said in the log. The run says its
 (`AO3_INFO_AO3_ZONE`) and records it (`ao3TimeZone`). An older record's naive time is taken
 as written. **`tzdata` is a dependency** because Windows has no zone database: `package_app`
 packs it (`--collect-data tzdata`), `/api/config` says `zoneLookup`, and `build-windows.yml`
-fails without it. A date range the person types is compared as typed - it is already a date.
+fails without it. **A date range the person types is a date in their AO3 zone** - the same zone
+AO3 dates fics in - so it is compared as typed, and the run window says which zone
+(`.range-zone`).
 
 **The file is written when the run starts, not when it ends.** A run killed mid-flight
 cannot write its own epitaph, so a record still saying `running` *is* the evidence that it

@@ -354,6 +354,11 @@
           <p class="hint">
             Both ends count. This run will fetch <strong>{{ dateRange() }}</strong>.
           </p>
+          <!-- the dates are the person's own, in the zone AO3 dates fics in for them, so the
+               two are compared as typed - see User settings -->
+          <p class="hint range-zone">
+            Dates are in your AO3 time zone, <strong>{{ ao3Zone }}</strong> - change it in User settings.
+          </p>
 
           @if (action() === 'quick') {
             <!--

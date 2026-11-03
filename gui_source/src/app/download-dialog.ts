@@ -334,6 +334,8 @@ export class DownloadDialog implements OnDestroy {
   /** what the run has said, each line with when it was said - shown in the reader's own time */
   protected readonly log = signal<LogLine[]>([]);
   protected readonly lineTime = lineTime;
+  /** the zone a typed date range is in: the AO3 one, so it compares with AO3's dates as typed */
+  protected readonly ao3Zone = ao3TimeZone();
   protected readonly percent = signal<number | null>(null);
   protected readonly paused = signal<{ seconds: number; until: string } | null>(null);
   protected readonly summary = signal('');

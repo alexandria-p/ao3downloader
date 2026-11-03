@@ -836,6 +836,19 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  it('says a typed date range is in the AO3 time zone chosen in User settings', async () => {
+    localStorage.setItem(AO3_TIME_ZONE_KEY, 'Australia/Sydney');
+    await open('custom');
+    await advanceTo('options');
+    await chooseWindow('2024-01-01', '2024-06-30');
+
+    expect(element.querySelector('.range-zone')?.textContent).toContain('Australia/Sydney');
+    // and the dates go to the helper as typed
+    await advanceTo('running');
+    expect(jobs.started[0].options.dateFrom).toBe('2024-01-01');
+    expect(jobs.started[0].ao3TimeZone).toBe('Australia/Sydney');
+  });
+
   it('sends a date window instead of pages when the custom run asks for one', async () => {
     await open('custom');
     await advanceTo('options');
