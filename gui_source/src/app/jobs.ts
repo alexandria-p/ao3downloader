@@ -732,6 +732,38 @@ export class Jobs {
    * The unfinished scans that could be picked up, newest first, each saying whether it can
    * be and what to know first. The rule is the helper's, so it is asked, as for floors.
    */
+  /**
+   * The run history the History tab last read, for the library it read it from. A retry
+   * started from History opens on that run straight away, judged against this list rather
+   * than the whole history read again (`loadRetryableRun`).
+   */
+  historyRead: { store: LibraryStore; runs: RunHistory[] } | null = null;
+
+  /**
+   * One run, with how it can be retried. The helper judges it alongside the runs newer than
+   * it (a newer full scan is one of its warnings), taken from the list History already read
+   * when there is one - so nothing is downloaded - and from the library otherwise.
+   */
+  async loadRetryableRun(store: LibraryStore | null, runId: string): Promise<RetryableRun | null> {
+    if (!store || !runId) return null;
+    try {
+      const read = this.historyRead?.store === store ? this.historyRead.runs : null;
+      const history = read?.some((run) => run.id === runId) ? read : await readRunHistory(store);
+      const at = history.findIndex((run) => run.id === runId);
+      if (at < 0) return null;
+      const response = await this.helper.call(`/api/runs/retryable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runs: history.slice(0, at + 1) }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      const runs = ((await response.json()) as { runs: RetryableRun[] }).runs ?? [];
+      return runs.find((run) => run.id === runId) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async loadRetryableRuns(store: LibraryStore | null): Promise<RetryableRun[] | null> {
     if (!store) return null;
     try {

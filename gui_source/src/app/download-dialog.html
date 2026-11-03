@@ -759,6 +759,41 @@
               </div>
             }
 
+          }
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="backFrom('resume')">Back</button>
+        <button type="button" class="button primary" [disabled]="!chosenResume()?.retry?.default"
+                (click)="afterRetryChoice()">
+          Continue
+        </button>
+      </footer>
+    }
+
+    <!-- step 2c: how the chosen run is retried, with the dates and settings it carries -->
+    @if (step() === 'retry-how') {
+      <section class="body retry">
+        @if (retryableRuns() === null) {
+          <p class="hint">Reading this run...</p>
+        } @else if (!chosenResume()) {
+          <p class="warning">That run could not be read, so it cannot be retried from here.</p>
+        } @else {
+          @if (chosenResume(); as run) {
+            <p class="retry-which">
+              Retrying <strong>{{ run.actionName || run.action }}</strong>
+              <span class="dim">
+                - started {{ run.started.slice(0, 10) }} {{ run.started.slice(11, 16) }},
+                {{ statusWord(run.status) }}
+              </span>
+            </p>
+            @if (run.warnings.length) {
+              <div class="retry-warning" role="note">
+                @for (warning of run.warnings; track $index) {
+                  <p>{{ warning }}</p>
+                }
+              </div>
+            }
             <fieldset class="retry-modes">
               <legend>Retry it</legend>
               @for (choice of run.retry.modes; track choice.mode) {
@@ -805,7 +840,7 @@
         }
       </section>
       <footer>
-        <button type="button" class="button subtle" (click)="backFrom('resume')">Back</button>
+        <button type="button" class="button subtle" (click)="backFrom('retry-how')">Back</button>
         <button type="button" class="button primary"
                 [disabled]="!chosenResume()?.retry?.default || !retryMode() || !retryAcknowledged()"
                 (click)="afterResume()">

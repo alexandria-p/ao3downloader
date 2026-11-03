@@ -119,6 +119,9 @@ export class History {
     }
     this.unavailable.set(found === null);
     this.runs.set(found ?? []);
+    // a retry started from here opens on its run using this list, rather than reading it again
+    const store = this.library.store();
+    this.jobs.historyRead = found && store ? { store, runs: found } : null;
     this.loading.set(false);
   }
 

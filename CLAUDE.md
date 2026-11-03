@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2056 python passed; 846 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2056 python passed; 847 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1187,9 +1187,12 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
   step in the plan done, earlier or skipped; else `status == success`) greys `index` and
   `downloads` with `RETRY_ALL_DONE`. **Download several fics has `downloads`** (single fic does
   not): `run_works` passes over fics with every format in `formats_done`, unlooked-up.
-- **A retry is acknowledged first**: the Retry step shows `retryTerms` (the original run's
-  floor and ceiling or range, file types and ticked options) and Continue stays disabled until
-  `retryAcknowledged` is ticked - reset whenever another run is picked.
+- **A retry is acknowledged first**, on a page of its own after the list (`retry-how`): it shows
+  `retryTerms` (the original run's floor and ceiling or range, file types and ticked options) and
+  Continue stays disabled until `retryAcknowledged` is ticked - reset whenever another run is
+  picked. **History's Retry opens straight on that page** (`toRetryHow`): `Jobs.loadRetryableRun`
+  sends the helper that run and the ones newer than it out of `Jobs.historyRead` (what History
+  last read), so nothing is downloaded; Back reads the whole list then (`retryListPartial`).
 - **Every run saves how each step went** (`Steps.on_change` -> progress `steps`) **and its plan**
   (`stepPlan`, written with the record), which the Retry step lists, naming the last step that
   finished.

@@ -55,6 +55,8 @@ type Step =
   | 'floor-warning'
   /** a custom run choosing which unfinished run to pick up where it left off */
   | 'resume'
+  /** how the chosen run is retried, and its original dates and settings acknowledged */
+  | 'retry-how'
   | 'acknowledge'
   | 'credentials'
   | 'running'
@@ -227,6 +229,11 @@ export class DownloadDialog implements OnDestroy {
   );
   /** the earlier runs on offer for retrying, once they have been asked for */
   protected readonly retryableRuns = signal<RetryableRun[] | null>(null);
+  /**
+   * The list holds only the run History sent here, not every earlier run - so going back to
+   * the list reads them all then, and only then.
+   */
+  private retryListPartial = false;
   /** the id of the one chosen */
   protected readonly resumeRun = signal('');
   protected readonly chosenResume = computed(
@@ -1189,7 +1196,7 @@ export class DownloadDialog implements OnDestroy {
     this.step.set(this.firstStep());
     if (this.resumeFrom() && this.action() === 'custom') {
       this.coverage.set('resume');
-      this.resumeRun.set(this.resumeFrom());
+      this.toRetryHow(this.resumeFrom());
     }
 
     const remembered = safeGet(REMEMBER_KEY) === 'true';
@@ -1290,14 +1297,7 @@ export class DownloadDialog implements OnDestroy {
 
   protected afterOptions(): void {
     if (this.resuming()) {
-      this.step.set('resume');
-      // asked for fresh each time: a run may have been interrupted since the dialog opened
-      this.retryableRuns.set(null);
-      void this.jobs.loadRetryableRuns(this.library.store()).then((runs) => {
-        this.retryableRuns.set(runs ?? []);
-        // a run chosen from History arrives with its default way of retrying picked
-        if (this.resumeRun()) this.chooseRetryRun(this.resumeRun());
-      });
+      this.toRetryList();
       return;
     }
     if (this.picksFloorRun()) {
@@ -1353,6 +1353,40 @@ export class DownloadDialog implements OnDestroy {
    * On with the run chosen. Its options are shown back in the (greyed-out) boxes, so the
    * settings panel and the options page say what the run will actually do.
    */
+  /** the list of earlier runs to retry, read whole */
+  private toRetryList(): void {
+    this.step.set('resume');
+    this.retryListPartial = false;
+    // asked for fresh each time: a run may have been interrupted since the dialog opened
+    this.retryableRuns.set(null);
+    void this.jobs.loadRetryableRuns(this.library.store()).then((runs) => {
+      this.retryableRuns.set(runs ?? []);
+      // a run already chosen keeps its choice
+      if (this.resumeRun()) this.chooseRetryRun(this.resumeRun());
+    });
+  }
+
+  /**
+   * Straight to how one run is retried - a retry started from History. Only that run is
+   * judged, against the list History already read, so no list of every run is waited for.
+   */
+  private toRetryHow(runId: string): void {
+    this.step.set('retry-how');
+    this.retryListPartial = true;
+    this.retryableRuns.set(null);
+    this.resumeRun.set(runId);
+    void this.jobs.loadRetryableRun(this.library.store(), runId).then((run) => {
+      this.retryableRuns.set(run ? [run] : []);
+      if (run) this.chooseRetryRun(run.id);
+    });
+  }
+
+  /** from the list of earlier runs: on to how the chosen one is retried */
+  protected afterRetryChoice(): void {
+    if (!this.chosenResume()?.retry.default) return;
+    this.step.set('retry-how');
+  }
+
   protected afterResume(): void {
     const chosen = this.chosenResume();
     if (!chosen?.retry.default || !this.retryMode() || !this.retryAcknowledged()) return;
@@ -1387,7 +1421,7 @@ export class DownloadDialog implements OnDestroy {
     if (this.needsLink()) earlier.push('link');
     if (this.hasOptions()) earlier.push('options');
     if (this.picksFloorRun()) earlier.push('floor');
-    if (this.resuming()) earlier.push('resume');
+    if (this.resuming()) earlier.push('resume', 'retry-how');
     if (this.picksFiletypes()) earlier.push('filetypes');
     if (this.needsAcknowledgement()) earlier.push('acknowledge');
     earlier.push('credentials');
@@ -1398,6 +1432,11 @@ export class DownloadDialog implements OnDestroy {
 
   protected backFrom(step: Step): void {
     const previous = this.stepBefore(step);
+    // the list was never read for a retry that came straight from History: read it now
+    if (previous === 'resume' && this.retryListPartial) {
+      this.toRetryList();
+      return;
+    }
     if (previous) {
       this.step.set(previous);
       return;

@@ -219,3 +219,34 @@ describe('Jobs.loadNewestFloor', () => {
     expect(reads.length).toBeLessThan(10);
   });
 });
+
+describe('Jobs.loadRetryableRun', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('judges one run against the history History already read, reading nothing', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'stopped'), 'b.json': run('b', 'success') });
+    const reads: string[] = [];
+    store.read = async (path: string) => {
+      reads.push(path);
+      return null;
+    };
+    const sent: RunHistory[][] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const runs = JSON.parse(String(init?.body)).runs as RunHistory[];
+      sent.push(runs);
+      return new Response(JSON.stringify({ runs: runs.map((r) => ({ ...r, retry: {}, warnings: [] })) }));
+    }));
+    const jobs = new Jobs();
+    jobs.historyRead = {
+      store,
+      runs: [{ ...run('b', 'success'), file: 'b.json' }, { ...run('a', 'stopped'), file: 'a.json' }] as unknown as RunHistory[],
+    };
+
+    const found = await jobs.loadRetryableRun(store, 'a');
+
+    expect(found?.id).toBe('a');
+    expect(reads).toEqual([]);
+    // with the runs newer than it, for the helper's warnings, and nothing older
+    expect(sent[0].map((r) => r.id)).toEqual(['b', 'a']);
+  });
+});

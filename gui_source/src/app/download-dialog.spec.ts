@@ -52,6 +52,9 @@ function fakeStore(label: string): LibraryStore {
   };
 }
 
+/** how many times the whole list of runs to retry was asked for */
+let listsRead = 0;
+
 class FakeJobs extends Jobs {
   started: StartRequest[] = [];
   /** the scans the helper would offer as floors */
@@ -73,7 +76,12 @@ class FakeJobs extends Jobs {
   retryableOnRecord: RetryableRun[] = [];
 
   override async loadRetryableRuns(): Promise<RetryableRun[] | null> {
+    listsRead++;
     return this.retryableOnRecord;
+  }
+
+  override async loadRetryableRun(_store: unknown, runId: string): Promise<RetryableRun | null> {
+    return this.retryableOnRecord.find((run) => run.id === runId) ?? null;
   }
 
   /** how many times the history was checked for interrupted runs */
@@ -3393,6 +3401,11 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  async function toHow() {
+    button('Continue')!.click();
+    await fixture.whenStable();
+  }
+
   async function acknowledge() {
     element.querySelector<HTMLInputElement>('input[name="retryAcknowledged"]')!.click();
     await fixture.whenStable();
@@ -3457,6 +3470,9 @@ describe('DownloadDialog', () => {
       expect(element.querySelector('.retry-steps .hint')?.textContent)
         .toContain('The last step it finished was Index newly bookmarked');
 
+      // how to retry it is on a page of its own, after the list
+      await toHow();
+      expect(currentStep()).toBe('retry-how');
       // the helper's default is picked, and a way it cannot be retried is greyed with why
       const modes = Array.from(element.querySelectorAll<HTMLInputElement>('input[name="retryMode"]'));
       expect(modes.find((m) => m.checked)?.value).toBe('index');
@@ -3477,6 +3493,7 @@ describe('DownloadDialog', () => {
     jobs.retryableOnRecord = [ended({ options: { skipLogin: true }, username: 'Someone' })];
     await toRetryPage();
     await pick();
+    await toHow();
     element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
     await fixture.whenStable();
     await acknowledge();
@@ -3498,6 +3515,7 @@ describe('DownloadDialog', () => {
     jobs.retryableOnRecord = [ended()];
     await toRetryPage();
     await pick();
+    await toHow();
     element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
     await fixture.whenStable();
     await acknowledge();
@@ -3530,6 +3548,7 @@ describe('DownloadDialog', () => {
     })];
     await toRetryPage();
     await pick();
+    await toHow();
 
     expect(element.querySelector('.retry-modes')?.textContent).toContain('Just the 1 work it could not get');
     await acknowledge();
@@ -3549,6 +3568,7 @@ describe('DownloadDialog', () => {
       })];
       await toRetryPage();
       await pick();
+      await toHow();
 
       const terms = element.querySelector('.retry-terms')?.textContent?.replace(/\s+/g, ' ') ?? '';
       expect(terms).toContain('Back to 2026-09-01, and up to 2026-09-20');
@@ -3572,6 +3592,7 @@ describe('DownloadDialog', () => {
     })];
     await toRetryPage();
     await pick();
+    await toHow();
 
     expect(element.querySelector('.retry-warning')?.textContent)
       .toContain('Some of its indexing failed');
@@ -3584,6 +3605,7 @@ describe('DownloadDialog', () => {
     })];
     await toRetryPage();
     await pick();
+    await toHow();
 
     expect(element.querySelector('.retry-dates')?.textContent)
       .toContain('Fics AO3 updated from 2026-01-01 to 2026-02-01');
@@ -3597,6 +3619,7 @@ describe('DownloadDialog', () => {
     })];
     await toRetryPage();
     await pick();
+    await toHow();
 
     expect(element.querySelector('.retry-modes')?.textContent)
       .toContain('Carry on from where it stopped - a fic it saved in every format is passed over');
@@ -3604,20 +3627,31 @@ describe('DownloadDialog', () => {
       .toBe('downloads');
   });
 
-  it('opens set to retry a run picked from the history, with its default way picked', async () => {
+  it('opens a retry picked from the history straight on how to retry it', async () => {
     jobs.retryableOnRecord = [ended()];
+    listsRead = 0;
     fixture = TestBed.createComponent(DownloadDialog);
     fixture.componentRef.setInput('action', 'custom');
     fixture.componentRef.setInput('resumeFrom', 'r1');
     await fixture.whenStable();
     element = fixture.nativeElement as HTMLElement;
-    await advanceTo('options');
-
-    expect(checkbox('Retry an earlier run')!.checked).toBe(true);
-    button('Continue')!.click();
+    await new Promise((done) => setTimeout(done, 0));
     await fixture.whenStable();
-    expect(element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.checked).toBe(true);
+
+    // straight to how it is retried: the list of every earlier run is never read
+    expect(currentStep()).toBe('retry-how');
+    expect(element.querySelector('.retry-which')?.textContent).toContain('Quick Scan');
     expect(element.querySelector<HTMLInputElement>('input[name="retryMode"]:checked')!.value).toBe('index');
+    expect(listsRead).toBe(0);
+
+    // going back reads the list then, with the run still chosen
+    button('Back')!.click();
+    await fixture.whenStable();
+    await new Promise((done) => setTimeout(done, 0));
+    await fixture.whenStable();
+    expect(currentStep()).toBe('resume');
+    expect(listsRead).toBe(1);
+    expect(element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.checked).toBe(true);
   });
 
   // endregion
