@@ -9,7 +9,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from source_code import exceptions, indexing, parse_soup, parse_text, strings
-from source_code.ao3 import Ao3
+from source_code.ao3 import Ao3, was_bookmark
 from source_code.fileio import FileOps
 from source_code.repo import Repository
 from source_code.storage import LocalStorage
@@ -1132,6 +1132,26 @@ def test_re_reading_leaves_alone_the_fields_a_work_page_says_differently():
     assert fresh['authors'] == ['Cal']
 
 
+@pytest.mark.parametrize('known, page, expected', [
+    (True, {'bookmarked': False}, True),        # your bookmark stays yours
+    (None, {'bookmarked': False}, None),        # an older entry counts as yours too
+    (False, {'bookmarked': True}, True),        # found bookmarked, it becomes yours
+    (False, {'bookmarked': False}, False),
+])
+def test_re_reading_never_demotes_a_known_bookmark(known, page, expected):
+    ao3, repo, fileops = make_ao3()
+    repo.get_soup.return_value = _work_page()
+    record = _unfinished()
+    if known is not None:
+        record['bookmarked'] = known
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup), \
+         patch('source_code.ao3.bookmark_state', return_value=page):
+        fresh = ao3.refresh_one(record)
+
+    assert fresh.get('bookmarked') is expected
+
+
 def test_re_reading_saves_the_entry_back_to_the_index():
     ao3, repo, fileops = make_ao3()
     repo.get_soup.return_value = _work_page()
@@ -1177,7 +1197,7 @@ def test_a_work_that_fails_is_remembered_with_its_number():
 
     assert ao3.failures == [{'id': '111',
                              'link': 'https://archiveofourown.org/works/111',
-                             'error': 'EPUB: gone'}]
+                             'error': 'EPUB: gone', 'reason': 'other'}]
 
 
 def test_a_format_that_fails_does_not_stop_the_formats_after_it(capsys):
@@ -1716,6 +1736,33 @@ def test_a_fic_whose_page_cannot_be_read_raises_rather_than_writing_a_stub() -> 
             ao3.index_one_work('https://archiveofourown.org/works/111')
 
     fileops.save_json.assert_not_called()
+
+
+@pytest.mark.parametrize('existing, page, marked', [
+    (None, {'bookmarked': False}, True),                       # new, not yours
+    (None, {}, True),                                          # new, page could not say
+    (None, {'bookmarked': True}, False),                       # new, but you bookmarked it
+    ({'bookmarked': True}, {}, False),                         # already your bookmark
+    ({}, {}, False),                                           # older entry: off your bookmarks
+    ({'bookmarked': True}, {'bookmarked': True}, False),       # your bookmark, fetched by link
+    ({'bookmarked': True}, {}, False),                         # same, run without logging in
+    ({'bookmarked': False}, {'bookmarked': False}, True),      # a collection's, fetched by link
+    ({'bookmarked': True}, {'bookmarked': False}, False),      # your bookmark, page says not
+])
+def test_a_fic_fetched_by_link_is_marked_so_unless_it_is_your_bookmark(existing, page, marked) -> None:
+    ao3, repo, _ = make_ao3()
+    repo.get_soup.return_value = _work_page_soup()
+    if existing is not None:
+        existing = {'id': '111', 'link': 'https://archiveofourown.org/works/111',
+                    'title': 'A Fic', 'authors': ['Cal'], **existing}
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup), \
+         patch('source_code.ao3.bookmark_state', return_value=page):
+        record = ao3.index_one_work('https://archiveofourown.org/works/111', existing)
+
+    assert record.get('from_link') is (True if marked else None)
+    if was_bookmark(existing):
+        assert record.get('bookmarked') is not False      # a known bookmark is never demoted
 
 
 def test_the_existing_entry_is_looked_for_only_once_ao3_has_shown_the_work() -> None:
@@ -2518,7 +2565,8 @@ def test_a_single_fic_you_have_not_bookmarked_is_recorded_as_not_bookmarked() ->
     assert record[strings.BOOKMARK_TYPE_FIELD] == strings.BOOKMARK_TYPE_WORK
 
 
-def test_a_single_fic_run_corrects_an_entry_you_have_since_unbookmarked() -> None:
+def test_a_single_fic_run_keeps_a_known_bookmark_whatever_its_page_shows() -> None:
+    # your AO3 bookmarks take precedence: a fic run never demotes one
     ao3, repo, _ = make_ao3()
     repo.get_soup.return_value = _page_with_bookmark_button('Bookmark')
     existing = {'id': '111', 'link': 'https://archiveofourown.org/works/111',
@@ -2527,10 +2575,11 @@ def test_a_single_fic_run_corrects_an_entry_you_have_since_unbookmarked() -> Non
     with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
         record = ao3.index_one_work('https://archiveofourown.org/works/111', existing)
 
-    assert record['bookmarked'] is False
+    assert record['bookmarked'] is True
+    assert 'from_link' not in record
 
 
-def test_a_refreshed_fic_you_have_since_unbookmarked_says_so() -> None:
+def test_a_refreshed_fic_keeps_a_known_bookmark_whatever_its_page_shows() -> None:
     ao3, repo, _ = make_ao3()
     repo.get_soup.return_value = _page_with_bookmark_button('Bookmark')
     existing = {'id': '111', 'link': 'https://archiveofourown.org/works/111',
@@ -2539,7 +2588,7 @@ def test_a_refreshed_fic_you_have_since_unbookmarked_says_so() -> None:
     with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup):
         record = ao3.refresh_one(existing)
 
-    assert record['bookmarked'] is False
+    assert record['bookmarked'] is True
 
 
 def test_a_page_that_cannot_tell_leaves_the_field_as_it_was() -> None:

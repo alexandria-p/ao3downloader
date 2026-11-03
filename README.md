@@ -167,7 +167,8 @@ variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TI
 ## Feedback
 
 The hosted page and the Windows, Mac and Linux apps have a **Feedback** tab on the right edge
-of the page. It opens a short form: positive or negative, a message, and optionally a name
+of the page, above everything else, a run window included; the **Report a bug** tab's **Send
+feedback** button opens the same form. It opens a short form: positive or negative, a message, and optionally a name
 and the log of your latest run, with your AO3 username taken out of it. Sending it opens a
 public GitHub issue in this repository, labelled `feedback`, with no GitHub account needed. The
 page links the issue as soon as it exists. It goes through a small Cloudflare Worker, not
@@ -194,7 +195,7 @@ the helper can only reach that folder through the open page.
   and **Continue in background** closes the window again and leaves it going.
 - Pausing a background run asks first: one left paused for 10 minutes
   (`PausedRunTimeoutMinutes`) is **abandoned** - the helper ends it, keeping everything it
-  saved, and it can be resumed from History.
+  saved, and it can be retried from History.
 - Restarting the helper - closing its window, or deploying a new version of a hosted one -
   ends a background run. What it saved stays saved, and starting it again carries on from
   what is still missing.
@@ -208,7 +209,7 @@ the helper can only reach that folder through the open page.
   everything up to about its last two minutes. A run that is stopped, abandoned or fails
   saves everything on the way out.
 - If the helper is shut down mid-run, the run's History entry says **Running - not
-  confirmed by the helper** until the helper is back, then **Interrupted**, with Resume
+  confirmed by the helper** until the helper is back, then **Interrupted**, with Retry
   offered. Nothing is marked interrupted while the helper cannot be asked, since a hosted
   one may just be waking up with the run still going.
 
@@ -229,10 +230,13 @@ run logged in as - the username only; the password is never written down anywher
 | **Failed** | Something ended it early - AO3 refused the login, the login lapsed partway, or the library could not be reached. The reason is on its entry. |
 | **Interrupted** | It never got to say how it ended: the helper stopped, crashed or restarted (a deploy does this) while it was going. Marked once the helper answers without it. Its log and issues go up to its last save - at most about two minutes before it was cut off. |
 
-Anything that did not finish can be carried on: a full scan, quick scan, custom run or
-collection run offers **Resume**, which picks up where it got to (a collection run from the
-page of the collection it had reached), and anything else you start again. Every
-run skips what is already downloaded and current, so going again only costs what is missing.
+Any run that has ended can be run again with **Retry** [EXPERIMENTAL] in History - from the
+top, or carrying on from the first step that did not finish: its indexing (a walk that broke off
+goes on from where it stopped), its downloads, or just the works it could not get. A retry is a
+new run, so it can be retried too. A run whose indexing broke off is **Partly finished**: its
+History entry says which pages were read, which failed and how far back in date it got, and it
+never counts as complete for a quick scan. Every run skips what is already downloaded and
+current, so going again only costs what is missing. See `RESUMING.md`.
 
 # Original Readme
 
@@ -318,11 +322,11 @@ The listing has a **Filter** panel above it, collapsed until you want it. You ca
 
 The panel also filters by tag, laid out like AO3's own Sort and Filter: an **Include** half and an **Exclude** half, side by side. Each has a fold per kind of tag - Ratings, Warnings, Categories, Fandoms, Characters, Relationships, Additional Tags - offering the listing's ten most-used tags of that kind to tick, with how many works carry each. Below them, **Other tags to include** (or exclude) suggests any tag in your library as you type, those starting with what you typed first, each labelled with its kind; pick one with a click, or the arrow keys and Enter. A work is shown only if it has **every** included tag and **none** of the excluded ones, and a tag is matched within its own kind, so a character is never mistaken for a fandom of the same name. Tags are read from your index, which is already loaded, so nothing is fetched and it is quick even on a large library.
 
-When a run you are watching ends, the listing takes in what it changed - new and updated fics, their tags, their downloaded files - without reopening the library. A run left going in the background shows up the next time the library is opened.
+When a run you are watching ends, the listing takes in what it changed - new and updated fics, their tags, their downloaded files - without reopening the library. A run this page did not watch - a background run, or one from another tab or device on the same library - is noticed once it has finished as a success or a partial success: the works and collections lists then read the library again by themselves, keeping the list and its filters on screen meanwhile. A stopped or failed run does not set this off - its changes show the next time the library is opened. The listing's *Last indexed* time is the newest time any entry was indexed, so it moves on as a run's changes come in, and *List refreshed* beside it says when the list was last brought up to date from the library - opened, refreshed, or a run's changes taken in. Both are shown in your own time zone. **Refresh**, at the top beside where the library is kept, reads it again on demand the same way. While a run is going the library cannot be changed - not switched between this computer and Dropbox, signed out of, or pointed at another folder - and Refresh waits too; hovering over those buttons says so.
 
 A work's title opens its downloaded html, or the work on AO3 when there is none. Beside the title is a button for each other format downloaded for it - **PDF**, **EPUB**, **MOBI**, **AZW3**. PDF opens in a new tab. A browser cannot show an e-book, so EPUB, MOBI and AZW3 are saved under their own file name instead, for your e-reader to open.
 
-The **Bookmarks** tab lists your indexed bookmarks, and every other fic in your index too - one downloaded by its link, or one an indexed collection brought in - so everything in your library can be found in one place. Those that are not your AO3 bookmarks carry a badge saying where they came from (**Not in your AO3 bookmarks**, or **From the collection ...**), and the Filter panel's **Came from** narrows to your AO3 bookmarks, an AO3 collection, or imported or other. A fic in the index only because a bookmarked series holds it is still shown in that series' card rather than on its own.
+The **Bookmarks** tab lists your indexed bookmarks, and every other fic in your index too - one downloaded by its link, or one an indexed collection brought in - so everything in your library can be found in one place. Those that are not your AO3 bookmarks carry a badge saying where they came from (**Not in your AO3 bookmarks**, or **From the collection ...**), and the Filter panel's **Came from** narrows to your AO3 bookmarks, an AO3 collection, downloaded by ID or URL (a fic run, when it was not your bookmark), or unknown - and lists *Imported (upcoming)* for an upcoming feature, not yet selectable. Two more filters show just **bookmarks with a note** and **bookmarks you recommended**. A fic in the index only because a bookmarked series holds it is still shown in that series' card rather than on its own.
 
 The eye button in a fic's bottom corner **hides** it from your lists. Nothing is deleted - its files and index entry stay exactly as they are, and runs keep it up to date - and the page warns you of that first (a box turns the warning off). To find a hidden fic again, open **Filter** and tick **Show hidden works**: hidden fics are then shown dimmed and marked **Hidden**, with an **Unhide** button. The heading says how many are hidden. Ticked fics can be hidden or unhidden together too: the bar above the list offers only what applies - **Hide** or **Unhide** for one fic, **Hide all** when every ticked fic is showing, **Unhide all** when every one is hidden, and both when they are a mix. Hiding several asks once, and unhiding never asks, since nothing is lost by it. Which fics are hidden is kept in `hidden-works.json` in your library, so a library in Dropbox hides the same fics on every device.
 
@@ -369,7 +373,7 @@ Both also offer **Include subcollections** and **Include parent collections**. W
 
 Every run but the debug ones ends by noting, on each indexed work, which of your saved collections hold it (`from_collections`), in its cleanup step. A collection run notes its collections on every work they hold that is already in your index - so a bookmark you had indexed learns which of your collections hold it even with **Index and download encountered works** left off. A full, quick or custom scan or a single fic checks every work it covered against the collections already saved, so a work you bookmark after indexing a collection that holds it is noted too - and a resumed run covers what its earlier attempt indexed. None of this makes an AO3 request.
 
-History shows the link a collection run was pointed at. An unfinished collection run offers **Resume** [EXPERIMENTAL]: it saves its place after every page of each collection, so a resumed run skips the collections already finished and carries on from the page it reached (see `RESUMING.md`).
+History shows the link a collection run was pointed at. A collection run can be retried with **Retry** [EXPERIMENTAL]: it saves its place after every page of each collection, so a retry that carries on skips the collections already finished and carries on from the page it reached (see `RESUMING.md`).
 
 Clicking a collection opens what was recorded about it - maintainers, tags, challenge type, counts, the collection it belongs to and any subcollections - along with the works in it, in the same listing the Bookmarks tab uses. A collection records only the *work numbers* it holds, so a work that is in your bookmarks index is shown in full. A collection can also hold works you have never bookmarked: those are still listed, in the collection's own order, but by work number alone with a link to the work on AO3 - because the number really is all that is known about them. A line above the table says how many of them there are. A parent or subcollection that has been indexed too opens in the page; one that has not links out to AO3.
 
@@ -768,7 +772,7 @@ The 'look up publication dates' option costs one request per work and is not off
 ## Notes
 
 - **IMPORTANT**: some of your input choices are saved in a file called <!--CHECK-->data.json<!--SETTINGS_FILE_NAME-->. In some cases you will not be able to change these choices unless you clear your settings by deleting <!--CHECK-->data.json<!--SETTINGS_FILE_NAME--> (or editing it, if you are comfortable with json). In addition, please note that saved settings include passwords and keys and are saved in plain text. **Use appropriate caution with this file.**
-- **You may change certain behaviors of the script** by editing the file <!--CHECK-->settings.ini<!--INI_FILE_NAME-->. Some of the current configurable options are:
+- **You may change certain behaviors of the script** by editing the file <!--CHECK-->settings.ini<!--INI_FILE_NAME-->, or - where the helper runs on your own computer - from the web page's **User settings** tab, which changes values in place and keeps your comments. That tab also sets which prompts say "don't ask again" and which download formats every run starts with ticked, both kept in your browser. Some of the current configurable options are:
   - Whether the script should save your password - if set to 'false', you will need to re-enter your password every time you log in via the script. (Defaults to false.)
   - How many seconds to pause between requests to Ao3 - the default is 0 seconds, which means that pauses will only be initiated when Ao3 requests them. Normally you should not need to adjust this, but it can be useful if you are running into odd behavior related to the rate limit.
   - The maximum length of a generated file name. The naming *pattern* itself is no longer a setting - see [how files are named](#how-files-are-named).

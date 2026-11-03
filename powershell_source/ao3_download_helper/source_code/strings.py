@@ -50,6 +50,39 @@ INI_CONSOLE_LOGGING = 'EnableConsoleLogging'
 # how long a background run may sit paused before the helper abandons it
 INI_PAUSED_RUN_TIMEOUT = 'PausedRunTimeoutMinutes'
 INI_DEFAULT_PAUSED_RUN_TIMEOUT = 10
+# how long a question waits for an answer before taking its default; 0 takes it at once
+INI_QUESTION_TIMEOUT = 'QuestionTimeoutMinutes'
+INI_DEFAULT_QUESTION_TIMEOUT = 30
+# what each question answers itself with when nobody does - on a timeout, a stop, and a
+# background run that was not told. today's answers are the template's defaults
+INI_UNDATED_ANSWER = 'UndatedFilesAnswer'
+INI_QUICK_FLOOR_ANSWER = 'QuickScanFloorAnswer'
+INI_DUPLICATES_ANSWER = 'DuplicateCopiesAnswer'
+INI_FICHUB_ANSWER = 'FicHubAnswer'
+INI_FICHUB_OUTDATED_ANSWER = 'FicHubOlderCopyAnswer'
+INI_OVERWRITE_OLDER_ANSWER = 'OverwriteNewerCopyAnswer'
+# each of those settings, the answers it may be, and the one it is when unset or misread
+INI_ANSWER_CHOICES = {
+    # not 'stamp': dating files needs a date, which only someone answering can give
+    INI_UNDATED_ANSWER: ('skip', 'refresh'),
+    INI_QUICK_FLOOR_ANSWER: ('full', 'since'),
+    INI_DUPLICATES_ANSWER: ('leave', 'newest'),
+    INI_FICHUB_ANSWER: ('yes', 'no'),
+    INI_FICHUB_OUTDATED_ANSWER: ('yes', 'no'),
+    INI_OVERWRITE_OLDER_ANSWER: ('no', 'yes'),
+}
+# how long one request to ao3 may take in all, and how often a run says it is still waiting
+INI_REQUEST_TIMEOUT = 'RequestTimeoutSeconds'
+INI_STILL_WAITING = 'StillWaitingSeconds'
+# ao3's maintenance page: how many more tries, how far apart
+INI_MAINTENANCE_RETRIES = 'MaintenanceRetries'
+INI_MAINTENANCE_DELAY = 'MaintenanceRetrySeconds'
+# the longest a retry of a failed request waits before asking again
+INI_RETRY_MAX_DELAY = 'RetryMaxWaitSeconds'
+# how long a run waits for the page to read or write the library, and how long for a page
+# that has gone to come back
+INI_LIBRARY_TIMEOUT = 'LibraryTimeoutMinutes'
+INI_PAGE_GONE = 'PageGoneSeconds'
 INI_MAX_RETRIES = 'MaxRetries'
 INI_MAX_TIMEOUTS = 'MaxTimeouts'
 # a hosted helper: every request needs the passcode, whose value is an environment variable
@@ -221,6 +254,10 @@ SERIES_WORKS_FIELD = 'work_ids'
 SERIES_MEMBERSHIP_FIELD = 'series'
 # the bookmark's own fields: what you wrote and when. a work read off a series page has
 # none of them, so an existing entry keeps its own rather than having them blanked
+# set on an entry a fic run indexed from its link or work number when it was not one of your
+# bookmarks. identity, so a later reading from any other run keeps it; the page sorts it into
+# 'Downloaded by ID or URL', after your bookmarks and collections
+FROM_LINK_FIELD = 'from_link'
 BOOKMARK_OWN_FIELDS = ('date_bookmarked', 'bookmark_notes', 'bookmark_tags',
                        'bookmark_collections', 'bookmark_private', 'bookmark_rec',
                        BOOKMARKED_FIELD)
@@ -410,6 +447,20 @@ AO3_INFO_FICHUB_NOT_INDEXED = '  index not updated for work {}'
 AO3_INFO_FICHUB_INDEXED = '  index updated for work {} from FicHub'
 AO3_INFO_FICHUB_RESCUED = '{} works AO3 would not give us came from FicHub instead'
 AO3_INFO_FICHUB_FAILED_TOO = '  not on FicHub either: {}'
+# FicHub's copy is a cache, and can be older than what the index already says of the work
+AO3_INFO_FICHUB_OUTDATED = ('  FicHub\'s copy of work {} was last updated {}, older than your '
+                            'index ({}) - nothing you already have will be replaced')
+AO3_INFO_FICHUB_OUTDATED_NOTHING = '  you already have every format asked for, so nothing is taken from FicHub'
+AO3_INFO_FICHUB_OUTDATED_ASK = ('  no {} of work {} on disk - waiting for you to choose whether '
+                                'to take FicHub\'s older version...')
+AO3_INFO_FICHUB_OUTDATED_DECLINED = '  not taking FicHub\'s older version'
+AO3_INFO_FICHUB_INDEX_KEPT = '  index for work {} left as it was: it is newer than FicHub\'s copy'
+# an overwriting run whose version is older than the copy already on disk
+AO3_INFO_OLDER_THAN_COPY = ('  the version about to be downloaded of work {} ({}) is older than '
+                            'your {} ({}) - waiting for you to choose whether to replace it...')
+AO3_INFO_KEEPING_NEWER = '  {}: keeping your newer copy'
+AO3_INFO_REPLACING_NEWER = '  replacing your newer {} of work {} with the older version, as asked'
+ERROR_FICHUB_OUTDATED = 'FicHub only has an older version (updated {}; your index says {})'
 ERROR_FICHUB_LOOKUP = 'FicHub could not find it ({})'
 ERROR_FICHUB_STATUS = 'FicHub answered {}'
 ERROR_FICHUB_NOT_JSON = 'FicHub answered with something that is not its usual reply'
@@ -566,6 +617,8 @@ MESSAGE_TIMED_OUT_RETRYING = 'AO3 did not answer {} in time - trying again in {}
 # ao3's own maintenance page, which it serves in place of whatever was asked for
 AO3_DOWN_MARKER = 'the archive is down for maintenance'
 MESSAGE_AO3_DOWN_RETRY = 'AO3 says it is down for maintenance - checking again in {}s ({} of {})'
+ERROR_SETTINGS_NOT_EDITABLE = ('settings.ini can only be changed from the page on a helper running on '
+                               'this computer. Edit a hosted copy\'s settings through its deployment.')
 ERROR_AO3_DOWN = ('AO3 is down for maintenance, so nothing more can be fetched from it on this run. '
                   'Try again once it is back - https://status.archiveofourown.org')
 MESSAGE_SUCCESS = 'Successful {} request with status code {}'
@@ -623,8 +676,48 @@ ERROR_INCOMPLETE_FIC = 'Problem parsing file while checking for incomplete fics'
 ERROR_FIC_IN_SERIES = 'Problem parsing file while checking for fics in series'
 ERROR_REDOWNLOAD = 'Error processing file for re-download'
 ERROR_IMAGE = 'Problem getting image'
+RETRY_NOT_FOUND = 'That run is not in this library\'s history any more.'
+RETRY_STILL_RUNNING = 'That run is still going - wait for it to finish, or stop it first.'
+RETRY_NO_INDEX = 'Only a full scan, quick scan, custom run or collection run can carry on with its indexing.'
+RETRY_NO_DOWNLOADS = 'It never got as far as settling which works to check and download.'
+RETRY_NO_FAILURES = 'Every work it set out to get arrived - there is nothing that failed to retry.'
+RETRY_FAILED_WRONG_ACTION = 'Only a scan, a collection run or a fic run can retry just the works it could not get.'
+RETRY_PARTIAL_DONE = ('It reached the end, so there is nothing to carry on from - start its '
+                      'indexing or its downloads from the top, or retry just the works it could '
+                      'not get.')
+RETRY_WARN_INDEX_FAILED = ('Some of its indexing failed, so it may have missed fics - and a fic '
+                           'that was not indexed cannot be downloaded. We strongly recommend '
+                           'starting its indexing from the top.')
+RETRY_WARN_DOWNLOADS_FAILED = ('Its indexing finished, but some fics or formats could not be '
+                               'downloaded. We strongly recommend retrying just the works it '
+                               'could not get.')
+RETRY_ALL_DONE = ('It finished both its indexing and its downloads, so there is nothing to carry '
+                  'on from - start its indexing or its downloads from the top, or retry just '
+                  'the works it could not get.')
+RETRY_NO_FIC_LINKS = 'This run is from before fic runs saved the fics they were given - start it again from its button.'
+AO3_INFO_RETRYING = 'retrying {} from {}, {} ({})'
+AO3_INFO_RETRY_TOP = 'the top'
+AO3_INFO_RETRY_INDEX = 'where its indexing stopped'
+AO3_INFO_RETRY_REINDEX = 'the start of its indexing'
+AO3_INFO_RETRY_DOWNLOADS = 'where its downloads stopped'
+AO3_INFO_RETRY_REDOWNLOAD = 'the start of its downloads'
+AO3_INFO_RETRY_FAILED = 'the {} works it could not get'
+AO3_INFO_FORMAT_DONE_EARLIER = '{}: already downloaded for work {} by the attempt this run carries on from'
+AO3_INFO_INDEX_GAP = 'indexing stopped: {} could not be read at page {}{} - {}. {}'
+REASON_WORDS_MAINTENANCE = 'AO3 was down for maintenance'
+REASON_WORDS_STATUS = 'AO3 answered with status {}'
+REASON_WORDS_CONNECTION = 'AO3 could not be reached'
+REASON_WORDS_NO_DATA = 'the page AO3 served had nothing on it that could be read'
+AO3_INFO_INDEX_GAP_LISTING = 'your bookmarks'
+AO3_INFO_INDEX_GAP_COLLECTION = 'the {1} of collection {0}'
+AO3_INFO_INDEX_GAP_READ = 'pages {} to {} were indexed ({} works).'
+AO3_INFO_INDEX_GAP_NONE_READ = 'no page was indexed before it.'
+AO3_INFO_INDEX_GAP_DATE = 'the last page read reached works {} on {}.'
+AO3_INFO_INDEX_GAP_WORK = 'indexing stopped for work {}: its page could not be read ({})'
 ERROR_LINKS_LIST = 'Error encountered while getting links list. List may not be complete.'
 ERROR_HTTP_REQUEST = 'Unrecoverable error encountered while making web request'
+ERROR_LISTING_UNREADABLE = 'ao3 answered with a page that is not a listing - nothing on it could be indexed'
+ERROR_ALL_INDEXING_FAILED = 'Every part of its indexing failed, and nothing was downloaded.'
 ERROR_INVALID_STATUS_CODE = 'Request failed with status code {}'
 ERROR_TIMEOUT = 'Request exceeded the timeout limit of {} seconds'
 ERROR_CLOUDFLARE = 'Cloudflare challenge or error page detected'
@@ -674,6 +767,8 @@ AO3_INFO_RESUME_NO_STEP = 'before its first step'
 AO3_INFO_RESUME_ANSWER = 'using the answer the earlier attempt was given: {}'
 AO3_INFO_ABANDONED = 'this background run was left paused for {} minutes, so the helper has abandoned it. everything it saved is kept - resume it from the History tab, or start the same run again and it carries on from what is still missing.'
 AO3_INFO_BACKGROUND_ANSWER = 'using the answer given before this background run started: {}'
+AO3_INFO_QUESTION_NOT_ASKED = 'settings.ini says to take the default here without asking (QuestionTimeoutMinutes is 0), so it takes: {}'
+AO3_INFO_QUESTION_TIMED_OUT = 'nobody answered in time (QuestionTimeoutMinutes), so it takes the default: {}'
 AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it takes the default: {}'
 AO3_INFO_RESUME_SCOPE = ('the earlier attempt had finished indexing - checking and downloading '
                          'its {} works')
@@ -683,12 +778,28 @@ AO3_INFO_RESUME_COLLECTION_DONE = 'collection {}: finished by the earlier attemp
 AO3_INFO_RESUME_COLLECTION_PAGE = 'collection {}: carrying on through its {} from page {}, where the earlier attempt got to'
 AO3_INFO_RESUME_COLLECTION_SHORT = ('collection {}: found {} works of the {} it holds - some have moved to '
                                     'the front since, so reading pages 1 to {} again')
-AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: it is sorted by '
-                              'date updated, so nothing in it stays in place between attempts')
-AO3_INFO_RESUME_LOOKING = 'looking for where the earlier attempt stopped: page {}'
-AO3_INFO_RESUME_FOUND = 'found it on page {} - carrying on from there'
-AO3_INFO_RESUME_ANCHOR_LOST = ('could not find where the earlier attempt stopped, so this walk '
-                               'starts again from the first page')
+AO3_INFO_RESUME_WALK_AGAIN = ('walking this listing again from the first page: the earlier attempt '
+                              'did not save a date to carry on from')
+# a retry checking what its earlier attempt says it did, before carrying on from it
+AO3_INFO_RETRY_FIC_DONE = '({}/{}) work {}: saved in every format by the earlier attempt - passed over'
+AO3_INFO_RETRY_CHECK_INDEX = 'checking the {} works the earlier attempt indexed still have their index files'
+AO3_INFO_RETRY_INDEX_OK = 'every one of them does'
+AO3_INFO_RETRY_INDEX_MISSING = '{} have no index file any more, so they are indexed again from their own pages: {}'
+AO3_INFO_RETRY_REINDEXING = 'indexing work {} again'
+AO3_INFO_RETRY_CHECK_DOWNLOADS = 'checking the files the earlier attempt saved for {} works are still there, dated as the index says'
+AO3_INFO_RETRY_DOWNLOADS_OK = 'every one of them is'
+AO3_INFO_RETRY_DOWNLOADS_DROPPED = '{} files will be fetched again'
+AO3_INFO_RETRY_FETCH_AGAIN = 'work {} {}: fetching again - {}'
+AO3_INFO_RETRY_NO_ENTRY = 'it has no index entry to compare it with'
+AO3_INFO_RETRY_FILE_MISSING = 'the file is not in the folder'
+AO3_INFO_RETRY_FILE_DATE = 'the file is dated {}, the index {}'
+AO3_INFO_RETRY_NO_DATE = 'no date'
+AO3_INFO_RETRY_INDEX_REWRITTEN = 'work {}: its index entry was rewritten since by another run ({}) - its files are checked against that'
+AO3_INFO_RESUME_FROM_CEILING = 'nothing after {} is wanted from this listing, so the walk starts there'
+AO3_INFO_RESUME_LOOKING = 'looking for where the earlier attempt stopped (fics dated {1}): page {0}'
+AO3_INFO_RESUME_FOUND = 'the first fic dated {1} or earlier is now on page {0} - carrying on from there'
+AO3_INFO_RESUME_ANCHOR_LOST = ('nothing in the listing is now dated as far back as where the '
+                               'earlier attempt stopped, so this walk starts again from the first page')
 AO3_INFO_RESUME_SERIES_DONE = 'the earlier attempt walked every marked series already'
 AO3_INFO_RESUME_NON_BOOKMARKS_DONE = 'the earlier attempt already checked every non-bookmark'
 AO3_INFO_RESUME_FLOOR = 'measuring back to {}, as the earlier attempt did'

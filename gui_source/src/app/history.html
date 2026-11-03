@@ -117,9 +117,6 @@
           <p class="hint">
             This background run was left paused, so the helper ended it rather than keep
             waiting. Anything it had already saved is kept.
-            @if (startAgainInstead(run)) {
-              Start the same run again and it carries on from what is still missing.
-            }
           </p>
         }
 
@@ -135,25 +132,39 @@
           </p>
         }
 
+        @if (run.indexFailures?.length) {
+          <div class="index-gaps">
+            <p>
+              <strong>Indexing did not finish.</strong>
+              Everything it indexed is kept and was downloaded, but the run never reached the
+              rest - so it is not a starting point for a quick scan.
+            </p>
+            <ul>
+              @for (gap of run.indexFailures; track $index) {
+                <li>{{ describeGap(gap) }}</li>
+              }
+            </ul>
+          </div>
+        }
+
         @if (run.progress?.stepLabel && run.status !== 'success') {
           <p class="hint">Got as far as: <strong>{{ run.progress!.stepLabel }}</strong></p>
         }
 
         @if (run.resumes) {
           <p class="hint">
-            Picks up where
+            A retry of
             @if (runById(run.resumes); as earlier) {
-              the run from {{ when(earlier.started) }}
+              the run from {{ when(earlier.started) }},
             } @else {
-              an earlier run
+              an earlier run,
             }
-            left off, and measures from when the first attempt logged in
-            ({{ when(run.baseline ?? null) }}).
+            measured from when the first attempt logged in ({{ when(run.baseline ?? null) }}).
           </p>
         }
         @if (run.resumedBy) {
           <p class="hint">
-            Resumed by
+            Retried by
             @if (runById(run.resumedBy); as later) {
               the run from {{ when(later.started) }}.
             } @else {
@@ -162,16 +173,13 @@
           </p>
         }
 
-        @if (resumeProblem(run) !== null) {
+        @if (canRetry(run)) {
           <div class="run-resume">
-            <button type="button" class="button" [disabled]="resumeProblem(run) !== ''"
-                    [title]="resumeProblem(run) || 'Pick this run up where it left off, in a custom run'"
+            <button type="button" class="button retry"
+                    title="Run it again - from the top, or carrying on from the first step that did not finish"
                     (click)="resume.emit(run.id)">
-              Resume [EXPERIMENTAL]
+              Retry [EXPERIMENTAL]
             </button>
-            @if (resumeProblem(run)) {
-              <span class="hint">{{ resumeProblem(run) }}</span>
-            }
           </div>
         }
 
@@ -266,6 +274,18 @@
                   AO3 would not give us <strong>{{ choice.count | number }}</strong>
                   {{ choice.count === 1 ? 'work' : 'works' }}, and chose
                   <strong>{{ choice.choice === 'no' ? 'not to try FicHub' : 'to try FicHub' }}</strong>.
+                </p>
+              } @else if (choice.question === 'fichub-outdated') {
+                <p>
+                  FicHub only had an older copy of work {{ choice.works?.join(', ') }}, with no
+                  {{ choice.formats?.join(', ') }} on disk, and chose
+                  <strong>{{ choice.choice === 'no' ? 'not to take it' : 'to take the older version' }}</strong>.
+                </p>
+              } @else if (choice.question === 'overwrite-older') {
+                <p>
+                  The {{ choice.formats?.join(', ') }} of work {{ choice.works?.join(', ') }} on disk
+                  was newer than the version this run would write, and chose
+                  <strong>{{ choice.choice === 'yes' ? 'to replace it anyway' : 'to keep the newer copy' }}</strong>.
                 </p>
               } @else if (choice.question === 'quick-floor') {
                 <p>

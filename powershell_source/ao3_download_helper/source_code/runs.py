@@ -15,6 +15,7 @@ import time
 import os
 
 from source_code import strings
+from source_code.ao3 import index_gaps
 
 
 # how a run ended. 'running' is also the state a run is left in when it never got to
@@ -22,6 +23,10 @@ from source_code import strings
 STATUS_RUNNING = 'running'
 STATUS_SUCCESS = 'success'
 STATUS_FAILED = 'failed'
+# ended as it should, but some of its indexing broke off - a listing that stopped on an
+# error, a collection listing, a fic whose page would not read. what it did is kept and
+# counted; it is never a floor for a quick scan, and Retry can carry on from the gap
+STATUS_PARTIAL = 'partial'
 STATUS_STOPPED = 'stopped'
 # a background run the helper ended because it was left paused too long. ended the same way a
 # stop ends one - everything saved is kept - and, like a stopped run, it can be resumed
@@ -50,9 +55,26 @@ LOG_MAX_LINES = 5000
 
 
 def now() -> str:
-    """The moment, to the second, in a form that sorts and survives a file name."""
+    """The moment, to the second, **in UTC and marked so** (`+00:00`), in a form that sorts and
+    survives a file name. Every time the app writes is UTC - the hosted helper's clock and the
+    reader's need not share a zone, and a run's `started`/`finished` are read by a page that
+    shows them in the reader's own. Records written before this carry naive local times,
+    which the page reads as local, as it always did."""
 
-    return datetime.datetime.now().replace(microsecond=0).isoformat()
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def shown(stamp: str) -> str:
+    """A recorded time as a run's own lines say it: `YYYY-MM-DD HH:MM UTC`, or, for an older
+    record's naive local time, as it was written."""
+
+    text = str(stamp or '')
+    try:
+        at = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return text[:16].replace('T', ' ')
+    if at.tzinfo is None: return text[:16].replace('T', ' ')
+    return at.astimezone(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
 
 
 def snapshot(record: 'RunRecord') -> dict:
@@ -280,6 +302,16 @@ class RunRecord:
         self.data['skipped'] = list(ao3.skipped_works)
         kept = getattr(ao3, 'kept_copies', None)
         self.data['keptCopies'] = list(kept) if isinstance(kept, list) else []
+        # where indexing broke off - which listing or collection, which pages were read,
+        # which failed, how far back in date it got
+        self.data['indexFailures'] = index_gaps(ao3)
+        # every format of every work saved whole, this attempt and any it carries on from - so
+        # a retry carrying on from this one fetches only what is still missing
+        saved = getattr(ao3, 'saved_formats', None)
+        if isinstance(saved, dict) and saved:
+            done = self.data['progress'].setdefault('formatsDone', {})
+            for work, formats in saved.items():
+                done[work] = sorted(set(done.get(work) or []) | {str(x) for x in formats})
 
     def finish(self, status: str, error: str = '') -> None:
         self.data['status'] = status
@@ -351,7 +383,7 @@ def amend_run(fileops, name: str, fields: dict) -> None:
         pass
 
 
-def last_successful(fileops, match=None) -> dict | None:
+def last_successful(fileops, match=None, statuses=(STATUS_SUCCESS,)) -> dict | None:
     """The most recent run that actually finished, or None if there has never been one.
 
     What 'up to the last run' means for a quick scan. A run that failed, was stopped, or
@@ -364,11 +396,13 @@ def last_successful(fileops, match=None) -> dict | None:
     works it was never looking at. It takes a record and answers whether that run qualifies,
     rather than a list of action names, because whether a run covered everything can depend
     on the options it ran with and not only on which button it was. The caller decides -
-    this module deliberately knows nothing about what any of that means.
+    this module deliberately knows nothing about what any of that means. `statuses` widens
+    which endings count - a quick scan's floor also takes a partly finished run, by rules
+    `match` holds.
     """
 
     for record in read_runs(fileops):
-        if record.get('status') != STATUS_SUCCESS: continue
+        if record.get('status') not in statuses: continue
         if match is not None and not match(record): continue
         return record
     return None

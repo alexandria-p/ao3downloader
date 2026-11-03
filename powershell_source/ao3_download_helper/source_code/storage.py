@@ -143,6 +143,10 @@ class PageStorage:
 
     def __init__(self, channel: PageChannel) -> None:
         self.channel = channel
+        # called before every request to the page, so a pause lands between whole reads
+        # and writes - never inside one, so nothing is ever part-written (`run_job` sets it
+        # to the run's `Repository.hold_if_asked`)
+        self.gate = None
         self.root = ROOT_PREFIX
         self.sizes: dict[str, int] = {}
         self.known: set[str] | None = None
@@ -173,6 +177,7 @@ class PageStorage:
     # endregion
 
     def call(self, op: str, content: bytes | None = None, **args) -> dict:
+        if self.gate is not None: self.gate()
         answer = self.channel.storage_call(op, args, content)
         if answer.get('error'): raise OSError(answer['error'])
         return answer

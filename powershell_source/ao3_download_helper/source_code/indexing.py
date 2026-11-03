@@ -20,10 +20,17 @@ import datetime
 INDEXES = 'indexes'
 INDEXED_ON = 'indexed_on'
 LAST_INDEXED = 'last_indexed'
+# the run that last wrote the file - beside `last_indexed`, never versioned. A retry reads it
+# to say whether an entry is still the one its earlier attempt found
+LAST_INDEXED_BY = 'last_indexed_by'
+# the file's own bookkeeping. a flattened record carries them, and saving one back must not
+# make them part of a reading
+BOOKKEEPING_FIELDS = (INDEXES, LAST_INDEXED, LAST_INDEXED_BY)
 
 # these identify the file rather than describing the work, so they live at the root and
 # are not versioned.
-IDENTITY_FIELDS = ('id', 'link', 'source', 'bookmark_type', 'from_series', 'from_collections')
+IDENTITY_FIELDS = ('id', 'link', 'source', 'bookmark_type', 'from_series', 'from_collections',
+                   'from_link')
 
 # the bookmarked series a work was found through. added to, never replaced: a work in two
 # bookmarked series was found through both, whichever was read last
@@ -102,7 +109,7 @@ def is_incomplete(record: dict) -> bool:
 
 
 def merge(existing: dict | None, document: dict, indexed_on: str,
-          identity_fields: tuple[str, ...] = IDENTITY_FIELDS) -> dict:
+          identity_fields: tuple[str, ...] = IDENTITY_FIELDS, run_id: str = '') -> dict:
     """Fold a fresh reading into whatever is already on disk.
 
     A reading identical to the most recent one is not added again - the file just records
@@ -111,7 +118,8 @@ def merge(existing: dict | None, document: dict, indexed_on: str,
     after the listing has already been read.
     """
 
-    identity, snapshot = split(document, identity_fields)
+    identity, snapshot = split({k: v for k, v in document.items()
+                                if k not in BOOKKEEPING_FIELDS}, identity_fields)
 
     result = dict(existing or {})
     entries = list(result.get(INDEXES) or [])
@@ -134,5 +142,6 @@ def merge(existing: dict | None, document: dict, indexed_on: str,
             result[field] = sorted(set(known[field]) | set(added),
                                    key=(lambda x: (len(x), x)) if field == FROM_SERIES else None)
     result[LAST_INDEXED] = indexed_on
+    if run_id: result[LAST_INDEXED_BY] = run_id
     result[INDEXES] = entries
     return result

@@ -91,7 +91,7 @@ def test_resolve_options_defaults_match_the_console_defaults():
     assert server.resolve_options(None) == {
         'start': 1, 'pages': 0, 'series': False, 'images': False, 'workdates': False,
         'reindex': True, 'dates': False, 'skipLogin': False, 'dateFrom': '', 'dateTo': '',
-        'overwrite': False, 'floorRun': '', 'nonBookmarks': False, 'resume': '',
+        'overwrite': False, 'floorRun': '', 'nonBookmarks': False, 'resume': '', 'retryMode': '',
         'collectionWorks': False, 'subcollections': False, 'parentCollections': False,
     }
 
@@ -107,7 +107,7 @@ def test_resolve_options_reads_what_was_asked_for():
                       'workdates': True, 'reindex': False, 'dates': True, 'skipLogin': False,
                       'dateFrom': '2026-01-01', 'dateTo': '2026-06-30',
                       'overwrite': True, 'floorRun': '', 'nonBookmarks': True,
-                      'resume': '', 'collectionWorks': True, 'subcollections': True,
+                      'resume': '', 'retryMode': '', 'collectionWorks': True, 'subcollections': True,
                       'parentCollections': True}
 
 
@@ -3738,3 +3738,89 @@ def test_a_running_log_is_read_whole_from_the_helper_not_from_its_last_save(tmp_
     assert sent['status'] == 404
 
 # endregion
+
+
+# region an overwriting run and a copy newer than what it would write
+
+def a_newer_copy_plan(copies: dict, date='2026-04-27'):
+    from source_code.actions import shared
+    link = 'https://archiveofourown.org/works/1'
+    records = [{'id': '1', 'link': link, 'date_updated': date}]
+    existing = {'1': {fmt: {'path': f'works/1 A {d}.{fmt.lower()}', 'date': d}
+                      for fmt, d in copies.items()}}
+    plan = shared.plan_downloads(records, existing, list(copies), overwrite=True)
+    return link, records, existing, plan
+
+
+def answering_job(answer=None):
+    job = server.Job(server.ACTION_WORK, ['EPUB'], 'Someone')
+    asked = []
+
+    def ask(question, default):
+        asked.append((question, default))
+        return dict(default) if answer is None else {'choice': answer}
+    job.ask = ask
+    return job, asked
+
+
+def test_an_overwriting_run_asks_before_replacing_a_newer_copy_and_keeps_it_by_default():
+    link, records, existing, plan = a_newer_copy_plan({'EPUB': '2026-05-10', 'HTML': '2026-01-01'})
+    job, asked = answering_job()
+
+    server.keep_newer_copies(job, records, existing, plan, ['EPUB', 'HTML'])
+
+    question, default = asked[0]
+    assert question['name'] == server.OVERWRITE_OLDER_QUESTION
+    assert question['formats'] == ['EPUB'] and question['ids'] == ['1']
+    assert question['date'] == '2026-04-27' and question['newer'] == '2026-05-10'
+    assert default == {'choice': 'no'}
+    # the newer epub is kept; the older html is still overwritten as asked
+    assert plan['keep'] == {link: {'EPUB'}}
+    assert list(plan['superseded'][link]) == ['HTML']
+    assert link in plan['stale']
+
+
+def test_a_work_whose_every_copy_is_kept_is_not_downloaded_at_all():
+    link, records, existing, plan = a_newer_copy_plan({'EPUB': '2026-05-10'})
+    job, _ = answering_job('no')
+
+    server.keep_newer_copies(job, records, existing, plan, ['EPUB'])
+
+    assert link not in plan['superseded'] and link not in plan['stale']
+
+
+def test_saying_yes_replaces_the_newer_copy_with_the_older_version():
+    link, records, existing, plan = a_newer_copy_plan({'EPUB': '2026-05-10'})
+    job, _ = answering_job('yes')
+
+    server.keep_newer_copies(job, records, existing, plan, ['EPUB'])
+
+    assert plan['keep'] == {} and list(plan['superseded'][link]) == ['EPUB']
+
+
+@pytest.mark.parametrize('copy', ['2026-04-27', '2026-01-01'])
+def test_a_copy_no_newer_than_the_version_is_overwritten_without_asking(copy):
+    link, records, existing, plan = a_newer_copy_plan({'EPUB': copy})
+    job, asked = answering_job()
+
+    server.keep_newer_copies(job, records, existing, plan, ['EPUB'])
+
+    assert asked == [] and list(plan['superseded'][link]) == ['EPUB']
+
+
+def test_the_downloader_leaves_alone_a_format_it_was_told_to_keep(capsys):
+    ao3 = server.Ao3(MagicMock(), MagicMock(), ['EPUB', 'HTML'], None, False, False)
+    ao3.repo.download_file.return_value = b'x'
+    link = 'https://archiveofourown.org/works/1'
+    ao3.keep_formats = {link: {'EPUB'}}
+    saved = []
+    with patch.object(server.Ao3, 'save_download',
+                      lambda self, link, filetype, name, content: saved.append(filetype)):
+        ao3.download_one_indexed({'id': '1', 'link': link, 'title': 'A', 'authors': ['B'],
+                                  'date_updated': '2026-04-27'}, 50, {}, 1, 1)
+
+    assert saved == ['HTML']
+    assert 'EPUB: keeping your newer copy' in capsys.readouterr().out
+
+# endregion
+

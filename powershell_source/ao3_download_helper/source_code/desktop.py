@@ -268,6 +268,8 @@ def main() -> int:
         return stop('if the page does not work, close every ao3downloader window and start it again.')
 
     server.Handler.updater = make_updater(root, web)
+    # what the page's User settings tab calls the defaults, and puts back on Reset
+    server.Handler.settings_defaults = defaults_file()
     if server.Handler.updater and server.Handler.updater.state.get('state') == 'failed':
         print(f"the last update did not finish: {server.Handler.updater.state.get('error')}")
         print(f'this is still version {server.Handler.updater.version}. the log is in '

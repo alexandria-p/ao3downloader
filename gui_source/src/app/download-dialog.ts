@@ -17,7 +17,9 @@ import {
   JobEvent,
   JobOptions,
   Jobs,
-  ResumableRun,
+  RetryMode,
+  RetryableRun,
+  RunStatus,
   RunHistory,
   baselineOf,
   RunStep,
@@ -29,10 +31,12 @@ import {
 } from './jobs';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
+import { LibraryFreshness } from './freshness';
 import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, issueCount, issuesReport } from './issues';
+import { SYNC_ACK_KEY, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
 
 type Step =
   /**
@@ -47,6 +51,8 @@ type Step =
   | 'options'
   /** a quick scan choosing which earlier scan to measure back to */
   | 'floor'
+  /** a quick scan whose floor would be a scan that could not download some works */
+  | 'floor-warning'
   /** a custom run choosing which unfinished run to pick up where it left off */
   | 'resume'
   | 'acknowledge'
@@ -90,12 +96,13 @@ export function parseWorkList(text: string): { ids: string[]; unknown: string[] 
  * out of `config.forced`, because what makes it special is what it *is* - the index - and
  * not that it happens to be on a list of locked types.
  */
+/** the workflows the helper retries as themselves - its RESUME_ACTIONS */
+const RETRY_AS_ITSELF = ['bookmarks', 'quick', 'custom', 'collections', 'collection'];
+
 const METADATA = 'JSON';
 
 const USERNAME_KEY = 'ao3.username';
 const REMEMBER_KEY = 'ao3.remember';
-/** set once the combined run's note has been read and turned off */
-const SYNC_ACK_KEY = 'ao3.syncAcknowledged';
 const MAX_LOG = 200;
 
 @Component({
@@ -109,6 +116,7 @@ export class DownloadDialog implements OnDestroy {
   private readonly library = inject(Library);
   private readonly dropbox = inject(DropboxSession);
   private readonly helper = inject(HelperConnection);
+  private readonly freshness = inject(LibraryFreshness);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly action = input.required<JobAction>();
@@ -176,13 +184,126 @@ export class DownloadDialog implements OnDestroy {
   protected readonly resuming = computed(
     () => this.action() === 'custom' && this.coverage() === 'resume',
   );
-  /** the unfinished runs on offer, once they have been asked for */
-  protected readonly resumableRuns = signal<ResumableRun[] | null>(null);
+  /** the earlier runs on offer for retrying, once they have been asked for */
+  protected readonly retryableRuns = signal<RetryableRun[] | null>(null);
   /** the id of the one chosen */
   protected readonly resumeRun = signal('');
   protected readonly chosenResume = computed(
-    () => this.resumableRuns()?.find((run) => run.id === this.resumeRun()) ?? null,
+    () => this.retryableRuns()?.find((run) => run.id === this.resumeRun()) ?? null,
   );
+  /** how the chosen run is retried - its own default until another is picked */
+  protected readonly retryMode = signal<RetryMode | ''>('');
+
+  /** ticked to say the retry is understood to run with the original run's dates and settings */
+  protected readonly retryAcknowledged = signal(false);
+
+  protected chooseRetryRun(id: string): void {
+    this.resumeRun.set(id);
+    this.retryMode.set(this.chosenResume()?.retry.default ?? '');
+    // a different run has different dates and settings, so it is acknowledged afresh
+    this.retryAcknowledged.set(false);
+  }
+
+  /**
+   * What a retry of `run` will use, said before it is acknowledged: the dates it measures by
+   * and the settings it runs with - both the original run's, carried through every retry in a
+   * chain, never today's or whatever the window would offer now.
+   */
+  protected retryTerms(run: RetryableRun): { dates: string; settings: string[] } {
+    const options = run.options ?? {};
+    const day = (value: unknown) => String(value ?? '').slice(0, 10);
+    const began = day(baselineOf(run));
+    const ranged = !!options['dates'];
+    let dates: string;
+    if (run.action === 'quick') {
+      const floor = ranged ? day(options['dateFrom']) : day(run.progress?.['floor']);
+      const end = ranged ? day(options['dateTo']) : '';
+      const ceiling = end && end < began ? end : began;
+      dates = `Back to ${floor || 'the start of your bookmarks (it had no floor)'}, and up to ` +
+        `${ceiling} - fics dated after that are left for your next scan.`;
+    } else if (run.action === 'custom' && ranged) {
+      const end = day(options['dateTo']);
+      dates = `Fics AO3 updated from ${day(options['dateFrom']) || 'any date'} to ` +
+        `${end && end < began ? end : began}.`;
+    } else if (['bookmarks', 'custom', 'quick', 'sync', 'new'].includes(run.action)) {
+      dates = `Up to ${began}, when its first attempt started - bookmarks after that are left ` +
+        `for your next scan.`;
+    } else {
+      dates = `Its first attempt started ${began}.`;
+    }
+    const named: Record<string, string> = {
+      overwrite: 'overwrite existing downloads',
+      series: 'get all works from encountered series',
+      nonBookmarks: 'check non-bookmarks for updates',
+      images: 'save embedded images',
+      collectionWorks: 'index and download encountered works',
+      subcollections: 'follow subcollections',
+      parentCollections: 'follow parent collections',
+      skipLogin: 'without logging in',
+    };
+    const on = Object.entries(named).filter(([key]) => options[key] === true).map(([, name]) => name);
+    if (options['reindex'] === false) on.push('skip indexing');
+    const settings = [
+      `${run.actionName || run.action}, as it was run`,
+      `File types: ${(run.filetypes ?? []).join(', ') || 'none'}`,
+      `Options: ${on.length ? on.join('; ') : 'none ticked'}`,
+    ];
+    return { dates, settings };
+  }
+
+  /** a run's steps as it set out to take them, and how each went - older runs saved none */
+  protected stepsOf(run: RetryableRun): { id: string; label: string; outcome: string }[] {
+    const plan = run.progress?.stepPlan ?? [];
+    const outcomes = run.progress?.steps ?? {};
+    return plan.map(([id, label]) => ({ id, label, outcome: outcomes[id] ?? 'pending' }));
+  }
+
+  /** the label of the last step that finished before the first one that did not */
+  protected lastFinishedStep(run: RetryableRun): string {
+    let last = '';
+    for (const step of this.stepsOf(run)) {
+      if (step.outcome === 'done' || step.outcome === 'skipped' || step.outcome === 'earlier') {
+        last = step.label;
+      } else break;
+    }
+    return last;
+  }
+
+  protected outcomeWord(outcome: string): string {
+    return (
+      { done: 'finished', skipped: 'skipped', earlier: 'done by an earlier attempt',
+        failed: 'failed', running: 'did not finish', pending: 'not reached' } as Record<string, string>
+    )[outcome] ?? outcome;
+  }
+
+  protected statusWord(status: RunStatus): string {
+    return (
+      { success: 'finished', partial: 'partly finished', failed: 'failed', stopped: 'stopped',
+        interrupted: 'interrupted', abandoned: 'abandoned', running: 'interrupted' } as Record<string, string>
+    )[status] ?? status;
+  }
+
+  protected retryLabel(mode: RetryMode, run: RetryableRun): string {
+    switch (mode) {
+      case 'top':
+        return run.action === 'quick'
+          ? 'From the top - the same window again, back to its floor and up to when it first started'
+          : 'From the top';
+      case 'reindex':
+        return 'Start its indexing from the top - every walk read again from its start (its ceiling, if it has one; otherwise page 1), keeping its earlier answers, then everything checked and downloaded';
+      case 'index':
+        return 'Carry on from where its indexing stopped - walks it finished are taken from the index, one that broke off goes on from where it stopped, and formats it already saved are not fetched again';
+      case 'redownload':
+        return 'Start its downloads from the top - every work it had settled on, checked and downloaded again by the usual rules (on a run that overwrites, every format again)';
+      case 'downloads':
+        if (run.action === 'works') {
+          return 'Carry on from where it stopped - a fic it saved in every format is passed over, the one it was partway through gets only its missing formats, and every fic it never reached is done in full';
+        }
+        return 'Carry on from where its downloads stopped - only the formats it had not saved yet: nothing for a fic it finished, the rest of one it was partway through, every format of one it never reached';
+      case 'failed':
+        return `Just the ${run.retry.failedWorks} ${run.retry.failedWorks === 1 ? 'work' : 'works'} it could not get`;
+    }
+  }
   /** the earlier scans a quick scan can be measured back to, once they have been asked for */
   protected readonly floorRuns = signal<RunHistory[] | null>(null);
   /** the id of the one chosen */
@@ -301,6 +422,14 @@ export class DownloadDialog implements OnDestroy {
   protected readonly question = signal('');
   /** the date a question is offering, where it has one */
   protected readonly askedDate = signal('');
+  /** on a `fichub-outdated` question: the formats there is no file of, and the index's date */
+  protected readonly askedFormats = signal<string[]>([]);
+  protected readonly askedIndexed = signal('');
+  /** on an `overwrite-older` question: the date of the copy on disk */
+  protected readonly askedNewer = signal('');
+  /** what the question answers itself with if nobody does, and after how many minutes */
+  protected readonly askedDefault = signal('');
+  protected readonly askedTimeout = signal(0);
   /** whether the 'give them a date' half of the question is showing */
   protected readonly choosingDate = signal(false);
   protected readonly stampDate = signal(today());
@@ -854,7 +983,7 @@ export class DownloadDialog implements OnDestroy {
    * library and on AO3 - these are answers held ready, used only if it does.
    */
   protected readonly backgroundQuestions = computed<QuestionName[]>(() => {
-    if (this.resuming()) return ['undated', 'duplicates', 'fichub'];
+    if (this.resuming()) return ['undated', 'duplicates', 'fichub', 'fichub-outdated', 'overwrite-older'];
     const asked: QuestionName[] = [];
     if (this.action() === 'quick' && this.coverage() !== 'run' && this.coverage() !== 'dates') {
       asked.push('quick-floor');
@@ -866,6 +995,10 @@ export class DownloadDialog implements OnDestroy {
     }
     // a collections run that reads no works fetches none, so none can fail
     if (this.picksFiletypes()) asked.push('fichub');
+    // only comes up for a run that downloads, when FicHub's copy is older than the index
+    if (this.picksFiletypes() && this.downloads()) asked.push('fichub-outdated');
+    // only a run that replaces what you have can be about to replace it with something older
+    if (this.downloads() && this.overwrites()) asked.push('overwrite-older');
     return asked;
   });
 
@@ -876,8 +1009,51 @@ export class DownloadDialog implements OnDestroy {
   protected readonly duplicatesAnswer = signal<'leave' | 'newest'>('leave');
   /** whether to try FicHub for works AO3 would not give us - yes, by default */
   protected readonly fichubAnswer = signal<'yes' | 'no'>('yes');
+  /** whether to take a missing format from an older FicHub copy - yes, by default */
+  protected readonly fichubOutdatedAnswer = signal<'yes' | 'no'>('yes');
+  /** whether to replace a copy with an older version of it - no, by default */
+  protected readonly overwriteOlderAnswer = signal<'yes' | 'no'>('no');
   /** how far back a quick scan goes with nothing to measure to - everything, by default */
   protected readonly quickFloorAnswer = signal<'full' | 'since'>('full');
+
+  /**
+   * A background run's up-front answers start from what settings.ini says each question
+   * answers itself with (`answerDefaults`), so they match what an unanswered question would
+   * take. A value the page does not know leaves the built-in one.
+   */
+  private startFromDefaults(defaults: Partial<Record<QuestionName, string>>): void {
+    const pick = <T extends string>(value: string | undefined, allowed: readonly T[]) =>
+      allowed.find((x) => x === value);
+    const undated = pick(defaults.undated, ['skip', 'refresh'] as const);
+    if (undated) this.undatedAnswer.set(undated);
+    const duplicates = pick(defaults.duplicates, ['leave', 'newest'] as const);
+    if (duplicates) this.duplicatesAnswer.set(duplicates);
+    const yesNo = ['yes', 'no'] as const;
+    const fichub = pick(defaults.fichub, yesNo);
+    if (fichub) this.fichubAnswer.set(fichub);
+    const older = pick(defaults['fichub-outdated'], yesNo);
+    if (older) this.fichubOutdatedAnswer.set(older);
+    const overwrite = pick(defaults['overwrite-older'], yesNo);
+    if (overwrite) this.overwriteOlderAnswer.set(overwrite);
+    const floor = pick(defaults['quick-floor'], ['full', 'since'] as const);
+    if (floor) this.quickFloorAnswer.set(floor);
+  }
+
+  /** this browser's default answers - only a hosted copy keeps any */
+  private browserAnswers(): Partial<Record<QuestionName, string>> {
+    return this.helper.isLocal() ? {} : savedAnswerDefaults();
+  }
+
+  /** what a hosted copy's User settings say about questions, sent with every run */
+  private questionSettings(): Pick<StartRequest, 'answerDefaults' | 'questionTimeoutMinutes'> {
+    if (this.helper.isLocal()) return {};
+    const answers = savedAnswerDefaults();
+    const timeout = savedQuestionTimeout();
+    return {
+      ...(Object.keys(answers).length ? { answerDefaults: answers } : {}),
+      ...(timeout === null ? {} : { questionTimeoutMinutes: timeout }),
+    };
+  }
 
   /** the up-front answers, for the questions this run could ask */
   private readonly backgroundAnswers = computed<BackgroundAnswers>(() => {
@@ -890,6 +1066,12 @@ export class DownloadDialog implements OnDestroy {
       }
       if (name === 'duplicates') answers.duplicates = { choice: this.duplicatesAnswer() };
       if (name === 'fichub') answers.fichub = { choice: this.fichubAnswer() };
+      if (name === 'fichub-outdated') {
+        answers['fichub-outdated'] = { choice: this.fichubOutdatedAnswer() };
+      }
+      if (name === 'overwrite-older') {
+        answers['overwrite-older'] = { choice: this.overwriteOlderAnswer() };
+      }
       if (name === 'quick-floor') answers['quick-floor'] = { choice: this.quickFloorAnswer() };
     }
     return answers;
@@ -939,6 +1121,9 @@ export class DownloadDialog implements OnDestroy {
   private async init(): Promise<void> {
     const config = await this.jobs.loadConfig();
     if (!config) return;
+    // a hosted copy's own User settings come before its helper's; a helper on this
+    // computer has settings.ini for them, edited from the same tab
+    this.startFromDefaults({ ...(config.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
 
     // read after the await, not before: inputs are set once the constructor has returned
     const attaching = this.attachTo();
@@ -951,8 +1136,9 @@ export class DownloadDialog implements OnDestroy {
 
     // the library the page has open is where everything goes - the helper has none of its own
     this.folder.set(this.library.store()?.label ?? '');
-    // the defaults are a starting point, not a rule: only `forced` cannot be unticked
-    this.selected.set([...(config.defaults ?? config.forced)]);
+    // the defaults are a starting point, not a rule: only `forced` cannot be unticked. This
+    // browser's own choice, from the User settings tab, comes before the helper's
+    this.selected.set(startingFiletypes(config));
     this.step.set(this.firstStep());
     if (this.resumeFrom() && this.action() === 'custom') {
       this.coverage.set('resume');
@@ -1059,22 +1245,55 @@ export class DownloadDialog implements OnDestroy {
     if (this.resuming()) {
       this.step.set('resume');
       // asked for fresh each time: a run may have been interrupted since the dialog opened
-      this.resumableRuns.set(null);
-      void this.jobs
-        .loadResumableRuns(this.library.store())
-        .then((runs) => this.resumableRuns.set(runs ?? []));
+      this.retryableRuns.set(null);
+      void this.jobs.loadRetryableRuns(this.library.store()).then((runs) => {
+        this.retryableRuns.set(runs ?? []);
+        // a run chosen from History arrives with its default way of retrying picked
+        if (this.resumeRun()) this.chooseRetryRun(this.resumeRun());
+      });
       return;
     }
     if (this.picksFloorRun()) {
-      this.step.set('floor');
-      // asked for fresh each time: a scan may have finished since the dialog opened
+      this.toFloorPage();
+      return;
+    }
+    if (this.action() === 'quick' && this.coverage() === 'all') {
+      // the floor the helper will measure back to is the newest scan that qualifies. one that
+      // could not download some works still does - but say so, and offer another
+      this.step.set('floor-warning');
       this.floorRuns.set(null);
-      void this.jobs
-        .loadFloorRuns(this.library.store())
-        .then((runs) => this.floorRuns.set(runs ?? []));
+      void this.jobs.loadFloorRuns(this.library.store()).then((runs) => {
+        this.floorRuns.set(runs ?? []);
+        if (this.step() === 'floor-warning' && !this.automaticFloor()?.missingDownloads?.length) {
+          this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+        }
+      });
       return;
     }
     this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+  }
+
+  /** the floor a quick scan measures back to when none is chosen: the newest that qualifies */
+  protected readonly automaticFloor = computed(() => this.floorRuns()?.[0] ?? null);
+
+  private toFloorPage(): void {
+    this.step.set('floor');
+    // asked for fresh each time: a scan may have finished since the dialog opened
+    this.floorRuns.set(null);
+    void this.jobs
+      .loadFloorRuns(this.library.store())
+      .then((runs) => this.floorRuns.set(runs ?? []));
+  }
+
+  /** the warning answered: measure back to it anyway */
+  protected useAutomaticFloor(): void {
+    this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+  }
+
+  /** the warning answered: pick another scan to measure back to */
+  protected chooseAnotherFloor(): void {
+    this.coverage.set('run');
+    this.toFloorPage();
   }
 
   /**
@@ -1083,7 +1302,7 @@ export class DownloadDialog implements OnDestroy {
    */
   protected afterResume(): void {
     const chosen = this.chosenResume();
-    if (!chosen?.resumable) return;
+    if (!chosen?.retry.default || !this.retryMode() || !this.retryAcknowledged()) return;
     const options = chosen.options ?? {};
     this.series.set(!!options['series']);
     this.images.set(!!options['images']);
@@ -1226,11 +1445,12 @@ export class DownloadDialog implements OnDestroy {
         background
           ? {
               ...this.startRequest(resumed),
+              ...this.questionSettings(),
               background: true,
               answers: this.backgroundAnswers(),
               dropbox: this.dropbox.handover(),
             }
-          : this.startRequest(resumed),
+          : { ...this.startRequest(resumed), ...this.questionSettings() },
       );
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
@@ -1291,9 +1511,14 @@ export class DownloadDialog implements OnDestroy {
   }
 
   /** what the run is started with - everything but whether it runs in the background */
-  private startRequest(resumed: ResumableRun | null): StartRequest {
+  private startRequest(resumed: RetryableRun | null): StartRequest {
     return {
-      action: resumed ? (resumed.action as JobAction) : this.action(),
+      // a retry goes as the earlier run's own workflow where the helper resumes that kind, and
+      // as a custom run otherwise (a fic run, a debug run) - the helper takes the workflow, file
+      // types and options from the earlier run's record either way
+      action: resumed
+        ? (RETRY_AS_ITSELF.includes(resumed.action) ? (resumed.action as JobAction) : 'custom')
+        : this.action(),
       filetypes: this.chosenFiletypes(),
       options: {
         // a slice is only sent by the run that asked for one. the inputs keep whatever
@@ -1324,6 +1549,7 @@ export class DownloadDialog implements OnDestroy {
         floorRun: this.picksFloorRun() ? this.floorRun() : '',
         // the helper takes everything else from that run's own record
         resume: resumed ? resumed.id : '',
+        retryMode: resumed ? this.retryMode() || undefined : undefined,
         // only a run pointed at fics by hand can go without a login
         skipLogin: !this.logsIn(),
       } satisfies JobOptions,
@@ -1476,6 +1702,11 @@ export class DownloadDialog implements OnDestroy {
         this.asking.set(event.count ?? 0);
         this.askedFiles.set(event.files ?? 0);
         this.askedIds.set(event.ids ?? []);
+        this.askedFormats.set(event.formats ?? []);
+        this.askedIndexed.set(event.indexed ?? '');
+        this.askedNewer.set(event.newer ?? '');
+        this.askedDefault.set(event.default ?? '');
+        this.askedTimeout.set(event.timeoutMinutes ?? 0);
         this.choosingDate.set(false);
         this.answering.set(false);
         break;
@@ -1618,6 +1849,9 @@ export class DownloadDialog implements OnDestroy {
     this.held.set(false);
     this.holdPending.set(false);
     this.cancelling.set(false);
+    // every change an ordinary run made went through this page and is taken in below, so it
+    // is not one the works list should offer to refresh for. a background run's were not
+    if (!this.runningInBackground()) this.freshness.takenIn(this.jobId);
     this.jobId = null;
     this.stop?.();
     this.stop = null;
@@ -1694,6 +1928,26 @@ export class DownloadDialog implements OnDestroy {
 
   /** leave the works AO3 would not give us as failures */
   protected skipFicHub(): void {
+    void this.answerQuestion('no');
+  }
+
+  /** take the missing formats from FicHub's older copy */
+  protected takeOlderFicHub(): void {
+    void this.answerQuestion('yes');
+  }
+
+  /** take nothing from FicHub's older copy */
+  protected skipOlderFicHub(): void {
+    void this.answerQuestion('no');
+  }
+
+  /** replace the newer copy with the older version anyway */
+  protected replaceWithOlder(): void {
+    void this.answerQuestion('yes');
+  }
+
+  /** keep the newer copy */
+  protected keepNewerCopy(): void {
     void this.answerQuestion('no');
   }
 

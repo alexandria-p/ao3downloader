@@ -280,7 +280,7 @@
               <label class="check">
                 <input type="radio" name="coverage" [checked]="coverage() === 'resume'"
                        (change)="coverage.set('resume')" />
-                <span>[EXPERIMENTAL] Pick up where an earlier run left off</span>
+                <span>[EXPERIMENTAL] Retry an earlier run</span>
               </label>
             }
 
@@ -612,6 +612,37 @@
       floor are listed - completed, and covering the whole listing - and the helper says
       which those are, so the rule lives in one place
     -->
+    @if (step() === 'floor-warning') {
+      <section class="body">
+        @if (automaticFloor(); as floor) {
+          <div class="retry-warning floor-warning" role="note">
+            <p>
+              This quick scan will measure back to the last scan, which started
+              <strong>{{ baselineOf(floor).slice(0, 10) }}</strong> - but that scan could not
+              download {{ floor.missingDownloads?.length }}
+              {{ floor.missingDownloads?.length === 1 ? 'work' : 'works' }}:
+              {{ floor.missingDownloads?.join(', ') }}.
+            </p>
+            <p>
+              Its indexing all passed, so it still covers everything up to then. Would you still
+              like to use it as the floor, or choose a different scan to measure back to?
+            </p>
+          </div>
+        } @else {
+          <p class="hint">Reading your scan history...</p>
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="step.set('options')">Back</button>
+        <button type="button" class="button" [disabled]="!automaticFloor()" (click)="chooseAnotherFloor()">
+          Choose a different scan
+        </button>
+        <button type="button" class="button primary" [disabled]="!automaticFloor()" (click)="useAutomaticFloor()">
+          Use it as the floor
+        </button>
+      </footer>
+    }
+
     @if (step() === 'floor') {
       <section class="body">
         <p>Choose the scan to measure back to. This run indexes everything changed since it started.</p>
@@ -639,6 +670,11 @@
                   <strong>{{ baselineOf(run).slice(0, 10) }}</strong>
                   {{ run.actionName || run.action }}
                   <span class="dim">- started {{ run.started.slice(11, 16) }}@if (run.finished) {, finished {{ run.finished.slice(0, 10) }} {{ run.finished.slice(11, 16) }}}</span>
+                  @if (run.missingDownloads?.length) {
+                    <span class="hint warn">
+                      Partly finished - could not download {{ run.missingDownloads!.join(', ') }}
+                    </span>
+                  }
                 </span>
               </label>
             }
@@ -658,38 +694,32 @@
       the rule lives in one place; the ones that cannot are listed, greyed, saying why
     -->
     @if (step() === 'resume') {
-      <section class="body">
+      <section class="body retry">
         <p class="warning">
-          <strong>[EXPERIMENTAL]</strong> Picks the run up where it left off, as that run, with
-          its settings. See RESUMING.md for exactly what each step does when resumed.
+          <strong>[EXPERIMENTAL]</strong> Runs an earlier run again, as that run, with its
+          settings - from the top, or carrying on from where it stopped. See RESUMING.md.
         </p>
 
-        @if (resumableRuns() === null) {
+        @if (retryableRuns() === null) {
           <p class="hint">Reading your run history...</p>
-        } @else if (resumableRuns()!.length === 0) {
-          <p class="warning">
-            There are no unfinished full scans, quick scans or custom runs to pick up.
-          </p>
+        } @else if (retryableRuns()!.length === 0) {
+          <p class="warning">There are no earlier runs to retry.</p>
         } @else {
           <fieldset class="floor-runs">
-            <legend>Unfinished runs</legend>
-            @for (run of resumableRuns(); track run.id) {
-              <label class="check" [class.unavailable]="!run.resumable"
-                     [title]="run.resumable ? '' : run.reason">
+            <legend>Earlier runs</legend>
+            @for (run of retryableRuns(); track run.id) {
+              <label class="check" [class.unavailable]="!run.retry.default"
+                     [title]="run.retry.default ? '' : 'It cannot be retried'">
                 <input type="radio" name="resumeRun" [value]="run.id"
-                       [disabled]="!run.resumable"
+                       [disabled]="!run.retry.default"
                        [checked]="resumeRun() === run.id"
-                       (change)="resumeRun.set(run.id)" />
+                       (change)="chooseRetryRun(run.id)" />
                 <span>
                   <strong>{{ run.actionName || run.action }}</strong>
                   <span class="dim">
                     - started {{ run.started.slice(0, 10) }} {{ run.started.slice(11, 16) }},
-                    {{ run.status }}
-                    @if (run.progress?.stepLabel) { at <em>{{ run.progress!.stepLabel }}</em>}
+                    {{ statusWord(run.status) }}
                   </span>
-                  @if (!run.resumable) {
-                    <span class="hint">{{ run.reason }}</span>
-                  }
                   @for (warning of run.warnings; track $index) {
                     <span class="hint warn">{{ warning }}</span>
                   }
@@ -697,11 +727,80 @@
               </label>
             }
           </fieldset>
+
+          @if (chosenResume(); as run) {
+            @if (run.warnings.length) {
+              <div class="retry-warning" role="note">
+                @for (warning of run.warnings; track $index) {
+                  <p>{{ warning }}</p>
+                }
+              </div>
+            }
+            @if (stepsOf(run).length) {
+              <div class="retry-steps">
+                <p><strong>How it went</strong></p>
+                <ol>
+                  @for (step of stepsOf(run); track step.id) {
+                    <li [attr.data-outcome]="step.outcome">
+                      {{ step.label }} - <span class="outcome">{{ outcomeWord(step.outcome) }}</span>
+                    </li>
+                  }
+                </ol>
+                @if (lastFinishedStep(run); as last) {
+                  <p class="hint">The last step it finished was <strong>{{ last }}</strong>.</p>
+                }
+              </div>
+            }
+
+            <fieldset class="retry-modes">
+              <legend>Retry it</legend>
+              @for (choice of run.retry.modes; track choice.mode) {
+                <label class="check" [class.unavailable]="!choice.available"
+                       [title]="choice.available ? '' : choice.reason">
+                  <input type="radio" name="retryMode" [value]="choice.mode"
+                         [disabled]="!choice.available"
+                         [checked]="retryMode() === choice.mode"
+                         (change)="retryMode.set(choice.mode)" />
+                  <span>
+                    {{ retryLabel(choice.mode, run) }}
+                    @if (choice.mode === run.retry.default) {
+                      <span class="dim">(picks up from the first step that did not finish)</span>
+                    }
+                    @if (!choice.available) {
+                      <span class="hint">{{ choice.reason }}</span>
+                    }
+                  </span>
+                </label>
+              }
+            </fieldset>
+
+            @if (retryTerms(run); as terms) {
+              <div class="retry-terms">
+                <p><strong>It runs with the original run's dates and settings</strong></p>
+                <p class="retry-dates">{{ terms.dates }}</p>
+                <ul>
+                  @for (line of terms.settings; track $index) {
+                    <li>{{ line }}</li>
+                  }
+                </ul>
+                <label class="check">
+                  <input type="checkbox" name="retryAcknowledged"
+                         [checked]="retryAcknowledged()"
+                         (change)="retryAcknowledged.set($any($event.target).checked)" />
+                  <span>
+                    I understand this retry uses the date(s) of the original run and the original
+                    run's settings, as above - not today's date, and not settings chosen now.
+                  </span>
+                </label>
+              </div>
+            }
+          }
         }
       </section>
       <footer>
         <button type="button" class="button subtle" (click)="backFrom('resume')">Back</button>
-        <button type="button" class="button primary" [disabled]="!chosenResume()?.resumable"
+        <button type="button" class="button primary"
+                [disabled]="!chosenResume()?.retry?.default || !retryMode() || !retryAcknowledged()"
                 (click)="afterResume()">
           Continue
         </button>
@@ -1086,6 +1185,45 @@
                       </label>
                     </div>
                   }
+
+                  @if (backgroundQuestions().includes('fichub-outdated')) {
+                    <div class="answer" data-question="fichub-outdated">
+                      <p>
+                        <strong>FicHub's copy older than your index</strong> - files you have are
+                        never replaced by it. For a format you have no file of at all, take
+                        FicHub's older version?
+                      </p>
+                      <label class="check">
+                        <input type="radio" name="bg-fichub-outdated" [checked]="fichubOutdatedAnswer() === 'yes'"
+                               (change)="fichubOutdatedAnswer.set('yes')" />
+                        <span>Yes - an older version is better than none</span>
+                      </label>
+                      <label class="check">
+                        <input type="radio" name="bg-fichub-outdated" [checked]="fichubOutdatedAnswer() === 'no'"
+                               (change)="fichubOutdatedAnswer.set('no')" />
+                        <span>No - leave the work listed as a failure</span>
+                      </label>
+                    </div>
+                  }
+
+                  @if (backgroundQuestions().includes('overwrite-older')) {
+                    <div class="answer" data-question="overwrite-older">
+                      <p>
+                        <strong>A copy newer than the version this run would write</strong> -
+                        replace it anyway?
+                      </p>
+                      <label class="check">
+                        <input type="radio" name="bg-overwrite-older" [checked]="overwriteOlderAnswer() === 'no'"
+                               (change)="overwriteOlderAnswer.set('no')" />
+                        <span>No - keep the newer copy (changes nothing)</span>
+                      </label>
+                      <label class="check">
+                        <input type="radio" name="bg-overwrite-older" [checked]="overwriteOlderAnswer() === 'yes'"
+                               (change)="overwriteOlderAnswer.set('yes')" />
+                        <span>Yes - replace it with the older version</span>
+                      </label>
+                    </div>
+                  }
                 </fieldset>
               }
             }
@@ -1194,6 +1332,13 @@
           more than one question can stop a run, and they are answered through the same
           endpoint - so the panel is keyed on which one is being asked, not on the count
         -->
+        @if (asking() && askedDefault()) {
+          <p class="question-default">
+            If nobody answers within {{ askedTimeout() | number }} minute{{ askedTimeout() === 1 ? '' : 's' }},
+            the run carries on with: <strong>{{ askedDefault() }}</strong>
+            (change this in User settings).
+          </p>
+        }
         @if (asking() && question() === 'quick-floor') {
           <div class="question">
             <p class="question-text">
@@ -1294,8 +1439,70 @@
           </div>
         }
 
+        @if (asking() && question() === 'fichub-outdated') {
+          <div class="question" data-question="fichub-outdated">
+            <p class="question-text">
+              FicHub's copy of work
+              @for (id of askedIds(); track id) {
+                <a [href]="'https://archiveofourown.org/works/' + id" target="_blank" rel="noopener">{{ id }}</a>
+              }
+              is <strong>older</strong> than your index says the work is
+              (FicHub: {{ askedDate() }}, your index: {{ askedIndexed() }}). You have no
+              <strong>{{ askedFormats().join(', ') }}</strong> of it at all. Download FicHub's
+              older version of {{ askedFormats().length === 1 ? 'that format' : 'those formats' }}?
+            </p>
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="takeOlderFicHub()">
+                Yes, take the older version
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="skipOlderFicHub()">
+                No, leave it
+              </button>
+            </div>
+
+            <p class="hint">
+              Files you already have are never replaced by an older copy, and the index is left
+              as it is. Left unanswered, the run takes the older version after 30 minutes.
+            </p>
+          </div>
+        }
+
+        @if (asking() && question() === 'overwrite-older') {
+          <div class="question" data-question="overwrite-older">
+            <p class="question-text">
+              This run replaces what you have, but your
+              <strong>{{ askedFormats().join(', ') }}</strong> of work
+              @for (id of askedIds(); track id) {
+                <a [href]="'https://archiveofourown.org/works/' + id" target="_blank" rel="noopener">{{ id }}</a>
+              }
+              is <strong>newer</strong> ({{ askedNewer() }}) than the version it would be replaced
+              with ({{ askedDate() }}). Replace it with what could be an older, outdated version?
+            </p>
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="keepNewerCopy()">
+                No, keep my newer copy
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="replaceWithOlder()">
+                Yes, replace it
+              </button>
+            </div>
+
+            <p class="hint">
+              Formats you do not have yet are still downloaded either way. Left unanswered, the
+              run keeps your newer copy after 30 minutes.
+            </p>
+          </div>
+        }
+
         <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
-        @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub') {
+        @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub' &&
+             question() !== 'fichub-outdated' && question() !== 'overwrite-older') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">
@@ -1728,9 +1935,17 @@
           </p>
         }
 
-        <p class="hint">
-          Point the folder picker at that folder (or reopen it) to see the new bookmarks here.
-        </p>
+        <!--
+          an ordinary run's writes all go through this page, which takes them into the listing
+          as the run ends (refreshAfterRun) - nothing to say. a background run writes to Dropbox
+          itself, so the works list refreshes itself once it sees the run has finished
+        -->
+        @if (runningInBackground()) {
+          <p class="hint">
+            This run wrote to your library without this page. The works list brings itself up
+            to date once the run has finished.
+          </p>
+        }
         @if (log().length) {
           <pre class="log">@for (line of log(); track $index) {{{ line }}
 }</pre>

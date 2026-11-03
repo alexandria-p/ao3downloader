@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **1720 python passed; 751 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2011 python passed; 823 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -492,7 +492,8 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   record's `username`, `Jobs.config().username`, and `ao3.username` in localStorage. It also
   takes out `password=`-shaped text. The Worker's `scrubPasswords` does that again, as a
   backstop; it cannot know the username. **See exactly what will be sent** shows the redacted
-  text, and the same text is what is sent.
+  text, and the same text is what is sent. The form's foot says so (`.hint.privacy`): an attached
+  log has the AO3 username and password-shaped text stripped out; the message is sent as written.
 - **The deploy makes the labels** (`gh label create --force` with `GITHUB_TOKEN`). The
   Worker's token only writes issues, and GitHub drops an unknown label rather than creating
   it. The Worker is deployed by the `feedback` job, which needs only `tests`, and skips with
@@ -505,8 +506,12 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   wrote** (`downloadAttempt`, through `issues.saveText`) and GitHub's new-issue page in a new
   tab, pre-filled with the title and message (`newIssueFilled`). The message is capped and the
   log left out, because the address carries it.
-- **Its window is z-index 200**, above a run window and the passcode gate (100). The tab is
-  110, so it can still be clicked while the gate is up.
+- **The tab is z-index 1000 and its window 1001**, far above a run window (50) and the passcode
+  gate and setup overlay (100), so it can be clicked mid-run or while the gate is up, and a layer
+  added later cannot slip over it unnoticed. `app-feedback` is also the last element in
+  `app.html`. **The Report a bug page has a Send feedback button** (`App.openFeedback`, through
+  `viewChild(Feedback)` and its public `show()`), shown only when the tab is: it opens the same
+  window, never a second form.
 - **Turnstile is behind an injectable seam** (`Turnstile`), like `FolderStore`, because there
   is no Cloudflare in jsdom.
 
@@ -691,10 +696,20 @@ with a page (verified: 404, `text/html`). Saving that under an `.epub` name woul
 downloaded and be unreadable, so a non-200 raises, and so does html arriving for a
 non-html format. Don't swap this back to plain `get_book`.
 
-`server.can_use_index` is the guard. Embedded images, series links and mark-as-read are all
-discovered *on* the work page, so asking for any of them falls back to `Ao3.download`. The
-other cost of the indexed path is that nothing reads the work page, so locked/deleted/hidden
-works are no longer recognised as such - they fail and are logged.
+`server.can_use_index` is the guard: no index entries (in practice, a full scan with JSON
+unticked) or embedded images (which only the custom run offers, and fetches in a pass of its
+own) fall back to `Ao3.download`. Mark-as-read and series links no longer do. The other cost
+of the indexed path is that nothing reads the work page, so locked/deleted/hidden works are
+no longer recognised as such - they fail and are logged.
+
+**The long way never writes the index** - the run that takes it chose not to keep one - but
+it follows the same per-format rule. `run_bookmarks` hands it the folder scan
+(`existing_copies`) and `overwriting`; `note_listing_dates` reads each listing page's dates
+updated, and `listing_says_behind` reopens a work already on disk in every format (normally
+`visited`, so never opened) when a copy is older than that date, or on an overwriting run -
+once, `reopened`. On the work page, `page_verdict` judges each format against the page's own
+date: missing or older is fetched (an older copy named in `superseded`, so it is replaced),
+current is kept, undated is left alone. `test_long_way.py` holds it.
 
 **Only `run_bookmarks` can take that fallback**, and that decides what the ui offers. Every
 other action downloads a *subset* of the index through `download_planned` /
@@ -884,6 +899,41 @@ last recorded, so a fic that had finished by then is invisible however much was 
 The ui has an `acknowledge` step that must be ticked before the login for exactly this, and
 points at the bookmarks run instead, which re-reads the listing and catches those.
 
+### Question defaults and time limits are settings
+
+Every question's unanswered answer is a settings.ini key (`strings.INI_ANSWER_CHOICES`,
+`server.ANSWER_SETTING_FOR`, `configured_answer`): `UndatedFilesAnswer` skip,
+`QuickScanFloorAnswer` full, `DuplicateCopiesAnswer` leave, `FicHubAnswer` yes,
+`FicHubOlderCopyAnswer` yes, `OverwriteNewerCopyAnswer` no. Each is the `choice` kind
+(`settings_file.CHOICE`, a select in User settings, checked by `checked_value` and by
+`deploy_config.checked`); the built-in default is the first of its choices and the
+template's, so Reset to defaults restores it. `Job.ask` takes it on a timeout, on a
+background run not told, and for an empty answer - **never on a stop**, which keeps the
+caller's built-in default (the one that changes nothing). `stamp` is not offered: it needs a
+date. A misspelt value leaves the built-in. The question event carries `default` and
+`timeoutMinutes` for the panel's `.question-default` line; `/api/config` sends
+`answerDefaults`, which the dialog's up-front background answers start from
+(`startFromDefaults`). `QuestionTimeoutMinutes` 0 takes the default without asking.
+
+**A hosted copy's are kept by the browser**, since its settings.ini cannot be edited from the
+page: User settings shows *Questions a run may ask* only when `!HelperConnection.isLocal()`
+(`QUESTION_DEFAULTS`, `ao3.answerDefaults`, `ao3.questionTimeoutMinutes`; only values that
+differ from the helper's are stored, and Reset drops them). The dialog sends them with every
+run (`questionSettings`: `answerDefaults`, `questionTimeoutMinutes`), never from a local page;
+`run_question_settings` checks them in `do_POST` and they become `Job.answer_defaults` /
+`question_timeout_minutes`, ahead of settings.ini. A background run's up-front answers start
+from the browser's, then the helper's `answerDefaults`, then the built-in. Ordinary runs are
+**not** offered up-front answers - at the user's request they stay as they are.
+
+The waits are settings too, read where they are used with the old constants as fallbacks:
+`RequestTimeoutSeconds`, `StillWaitingSeconds`, `MaintenanceRetries`,
+`MaintenanceRetrySeconds`, `RetryMaxWaitSeconds` (`Repository.__init__` through
+`Repository.setting` - a stand-in fileops keeps the class values), `LibraryTimeoutMinutes`
+and `PageGoneSeconds` (`Job.storage_call`). **Deliberately not settings**: the poll slices
+(`ANSWER_POLL_SECONDS`, `pause_slice`), `STREAM_HEARTBEAT_SECONDS`, `KEEP_AWAKE_SECONDS`
+(Render's sleep), `LOGIN_MAX_AGE_SECONDS` (security), `LOG_FLUSH_SECONDS`, the updater's and
+Dropbox's own request limits, and the page's own timers. `test_question_settings.py` holds it.
+
 ### Debug tools, off unless settings.ini asks
 
 `EnableDebugTools` adds a panel to the download window, and **gates three of the buttons**:
@@ -952,6 +1002,17 @@ hands back anything carrying an `id` and a run record has one.
 `FileOps.initialize` checks the library's root is still there (`storage.ensure_root`) before
 making the library folders (`LIBRARY_FOLDER_NAMES`, `runs` among them) inside it, so a
 library that has gone away fails on the root rather than on whichever subfolder came first.
+
+**Every time the helper writes is UTC, marked so.** `runs.now()` is
+`YYYY-MM-DDTHH:MM:SS+00:00` - a run's `started`, `finished`, `baseline`, the pause clock
+(`held_at`, `abandonsAt`) - and `runs.shown` says one as `YYYY-MM-DD HH:MM UTC` in a run's own
+lines; ao3's 429 break is said in UTC too, and `log.jsonl`'s timestamps are UTC. It was naive
+local time, which was UTC on Render and the reader's zone in the apps, so the same field
+meant two different things. A record written before carries a naive time; the page reads that
+as local, as it always did, and `shown` writes it as it was. The run file's name is the UTC
+start (`2026-11-03T101542+0000-<id8>.json`): it still sorts by start, and still ends with the
+id `freshness.ts` reads. The page already wrote UTC (`toISOString`) everywhere it records a
+time, and shows every time in the reader's own zone.
 
 **The file is written when the run starts, not when it ends.** A run killed mid-flight
 cannot write its own epitaph, so a record still saying `running` *is* the evidence that it
@@ -1044,33 +1105,107 @@ The predicate takes the whole record rather than a set of action names because w
 covered everything depends on the options it ran with, not only on which button it was -
 which is exactly the date-range quick scan.
 
-### A run can be resumed, and says how far it got [EXPERIMENTAL]
+### A run can be retried, and says how far it got [EXPERIMENTAL]
 
-`RESUMING.md` (project root) is the full account; this is what not to break.
+`RESUMING.md` (project root) is the full account; this is what not to break. **Retry** replaced
+the old Resume button; **Resume** now means only un-pausing a run still going.
 
+- **Any ended run can be retried, and a retry is a new run** (its own id and history file,
+  `resumes`/`resumesFirst` back, `resumedBy` on the earlier one) - so a retry can be retried.
+  `retryable_among` (`POST /api/runs/retryable`) lists every run but one still going, each with
+  `retry_choices`: the four `RETRY_MODES` with `retry_problem` for each, `failedWorks`, and a
+  `default` from `retry_default` - the first step that did not finish (index broke off ->
+  `index`; stopped with a scope -> `downloads`; finished with failures -> `failed`; else `top`).
+  Fic runs get `top` and `failed` only.
+- **`retryMode` decides what of the earlier progress is taken on** (`retry_progress`, from
+  `prepare_resume`), six ways: `top` keeps only `floor` - with the copied baseline as ceiling, a
+  quick scan covers the **same window** again - and is the one way that does not reuse the
+  earlier answers; `reindex` keeps `floor` and the answers, so every listing is read from page 1;
+  `index` drops `scope` and the step markers, so indexing runs again (finished walks from the
+  index, a broken one from its anchor); `redownload` keeps everything but `formatsDone`;
+  `downloads` keeps it all; `failed` is `floor`, `formatsDone` and `scope` = the failures.
+- **Carrying on fetches only what is missing, per format.** `save_download` notes every format
+  saved whole in `Ao3.saved_formats`; `RunRecord.collect` merges it into progress
+  `formatsDone` (with what the attempt it carries on from had). The ways that carry on
+  (`index`, `downloads`, `failed`) keep `formatsDone`, the `Job.ao3` setter hands it to the
+  runner's downloader as `formats_done`, and both download loops skip those formats
+  (`Ao3.format_done`, `AO3_INFO_FORMAT_DONE_EARLIER`) - even on an overwriting run, which
+  already overwrote them. Saved with the record, so a run killed outright can miss its last
+  `LOG_FLUSH_SECONDS` of files: current on disk, so only an overwriting run fetches them again. For a fic run `failed` sets `job.url` to the failed links (and `work`/`works` by
+  count). `''` is the old resume, kept for its rules (`resume_problem`).
+- **A retry request carries no link**, and `do_POST` skips the link checks when `resume` is set
+  - a collection retry used to be refused there. The page sends the earlier run's own action when
+  it is one of `RESUME_ACTIONS`, and `custom` otherwise (fic and debug runs), since `do_POST`
+  clears `resume` for any other action.
+- **Nothing to carry on from once both finished**: `finished_both` (every index and download
+  step in the plan done, earlier or skipped; else `status == success`) greys `index` and
+  `downloads` with `RETRY_ALL_DONE`. **Download several fics has `downloads`** (single fic does
+  not): `run_works` passes over fics with every format in `formats_done`, unlooked-up.
+- **A retry is acknowledged first**: the Retry step shows `retryTerms` (the original run's
+  floor and ceiling or range, file types and ticked options) and Continue stays disabled until
+  `retryAcknowledged` is ticked - reset whenever another run is picked.
+- **Every run saves how each step went** (`Steps.on_change` -> progress `steps`) **and its plan**
+  (`stepPlan`, written with the record), which the Retry step lists, naming the last step that
+  finished.
+- **How a run that reached its end is judged** (`outcome_of`, from `close_record`): `failed`
+  when it indexed nothing where it tried and downloaded nothing (`ERROR_ALL_INDEXING_FAILED`);
+  `partial` when any index gap still stands **or** any failure does (FicHub's rescues aside);
+  else `success` - skipped bookmarks never count. **A partial run is a floor only when all its
+  indexing passed** (`floor_worthy`: no `indexFailures`, and no failure with `reason`
+  `maintenance`), through `runs.last_successful(statuses=)`; `/api/runs/floors` adds each one's
+  `missingDownloads`, and a quick scan whose automatic floor has some stops on the
+  `floor-warning` step (*Use it as the floor* / *Choose a different scan*). **Every failure and
+  gap records why** (`failure_reason`: `reason` maintenance / status + `status` / connection /
+  no-data / other), said by `failure_words` and the page's `failureWords`. Retrying one: the
+  carry-on ways are refused (`RETRY_PARTIAL_DONE`, Download several fics excepted); with index
+  failures the default is `reindex` and `RETRY_WARN_INDEX_FAILED` is shown (not for fic
+  runs, whose `failed` re-reads each fic); with only download failures the default is `failed`
+  and `RETRY_WARN_DOWNLOADS_FAILED`. The Retry step shows a run's warnings in `.retry-warning`.
+- **Indexing failures are caught, not taken for the end of a listing.** Every page read for
+  indexing goes through `Ao3.fetch_page`, which raises on any status outside 2xx
+  (`Repository.last_status`, set by `get_soup`) - ao3 serves 401/403/404 as pages, and one read
+  as a listing had no bookmarks and ended the walk as though complete. A listing page with no
+  blurbs that is not a listing at all (`parse_soup.looks_like_listing`: an `ol.index`, or a
+  heading naming what it lists) raises `ERROR_LISTING_UNREADABLE`. `refresh_one` records a fic
+  it cannot re-read as a `work` gap before re-raising.
+- **Indexing that breaks off is recorded** (`ao3.index_gaps`): `get_metadata` records the listing, pages read, failed
+  page, works, and the dates on the last page read (`index_failures`, `describe_listing_gap`);
+  a collection listing and a fic page do the same. `finish_walk_step` marks the step failed
+  (`Steps.fail`). `partial` is not `success`, so it is never a floor. A fic FicHub supplied in
+  the end is not a gap.
 - **`baseline` is what floors measure back to**, not `started` - `runs.baseline_of`, used by
   `quick_scan_floor` and `chosen_floor`. It is set in `begin_record` the moment the login
-  works, and a resumed run copies its **first** attempt's, so a finished resume measures back
-  to when that chain first looked at ao3. Older records fall back to `started`.
+  works, and a retry copies its **first** attempt's.
 - **`interrupted` is written by the page, never the helper.** `Jobs.settleInterrupted` marks a
-  `running` record the helper does not list in `GET /api/jobs` - which is every one of them
-  when the helper is not running. The app runs it (with a spinner) before any run window
-  opens.
+  `running` record the helper does not list in `GET /api/jobs`.
 - **A run saves `progress` as it goes** (`RunRecord.checkpoint`, written at once, never
-  batched - a batched checkpoint is one an interrupted run never writes). Walks go through
-  `walk_listing`, which records each page's last bookmark (the **anchor**) via
-  `Ao3.on_page`; `Ao3.walk_finished` says whether a walk reached its natural end, because
-  `get_metadata` swallows its own errors and returns what it had.
-- **Listings sorted by date bookmarked resume from the anchor** (`find_anchor` goes by the
-  page's dates to choose a direction); **listings sorted by date updated always restart** -
-  an updated fic jumps to the top, so no place in them holds. That is why the full scan and
-  the custom run now ask for `AO3_SORT_BY_BOOKMARKED` by name: the search depends on it.
-- **After indexing, nothing needs tracking.** The saved `scope` is re-checked and downloaded;
-  what already arrived is current, so the ordinary rules skip it.
+  batched). Walks go through `walk_listing`, which records each page's last bookmark (the
+  **anchor**) via `Ao3.on_page`; `Ao3.walk_finished` says whether a walk reached its natural
+  end, because `get_metadata` swallows its own errors and returns what it had.
+- **A broken walk carries on from the date it got down to**, not from the bookmark: the anchor
+  saves the last blurb's date in the listing's own sort (`sort`: bookmarked, or updated from
+  `div.header p.datetime` - `SORT_DATE_SELECTORS`), and `find_anchor` finds the first page now
+  holding anything on or before it, searching as far either way as it must (doubling, then
+  halving). Both sorts carry on; an anchor with no `sort` on an updated walk (an older record)
+  restarts. A retry - every mode, `top` included - also starts a walk at its **ceiling**
+  (`walk_listing(ceiling=)`, `retry_ceiling`) - the day the first attempt started (every walk of
+  your bookmarks: full, quick, custom, the debug new-bookmarks walk), or a date range's end if
+  earlier; collection and fic runs have none - and indexes only
+  fics dated on or before it (`get_metadata(ceiling=, ceiling_on=)`, inclusive); one that broke
+  off starts at the older of that and the date reached, searching from its last page. A first
+  attempt ignores `ceiling`. A retry of a retry keeps the first attempt's floor and baseline.
+- **A retry checks what it carries on from** (`check_carried`, run once from the `Job.ao3`
+  setter): every work its earlier progress names (`carried_works`) must have an index file,
+  or is indexed again from its page; every `formatsDone` format must be on disk dated as its
+  entry's `date_updated`, or is dropped from `formatsDone` and fetched again. Every entry
+  names the run that last wrote it (`indexing.LAST_INDEXED_BY`, from `Ao3.run_id`; never in a
+  reading - `BOOKKEEPING_FIELDS` are stripped before `split`), and progress keeps the retry
+  `chain`. `test/test_retry_matrix.py` runs every scan through every retry choice. **The walk itself (`get_metadata`) is unchanged** - only the
+  page it starts on.
 - **`prepare_resume` replaces the job's action, file types and options** with the earlier
-  run's before the checklist is built, so a resumed quick scan is a quick scan whatever the
-  page sent. Recorded answers are reused through `Job.prior_answers`, inside `Job.ask`.
-- **A custom run over a slice is refused** (`resume_problem`): page numbers move.
+  run's before the checklist is built. Recorded answers are reused through `Job.prior_answers`.
+- **A custom run over a slice can only be retried from the top** (`RESUME_SLICE`): page
+  numbers move.
 
 ### A quick scan stops where ao3 stopped changing things
 
@@ -1196,7 +1331,11 @@ in a `finally`.
 
 This was per *fic*: anything missing or stale meant `download_one_indexed` with the run's
 whole filetype list, so a fic that had a current html and no pdf re-fetched the html too. A
-request each, spent for nothing.
+request each, spent for nothing. **The scans' index download is per format too**:
+`download_indexed` hands its folder scan to `download_one_indexed` (`existing_copies`), and
+`current_formats` passes over a format already on disk that `superseded` does not name
+(`AO3_INFO_FORMAT_CURRENT`) - so a fic is fetched only in the formats missing or behind, or
+all of them on an overwriting run.
 
 **The verdicts come out of `plan_downloads`, not from judging again here.** `superseded`
 already names the exact formats it decided to replace, so there is one definition of
@@ -1552,7 +1691,13 @@ sources, and the field is **absent**, never `False`, when neither has spoken:
   gap pass) reads the navigation's bookmark link through `parse_soup.get_bookmarked`: `Edit
   Bookmark` is `True`, `Bookmark` is `False`. Both wordings are in the logged-in fixtures.
   No link (logged out, an unexpected page) is `None`, and `ao3.bookmark_state` then writes
-  nothing, so a page that could not see the button never unmarks a fic.
+  nothing, so a page that could not see the button never unmarks a fic. **And a page never
+  unmarks a known bookmark at all** (`ao3.page_bookmark_state`): your AO3 bookmarks take
+  precedence over every other way a fic came in, at the user's explicit request, so an entry
+  already `true` (or with no field) keeps it whatever its page shows - a fic run or the update
+  pass reading it says `Bookmark` changes nothing, and `from_link` is never set on it. A page
+  can only promote: `Bookmark` on a fic not yet yours writes `false`, `Edit Bookmark` `true`.
+  The cost: unbookmarking a fic on AO3 is not recorded, since nothing else writes `false`.
 
 **A work first indexed through a series or a collection is `false` until you bookmark it** -
 and then the next walk down your bookmarks writes `true` over it, since every such walk marks
@@ -1566,8 +1711,8 @@ walk reads it, marks it, and carries on. `test_bookmarked_later.py` holds all of
 new-bookmarks tests fail with the check taken out. A later series or collection walk never
 unmarks it: `save_series_work` and `as_not_yours` keep an existing entry's own fields.
 
-It is a snapshot field, not identity: unbookmarking a fic is a real change worth a history
-entry.
+It is a snapshot field, not identity: a fic becoming your bookmark is a real change worth a
+history entry.
 
 ### The undated question names works, and dating names files
 
@@ -1653,6 +1798,16 @@ Two things follow, and both are in `plan_refresh` and `refresh_and_download`:
   overwrite replaces is perfectly current and calling it outdated would read as the version
   check having gone wrong. The plan carries an `overwrite` flag purely so
   `say_what_each_format_needs` can tell which sentence is true.
+
+**Overwriting asks before going backwards** (`keep_newer_copies`, from `plan_refresh` and
+`update_one_work`). A copy whose name carries a date **later** than the version about to be
+written is newer than it, so replacing it loses something: per work, the run asks
+`OVERWRITE_OLDER_QUESTION` (`overwrite-older`, naming the formats, both dates), **default no**
+(30-minute timeout; offered up front on a background run that overwrites). On no, those formats
+leave `superseded`, go into `plan['keep']` - `Ao3.keep_formats`, which `download_one_indexed`
+skips, saying `keeping your newer copy` - and a work with nothing else to fetch leaves `stale`.
+Formats it does not have are still fetched. FicHub's older copy goes through the same question
+on an overwriting run (see the FicHub section).
 
 `replace_superseded` needs nothing new: the re-fetched file usually has the *same* name, so
 there is no old file to delete and the write lands on top of it. The guard only fires when a
@@ -1766,7 +1921,7 @@ hanging, and all three matter:
 
 - the wait is in `ANSWER_POLL_SECONDS` slices, checking `job.cancel` each time, so a stop
   releases a run nobody is answering
-- `ANSWER_TIMEOUT_SECONDS` gives up after 30 minutes, so a closed tab cannot leave a thread
+- `QuestionTimeoutMinutes` (settings.ini, `question_timeout_seconds`; 30 by default, `ANSWER_TIMEOUT_SECONDS` the fallback) gives up after that long, so a closed tab cannot leave a thread
   waiting for an answer that can never arrive
 - **the default is always `skip`** - the option that changes nothing. Whatever goes wrong,
   a run must not rename or refetch a library on its own
@@ -1843,6 +1998,15 @@ holds that - and is skipped when nothing failed. What not to break:
   stats, plus whatever it had blank; it never sets `bookmarked`. The index is written only
   when the run writes JSON, **after** the downloads, as a reading carrying
   `retrieved_from: {site, downloaded}`.
+- **An older FicHub copy replaces nothing** (`older_on_fichub`, `older_fichub_formats`): when
+  FicHub's `date_updated` is before the index entry's, no file already on disk is touched -
+  any copy of a format counts, whatever its date - unless the run overwrites, which then asks
+  `OVERWRITE_OLDER_QUESTION` for those formats (default **no**); the index is never
+  rewritten (its reading is newer). A requested format with **no file at all** is asked
+  about per work, `FICHUB_OUTDATED_QUESTION` (`fichub-outdated`), the second question whose
+  default is **yes** (an older version beats none; offered up front on a background run that
+  downloads). Declined, or nothing missing, the work stays a failure with
+  `ERROR_FICHUB_OUTDATED`. Same date, or no date on either side, is not "older".
 - **`retrieved_from` belongs to the reading, not the entry.** `save_metadata` drops it
   unless `from_mirror=True`, so an ao3 pass that carries a flattened record forward (as
   `refresh_one` does) does not pass the mark on. The page's *From FicHub* badge reads it.
@@ -1922,44 +2086,41 @@ through the page that started it, which is usually exactly what has gone. The pa
 only where `runs/<file>` already exists, so a run from another library never lands in this one.
 `cancel` is set too, so a thread that wakes unwinds at its next gate.
 
-### A run can be paused, and there are exactly two places it may pause
+### A pause lands at once, wherever the run is - and never inside a write
 
-Both are inside the request path, and both are before anything reaches disk:
+At the user's request a pause takes effect **immediately, like a stop**, in every workflow at
+every step, and Resume picks the interrupted thing up again. The places it lands:
 
-1. `Repository.hold_if_asked`, at the top of the `my_request` loop, **before a request goes
-   out**. This is where a run with nothing in flight waits.
-2. `Repository.read_body`, which pulls a response body down in `chunk_size` pieces and
-   raises `PausedException` between them. `my_request` catches it, waits at
-   `hold_if_asked`, then **re-issues the same request from the start**.
+1. **Before a request goes out** - `Repository.hold_if_asked`, at the top of the `my_request`
+   loop.
+2. **While ao3 is deciding whether to answer, and while a body arrives** - `abandonable`
+   and `read_body` raise `PausedException`, for **every method**. A GET or a PATCH (mark as
+   read) is asked again from the start after the hold. **A POST - the login - is handed back
+   to its caller** (`my_request` re-raises), and `Repository.login` holds and then logs in
+   again from a fresh login page and token; if that page already shows the session logged
+   in (ao3 had taken the abandoned form), the login is done.
+3. **During any wait** - `Repository.wait` (the 429 break, `extra_wait`, retry backoff, the
+   maintenance delay) holds at once, and **the time held counts toward the wait**: ao3's clock
+   runs whether or not the run is paused, so resumed it waits out only what is left, then
+   goes on to the request it was waiting to make. That is what used to keep a pause out of
+   `wait` (stretching a break), and counting the held time is what answers it.
+4. **Between the library's reads and writes** - `PageStorage.call` calls `gate`
+   (`run_job` sets it to `repo.hold_if_asked`) before every request to the page. Before a
+   whole request, never inside one, so no file is ever part-written - a save and the check
+   or delete that follow it can be separated by a pause, but each is whole.
 
-The second exists because bodies used to arrive inside a single `session.request` call, so
-pausing during a large pdf did nothing until the transfer finished - the button looked
-broken. Requests are now made with `stream=True` and `read_body` fills in `_content` /
-`_content_consumed` itself, which is what keeps streaming an implementation detail: every
-caller still uses `.content` and `.text` unchanged.
+What it never does is land **inside** a write: a gate that could fire halfway through writing
+an epub would leave a truncated file whose name says it is complete - the exact failure
+`saved_intact` and `replace_superseded` exist to prevent. Don't add one there. Pure computation
+between those points (parsing a page, planning) takes milliseconds and runs to the next.
 
-**Abandoning a body is free, and that is the point.** Bytes are held in memory until the
-caller has all of them and has judged them (`download_file` checks status and content type
-before anything is written), so there is no part-written file to clean up and the retry
-starts from nothing. **Only GETs are abandoned** - a GET can be asked for again, while
-re-sending a login form or a mark-as-read is not the same as asking for a page twice.
-
-A pause-retry does **not** increment `attempt`: the user pausing is not the server failing,
-and it must not eat the retry budget.
-
-**Do not add a third gate** inside a download or a save loop. A gate that can fire anywhere
-can fire halfway through writing an epub, and the result - a truncated file whose name says
-it is complete - is the exact failure `saved_intact` and `replace_superseded` exist to
-prevent.
-
-For the same reason `get_metadata` buffers a page's records and saves them only once the
-whole page has been parsed. A page is one unit of work - fetched, parsed, then written - so
-a page abandoned partway leaves no half-built entries and is simply asked for again. Saving
-as each blurb was parsed made a part-read page a part-written index by definition.
-
-It is deliberately **not** folded into `check_cancelled`, even though the two look alike.
-`check_cancelled` is called from inside `wait`, so a hold there would stretch an ao3 rate
-limit break and then return to a request ao3 had just told us to wait longer for.
+Bodies arrive in `chunk_size` pieces (`stream=True`; `read_body` fills `_content` /
+`_content_consumed` itself, so every caller still uses `.content` and `.text`), which is what
+lets a pause land during a large pdf. **Abandoning a body is free**: bytes are held in memory
+until the caller has all of them and has judged them, so there is no part-written file and the
+retry starts from nothing. A pause-retry does **not** increment `attempt`: the user pausing is
+not the server failing. `get_metadata` buffers a page's records and saves them only once the
+whole page is parsed, so a page abandoned partway leaves no half-built entries.
 
 Three things keep a pause from becoming a hang:
 
@@ -2038,8 +2199,16 @@ or found through a collection was on disk and in the index but nowhere in the pa
 `isListedEntry` now lists every entry but two, both still shown elsewhere: a work only a
 bookmarked series brought in (in that series' card - `from_series`, **or** a bookmarked series'
 `work_ids` listing it, since an entry can lack `from_series`), and a series you did not
-bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `other` for the
-badge and the **Came from** filter. An entry with no `bookmarked` at all still counts as a
+bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `link`
+(`from_link`) / `other` (unknown), in that order, for the badge, the **Came from** filter, and the `.origin-icon` every entry carries (an inline svg per origin, named by `originLabel` from `ORIGINS`, so the icon and the filter cannot word it differently).
+**`external` (*Imported (upcoming)*) is an upcoming feature**: in `ORIGINS` with
+`upcoming`, shown disabled, and `originOf` never returns it yet. A fic FicHub supplied is not
+it - FicHub is a fallback, and the fic is wherever its run put it. **`from_link` is written by the fic runs alone**
+(`index_one_work`, and `rescue_one` on a fic run), only when the work is not your bookmark
+(`ao3.was_bookmark`; an entry with no `bookmarked` counts as one), and is an **identity**
+field, so a later reading by any other run keeps it. The Filter panel also narrows to
+bookmarks with a note (`withNotes`, `bookmark_notes`) or recommended (`recommended`,
+`bookmark_rec`). An entry with no `bookmarked` at all still counts as a
 bookmark, for the same reason `isBookmarkEntry` says so: it came off your bookmarks before
 the field existed.
 
@@ -2086,6 +2255,58 @@ not to break:
 - **Suggestions come from the whole library; the folds count this listing.** One finds any tag
   you have; the other says what ticking it will narrow here.
 
+### The User settings tab, and settings.ini from the page
+
+`user-settings.ts` (the `settings` view). What not to break:
+
+- **Every "don't ask again" lives in `preferences.PROMPTS`**, with its localStorage key and the
+  value its own code writes when dismissed - and that code imports the key from there
+  (`folder-warning.ts`, `work-list.ts`, `download-dialog.ts`, `updates.ts`). The tab lists the
+  registry, so a prompt this browser has never shown can be turned off before it is, and one
+  turned off can be turned back on. **A new prompt with such a box goes in `PROMPTS`**, or the
+  tab cannot undo it. **The browser notice is one too**, though it has no box: it turns
+  itself off once seen, so its *Ask always* writes `always` (`Prompt.always`) rather than
+  removing the key, and the notice then shows on every visit with a *Don't show this again*
+  box of its own (`askedAlways`).
+- **Every change saves at once, with a toast** (`say`, `TOAST_MS`; a problem stays
+  `PROBLEM_TOAST_MS`) - there is no Save button, at the user's request. A settings.ini box is
+  sent on `change` (left, or Enter), never on `input`, so a half-typed number is not written;
+  only a value that differs is sent, and one the helper refuses is put back as the file has it.
+  The update banner reads its flag once, so choosing it sets `UpdateCheck.dismissed` too.
+- **The tab says first that "do not ask again" choices and default formats are this browser's**
+  (`.browser-note`) - kept short at the user's request.
+- **Reset to defaults opens a window listing every value it would change** (`resetChanges`:
+  only those that differ, as current -> **default**, grouped Prompts / Download formats /
+  settings.ini; nothing to change disables the button), then sets every prompt to *Ask
+  always* (the browser notice included, so it shows every visit), drops
+  `ao3.defaultFiletypes`, and posts `{reset: true}` to `/api/settings-file`.
+- **"Default" for settings.ini means what this copy was built with.** The packaged app packs
+  its deployment's settings.ini (`desktop.defaults_file`), and `desktop.main` hands its path
+  to `Handler.settings_defaults`; `editable_settings(defaults=)` takes each default from it,
+  falling back to the template's - the only defaults a bundle or a development build has. An
+  update replaces the packed file, so after one the defaults are the new version's. Each
+  setting shows its default beside it, and Reset writes them in place like any other edit,
+  never touching the hosting settings.
+- **Default formats are a starting point** (`ao3.defaultFiletypes`, `startingFiletypes`): the
+  run window ticks them on opening and can still change them. Forced types are always added,
+  types the helper does not offer are dropped, and untouched means the helper's own
+  `defaults` stay in force (nothing stored; **Use the app's defaults** removes the key).
+- **settings.ini is only edited on a helper on this computer.** The page asks only when
+  `HelperConnection.isLocal()`, and the helper answers `editable` only when it is bound to
+  loopback and asks for no passcode (`server.settings_file_editable`, `Handler.host` from
+  `serve`); a POST otherwise is 403. A hosted helper's file comes from its deployment and is
+  replaced on every restart. `SavePassword` and the three hosting keys
+  (`settings_file.NOT_EDITABLE`) are never offered - a wrong `RequirePasscode` or `HelperUrl`
+  can stop the helper answering the page at all.
+- **An edit changes only the value after `=`** (`settings_file.set_values`): comments, order,
+  spacing and line endings stay as written, so this is the user editing their own file, not
+  the app rewriting it - **A settings.ini is only ever added to** still holds for everything
+  the app does on its own. A value is checked against the kind of the template's default
+  (`checked_value`: true/false, or a whole number of 0 or more), and one bad value writes
+  nothing. A setting the file lacks is appended with its explanation, then set. The helper
+  reads settings.ini per run, so a change applies from the next run. Explanations come from
+  the template's comments, reflowed into paragraphs (`about`).
+
 ### The listing takes in what a run changed
 
 Before this the listing only changed when the library was opened again. Now `DownloadDialog`
@@ -2096,8 +2317,30 @@ re-reads only the changed index files (`indexing/`, `collections/`), swaps them 
 entries and collections they hold (`entries`, kept by `publish`), and lists `works/` again only
 if the run touched it (`listCopies`). A different library now on screen, a later read
 (`generation`), or a failure leaves the listing as it was. An index file deleted outside a run
-keeps its entry until the next full read; runs never delete one. A **background** run answers
-storage itself, so the page sees none of its changes - its results show on the next read.
+keeps its entry until the next full read; runs never delete one. The run window says
+nothing about it - the user asked that an ordinary run's refresh go unannounced.
+
+A **background** run answers storage itself, so the page sees none of its changes. **The
+works and collections views notice instead** (`freshness.ts`, `LibraryFreshness.behind`): every
+full read sets `Library.lastRead`, and the freshness service then lists `runs/` and asks the
+helper what is going (`refreshActiveRuns`). A check lists `runs/` again and reads only the
+records new since, or going then (by the run id in the file name, `<started>-<id8>.json`);
+one that has finished as `success` or `partial` (`REFRESHING_STATUSES` - at the user's
+request, a stopped, failed or abandoned run never sets it off; those are kept in `settled` and
+not read again), and is not `takenIn` (the run window marks an ordinary run's id as it
+finishes), sets `behind`. **No clocks are compared** - a hosted helper writes naive local
+times and need not agree with the browser, and two helpers can share one Dropbox library.
+`App` checks on switching to either view and on a tab coming back into view (each at most
+every `CHECK_EVERY_MS`), and whenever a run leaves `Jobs.activeRuns`. **Behind refreshes the
+list by itself**, only while the works or collections view is showing and no run is going (an
+effect in `App`); `claimRefresh` allows one refresh per read, so one that fails is not started
+again and again. `Library.refresh` is a full read **without clearing the listing first**
+(`showDropbox(keep)`, or `readHandle` again), so the works list and its filters stay on screen
+until the new read replaces them, with a notice while it reads. A run from another helper
+that was already going at the read is not known to have been going, so its ending is not
+seen until a later run's record appears. **The listing's *Last indexed* is the newest
+`last_indexed` of any entry** (`newestIndexed`), so `refreshAfterRun` taking in a run's
+entries moves it on; it used to be whichever entry came first. Beside it, *List refreshed* is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, both through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** in the top bar is `Library.refresh` on demand. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and Refresh are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
 
 ### Every downloaded format has a button beside the title
 

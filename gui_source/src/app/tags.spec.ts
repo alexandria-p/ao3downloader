@@ -301,6 +301,28 @@ describe('the listing after a run', () => {
     expect(library.tagIndex().byKind.relationship.map((t) => t.name)).toContain('Zuko & Iroh (Avatar)');
   });
 
+  it('moves the listing\'s last-indexed time on to the newest entry a run wrote', async () => {
+    const before = library.data()!.retrieved;
+    const changed = { ...ZUKO, id: '1', title: 'Renamed', last_indexed: '2099-01-02T03:04:05+00:00' };
+    store.files.set('indexing/1 Renamed - Writer.json', JSON.stringify(changed));
+
+    await library.refreshAfterRun(['indexing/1 Renamed - Writer.json']);
+
+    expect(library.data()!.retrieved).toBe('2099-01-02T03:04:05+00:00');
+    expect(library.data()!.retrieved).not.toBe(before);
+  });
+
+  it('notes the list as refreshed when a run\'s changes are taken in', async () => {
+    const before = library.listedAt();
+    expect(before).not.toBeNull();
+    await new Promise((done) => setTimeout(done, 5));
+    store.files.set('indexing/2 New.json', JSON.stringify(ZUKO));
+
+    await library.refreshAfterRun(['indexing/2 New.json']);
+
+    expect(library.listedAt()!.getTime()).toBeGreaterThan(before!.getTime());
+  });
+
   it('leaves the listing alone for a run in a library no longer shown', async () => {
     store.files.set('indexing/2 New.json', JSON.stringify(ZUKO));
     await library.refreshAfterRun(['indexing/2 New.json'], new MemoryStore());

@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { App } from './app';
+import { App, shownTime } from './app';
 import { Jobs } from './jobs';
 import { Library } from './library';
 import { UpdateCheck } from './updates';
@@ -8,6 +8,7 @@ import { Bookmark, BookmarksExport } from './bookmarks';
 import { Collection } from './collections';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
+import { Turnstile } from './feedback';
 import { StorageChoice } from './storage-choice';
 
 function work(id: number): Bookmark {
@@ -228,6 +229,42 @@ describe('App', () => {
     id: 'job-7', action: 'quick' as const, actionName: 'Quick Scan', background: true,
     started: '2026-09-28T10:00:00', paused: false, step: '',
   };
+
+  it('will not let the library be changed while a run is going, and says why on hover', async () => {
+    TestBed.inject(Jobs).activeRuns.set([going]);
+    const element = await withFolder();
+
+    // jsdom has no folder picker, so this is the file-input button (and no Forget)
+    const locked = ['This computer', 'Dropbox', 'Choose downloads folder', 'Refresh'].map((text) =>
+      Array.from(element.querySelectorAll<HTMLButtonElement>('.topbar button')).find(
+        (b) => b.textContent?.trim() === text,
+      ),
+    );
+    for (const button of locked) {
+      expect(button?.disabled).toBe(true);
+      expect(button?.getAttribute('title')).toBe('Cannot be changed while an active run is in progress');
+    }
+  });
+
+  it('shows times above the listing in the reader\'s own time zone, and an unreadable one as written', () => {
+    const iso = '2026-09-10T12:34:56+00:00';
+    expect(shownTime(iso)).toBe(new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }));
+    expect(shownTime('sometime last week')).toBe('sometime last week');
+  });
+
+  it('offers Refresh beside the library, which reads it again', async () => {
+    const element = await withFolder();
+    const library = TestBed.inject(Library);
+    const refresh = vi.spyOn(library, 'refresh').mockResolvedValue();
+
+    const button = Array.from(element.querySelectorAll<HTMLButtonElement>('.topbar button')).find(
+      (b) => b.textContent?.trim() === 'Refresh',
+    )!;
+    expect(button.disabled).toBe(false);
+    button.click();
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
 
   it('says at the top when a run is already in progress, and that a new one must wait', async () => {
     TestBed.inject(Jobs).activeRuns.set([going]);
@@ -763,6 +800,52 @@ describe('App', () => {
     );
     // something to read, not a folder to act on - no run buttons
     expect(element.querySelector('.actions')).toBeNull();
+  });
+
+  it('opens the feedback form from a button on the Report a bug page', async () => {
+    // no Cloudflare in jsdom
+    vi.spyOn(TestBed.inject(Turnstile), 'render').mockResolvedValue('widget');
+    vi.spyOn(TestBed.inject(Turnstile), 'remove').mockImplementation(() => {});
+    TestBed.inject(HelperConnection).settings.update((c) => ({
+      ...c,
+      feedbackUrl: 'https://feedback.example.com',
+      turnstileSiteKey: 'site-key',
+    }));
+    const { fixture, element } = await render(1);
+    tab(element, 'Report a bug')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('app-feedback .modal')).toBeNull();
+
+    element.querySelector<HTMLButtonElement>('.report-bug button.send-feedback')!.click();
+    await fixture.whenStable();
+
+    // the same window the Feedback tab opens, not a second form
+    expect(element.querySelectorAll('app-feedback .modal [role=dialog]')).toHaveLength(1);
+  });
+
+  it('offers no feedback button on the Report a bug page when this copy cannot send it', async () => {
+    const { fixture, element } = await render(1);
+    tab(element, 'Report a bug')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('.report-bug button.send-feedback')).toBeNull();
+  });
+
+  it('has a User settings tab after Report a bug, with no run buttons and no folder to choose', async () => {
+    const library = TestBed.inject(Library);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    const tabs = Array.from(element.querySelectorAll('nav.views button')).map((b) => b.textContent?.trim());
+    expect(tabs.indexOf('User settings')).toBe(tabs.indexOf('Report a bug') + 1);
+    expect(library.data()).toBeNull();
+
+    tab(element, 'User settings')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-user-settings')).not.toBeNull();
+    expect(element.querySelector('.actions')).toBeNull();
+    expect(element.textContent).not.toContain('Choose your downloads folder');
   });
 
   it('says its version and links the repository on every tab', async () => {

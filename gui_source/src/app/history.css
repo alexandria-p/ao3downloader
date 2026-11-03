@@ -226,3 +226,23 @@
 .button.danger:hover:not(:disabled) {
   background: #4c2f2f;
 }
+
+/* a run whose indexing broke off: amber, as a copy to check is - something did not happen,
+   but nothing went wrong with what did */
+.index-gaps {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid #9a7a3d;
+  border-radius: 4px;
+  background: #3a3222;
+  font-size: 0.88rem;
+}
+
+.index-gaps p,
+.index-gaps ul {
+  margin: 0 0 6px;
+}
+
+.run-partial .run-status {
+  color: #d9b56a;
+}

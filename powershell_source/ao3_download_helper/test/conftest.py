@@ -37,9 +37,11 @@ def no_runs_left_over():
     """
 
     # and with no updater - only the Windows app has one, and a test that gives it one would
-    # otherwise leave every helper after it offering to update itself
+    # otherwise leave every helper after it offering to update itself. Nor packed default
+    # settings, which only the packaged app has (desktop.main sets them)
     with patch.dict(server.Handler.jobs, clear=True), \
-         patch.object(server.Handler, 'updater', None):
+         patch.object(server.Handler, 'updater', None), \
+         patch.object(server.Handler, 'settings_defaults', ''):
         yield
 
 

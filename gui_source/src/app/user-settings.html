@@ -1,0 +1,235 @@
+<section class="user-settings">
+  <div class="heading">
+    <h2>User settings</h2>
+    <button type="button" class="button reset-all" (click)="openReset()">Reset to defaults</button>
+  </div>
+  <p class="browser-note" role="note">
+    'Do not ask again' options and any changes to your default file formats are saved to this
+    browser. Changing browsers on your device will use a different set of settings that are saved
+    to <strong>that</strong> browser.
+  </p>
+  <p class="hint">Every change is saved as you make it.</p>
+
+  @if (confirmingReset()) {
+    <div class="modal">
+      <div class="backdrop" (click)="confirmingReset.set(false)"></div>
+      <div class="dialog confirm-reset" role="dialog" aria-modal="true" aria-labelledby="reset-title">
+        <header>
+          <h2 id="reset-title">Reset to defaults</h2>
+          <button type="button" class="icon" aria-label="Close" (click)="confirmingReset.set(false)">&times;</button>
+        </header>
+        <section class="body">
+          @if (resetChanges().length) {
+            <p>These will change:</p>
+            <table class="changes">
+              <thead>
+                <tr><th scope="col">Setting</th><th scope="col">Current</th><th scope="col">Default</th></tr>
+              </thead>
+              <tbody>
+                @for (change of resetChanges(); track change.group + change.name) {
+                  <tr [attr.data-change]="change.name">
+                    <th scope="row">
+                      <span class="change-group">{{ change.group }}</span>
+                      {{ change.name }}
+                    </th>
+                    <td class="current">{{ change.current }}</td>
+                    <td class="default-value">&rarr; <strong>{{ change.default }}</strong></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <p class="nothing">Everything is already at its default.</p>
+          }
+        </section>
+        <footer>
+          <button type="button" class="button" (click)="confirmingReset.set(false)">Cancel</button>
+          <button type="button" class="button primary confirm" [disabled]="!resetChanges().length" (click)="resetAll()">
+            Reset to defaults
+          </button>
+        </footer>
+      </div>
+    </div>
+  }
+
+  <section class="group prompts">
+    <h3>Prompts</h3>
+    <p class="hint">
+      Every message that offers "don't ask again", whether you have seen it yet or not.
+    </p>
+    @for (group of areas; track group.area) {
+      <h4>{{ group.area }}</h4>
+      <ul class="rows">
+        @for (prompt of group.prompts; track prompt.key) {
+          <li class="row" [attr.data-prompt]="prompt.key">
+            <div class="about">
+              <span class="name">{{ prompt.name }}</span>
+              <span class="description">{{ prompt.description }}</span>
+            </div>
+            <select
+              [attr.aria-label]="prompt.name"
+              [value]="asking()[prompt.key]"
+              (change)="choose(prompt, $any($event.target).value)"
+            >
+              <option value="ask" [selected]="asking()[prompt.key] === 'ask'">Ask always</option>
+              <option value="skip" [selected]="asking()[prompt.key] === 'skip'">Do not ask again</option>
+            </select>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+
+  <section class="group formats">
+    <h3>Default download formats</h3>
+    @if (config(); as config) {
+      <p class="hint">
+        Ticked at the start of every run. You can still change them in a run's own window.
+      </p>
+      <div class="format-list">
+        @for (filetype of config.filetypes; track filetype) {
+          <label class="check">
+            <input
+              type="checkbox"
+              [attr.name]="'format-' + filetype"
+              [checked]="formats().includes(filetype)"
+              [disabled]="isForced(filetype)"
+              (change)="toggleFormat(filetype, $any($event.target).checked)"
+            />
+            <span>{{ filetype }}</span>
+            @if (isForced(filetype)) {
+              <span class="note">(always - it is the index)</span>
+            }
+          </label>
+        }
+      </div>
+      <button type="button" class="button subtle reset-formats" (click)="resetFormats()">
+        Use the app's defaults
+      </button>
+    } @else if (!helperAnswered()) {
+      <p class="hint">Start the helper to choose which formats a run starts with.</p>
+    }
+  </section>
+
+  @if (!local) {
+    <section class="group questions">
+      <h3>Questions a run may ask</h3>
+      <p class="hint">
+        What a run takes when nobody answers a question in time. A background run starts with
+        these as its answers, and you can still change them in the run's own window. Saved to
+        this browser, like the choices above.
+      </p>
+      <ul class="rows">
+        <li class="row" data-question-setting="timeout">
+          <div class="about">
+            <span class="name">
+              Minutes a question waits for you
+              <span class="default">default: {{ helperTimeout() }}</span>
+            </span>
+            <span class="description">0 takes the default answer at once, without asking.</span>
+          </div>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            aria-label="Minutes a question waits for you"
+            [value]="questionTimeout()"
+            (change)="setQuestionTimeout($any($event.target).value, $any($event.target))"
+          />
+        </li>
+        @for (question of questions; track question.name) {
+          <li class="row" [attr.data-question-setting]="question.name">
+            <div class="about">
+              <span class="name">
+                {{ question.label }}
+                <span class="default">default: {{ choiceLabel(question, helperAnswer(question.name)) }}</span>
+              </span>
+            </div>
+            <select
+              [attr.aria-label]="question.label"
+              (change)="setAnswer(question, $any($event.target).value)"
+            >
+              @for (choice of question.choices; track choice.value) {
+                <option [value]="choice.value" [selected]="answer(question.name) === choice.value">
+                  {{ choice.label }}
+                </option>
+              }
+            </select>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+
+  @if (local && ini(); as file) {
+    @if (file.editable) {
+      <section class="group ini">
+        <h3>settings.ini</h3>
+        <p class="hint">
+          The helper's own settings, saved in <code>{{ file.file }}</code> as soon as you leave a
+          box. A change takes effect from the next run.
+        </p>
+        <ul class="rows">
+          @for (setting of file.settings; track setting.key) {
+            <li class="row" [attr.data-setting]="setting.key">
+              <div class="about">
+                <span class="name">
+                  <code>{{ setting.key }}</code>
+                  <span class="default">default: {{ setting.default === '' ? '(empty)' : setting.default }}</span>
+                </span>
+                <span class="description">{{ setting.about }}</span>
+              </div>
+              @switch (setting.kind) {
+                @case ('boolean') {
+                  <select
+                    [attr.aria-label]="setting.key"
+                    [value]="setting.value"
+                    (change)="editIni(setting, $any($event.target).value, $any($event.target))"
+                  >
+                    <option value="true" [selected]="setting.value === 'true'">true</option>
+                    <option value="false" [selected]="setting.value === 'false'">false</option>
+                  </select>
+                }
+                @case ('choice') {
+                  <select
+                    [attr.aria-label]="setting.key"
+                    [value]="setting.value"
+                    (change)="editIni(setting, $any($event.target).value, $any($event.target))"
+                  >
+                    @for (choice of setting.choices ?? []; track choice) {
+                      <option [value]="choice" [selected]="setting.value === choice">{{ choice }}</option>
+                    }
+                  </select>
+                }
+                @case ('integer') {
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    [attr.aria-label]="setting.key"
+                    [value]="setting.value"
+                    (change)="editIni(setting, $any($event.target).value, $any($event.target))"
+                  />
+                }
+                @default {
+                  <input
+                    type="text"
+                    [attr.aria-label]="setting.key"
+                    [value]="setting.value"
+                    (change)="editIni(setting, $any($event.target).value, $any($event.target))"
+                  />
+                }
+              }
+            </li>
+          }
+        </ul>
+      </section>
+    }
+  }
+
+  @if (toast(); as toast) {
+    <div class="toast" [class.problem]="toast.kind === 'problem'" [attr.role]="toast.kind === 'problem' ? 'alert' : 'status'">
+      {{ toast.text }}
+    </div>
+  }
+</section>

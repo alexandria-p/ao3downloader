@@ -492,3 +492,30 @@ def test_every_run_records_its_username_and_never_its_password(tmp_path):
         assert not any('a-secret-password' in text for text in written)
 
 # endregion
+
+
+# region every time a run records is UTC, and says so
+
+def test_a_run_records_its_times_in_utc_marked_as_such():
+    import datetime as dt
+    stamp = runs.now()
+    assert stamp.endswith('+00:00')
+    at = dt.datetime.fromisoformat(stamp)
+    assert abs((dt.datetime.now(dt.timezone.utc) - at).total_seconds()) < 5
+
+
+def test_a_recorded_time_is_said_in_utc_and_an_older_naive_one_as_written():
+    assert runs.shown('2026-11-03T10:15:42+00:00') == '2026-11-03 10:15 UTC'
+    assert runs.shown('2026-11-03T21:15:42+11:00') == '2026-11-03 10:15 UTC'
+    assert runs.shown('2026-11-03T10:15:42') == '2026-11-03 10:15'
+    assert runs.shown('') == ''
+
+
+def test_a_run_s_file_name_still_sorts_by_when_it_started_and_ends_with_its_id(tmp_path):
+    record = runs.RunRecord(fake_fileops(tmp_path), 'abcdef1234', 'sync', 'A', ['JSON'], {})
+    name = os.path.basename(record.path)
+    assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d{6}\+0000-abcdef12\.json', name)
+    assert record.data['started'].endswith('+00:00')
+
+
+# endregion

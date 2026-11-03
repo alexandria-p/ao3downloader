@@ -811,3 +811,63 @@ fieldset.bare:disabled {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* the retry step: how the chosen run went, then how to retry it */
+.retry-steps ol {
+  margin: 4px 0 8px;
+  padding-left: 22px;
+  font-size: 0.88rem;
+}
+
+.retry-steps [data-outcome='failed'] .outcome,
+.retry-steps [data-outcome='running'] .outcome {
+  color: #e08a8a;
+}
+
+.retry-steps [data-outcome='pending'] .outcome {
+  color: var(--text-dim);
+}
+
+.retry-warning {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #a07a2a;
+  border-radius: 5px;
+  background: #3a3020;
+}
+
+.retry-warning p {
+  margin: 0 0 4px;
+}
+
+.retry-terms {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #5a7f9a;
+  border-radius: 5px;
+  background: #22323d;
+}
+
+.retry-terms p {
+  margin: 0 0 6px;
+}
+
+.retry-terms ul {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.retry-modes {
+  margin-top: 10px;
+}
+
+.retry-modes .unavailable {
+  opacity: 0.6;
+}
+
+/* what an unanswered question will take, and when - so stepping away is not a surprise */
+.question-default {
+  margin: 0 0 0.5rem;
+  font-size: 0.9em;
+  opacity: 0.85;
+}

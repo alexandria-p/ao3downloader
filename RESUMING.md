@@ -1,45 +1,69 @@
-# Resuming interrupted runs [EXPERIMENTAL]
+# Retrying runs [EXPERIMENTAL]
 
-How a full scan, quick scan, custom run or collection run that did not finish can be picked up
-where it left off, and why each part works the way it does. The words used here are defined in
+How any run that has ended can be run again - from the top, or carrying on from the first step
+that did not finish - and why each part works the way it does. (This was *Resume*; **Resume**
+now means only un-pausing a run that is still going, in its own window.) The words used here are defined in
 `TERMINOLOGY.md`.
 
-## Which runs can be resumed
+## Which runs can be retried
 
-| Run | Resumable? |
-| --- | --- |
-| Full scan | Yes |
-| Quick scan | Yes, with or without a date range |
-| Custom run over **all bookmarks** (indexing or not) | Yes |
-| Custom run over **a date range** | Yes |
-| Custom run over **a slice of your bookmarks listing** | **No** - see below |
-| Index my collections, Index collection by URL | Yes - see [Collection runs](#collection-runs). A collection-by-URL run from before runs saved their link cannot be |
-| Specific fic, the debug runs | No - they are short, so starting again is the resume |
+**Every run that has ended**: finished, partly finished, failed, stopped, interrupted or
+abandoned, of every workflow - and a retry is a new run with its own history file, so a retry
+can itself be retried. A run still going is not offered: it is paused and resumed in its own
+window.
 
-A run can be resumed when it **stopped**, **failed**, was **abandoned** or was **interrupted**, and was made by a
-version of the app that saves its progress (older runs have nothing to pick up from).
+| Way to retry | What it does | Offered on |
+| --- | --- | --- |
+| **From the top** | The same run again from its first step, asking its questions afresh. A quick scan covers the **same window** as the first attempt: back to its floor, and up to when the first attempt started. | Every run (a fic run needs the links it was given, which older fic runs did not keep) |
+| **Start its indexing from the top** | Every listing read again from its first page - nothing taken from the earlier attempt but its window and the answers it was given - then everything checked and downloaded. | Full, quick and custom scans (a slice too), collection runs |
+| **Carry on from where its indexing stopped** | Walks it finished are taken from the index; one that broke off carries on from where it stopped (see below); everything is then checked and downloaded, passing over the formats it already saved. | Those runs, but not a custom run over a slice - see below |
+| **Start its downloads from the top** | Straight to the works it had settled on, every one checked and downloaded again by the usual rules - which on a run that overwrites means every format again. | Those runs, once they got as far as checking their files |
+| **Carry on from where its downloads stopped** | Straight to the works it had settled on, fetching **only the formats it had not saved whole**: nothing for a fic it finished, the rest of one it was partway through (3 of 4 formats saved fetches the 4th), every format of one it never reached - even on a run that overwrites, since it already did the overwriting. | The same |
+| **Just the works it could not get** | Only the works in its failures list, and only their formats still missing. For a fic run, runs again over just those fics. | Any scan, collection run or fic run with failures |
 
-**Why a slice cannot be resumed.** A slice is chosen by page number, and page numbers do not
-stay put: every bookmark added or removed since moves every page after it. A resumed slice
-would be covering different bookmarks from the ones it was asked for, so it is listed but
-greyed out, and says why when you hover over it.
+**How it knows which formats arrived.** Every format of every work saved whole - checked on disk
+at its full length, as every download is - goes into the history file's `formatsDone`, carried
+from attempt to attempt by the ways that carry on. The file is saved at least every two minutes
+while lines are arriving, so a run killed outright may not have noted its last couple of minutes'
+files: on an ordinary run those are passed over anyway (they are on disk and current), and on a
+run that overwrites they are fetched once more.
 
-Any unfinished run is offered, including one that has already been resumed, or one older than
-a scan that has since finished. Those come with a warning, because resuming them will mostly
-go over ground already covered.
+The window picks **the way that carries on from the first step that did not finish**: a run whose
+indexing broke off carries on with its indexing, one stopped after settling its works carries on
+with its downloads, a finished run with failures retries just those, and a clean finished run
+starts from the top. It also lists how each step went (`stepPlan` and `steps` in the history
+file) and names the last one that finished.
+
+**Why a slice cannot carry on.** A slice is chosen by page number, and page numbers do not
+stay put: every bookmark added or removed since moves every page after it. Carrying on would
+cover different bookmarks from the ones it was asked for, so only *from the top* is offered.
+
+A run that has already been retried, or one older than a scan that has since finished, comes
+with a warning, because retrying it will mostly go over ground already covered.
+
+## Partly finished runs
+
+A run that ended as it should, but whose **indexing broke off** - a page of your bookmarks that
+would not load after its retries, a collection's listing, a fic's own page - is `partial`, not
+`success`. What it indexed is kept and downloaded; the rest was never reached. Its history file
+says exactly where (`indexFailures`): which listing or collection, the pages read, the page that
+failed, the works indexed, and how far back in date the last page read reached. The checklist
+marks the index step **failed**, and the History card and the issues file say the same.
+
+**A partly finished run is never a floor for a quick scan** - only a `success` is - so the next
+quick scan measures back to an earlier complete run, and nothing beyond the break is skipped.
 
 ## Where to find it
 
-- **Custom run → What this run covers → [EXPERIMENTAL] Pick up where an earlier run left off.**
-  Every other option on the page is then greyed out, and the next page lists the unfinished
-  runs to choose from, each saying how far it got.
-- **History tab → Resume [EXPERIMENTAL]** on an unfinished run's card opens that same custom
-  run with the run already chosen.
+- **History tab → Retry [EXPERIMENTAL]** on any ended run's card opens a custom run with that run
+  chosen and its default way of retrying picked.
+- **Custom run → What this run covers → [EXPERIMENTAL] Retry an earlier run** lists every ended
+  run to choose from.
 
 The file types page shows the earlier run's file types, locked. The run then starts **as the
-earlier run's own workflow** - a resumed quick scan is a quick scan, a resumed full scan is a
-full scan - with its file types and options. The helper reads all of that from the earlier
-run's own history file, so nothing the page sends can change it.
+earlier run's own workflow** - a retried quick scan is a quick scan - with its file types and
+options. The helper reads all of that from the earlier run's own history file, so nothing the
+page sends can change it; a retry request carries no link of its own, and is not checked for one.
 
 ## How an interrupted run is recognised
 
@@ -107,40 +131,152 @@ a resume that is itself interrupted can be resumed from wherever it got to.
 walk, and the quick scan's first walk. The full scan and the custom run now ask AO3 for that
 order by name rather than relying on it being the default, because this search depends on it.
 
+Every page a walk finishes saves the last bookmark on it **and the date that bookmark
+carries in the listing's own order** - date bookmarked, or date updated. That date is what a
+retry looks for, never the bookmark itself: pages move between attempts (new bookmarks push
+everything down, removed ones pull it up, an updated fic jumps to the top), and the bookmark
+may have moved or gone, but the listing is still in date order, newest first.
+
 1. The same listing, with the same sort and the same floor, is opened at the page the earlier
    attempt last wrote (say page 43).
-2. The bookmark it saved last is looked for on that page.
-3. If it is not there, the dates on the page say which way it went. The listing is newest
-   first, so:
-   - every bookmark on the page newer than it → it has moved **down** (new bookmarks pushed it),
-     so page 44 is next
-   - every bookmark older than it → it has moved **up** (bookmarks were removed), so page 42
-   - the page straddles its day → the pages either side are tried
-4. Once found, **that whole page is indexed again** and the walk carries on to the run's
-   original floor.
-5. If it is not found within a few pages - it was unbookmarked, say - the walk starts again
-   from the first page, and says so.
+2. The search is for **the first page that now holds anything dated on or before that date** -
+   so the walk starts at the first fic on that day, wherever it is now:
+   - everything on the page is newer → it has moved **down**, so the search goes forward
+   - the page reaches the date → the search goes **back**, in case fics on that day now start
+     on an earlier page
+3. It goes as far either way as it takes, bounded only by the listing's length. The step
+   doubles and then halves, so a listing that moved by a hundred pages costs a handful of
+   requests, not a hundred.
+4. **That whole page is indexed again** and the walk carries on to the run's original floor,
+   exactly as the first attempt walked - nothing about the walk itself changes.
+5. If nothing in the listing is dated that far back any more, the walk starts again from the
+   first page, and says so. So does a walk saved by an older version, which recorded no date
+   for a listing sorted by date updated.
 
+**A listing sorted by date bookmarked** - the full scan's walk, the custom run's all-bookmarks
+walk, and the quick scan's first walk. The full scan and the custom run ask AO3 for that order
+by name rather than relying on it being the default, because this search depends on it.
 Bookmarks made after the first attempt's baseline land above the resumed page and are not
 read; they are after the baseline, so the next quick scan finds them.
 
 **A listing sorted by date updated** - the quick scan's second walk and the custom run's date
-range walk - **is always walked again from the first page.** A fic AO3 updates moves to the
-top, so nothing in that listing stays put between attempts. It stops at the same floor as
-before.
+range walk - is searched the same way, by the **date updated** it got down to. A fic AO3
+updated since the first attempt jumps to the top, above the resumed page - but its new date is
+after the first attempt's baseline, which is this retry's ceiling, so it is outside the window
+anyway; the next quick scan finds it. Fics on or after the date reached were read by the first
+attempt. It stops at the same floor as before.
 
 **A walk the earlier attempt finished is not walked again** - its works are taken from the
 index, and the checklist marks it *done in the earlier run*.
+
+### Nothing to carry on from
+
+Once a run has finished **both its indexing and its downloads** (`finished_both`: every index
+and download step in its plan done, done earlier or skipped; a run from before steps were saved
+counts only when it finished), both carry-on choices are greyed out with `RETRY_ALL_DONE`. The
+choices left are from the top, its indexing or its downloads from the top, and just the works it
+could not get.
+
+### Download several fics carries on fic by fic
+
+*Carry on from where it stopped* (`downloads`) is offered for Download several fics, never for
+one fic, which is quick to fetch again. `run_works` passes over every fic whose formats are all
+in the earlier attempt's `formatsDone` (checked on disk first, like any carry-on) without looking
+it up; the rest are looked up as usual and `format_done` skips what was saved, so the fic it was
+partway through gets only its missing formats and the ones it never reached everything.
+
+### Before carrying on, a retry checks what it is carrying on from
+
+A retry that takes on the earlier attempt's progress first checks that progress still holds:
+
+- **Indexed works.** Every work the earlier attempt's progress names (its walks, its series
+  walk, its non-bookmarks and date-range fics, the works it settled on, the works it saved
+  formats of) must still have an index file. One whose file is gone - deleted by hand, a
+  library restored from a backup - is indexed again from its own page, one request each; one
+  that will not index is a failure, offered to FicHub at the end.
+- **Downloads.** Every format it saved whole must still be in the folder, **dated as the
+  index says**: the date in the file's name the same as its index entry's `date_updated`. A
+  file that is missing, undated or dated otherwise is not done after all, and is fetched
+  again.
+- **Which run last wrote an entry.** Every index entry now names the run that last wrote it
+  (`last_indexed_by`, beside `last_indexed`, never part of a reading). When it is not this
+  retry or an attempt it carries on from, the entry has been rewritten since by another run -
+  the files are still judged against it, since it is the newest the index knows, and the
+  retry says so.
+
+A retry from the top carries nothing, so it checks nothing. Each line of the check is in the
+run's log.
+
+### Every retry choice, on every scan
+
+`test/test_retry_matrix.py` runs the full scan, the quick scan (with and without a date
+range) and the custom run (all your bookmarks, and a date range) through every way of
+retrying - each place indexing can stop, downloads from the top, carrying on with downloads
+(a fic partway through its formats included), and just the works it could not get - with
+overwriting on for the runs that offer it. What it checks is the requests: which listing
+pages, and which files.
+
+- **Overwriting** carries through a retry, as every option does. *Start its downloads from
+  the top* then fetches every format again; *carry on* still passes over what the earlier
+  attempt saved, since it already overwrote those.
+- **Downloads from the top** behaves as a fresh run's downloads do: every format is judged
+  against the index on its own - a format with no copy, or a copy dated older than the index,
+  is fetched; a current copy is kept, even in a fic missing other formats.
 
 ### The quick scan, specifically
 
 - The floor is **the earlier attempt's floor**, not one worked out afresh: runs have finished
   since, and this is still that run. It is never asked again.
-- Stopped during the *bookmarks by date bookmarked* walk: that walk is picked up from its page
-  as above, then the *by date updated* walk runs from the top.
-- Stopped during the *by date updated* walk: the first walk is not repeated; the second runs
-  again from the top.
-- Either way, the *by date updated* walk now reads past the first attempt's start on its way
+- Its index step is two walks, *by date bookmarked* then *by date updated*, and each saves
+  whether it finished. Carrying on from where indexing stopped:
+
+  | Where the earlier attempt got to | By date bookmarked | By date updated |
+  | --- | --- | --- |
+  | The first walk did not start | ceiling → floor | ceiling → floor |
+  | Stopped during the first walk | date it reached → floor | ceiling → floor |
+  | First finished, second did not start | taken from the index, no requests | ceiling → floor |
+  | Stopped during the second walk | taken from the index, no requests | date it reached → floor |
+  | Both finished | taken from the index, no requests | taken from the index, no requests |
+
+  **The ceiling** is the newest date the retry has any use for, in the walk's own sort:
+  **the day the first attempt was started** on an ordinary quick scan - for both walks - and
+  the date range's end (or that day, if earlier) on one over a date range. The floor is the
+  first attempt's too, never worked out again. The walk starts at the first page now holding
+  the ceiling, found the same way as a date reached, and **indexes only fics dated on the
+  ceiling or before it** - the ceiling counts; anything after it is the next scan's (its
+  floor is this run's start). A walk that broke off searches from the page it stopped on,
+  and starts at whichever is older, the ceiling or the date it reached - which, on an
+  ordinary quick scan, is always the date reached, since the first attempt read nothing
+  after its own start. The one exception is a date range with no start date: its date
+  bookmarked walk starts at page 1, because it also supplies the dates updated, which are in
+  no order on it. **Only a retry does this** - every way of retrying, *from the top* included:
+  a first attempt walks from page 1 as it always has, with nothing above it to leave out.
+  Every retry of a retry keeps the first attempt's floor and ceiling.
+
+  **Every workflow that walks your bookmarks has a ceiling on a retry** (`retry_ceiling`): the
+  Full Scan's walk and a custom run's all-bookmarks walk (the day the first attempt started),
+  a custom run's date range (its end, or that day if earlier), and the debug new-bookmarks
+  walk (that day). Collection runs and fic runs have none: a collection's listings are not
+  known to be in date order, and a fic run has no listing.
+
+  A walk taken from the index is ticked *done in the earlier run*. Whatever happens, both
+  walks end the retry saved as finished, so a retry of the retry skips both.
+  `test_a_quick_scan_carries_on_its_two_walks_from_wherever_it_stopped` and
+  `test_a_quick_scan_over_a_date_range_retries_each_walk_from_its_ceiling_to_its_floor` run all
+  five cases, without a date range and with one.
+
+### The custom run, specifically
+
+- **Over a date range** it has one walk, by date updated, and retries it the same way, with
+  whichever ends the range has: from the page holding the range's end (or the date it
+  reached, if it broke off further down) to the range's start. With no end it starts at page
+  1, or the date reached; with no start it runs to the end of the listing. A walk it finished
+  is taken from the index. `test_a_custom_run_over_dates_retries_its_walk_from_its_ceiling_to_its_floor`
+  runs each.
+- **Over all your bookmarks** it is one walk by date bookmarked, from the day its first
+  attempt started (or the date it reached), like the full scan's.
+- **Over a slice of pages** it can only be retried from the top - page numbers move.
+- Either way, the *by date updated* walk may read past the first attempt's start on its way
   down, so it keeps only works AO3 updated **up to the first attempt's baseline** - the
   **ceiling**. Anything updated after that is the next quick scan's to find, measured from the
   same baseline. A quick scan with a date range uses whichever is earlier: its own end date or

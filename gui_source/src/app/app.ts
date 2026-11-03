@@ -20,6 +20,7 @@ import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { ActiveRun, JobAction, Jobs } from './jobs';
 import { HelperConnection } from './helper-connection';
 import { Library, describeReadProgress } from './library';
+import { LibraryFreshness } from './freshness';
 import { LibrarySetup } from './library-setup';
 import { PasscodeGate } from './passcode-gate';
 import { SetupOverlay } from './setup-overlay';
@@ -28,22 +29,27 @@ import { Bookmark, ownerFromSource } from './bookmarks';
 import { APP_FOLDER_PATH, DropboxSession } from './dropbox';
 import { StorageChoice, StorageMode } from './storage-choice';
 import { UpdateCheck } from './updates';
+import { UserSettings } from './user-settings';
 
 /** how often the page asks whether a run in progress has finished, while one is */
 const ACTIVE_RUN_POLL_MS = 30_000;
 
 /** the two things this folder holds, the pages that show them, and the two reading pages */
-export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug';
+export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug' | 'settings';
 
 @Component({
   selector: 'app-root',
   imports: [DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
-    CollectionsView, Feedback, PasscodeGate, SetupOverlay],
+    CollectionsView, Feedback, PasscodeGate, SetupOverlay, UserSettings],
   styleUrl: './app.css',
   templateUrl: './app.html',
+  // a tab coming back into view is when a run elsewhere is most likely to have finished
+  host: { '(document:visibilitychange)': 'lookAgain()' },
 })
 export class App {
   private readonly library = inject(Library);
+  protected readonly freshness = inject(LibraryFreshness);
+  protected readonly refreshing = this.library.refreshing;
   private readonly jobs = inject(Jobs);
   private readonly storage = inject(StorageChoice);
   private readonly dropbox = inject(DropboxSession);
@@ -66,6 +72,10 @@ export class App {
   protected readonly issuesUrl = computed(() => `${this.repositoryUrl()}/issues`);
   /** whether the feedback tab is there to point at - only on a copy built with its Worker */
   protected readonly feedbackOffered = computed(() => !!this.helper.settings().feedbackUrl);
+  /** the Report a bug page's button opens the same window the Feedback tab does */
+  protected openFeedback(): void {
+    this.feedback()?.show();
+  }
   /** only the Windows, Mac or Linux app can install an update itself; anywhere else the banner links it */
   protected readonly canUpdate = this.updates.canUpdate;
   protected readonly updateProgress = this.updates.updating;
@@ -114,6 +124,7 @@ export class App {
   protected readonly warning = signal(false);
 
   /** the fallback picker, for browsers with no directory picker of their own */
+  private readonly feedback = viewChild(Feedback);
   private readonly folderInput = viewChild<ElementRef<HTMLInputElement>>('folderInput');
 
   /**
@@ -251,6 +262,25 @@ export class App {
     // and asked about again while one is going, so the banner goes when it finishes. only
     // then: with nothing running there is nothing to watch for, and a hosted helper is left
     // to sleep
+    // a run that finished since the library was read, with changes this page did not take
+    // in: the list brings itself up to date - only while it is in view, and never while a run
+    // is going, which may be writing to the library still
+    effect(() => {
+      const view = this.view();
+      if (!this.freshness.behind() || this.activeRun() || this.library.refreshing()) return;
+      if (view !== 'bookmarks' && view !== 'collections') return;
+      untracked(() => {
+        if (this.freshness.claimRefresh()) void this.library.refresh();
+      });
+    });
+    // a run the helper stops listing has ended - whatever it changed may not be on screen
+    let going = new Set<string>();
+    effect(() => {
+      const now = new Set(this.jobs.activeRuns().map((run) => run.id));
+      const ended = [...going].some((id) => !now.has(id));
+      going = now;
+      if (ended) untracked(() => void this.freshness.check());
+    });
     this.watch = setInterval(() => {
       if (this.activeRun()) void this.jobs.refreshActiveRuns();
     }, ACTIVE_RUN_POLL_MS);
@@ -279,6 +309,18 @@ export class App {
   /** shown above the listing: when the index was last brought up to date */
   protected readonly retrieved = computed(() => this.data()?.retrieved ?? '');
 
+  /**
+   * Above the listing: when the index was last written, and when this list was last brought
+   * up to date from the library - a read, a refresh, or a run's changes taken in
+   */
+  protected readonly listingNote = computed(() => {
+    const parts: string[] = [];
+    if (this.retrieved()) parts.push(`Last indexed ${shownTime(this.retrieved())}.`);
+    const listed = this.library.listedAt();
+    if (listed) parts.push(`List refreshed ${shownTime(listed)}.`);
+    return parts.join(' ');
+  });
+
   /** a folder with nothing in it at all is what the getting-started panel is for */
   protected readonly isEmpty = computed(
     () => !this.data() && this.collections().length === 0 && !this.loading(),
@@ -291,7 +333,16 @@ export class App {
 
   protected setView(view: View): void {
     this.view.set(view);
+    if (view === 'bookmarks' || view === 'collections') void this.freshness.check(true);
   }
+
+  /** a works list in view is when it is worth knowing it is behind */
+  protected lookAgain(): void {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const view = this.view();
+    if (view === 'bookmarks' || view === 'collections') void this.freshness.check(true);
+  }
+
 
   protected async choose(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
@@ -309,6 +360,7 @@ export class App {
    * straight to the picker.
    */
   protected askBeforePicking(): void {
+    if (this.libraryLocked()) return;
     if (folderWarningDismissed()) {
       this.openPicker();
       return;
@@ -335,16 +387,34 @@ export class App {
     this.folderInput()?.nativeElement.click();
   }
 
+  /**
+   * A run reads and writes through the library open now, so while one is going the library
+   * cannot be changed - not switched between this computer and Dropbox, not signed out of,
+   * not pointed at another folder. Checked here as well as on the buttons.
+   */
+  protected readonly libraryLocked = computed(() => !!this.activeRun());
+  protected readonly lockedTitle = 'Cannot be changed while an active run is in progress';
+  protected readonly store = this.library.store;
+
   protected setMode(mode: StorageMode): void {
+    if (this.libraryLocked()) return;
     this.storage.set(mode);
   }
 
   protected signInToDropbox(): void {
+    if (this.libraryLocked()) return;
     void this.dropbox.signIn();
   }
 
   protected async signOutOfDropbox(): Promise<void> {
+    if (this.libraryLocked()) return;
     await this.dropbox.signOut();
+  }
+
+  /** read the library again now, as the list does by itself after a run finished elsewhere */
+  protected refreshLibrary(): void {
+    if (this.libraryLocked() || this.refreshing()) return;
+    void this.library.refresh();
   }
 
   protected async reconnect(): Promise<void> {
@@ -352,6 +422,17 @@ export class App {
   }
 
   protected async forget(): Promise<void> {
+    if (this.libraryLocked()) return;
     await this.library.forget();
   }
+}
+
+/**
+ * A time as the listing shows it: the reader's own time zone, date and time to the minute. A
+ * value that will not parse (an old file's free-text retrieval time) is shown as it was written.
+ */
+export function shownTime(value: string | Date): string {
+  const at = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(at.getTime())) return String(value);
+  return at.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }

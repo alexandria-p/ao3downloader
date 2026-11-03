@@ -65,6 +65,7 @@ from urllib.parse import urlparse
 from cryptography.hazmat.primitives import serialization
 
 from build_artifacts import feedback_config
+from source_code import strings
 from source_code.settings_file import LEFT_OUT as NEVER_WRITTEN, strip_setting
 
 HERE = Path(__file__).resolve().parent
@@ -138,6 +139,11 @@ def checked(key: str, value: str, default: str) -> str:
     """A value of the kind the template's default is, or a DeployError saying what is wrong."""
 
     variable = variable_for(key)
+    choices = strings.INI_ANSWER_CHOICES.get(key)
+    if choices:
+        if value.strip().lower() not in choices:
+            raise DeployError(f"{variable} is '{value}', but {key} is one of: {', '.join(choices)}")
+        return value.strip().lower()
     if default.lower() in ('true', 'false'):
         try:
             return str(boolean(value)).lower()

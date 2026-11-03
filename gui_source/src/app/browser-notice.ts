@@ -1,9 +1,10 @@
-import { Component, computed, inject, output } from '@angular/core';
+import { Component, computed, inject, output, signal } from '@angular/core';
 import { HelperConnection } from './helper-connection';
 import { safeGet, safeSet } from './storage';
 import { supportsDirectoryPicker } from './folder-store';
+import { BROWSER_NOTICE_KEY as SEEN_KEY, PROMPTS, askedAlways } from './preferences';
 
-const SEEN_KEY = 'ao3.browserNoticeSeen';
+const PROMPT = PROMPTS.find((p) => p.key === SEEN_KEY)!;
 
 /** whether this browser has already been told, once, what it needs */
 export function browserNoticeSeen(): boolean {
@@ -23,8 +24,8 @@ export function browserNoticeSeen(): boolean {
  *
  * Shown on the first visit rather than at the moment it bites, because the moment it bites
  * is after someone has picked a folder and started a run - too late to be useful. Dismissing
- * it is the whole interaction; there is no checkbox, because being told twice about a thing
- * that cannot change is worse than being told once.
+ * it is the whole interaction - unless *Ask always* was chosen in User settings, which keeps
+ * it coming back on every visit and puts a "Don't show this again" box on it to stop that.
  */
 @Component({
   selector: 'app-browser-notice',
@@ -40,8 +41,12 @@ export class BrowserNotice {
   /** only the hosted copy offers background runs, so only it mentions them */
   protected readonly offersBackground = computed(() => !this.helper.isLocal());
 
+  /** set to show on every visit, from User settings: then only its own box turns it off */
+  protected readonly always = askedAlways(PROMPT);
+  protected readonly dontShowAgain = signal(false);
+
   protected dismiss(): void {
-    safeSet(SEEN_KEY, 'true');
+    if (!this.always || this.dontShowAgain()) safeSet(SEEN_KEY, 'true');
     this.dismissed.emit();
   }
 }

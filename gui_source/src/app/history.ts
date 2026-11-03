@@ -1,16 +1,9 @@
 import { Component, effect, inject, signal, untracked, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
-import { ActiveRun, Jobs, RunHistory, RunRemoval } from './jobs';
-import { issueCount, issuesOf, issuesReport, saveText } from './issues';
+import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
+import { describeGap, issueCount, issuesOf, issuesReport, saveText } from './issues';
 import { Library } from './library';
 
-/** the workflows History offers Resume on - the helper's RESUME_ACTIONS */
-const RESUMABLE = ['bookmarks', 'quick', 'custom', 'collections', 'collection'];
-
-/** why a custom run over a slice of the listing is never offered for resuming */
-export const SLICE_CANNOT_RESUME =
-  'A custom run over a slice of your bookmarks listing cannot be resumed: bookmarks added or ' +
-  'removed since move every page, so the same page numbers no longer hold the same bookmarks.';
 
 /**
  * What past runs did, read back from the helper's run files.
@@ -135,6 +128,10 @@ export class History {
     switch (run.status) {
       case 'success':
         return 'Finished';
+      case 'partial':
+        return (run.indexFailures?.length ?? 0) > 0
+          ? 'Partly finished - some indexing failed'
+          : 'Partly finished - some fics or formats could not be downloaded';
       case 'stopped':
         return 'Stopped';
       case 'failed':
@@ -233,9 +230,8 @@ export class History {
       : '';
   }
 
-  /** whether starting the same run again is how to carry on, rather than Resume */
-  protected startAgainInstead(run: RunHistory): boolean {
-    return !RESUMABLE.includes(run.action);
+  protected describeGap(gap: IndexGap): string {
+    return describeGap(gap);
   }
 
   /** when it ran, in the reader's own locale rather than as an iso stamp */
@@ -261,22 +257,13 @@ export class History {
   }
 
   /**
-   * Whether a run can be picked up where it left off, or why not - the page's quick answer
-   * for the button. The helper checks again, properly, when the run starts.
+   * Whether History offers Retry on a run: every run that has ended. One still going is
+   * paused and resumed in its own window, and one only a different helper is running is
+   * that helper's. Which ways it can be retried is the helper's to say, in the run window.
    */
-  protected resumeProblem(run: RunHistory): string | null {
-    if (!RESUMABLE.includes(run.action)) return null;
-    if (run.status === 'success' || run.status === 'running') return null;
-    if (run.action === 'collection' && !run.url) {
-      return 'This run is from before collection runs saved their link - start it again from its button.';
-    }
-    const options = run.options ?? {};
-    if (run.action === 'custom' && !options['dates'] &&
-        (Number(options['pages'] ?? 0) || Number(options['start'] ?? 1) > 1)) {
-      return SLICE_CANNOT_RESUME;
-    }
-    if (!run.progress) return 'This run is from before runs saved their progress.';
-    return '';
+  protected canRetry(run: RunHistory): boolean {
+    if (run.status !== 'running') return true;
+    return this.jobs.isThisHelpers(run) && !this.activeRuns().some((active) => active.id === run.id);
   }
 
   /** the other run of a resume, by id, for the link either way */

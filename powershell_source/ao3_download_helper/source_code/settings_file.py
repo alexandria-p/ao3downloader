@@ -165,3 +165,184 @@ def ensure_settings_file(path: str, template: str | None = None
         with open(path, 'w', encoding='utf-8', newline='') as f:
             f.write(text.replace('\n', ending))
     return False, added, deprecated
+
+
+# region editing from the page
+
+# settings the page offers to edit. Not the password one (the page never stores a password),
+# and not the three that say where the helper is and who may call it: changed by hand on a
+# helper the page is talking to, they can stop it answering the page at all - RequirePasscode
+# on with no passcode set refuses to start - so they stay a thing to edit in the file itself
+NOT_EDITABLE = LEFT_OUT + (strings.INI_HELPER_URL, strings.INI_REQUIRE_PASSCODE,
+                           strings.INI_PAGE_ORIGIN)
+BOOLEAN = 'boolean'
+INTEGER = 'integer'
+TEXT = 'text'
+# one of a fixed list - a question's default answer (`strings.INI_ANSWER_CHOICES`)
+CHOICE = 'choice'
+VALUE_LINE = re.compile(r'^(\s*)([A-Za-z][A-Za-z0-9]*)(\s*=\s*)(.*?)(\s*)$')
+
+
+def kind_of(default: str, key: str = '') -> str:
+    """What sort of value a setting takes, judged by its default in the template - or, for
+    a question's default answer, the answers that question has."""
+
+    if key in strings.INI_ANSWER_CHOICES: return CHOICE
+    if default.strip().lower() in ('true', 'false'): return BOOLEAN
+    if re.fullmatch(r'\d+', default.strip()): return INTEGER
+    return TEXT
+
+
+def about(block: str) -> str:
+    """A setting's explanation: its comment block, without the comment marks."""
+
+    lines = [line.lstrip()[1:] for line in block.split('\n')[:-1]
+             if line.lstrip().startswith(('#', ';'))]
+    lines = [line[1:] if line.startswith(' ') else line for line in lines]
+    # the file wraps its comments to fit an editor; the page wraps its own. So a paragraph's
+    # lines are joined, while a blank line still ends one and an indented line (the naming
+    # example) keeps a line to itself
+    paragraphs: list[str] = []
+    joining = False
+    for line in lines:
+        if not line.strip():
+            if paragraphs and paragraphs[-1] != '': paragraphs.append('')
+            joining = False
+        elif line.startswith(' ') or not joining:
+            paragraphs.append(line.rstrip())
+            joining = not line.startswith(' ')
+        else:
+            paragraphs[-1] += ' ' + line.strip()
+    return '\n'.join(paragraphs).strip()
+
+
+def values_in(text: str) -> dict[str, str]:
+    """Each active setting's value as written, by its name in lower case."""
+
+    found: dict[str, str] = {}
+    for line in text.replace('\r\n', '\n').split('\n'):
+        match = VALUE_LINE.match(line)
+        if match and not line.lstrip().startswith(('#', ';')):
+            found.setdefault(match.group(2).lower(), match.group(4))
+    return found
+
+
+def editable_settings(text: str, template: str | None = None,
+                      defaults: str | None = None) -> list[dict]:
+    """The settings the page may edit, in the template's order: the name, the value the file
+    has (or the default where it has none), what kind of value it takes, the default, and the
+    explanation from the template.
+
+    `defaults` is the settings.ini this copy was built with, when it has one - the packaged
+    app packs its deployment's, which is what "the defaults" mean to someone who downloaded
+    it. A setting it lacks, and every setting of a copy with none, takes the template's.
+    """
+
+    template = template_text() if template is None else template
+    built = values_in(defaults or '')
+    have = values_in(text)
+    settings = []
+    for key, block in blocks_of(template):
+        if key in NOT_EDITABLE: continue
+        default = built.get(key.lower(), VALUE_LINE.match(block.split('\n')[-1]).group(4))
+        setting = {
+            'key': key,
+            'value': have.get(key.lower(), default),
+            'default': default,
+            'kind': kind_of(default, key),
+            'about': about(block),
+        }
+        if setting['kind'] == CHOICE:
+            setting['choices'] = list(strings.INI_ANSWER_CHOICES[key])
+        settings.append(setting)
+    return settings
+
+
+def checked_value(setting: dict, value) -> str:
+    """`value` as it would be written for `setting`, or ValueError when it is not one it
+    takes: true or false, or a whole number of zero or more - the same kinds the deploy
+    checks a variable against, so the page cannot write what the helper would misread."""
+
+    if setting['kind'] == BOOLEAN:
+        if isinstance(value, bool): return 'true' if value else 'false'
+        text = str(value).strip().lower()
+        if text in ('true', 'false'): return text
+        raise ValueError(f'{setting["key"]} takes true or false')
+    if setting['kind'] == INTEGER:
+        text = str(value).strip()
+        if isinstance(value, bool) or not re.fullmatch(r'\d+', text):
+            raise ValueError(f'{setting["key"]} takes a whole number of 0 or more')
+        return str(int(text))
+    if setting['kind'] == CHOICE:
+        choices = strings.INI_ANSWER_CHOICES[setting['key']]
+        text = str(value).strip().lower()
+        if text not in choices:
+            raise ValueError(f'{setting["key"]} takes one of: {", ".join(choices)}')
+        return text
+    text = str(value)
+    if '\n' in text or '\r' in text: raise ValueError(f'{setting["key"]} takes one line')
+    return text.strip()
+
+
+def set_values(text: str, values: dict[str, str]) -> str:
+    """`text` with each named setting's value replaced where it stands.
+
+    Only the value after the `=` changes - the comments, the order, the spacing and every
+    other line stay exactly as they were, which is what lets a settings.ini edited from the
+    page still read as the file its owner wrote. A setting the file does not have yet is
+    appended with its explanation, as `complete_settings` would have.
+    """
+
+    wanted = {key.lower(): value for key, value in values.items()}
+    done: set[str] = set()
+    lines = text.split('\n')
+    for at, line in enumerate(lines):
+        if line.lstrip().startswith(('#', ';')): continue
+        match = VALUE_LINE.match(line)
+        if not match: continue
+        key = match.group(2).lower()
+        if key in wanted and key not in done:
+            lines[at] = match.group(1) + match.group(2) + match.group(3) + wanted[key] + match.group(5)
+            done.add(key)
+    text = '\n'.join(lines)
+    missing = {key: value for key, value in wanted.items() if key not in done}
+    if missing:
+        # once only: a name the template does not have is not added, so it cannot loop
+        completed, added = complete_settings(text, template_text())
+        if added:
+            return set_values(completed, {key: value for key, value in missing.items()
+                                          if key in {name.lower() for name in added}})
+    return text
+
+
+def update_settings_file(path: str, values: dict, defaults: str | None = None,
+                         reset: bool = False) -> list[dict]:
+    """Write the page's edits into the settings.ini at `path`, and return the settings as
+    they now stand. Raises ValueError, naming the setting, for a name the page may not edit
+    or a value it does not take - and then writes nothing at all.
+
+    `reset` puts every setting the page may edit back to its default (see
+    `editable_settings`) - in place, like any other edit, so comments stay and the settings
+    the page does not offer (the hosting ones) are not touched.
+    """
+
+    with open(path, encoding='utf-8', newline='') as f:
+        existing = f.read()
+    offered = editable_settings(existing, defaults=defaults)
+    if reset: values = {setting['key']: setting['default'] for setting in offered}
+    settings = {setting['key'].lower(): setting for setting in offered}
+    written: dict[str, str] = {}
+    for key, value in values.items():
+        setting = settings.get(str(key).lower())
+        if setting is None: raise ValueError(f'{key} cannot be changed from the page')
+        written[setting['key']] = checked_value(setting, value)
+
+    ending = '\r\n' if '\r\n' in existing else '\n'
+    text = set_values(existing.replace('\r\n', '\n'), written)
+    if text != existing.replace('\r\n', '\n'):
+        with open(path, 'w', encoding='utf-8', newline='') as f:
+            f.write(text.replace('\n', ending))
+    return editable_settings(text, defaults=defaults)
+
+# endregion
+

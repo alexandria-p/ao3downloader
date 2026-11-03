@@ -1,6 +1,8 @@
 # Feedback from inside the app
 
-Every copy of the app built by the deploy has a **Feedback** tab on the right edge of the page.
+Every copy of the app built by the deploy has a **Feedback** tab on the right edge of the page,
+above everything else (a run window included), and a **Send feedback** button on the Report a bug
+tab that opens the same form.
 That covers the hosted page and the Windows, Mac and Linux apps people download. Clicking it
 opens a short form. Sending the form opens a GitHub issue in this repository, labelled
 `feedback` and either `positive` or `negative`. Nobody leaves the page, and nobody needs a

@@ -1,0 +1,291 @@
+.user-settings {
+  max-width: 760px;
+  margin: 8px 0 24px;
+}
+
+h2 {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+}
+
+h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+h4 {
+  margin: 14px 0 6px;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.heading h2 {
+  margin: 0;
+}
+
+/* where these live is the thing most likely to surprise someone, so it is said first */
+.browser-note {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #5a7f9a;
+  border-radius: 5px;
+  background: #22323d;
+  font-size: 0.88rem;
+}
+
+/* the Reset window: the same modal shell as the others, under the feedback tab (1000) */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(680px, 100%);
+  max-height: min(80vh, 720px);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.dialog header,
+.dialog footer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 16px;
+}
+
+.dialog header {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog header h2 {
+  margin: 0;
+}
+
+.dialog footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+}
+
+.dialog .body {
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.icon {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
+.changes {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.changes th,
+.changes td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.changes thead th {
+  border-top: none;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.changes tbody th {
+  font-weight: 400;
+}
+
+.change-group {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.changes .current {
+  color: var(--text-dim);
+}
+
+.default {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.hint {
+  margin: 0 0 10px;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+.group {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.about {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 600;
+}
+
+.description {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  white-space: pre-line;
+}
+
+select,
+input[type='number'],
+input[type='text'] {
+  flex: none;
+  width: 170px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.format-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-bottom: 12px;
+}
+
+.check {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.note {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.button {
+  display: inline-block;
+  font-family: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #383838;
+}
+
+.button.primary {
+  border-color: #5a7f9a;
+  background: #33566b;
+}
+
+.button.primary:hover {
+  background: #3d6580;
+}
+
+/* says every change was saved, or why it was not - above the page, below the feedback tab */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  z-index: 900;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border: 1px solid #4f7a58;
+  border-radius: 5px;
+  background: #23362a;
+  color: var(--text-strong);
+  font-size: 0.88rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  transform: translateX(-50%);
+}
+
+.toast.problem {
+  border-color: #8a4040;
+  background: #3a2020;
+}
+
+@media (max-width: 560px) {
+  .row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  select,
+  input[type='number'],
+  input[type='text'] {
+    width: 100%;
+  }
+}

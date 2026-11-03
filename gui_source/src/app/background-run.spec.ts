@@ -14,6 +14,7 @@ import {
   ServerConfig,
   StartRequest,
 } from './jobs';
+import { ANSWER_DEFAULTS_KEY, QUESTION_TIMEOUT_KEY } from './preferences';
 
 const CONFIG: ServerConfig = {
   username: 'Someone',
@@ -63,9 +64,11 @@ class FakeJobs extends Jobs {
   }
 
   timeout = 10;
+  answerDefaults: Record<string, string> | undefined;
 
   override async loadConfig(): Promise<ServerConfig | null> {
-    const config = { ...CONFIG, settings: { ...CONFIG.settings!, pausedRunTimeoutMinutes: this.timeout } };
+    const config = { ...CONFIG, settings: { ...CONFIG.settings!, pausedRunTimeoutMinutes: this.timeout,
+                                             answerDefaults: this.answerDefaults } };
     this.config.set(config);
     this.available.set(true);
     return config;
@@ -249,7 +252,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['undated', 'duplicates', 'fichub']);
+    expect(questionsOffered()).toEqual(['undated', 'duplicates', 'fichub', 'fichub-outdated']);
   });
 
   it('also asks a quick scan how far back to go with nothing to measure to', async () => {
@@ -258,7 +261,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['quick-floor', 'undated', 'duplicates', 'fichub']);
+    expect(questionsOffered()).toEqual(['quick-floor', 'undated', 'duplicates', 'fichub', 'fichub-outdated']);
   });
 
   it('does not ask about undated files on a run that fetches every copy again anyway', async () => {
@@ -267,7 +270,7 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['duplicates', 'fichub']);
+    expect(questionsOffered()).toEqual(['duplicates', 'fichub', 'fichub-outdated', 'overwrite-older']);
   });
 
   it('asks nothing of a run that downloads no works', async () => {
@@ -292,7 +295,48 @@ describe('Running in the background', () => {
       duplicates: { choice: 'leave' },
       // the one that does something: the works it asks about are missing anyway
       fichub: { choice: 'yes' },
+      'fichub-outdated': { choice: 'yes' },
     });
+  });
+
+  it('starts from the default answers settings.ini gives, where it gives them', async () => {
+    jobs.answerDefaults = { fichub: 'no', 'quick-floor': 'since', undated: 'refresh',
+                            duplicates: 'nonsense' };
+    inDropbox();
+    await open('quick');
+    await toCredentials();
+    await tickBackground();
+    await startIt();
+
+    expect(jobs.started[0].answers).toEqual({
+      'quick-floor': { choice: 'since' },
+      undated: { choice: 'refresh' },
+      // a value the question does not have leaves the built-in default
+      duplicates: { choice: 'leave' },
+      fichub: { choice: 'no' },
+      'fichub-outdated': { choice: 'yes' },
+    });
+  });
+
+  it('starts from this browser\'s default answers before the helper\'s, and sends them with the run', async () => {
+    jobs.answerDefaults = { fichub: 'no', duplicates: 'newest' };
+    localStorage.setItem(ANSWER_DEFAULTS_KEY, JSON.stringify({ fichub: 'yes', undated: 'refresh' }));
+    localStorage.setItem(QUESTION_TIMEOUT_KEY, '5');
+    inDropbox();
+    await open('quick');
+    await toCredentials();
+    await tickBackground();
+    await startIt();
+
+    expect(jobs.started[0].answers).toEqual({
+      'quick-floor': { choice: 'full' },
+      undated: { choice: 'refresh' },
+      duplicates: { choice: 'newest' },
+      fichub: { choice: 'yes' },
+      'fichub-outdated': { choice: 'yes' },
+    });
+    expect(jobs.started[0].answerDefaults).toEqual({ fichub: 'yes', undated: 'refresh' });
+    expect(jobs.started[0].questionTimeoutMinutes).toBe(5);
   });
 
   it('sends the answers given, and the date undated files are to be given', async () => {
@@ -307,6 +351,7 @@ describe('Running in the background', () => {
     date.dispatchEvent(new Event('input'));
     checkbox('Keep the newest')!.click();
     checkbox('No - leave them listed as failures')!.click();
+    checkbox('No - leave the work listed as a failure')!.click();
     await fixture.whenStable();
     await startIt();
 
@@ -314,6 +359,7 @@ describe('Running in the background', () => {
       undated: { choice: 'stamp', date: '2024-05-06' },
       duplicates: { choice: 'newest' },
       fichub: { choice: 'no' },
+      'fichub-outdated': { choice: 'no' },
     });
   });
 
@@ -532,6 +578,15 @@ describe('Running in the background', () => {
     const expected = new Date('2026-09-28T13:10:00')
       .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     expect(said).toContain(`If it is not resumed by ${expected}, the helper abandons it`);
+  });
+
+  it('says at the end of a background run that the works list refreshes itself', async () => {
+    await runningInBackground();
+    jobs.push!({ type: 'finished', cancelled: false });
+    await fixture.whenStable();
+
+    const said = element.textContent ?? '';
+    expect(said).toContain('The works list brings itself up to date once the run has finished.');
   });
 
   it('says a run that was abandoned was abandoned, and how to carry on', async () => {

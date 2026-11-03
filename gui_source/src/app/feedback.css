@@ -1,15 +1,17 @@
 /*
  * The tab sits on the right edge of every page, most of it tucked out of sight, and slides out
  * on hover. The form wears the same modal shell as passcode-gate.css and the run window, and
- * sits above all of them (z-index 200): feedback is worth being able to give in the middle of a
- * run, or while a passcode window waits.
+ * sits above all of them: feedback is worth being able to give in the middle of a run, or while
+ * a passcode window waits. The tab (1000) and its window (1001) are far above anything else on
+ * the page (a run window is 50, the passcode gate and the setup overlay 100), so a layer added
+ * later cannot slip over them unnoticed.
  */
 
 .feedback-tab {
   position: fixed;
   top: 50%;
   right: 0;
-  z-index: 110;
+  z-index: 1000;
   padding: 14px 8px 14px 9px;
   border: 1px solid #5a7f9a;
   border-right: none;
@@ -49,7 +51,7 @@
 .modal {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: 1001;
   display: flex;
   align-items: center;
   justify-content: center;

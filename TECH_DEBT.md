@@ -66,6 +66,66 @@ in date order, the union of `from_series` and `from_collections`, `bookmarked` t
 said so - and deletes the rest. It needs care, since it deletes files, and it has not been
 written.
 
+## TODO: collection listings do not yet refuse a page that is not a listing
+
+**What is missing.** The bookmarks walk (`get_metadata`) refuses a page with no blurbs that is
+not a listing at all (`parse_soup.looks_like_listing`: an `ol.index`, or a heading naming what
+it lists) with `ERROR_LISTING_UNREADABLE`, so a login page or an error page ao3 serves as 200
+becomes an index gap instead of the end of your bookmarks. A collection's works and
+bookmarked-items listings (`Ao3.walk_pages`, from `collect_work_ids`) only have the status
+check (`fetch_page`, which catches 401/403/404/5xx and maintenance).
+
+**What it costs.** Such a page mid-collection reads as an empty last page: the collection is
+saved with only the works found so far - possibly none - and marked done, with nothing in the
+run saying so.
+
+**Why it is not done.** The marker was checked against a real bookmarks page
+(`test/fixtures/bookmarks.html`), but there is no fixture of a collection's works or
+bookmarked-items listing, empty or not. If an empty collection's listing carried neither
+marker, every empty collection would be flagged as a failure. AO3 was down when this came up,
+so it could not be checked live.
+
+**The fix.** Refresh the fixtures from live AO3 (`dev/refresh_fixtures.py`) with a collection
+works listing, a bookmarked-items listing, and an **empty** collection; confirm
+`looks_like_listing` accepts all three; then call it in `walk_pages` (or `collect_work_ids`)
+the way `get_metadata` does, raising `ERROR_LISTING_UNREADABLE` so the collection's gap
+records `reason: no-data`, with tests on the new fixtures.
+
+## TODO: hosted and downloaded copies keep settings in different places
+
+**What happens now.** Where a setting lives depends on which copy you are using, and the
+order is not the same:
+
+- **A downloaded app, the bundle, a dev build:** settings.ini only. User settings edits it,
+  and the browser keeps nothing but the prompts and the default formats.
+- **A hosted copy:** settings.ini comes from the deployment's variables and the page cannot
+  edit it. So *Questions a run may ask* (`QuestionTimeoutMinutes` and the six default answers)
+  is kept in the browser (`ao3.answerDefaults`, `ao3.questionTimeoutMinutes`), sent with each
+  run, and used **ahead of** settings.ini (`run_question_settings`, `Job.answer_defaults`).
+  Every other setting stays deployment-only.
+
+So the same choice is settings.ini-first on one copy and browser-first on the other. Each
+browser of a hosted copy also has its own set, and a downloaded app's set is shared by every
+browser on that computer.
+
+**What happens when the pipeline changes a variable.** A hosted helper's settings.ini is
+written fresh from the variables on every deploy, so the new value is in force at once. But a
+browser that already saved its own choice for that question keeps it, and keeps sending it -
+the deployment's change never reaches that browser's runs. The page only stores values that
+differ from the helper's, so a browser with nothing saved follows the new value. A downloaded
+app is different again: an update appends new settings to settings.ini but never changes a
+value already there (**A settings.ini is only ever added to**), so a variable changed after
+someone installed never reaches them either, and its new value only shows as the "default"
+in User settings and what Reset to defaults writes.
+
+**To decide.** One rule for both: which settings (some or all) live in the browser and which
+in settings.ini; which wins when both have a value; and what a changed deployment variable
+does to a value someone has already chosen - override it, leave it, or tell them. Possible
+answers: everything per-user goes in the browser on both (settings.ini keeping only what the
+helper needs before a page exists); or a hosted copy gets an editable store of its own on the
+helper side, so both are settings.ini-first. Whichever, the page should say where each value
+comes from.
+
 ## Other known gaps
 
 - **The order of a collection's works listing** was not checked against the live site. A

@@ -6,6 +6,7 @@
         type="button"
         [class.current]="mode() === 'local'"
         [attr.aria-pressed]="mode() === 'local'"
+        [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null"
         (click)="setMode('local')"
       >
         This computer
@@ -14,6 +15,7 @@
         type="button"
         [class.current]="mode() === 'dropbox'"
         [attr.aria-pressed]="mode() === 'dropbox'"
+        [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null"
         (click)="setMode('dropbox')"
       >
         Dropbox
@@ -33,15 +35,15 @@
       }
 
       @if (canPickFolder) {
-        <button type="button" class="button" (click)="askBeforePicking()">
+        <button type="button" class="button" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="askBeforePicking()">
           {{ folderName() ? 'Change folder' : 'Choose downloads folder' }}
         </button>
         @if (folderName()) {
-          <button type="button" class="button subtle" (click)="forget()">Forget</button>
+          <button type="button" class="button subtle" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="forget()">Forget</button>
         }
       } @else {
         <!-- a button rather than a label, so the note can come first; it clicks the input -->
-        <button type="button" class="button" (click)="askBeforePicking()">
+        <button type="button" class="button" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="askBeforePicking()">
           {{ data() ? 'Change folder' : 'Choose downloads folder' }}
         </button>
         <input #folderInput type="file" webkitdirectory multiple (change)="choose($event)" hidden />
@@ -49,7 +51,7 @@
     } @else {
       @switch (dropboxStatus()) {
         @case ('signed-out') {
-          <button type="button" class="button primary" (click)="signInToDropbox()">
+          <button type="button" class="button primary" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="signInToDropbox()">
             Sign in with Dropbox
           </button>
         }
@@ -64,9 +66,22 @@
             <span class="remembered" title="Remembered - opens automatically next time">&#9679;</span>
             {{ appFolderPath }}
           </span>
-          <button type="button" class="button subtle" (click)="signOutOfDropbox()">Sign out</button>
+          <button type="button" class="button subtle" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="signOutOfDropbox()">Sign out</button>
         }
       }
+    }
+
+    <!-- the same read the list does by itself after a run elsewhere, on demand -->
+    @if (store()) {
+      <button
+        type="button"
+        class="button subtle refresh-library"
+        [disabled]="libraryLocked() || refreshing()"
+        [attr.title]="libraryLocked() ? lockedTitle : 'Read the library again, keeping the list and its filters on screen'"
+        (click)="refreshLibrary()"
+      >
+        {{ refreshing() ? 'Refreshing...' : 'Refresh' }}
+      </button>
     }
   </div>
 </header>
@@ -206,6 +221,14 @@
   >
     Report a bug
   </button>
+  <button
+    type="button"
+    [class.current]="view() === 'settings'"
+    [attr.aria-current]="view() === 'settings' ? 'page' : null"
+    (click)="setView('settings')"
+  >
+    User settings
+  </button>
 </nav>
 
 <!--
@@ -214,7 +237,7 @@
   to work out what it already has and writes everything back into it. the panel below
   already asks for one, so an empty button bar above it would only repeat the question.
 -->
-@if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && canRun()) {
+@if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && canRun()) {
 <div class="actions">
   @if (view() === 'bookmarks') {
     <!--
@@ -298,8 +321,9 @@
     </p>
   }
 
-  <!-- the faq is worth reading before a folder is chosen, so it is not held behind one -->
-  @if (isEmpty() && view() !== 'faq' && view() !== 'history' && view() !== 'bug') {
+  <!-- the faq is worth reading before a folder is chosen, so it is not held behind one - nor
+       are the user settings, which belong to this browser and not to any folder -->
+  @if (isEmpty() && view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings') {
     <section class="empty">
       <h2>Choose your downloads folder</h2>
       <p>
@@ -385,12 +409,17 @@
     }
   </section>
 } @else if (view() === 'bookmarks') {
+  @if (refreshing()) {
+    <p class="notice library-behind" role="status">
+      A run has finished since this library was read - bringing the list up to date...
+    </p>
+  }
   @if (data()) {
     <app-work-list
       [works]="works()"
       [owner]="owner()"
       label="Bookmarks"
-      [note]="retrieved() ? 'Last indexed ' + retrieved() + '.' : ''"
+      [note]="listingNote()"
       [selectable]="true"
     />
   } @else if ((!isEmpty() || mode() === 'dropbox') && !loading()) {
@@ -400,6 +429,11 @@
     </p>
   }
 } @else if (view() === 'collections') {
+  @if (refreshing()) {
+    <p class="notice library-behind" role="status">
+      A run has finished since this library was read - bringing the list up to date...
+    </p>
+  }
   <app-collections-view />
 } @else if (view() === 'history') {
   <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)" />
@@ -417,11 +451,17 @@
     </p>
     @if (feedbackOffered()) {
       <p class="hint">
-        No GitHub account? Use the <strong>Feedback</strong> tab on the right edge of the page -
-        it opens an issue for you, and can attach your latest run's log.
+        No GitHub account? Send feedback instead - it opens an issue for you, and can attach your
+        latest run's log. The <strong>Feedback</strong> tab on the right edge of every page opens
+        the same form.
       </p>
+      <button type="button" class="button primary send-feedback" (click)="openFeedback()">
+        Send feedback
+      </button>
     }
   </section>
+} @else if (view() === 'settings') {
+  <app-user-settings />
 } @else {
   <app-faq />
 }

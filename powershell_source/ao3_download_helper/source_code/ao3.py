@@ -3,8 +3,11 @@
 import contextlib
 import datetime
 import os
+import re
 import sys
 import traceback
+
+import requests
 from collections.abc import Callable
 
 from bs4 import BeautifulSoup
@@ -45,6 +48,115 @@ def blank(value) -> bool:
     return value is None or value == ''
 
 
+
+# where a blurb carries each date a bookmarks listing can be sorted by
+SORT_DATE_SELECTORS = {'bookmarked': 'div.user p.datetime', 'updated': 'div.header p.datetime'}
+
+
+def failure_reason(e: BaseException) -> dict:
+    """Why a page or a file from ao3 could not be had, as a run records it.
+
+    `reason` is one of `maintenance` (ao3's maintenance page, asked again and given up on),
+    `status` (an answer outside 2xx - `status` holds the code), `connection` (no answer, or
+    none in time), `no-data` (a page that came back but held nothing that could be read off
+    it), or `other`. A failure several formats share names the worst of them: maintenance
+    first, since it says ao3 itself was not there.
+    """
+
+    text = str(e)
+    if isinstance(e, exceptions.Ao3DownException) or strings.ERROR_AO3_DOWN in text:
+        return {'reason': REASON_MAINTENANCE}
+    if isinstance(e, exceptions.InvalidStatusCodeException) or 'status code' in text:
+        code = re.search(r'status code (\d{3})', text)
+        return {'reason': REASON_STATUS, **({'status': int(code.group(1))} if code else {})}
+    if isinstance(e, (exceptions.TimeoutException, requests.exceptions.ConnectionError,
+                      requests.exceptions.Timeout)):
+        return {'reason': REASON_CONNECTION}
+    if text in (strings.ERROR_LISTING_UNREADABLE, strings.ERROR_WORK_STATS):
+        return {'reason': REASON_NO_DATA}
+    return {'reason': REASON_OTHER}
+
+
+def failure_words(failed: dict) -> str:
+    """Why something failed, in words: the recorded reason, then the error itself."""
+
+    reason, error = failed.get('reason'), str(failed.get('error') or '')
+    if reason == REASON_MAINTENANCE: words = strings.REASON_WORDS_MAINTENANCE
+    elif reason == REASON_STATUS and failed.get('status'):
+        words = strings.REASON_WORDS_STATUS.format(failed['status'])
+    elif reason == REASON_CONNECTION: words = strings.REASON_WORDS_CONNECTION
+    elif reason == REASON_NO_DATA: words = strings.REASON_WORDS_NO_DATA
+    else: return error
+    return f'{words} ({error})' if error and error != words else words
+
+
+REASON_MAINTENANCE = 'maintenance'
+REASON_STATUS = 'status'
+REASON_CONNECTION = 'connection'
+REASON_NO_DATA = 'no-data'
+REASON_OTHER = 'other'
+
+
+def listing_sort(link: str) -> str:
+    """Which date a bookmarks listing is in order of, from its url: 'bookmarked', 'updated',
+    or '' for ao3's own default (when each was bookmarked, but not asked for by name)."""
+
+    if strings.AO3_SORT_BY_UPDATED in link: return 'updated'
+    if strings.AO3_SORT_BY_BOOKMARKED in link: return 'bookmarked'
+    return ''
+
+
+def describe_listing_gap(gap: dict) -> str:
+    """One line saying exactly where indexing broke off - which pages were read, which one
+    failed, and how far back in date the listing got - for the run's window and its log."""
+
+    if gap.get('kind') == 'work':
+        return strings.AO3_INFO_INDEX_GAP_WORK.format(gap.get('id'), failure_words(gap))
+    first, last, failed = gap.get('firstPage') or 1, gap.get('lastPage'), gap.get('failedPage')
+    read = (strings.AO3_INFO_INDEX_GAP_NONE_READ if not last else
+            strings.AO3_INFO_INDEX_GAP_READ.format(first, last, gap.get('works') or 0))
+    total = gap.get('totalPages')
+    where = (strings.AO3_INFO_INDEX_GAP_COLLECTION.format(gap.get('collection'), gap.get('items'))
+             if gap.get('kind') == 'collection' else strings.AO3_INFO_INDEX_GAP_LISTING)
+    line = strings.AO3_INFO_INDEX_GAP.format(where, failed, f' of {total}' if total else '',
+                                             failure_words(gap), read)
+    date = gap.get('reachedBookmarked') if gap.get('sort') == 'bookmarked' else \
+        gap.get('reachedUpdated') if gap.get('sort') == 'updated' else gap.get('reachedBookmarked')
+    if last and date:
+        kind = 'updated' if gap.get('sort') == 'updated' else 'bookmarked'
+        line += ' ' + strings.AO3_INFO_INDEX_GAP_DATE.format(kind, date)
+    return line
+
+
+def index_gaps(ao3) -> list[dict]:
+    """The places this run's indexing broke off that still stand. A fic run's fic whose own
+    page would not read counts only while it is still a failure - one FicHub supplied in the
+    end was got after all."""
+
+    gaps = list(getattr(ao3, 'index_failures', None) or [])
+    failed = {str(x.get('id') or '') for x in getattr(ao3, 'failures', None) or []}
+    return [gap for gap in gaps if gap.get('kind') != 'work' or str(gap.get('id')) in failed]
+
+
+def page_bookmark_state(soup, existing: dict | None) -> dict:
+    """What a work page may write to `bookmarked`: never a demotion of a known bookmark.
+
+    Your AO3 bookmarks take precedence over every other way a fic came in. An entry the index
+    already knows as your bookmark stays one when a fic run or the update pass reads its page,
+    whatever the page shows; only an entry that is not yet a bookmark takes the page's word.
+    """
+    state = bookmark_state(soup)
+    if was_bookmark(existing) and state.get(strings.BOOKMARKED_FIELD) is False:
+        return {}
+    return state
+
+
+def was_bookmark(entry: dict | None) -> bool:
+    """Whether an index entry is one of your bookmarks. An entry with no `bookmarked` at all
+    came off your bookmarks before the field existed, so it counts."""
+
+    return bool(entry) and entry.get(strings.BOOKMARKED_FIELD) is not False
+
 class Ao3:
     def __init__(
             self, 
@@ -72,6 +184,18 @@ class Ao3:
         # {work link: {FILETYPE: path of the copy this run is replacing}}. filled in by the
         # caller when it has worked out which downloads are out of date.
         self.superseded: dict[str, dict[str, str]] = {}
+        # the folder scan, while downloading from the index: a format already here and not
+        # named in `superseded` is current, and is not fetched again
+        self.existing_copies: dict[str, dict[str, dict]] | None = None
+        # the long way round (`download`), given the folder scan: whether the run overwrites,
+        # the date each work on the listing says it was updated, and the works reopened
+        # though every format was on disk, because a copy was behind
+        self.overwriting = False
+        self.listing_dates: dict[str, str] = {}
+        self.reopened: set[str] = set()
+        # formats of a work an overwriting run was told not to replace: the copy on disk is
+        # newer than the version this run would write. by link, formats upper-case
+        self.keep_formats: dict[str, set[str]] = {}
         # works this run could not download, in the order they were attempted. the log
         # records them too, but a run that leaves gaps should be able to say which ones
         # without anyone having to read a log file to find out.
@@ -108,6 +232,8 @@ class Ao3:
         # told after each listing page is written, and after each series is walked, so a
         # run can save how far it got - see server.walk_listing. None when nobody asks
         self.on_page = None
+        # the run writing the index, stamped on every entry it writes (`last_indexed_by`)
+        self.run_id = ''
         self.on_series = None
         # whether the last listing walk reached its natural end - the last page, a page
         # limit, a floor or a known fic - rather than being stopped or failing partway
@@ -141,6 +267,20 @@ class Ao3:
         self.externals_saved: set[str] = set()
         # collections saved with a listing that failed partway, which are not finished
         self.unfinished_collections: set[str] = set()
+        # every place this run's indexing broke off: a listing walk that stopped on an error
+        # (which pages it read, which page failed, how far back in date it got), a
+        # collection listing, or a fic's own page. A run with any of these is only partly
+        # done - see `index_gaps` - and never a floor for a quick scan
+        self.index_failures: list[dict] = []
+        # whether the last listing walk stopped on an error rather than ending as it should
+        self.walk_failed = False
+        # the formats of each work, by number, that this run saved whole - and those an earlier
+        # attempt saved, which a retry carrying on from it does not fetch again (`format_done`)
+        self.saved_formats: dict[str, set[str]] = {}
+        self.formats_done: dict[str, set[str]] = {}
+        # how far the collection listing being read has got: its first page, the last page
+        # read in full, and the works found - said when one breaks off
+        self.listing_read: dict = {}
         # whether a collection run follows each collection's subcollections, its parent, or
         # both - any number of steps away - and what it has read and has still to read
         # external works indexed off collections' bookmarked items this run, by ao3's number
@@ -212,7 +352,8 @@ class Ao3:
 
     def get_metadata(self, link: str, workdates: bool,
                      known: set[str] | None = None, stop_before: str = '',
-                     stop_on: str = 'updated', own_bookmarks: bool = False) -> list[dict]:
+                     stop_on: str = 'updated', own_bookmarks: bool = False,
+                     ceiling: str = '', ceiling_on: str = 'updated') -> list[dict]:
         """Walk a listing and save metadata for every work on it, one file per bookmark.
 
         One request per page rather than per work, so a bookmarks list of any size is
@@ -244,6 +385,12 @@ class Ao3:
         work's own date, `div.header p.datetime`) or `'bookmarked'` (the bookmark's date,
         `div.user p.datetime`). The listing has to be sorted by the same date - a
         bookmarked stop down an updated-date listing is exactly as wrong as the reverse.
+
+        `ceiling` (`YYYY-MM-DD`, measured on `ceiling_on`: 'updated' or 'bookmarked') is set
+        by a **retry** alone: a blurb dated after it is passed over - not indexed, not
+        returned - because it is after the date the run's first attempt began, and so the
+        next scan's to find. The walk itself goes on exactly as before; only those blurbs are
+        left out. On the date itself a blurb is kept: the ceiling counts.
 
         `own_bookmarks` says the listing is the logged-in user's own bookmarks, and marks
         every work read off it `bookmarked: True`. That is the one place the answer is
@@ -277,6 +424,14 @@ class Ao3:
         skipped = 0
         total_pages = None
         self.walk_finished = False
+        self.walk_failed = False
+        # how far the walk got, for when it breaks off: the page it began on, the last one
+        # read in full, and the dates on that page's last blurb - the bookmark's and the
+        # work's own - which is how far back in time the listing was read
+        first_page = parse_text.get_page_number(link)
+        current = first_page
+        last_good: int | None = None
+        reached = {'bookmarked': '', 'updated': ''}
 
         try:
             while True:
@@ -293,7 +448,10 @@ class Ao3:
                 progress.report(self.progress, progress.PAGE, page=asking, total=asking_of,
                                 listingPage=current, listingTotal=shown_total, fetching=True)
                 self.fileops.write_log({'link': link, 'message': strings.INFO_STARTING_PAGE, 'level': 'debug'})
-                thesoup = self.repo.get_soup(link)
+                thesoup = self.fetch_page(link)
+                if not parse_soup.get_blurbs(thesoup) and not parse_soup.looks_like_listing(thesoup):
+                    # not a listing at all: an end to the walk taken from it would be a guess
+                    raise exceptions.Ao3DownloaderException(strings.ERROR_LISTING_UNREADABLE)
                 if total_pages is None:
                     total_pages = parse_soup.get_total_pages(thesoup)
                 page_records = []
@@ -303,6 +461,10 @@ class Ao3:
                 page_external: list[dict] = []
                 reached_known = False
                 for blurb in parse_soup.get_blurbs(thesoup):
+                    if ceiling:
+                        dated = parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                            blurb, SORT_DATE_SELECTORS.get(ceiling_on, 'div.header p.datetime')))
+                        if dated and dated > ceiling: continue
                     kind, number = parse_soup.get_blurb_kind(blurb)
                     if kind in (parse_soup.BLURB_SERIES, parse_soup.BLURB_EXTERNAL) and \
                             (number or kind == parse_soup.BLURB_EXTERNAL):
@@ -380,14 +542,17 @@ class Ao3:
                 for document in page_records:
                     self.mark_series_of(document)
                 if self.on_page:
-                    # the last bookmark on the page, and the date the listing is sorted by, so
-                    # a resumed run can find this place again however the pages have moved
+                    # the last bookmark on the page and the date it carries in the order the
+                    # listing is sorted by - the date is what a retry looks for again, since
+                    # pages move between attempts and an updated fic moves with them
                     blurbs = parse_soup.get_blurbs(thesoup)
                     anchor = None
                     if blurbs and parse_soup.get_blurb_id(blurbs[-1]):
+                        sort = 'updated' if listing_sort(source) == 'updated' else 'bookmarked'
                         anchor = {'id': parse_soup.get_blurb_id(blurbs[-1]),
                                   'date': parse_text.get_date_stamp(parse_soup.get_text_or_empty(
-                                      blurbs[-1], 'div.user p.datetime'))}
+                                      blurbs[-1], SORT_DATE_SELECTORS[sort])),
+                                  'sort': sort}
                     self.on_page(current, anchor, [str(d['id']) for d in page_records
                                                    if d.get('id')])
                 shown_total = None if open_ended else total_pages
@@ -398,6 +563,15 @@ class Ao3:
                 progress.report(self.progress, progress.PAGE, page=done, total=of,
                                 listingPage=current, listingTotal=shown_total,
                                 works=len(records))
+                last_good = current
+                page_blurbs = parse_soup.get_blurbs(thesoup)
+                if page_blurbs:
+                    reached = {
+                        'bookmarked': parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                            page_blurbs[-1], 'div.user p.datetime')) or reached['bookmarked'],
+                        'updated': parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                            page_blurbs[-1], 'div.header p.datetime')) or reached['updated'],
+                    }
                 # said as soon as the page is in, and before any decision to stop: this used
                 # to sit after the break checks, so the page a run ended on - the last one
                 # of the listing, or the one the page limit stopped at - never reported
@@ -423,7 +597,21 @@ class Ao3:
             # everything written so far stays on disk; this is not an error
             print(strings.INFO_CANCELLED)
         except Exception as e:
+            # the walk ends here, keeping everything already written - but it did not reach
+            # the end of the listing, and the run must say exactly how far it got rather
+            # than carry on as though it had
+            self.walk_failed = True
+            gap = {
+                'kind': 'listing', 'walk': '', 'listing': source,
+                'sort': listing_sort(source),
+                'firstPage': first_page, 'lastPage': last_good, 'failedPage': current,
+                'totalPages': total_pages, 'works': len(records),
+                'reachedBookmarked': reached['bookmarked'], 'reachedUpdated': reached['updated'],
+                'error': str(e), **failure_reason(e),
+            }
+            self.index_failures.append(gap)
             print(strings.ERROR_LINKS_LIST)
+            print(describe_listing_gap(gap))
             self.log_error({'message': strings.ERROR_LINKS_LIST, 'link': link}, e)
         except KeyboardInterrupt:
             print(strings.INFO_LINKS_LIST_CANCELED)
@@ -509,7 +697,7 @@ class Ao3:
         read of the library (in Dropbox, a download) on its way to FicHub.
         """
 
-        soup = self.proceed(self.repo.get_soup(link))
+        soup = self.fetch_page(link, work=True)
         stats = parse_soup.get_work_stats(soup)
         if 'error' in stats:
             raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
@@ -522,7 +710,9 @@ class Ao3:
             record = {'id': parse_text.get_work_number(link), 'link': link,
                       'title': page.get('title') or '', 'authors': authors}
 
-        fresh = {**record, **stats, **bookmark_state(soup)}
+        fresh = {**record, **stats, **page_bookmark_state(soup, existing)}
+        if not was_bookmark(existing) and fresh.get(strings.BOOKMARKED_FIELD) is not True:
+            fresh[strings.FROM_LINK_FIELD] = True
         # a work page is only ever a work's - an entry made here is typed like any other
         fresh.setdefault(strings.BOOKMARK_TYPE_FIELD, strings.BOOKMARK_TYPE_WORK)
         # the series it is part of, read off its own page, so a run asked to walk them can
@@ -547,14 +737,41 @@ class Ao3:
         caller turns into a recorded failure - the entry it already had stays as it was.
         """
 
-        soup = self.proceed(self.repo.get_soup(record.get('link') or ''))
-        stats = parse_soup.get_work_stats(soup)
-        if 'error' in stats:
-            raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
+        try:
+            soup = self.fetch_page(record.get('link') or '', work=True)
+            stats = parse_soup.get_work_stats(soup)
+            if 'error' in stats:
+                raise exceptions.Ao3DownloaderException(strings.ERROR_WORK_STATS)
+        except (exceptions.CancelledException, exceptions.SessionExpiredException,
+                exceptions.PausedException):
+            raise
+        except Exception as e:
+            # a fic that could not be re-read is a gap in this run's index, not only a file
+            # it could not get: the run is only partly done, and says which
+            self.index_failures.append({'kind': 'work', 'id': str(record.get('id') or ''),
+                                        'link': record.get('link') or '', 'error': str(e), **failure_reason(e)})
+            raise
 
-        fresh = {**record, **stats, **bookmark_state(soup)}
+        fresh = {**record, **stats, **page_bookmark_state(soup, record)}
         self.save_metadata(fresh)
         return fresh
+
+    def fetch_page(self, url: str, work: bool = False):
+        """An ao3 page read for indexing, refused unless it is the page that was asked for.
+
+        Ao3 serves 401, 403 and 404 as pages like any other, and read as a listing one has no
+        bookmarks - which used to end a walk as though it had reached the end. Any status
+        outside 2xx is a failure here, with the status in its reason. A work's page goes
+        through `proceed` first, so a deleted or locked work still says so in its own words.
+        """
+
+        soup = self.repo.get_soup(url)
+        if work: soup = self.proceed(soup)
+        status = getattr(self.repo, 'last_status', None)
+        if isinstance(status, int) and not 200 <= status < 300:
+            raise exceptions.InvalidStatusCodeException(
+                strings.ERROR_INVALID_STATUS_CODE.format(status))
+        return soup
 
 
     def download_indexed(self, records: list[dict], visited: list[str] | None = None,
@@ -591,6 +808,15 @@ class Ao3:
 
         print(strings.AO3_INFO_FROM_INDEX.format(len(pending)))
         if existing is not None: self.say_why_downloading(pending, existing, forced)
+
+        self.existing_copies = existing
+        try:
+            self.download_pending(pending, maximum)
+        finally:
+            self.existing_copies = None
+
+    def download_pending(self, pending: list[dict], maximum: int) -> None:
+        """The loop of `download_indexed`, one work at a time."""
 
         for done, record in enumerate(pending, start=1):
             log: dict = {'link': record['link']}
@@ -663,7 +889,17 @@ class Ao3:
 
         display = ' / '.join(x for x in title if x)
         failed: list[tuple[str, Exception]] = []
+        kept = self.keep_formats.get(record['link']) or set()
+        current = self.current_formats(record)
+        formats = [x for x in self.filetypes if x.upper() not in kept
+                   and not self.format_done(work, x) and x.upper() not in current]
         for filetype in self.filetypes:
+            if filetype.upper() in kept: print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
+            elif self.format_done(work, filetype):
+                print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, work))
+            elif filetype.upper() in current:
+                print(strings.AO3_INFO_FORMAT_CURRENT.format(filetype))
+        for filetype in formats:
             self.check_cancelled()
             progress.report(self.progress, progress.WORK, title=display,
                             link=record['link'], filetype=filetype,
@@ -676,11 +912,34 @@ class Ao3:
                 if arrived is not None: arrived.append(filetype)
 
         # anything that did arrive is a download, even when a format beside it failed
-        if len(failed) < len(self.filetypes): self.downloaded.add(work)
+        if len(failed) < len(formats): self.downloaded.add(work)
         self.raise_if_formats_failed(failed)
         log['success'] = True
         self.fileops.write_log(log)
 
+
+    def current_formats(self, record: dict) -> set[str]:
+        """The formats of this work already in the folder that the check step did not mark
+        to be replaced - so current, and not fetched again.
+
+        A work is downloaded because some format of it is missing or behind; the others may
+        be perfectly current, and fetching them again spends a request each for nothing. The
+        check step's `superseded` names exactly the copies it decided to replace (behind the
+        index, undated ones the user chose to refresh, or every one on an overwriting run), so
+        a copy here and not there is kept - the one rule for what is outdated. Only while
+        downloading from the index with a folder scan to go by (`existing_copies`).
+        """
+
+        if not self.existing_copies: return set()
+        here = {str(x).upper() for x in (self.existing_copies.get(str(record.get('id'))) or {})}
+        replacing = {str(x).upper() for x in (self.superseded.get(record.get('link')) or {})}
+        return here - replacing
+
+    def format_done(self, work: str, filetype: str) -> bool:
+        """Whether an earlier attempt this run carries on from already saved this format of
+        this work whole - in which case it is not fetched again, even on a run that
+        overwrites: that attempt already did the overwriting."""
+        return filetype.upper() in self.formats_done.get(str(work), ())
 
     @contextlib.contextmanager
     def one_format(self, filetype: str, failed: list[tuple[str, Exception]]):
@@ -741,7 +1000,7 @@ class Ao3:
         total_pages = None
         while True:
             self.check_cancelled()
-            soup = self.repo.get_soup(link)
+            soup = self.fetch_page(link)
             yield soup
             if total_pages is None:
                 total_pages = parse_soup.get_total_pages(soup)
@@ -787,6 +1046,7 @@ class Ao3:
             # read before this attempt: indexed then, so downloaded with the rest now
             self.keep_indexed(found)
         page = start
+        self.listing_read = {'firstPage': start, 'lastPage': None, 'works': len(found)}
         for soup in self.walk_pages(parse_text.set_page_number(link, start) if start > 1
                                     else link, stop):
             readings: list[dict] = []
@@ -824,6 +1084,7 @@ class Ao3:
             if self.on_collection_page and key:
                 self.on_collection_page(collection, key, page, list(found),
                                         externals=list(external_ids), series=list(series_ids))
+            self.listing_read = {'firstPage': start, 'lastPage': page, 'works': len(found)}
             page += 1
         return found
 
@@ -1249,6 +1510,17 @@ class Ao3:
                     document['series_ids'] = [str(x) for x in previous.get('series_ids') or []]
                 # saved with what it has, as ever - but not finished, so a resumed run reads it
                 self.unfinished_collections.add(slug)
+                read = self.listing_read or {}
+                last = read.get('lastPage')
+                gap = {
+                    'kind': 'collection', 'collection': slug, 'listing': url,
+                    'items': 'bookmarked items' if key == 'bookmark_ids' else 'works',
+                    'firstPage': read.get('firstPage') or 1, 'lastPage': last,
+                    'failedPage': (last or (read.get('firstPage') or 1) - 1) + 1,
+                    'works': read.get('works') or 0, 'error': str(e), **failure_reason(e),
+                }
+                self.index_failures.append(gap)
+                print(describe_listing_gap(gap))
                 self.log_error({'message': strings.ERROR_COLLECTION_ITEMS, 'link': url}, e)
 
         # the works in each series are recorded in the series' own entry, not here - a
@@ -1355,7 +1627,7 @@ class Ao3:
             total = None
             while True:
                 self.check_cancelled()
-                soup = self.repo.get_soup(page)
+                soup = self.fetch_page(page)
                 if header is None: header = parse_soup.get_series_page_metadata(soup, series_id)
                 if total is None: total = parse_soup.get_total_pages(soup)
                 for blurb in parse_soup.get_blurbs(soup):
@@ -1501,7 +1773,8 @@ class Ao3:
             path = path or self.entry_path(document)
             # keep whatever readings the file already holds, and add this one only if it
             # says something new
-            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
+            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on,
+                                    run_id=self.run_id)
             self.fileops.save_json(path, merged)
             self.remember_entry(path)
             if document.get('id'): self.reindexed.add(str(document['id']))
@@ -1516,7 +1789,8 @@ class Ao3:
 
         try:
             path = path or self.entry_path(document, subfolder)
-            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on)
+            merged = indexing.merge(self.fileops.load_json(path), document, self.indexed_on,
+                                    run_id=self.run_id)
             self.fileops.save_json(path, merged)
             self.remember_entry(path)
             if subfolder == strings.EXTERNAL_INDEX_FOLDER_NAME and document.get('id'):
@@ -1619,7 +1893,7 @@ class Ao3:
             total = None
             while True:
                 self.check_cancelled()
-                soup = self.repo.get_soup(page)
+                soup = self.fetch_page(page)
                 if header is None: header = parse_soup.get_series_page_metadata(soup, series_id)
                 if total is None: total = parse_soup.get_total_pages(soup)
                 readings = []
@@ -1832,6 +2106,7 @@ class Ao3:
                 if total_pages is None:
                     total_pages = parse_soup.get_total_pages(thesoup)
                 urls = parse_soup.get_work_and_series_urls(thesoup, include_series)
+                self.note_listing_dates(thesoup)
                 for url in urls:
                     self.get_work_links_recursive(links_list, url, visited_series, metadata, thesoup)
                 pagenum = parse_text.get_page_number(link)
@@ -1851,8 +2126,15 @@ class Ao3:
 
         self.check_cancelled()
 
-        if link in visited: return
-        visited.append(link)
+        if link in visited:
+            # every format of it is on disk - but a copy behind the listing's date (or a run
+            # that overwrites) still wants it, once
+            if not (self.existing_copies is not None and link not in self.reopened
+                    and parse_text.is_work(link) and self.listing_says_behind(link)):
+                return
+            self.reopened.add(link)
+        else:
+            visited.append(link)
 
         if parse_text.is_work(link):
             log = {}
@@ -1871,6 +2153,7 @@ class Ao3:
                 if total_pages is None:
                     total_pages = parse_soup.get_total_pages(thesoup)
                 urls = parse_soup.get_work_and_series_urls(thesoup, include_series)
+                self.note_listing_dates(thesoup)
                 for url in urls:
                     self.download_recursive(url, log, visited)
                 if not self.mark:
@@ -1918,6 +2201,58 @@ class Ao3:
             log['link'] = link
             self.log_error(log, e)
 
+
+    def note_listing_dates(self, soup) -> None:
+        """Remember the date each work on a listing page says it was last updated, by
+        number - what decides whether a work already on disk in every format is behind."""
+
+        if self.existing_copies is None: return
+        for blurb in parse_soup.get_blurbs(soup):
+            kind, number = parse_soup.get_blurb_kind(blurb)
+            if kind != parse_soup.BLURB_WORK or not number: continue
+            stamp = parse_text.get_date_stamp(parse_soup.get_text_or_empty(
+                blurb, SORT_DATE_SELECTORS['updated']))
+            if stamp: self.listing_dates[str(number)] = stamp
+
+    def listing_says_behind(self, link: str) -> bool:
+        """Whether a work with every format on disk should be opened anyway: the run
+        overwrites, or the listing dates it later than one of its copies. An undated copy
+        cannot be judged, so it never counts as behind."""
+
+        if self.existing_copies is None: return False
+        number = parse_text.get_work_number(link) or ''
+        copies = self.existing_copies.get(number) or {}
+        if self.overwriting: return bool(copies)
+        stamp = self.listing_dates.get(number)
+        return bool(stamp) and any(
+            (copies.get(x.upper()) or {}).get('date') and copies[x.upper()]['date'] < stamp
+            for x in self.filetypes if x.upper() in copies)
+
+    def page_verdict(self, work_url: str, number: str, filetype: str, stamp: str) -> bool:
+        """Whether to fetch this format, judged against the date the work's own page gives
+        (`stamp`) - the same rule as everywhere: no copy, or a copy dated before it, is
+        fetched; a current one is kept; an undated one cannot be judged and is left alone;
+        an overwriting run fetches every one. An older copy is named in `superseded`, so
+        the new file replaces it. Says which, per format. Without a folder scan to go by
+        (`existing_copies`), every format is fetched, as it always was."""
+
+        if self.existing_copies is None: return True
+        copy = (self.existing_copies.get(number) or {}).get(filetype.upper())
+        if not copy:
+            print(strings.AO3_INFO_FORMAT_MISSING.format(filetype))
+            return True
+        if self.overwriting:
+            print(strings.AO3_INFO_FORMAT_REPLACING.format(filetype))
+        elif not copy.get('date'):
+            print(strings.AO3_INFO_FORMAT_UNDATED.format(filetype))
+            return False
+        elif stamp and copy['date'] < stamp:
+            print(strings.AO3_INFO_FORMAT_OUTDATED.format(filetype))
+        else:
+            print(strings.AO3_INFO_FORMAT_CURRENT.format(filetype))
+            return False
+        if copy.get('path'): self.superseded.setdefault(work_url, {})[filetype] = copy['path']
+        return True
 
     def download_work(self, link: str, log: dict, chapters: str | None) -> None:
         """Download a single work"""
@@ -1967,8 +2302,14 @@ class Ao3:
                         phase='downloading')
 
         failed: list[tuple[str, Exception]] = []
+        number = parse_text.get_work_number(work_url) or ''
+        stamp = parse_text.get_date_stamp(updated)
         for filetype in self.filetypes:
             self.check_cancelled()
+            if self.format_done(number, filetype):
+                print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, number))
+                continue
+            if not self.page_verdict(work_url, number, filetype, stamp): continue
             progress.report(self.progress, progress.WORK, title=display, link=work_url,
                             filetype=filetype, phase='downloading')
             with self.one_format(filetype, failed):
@@ -2049,6 +2390,8 @@ class Ao3:
             print(strings.INFO_REPLACED_OLD_COPY.format(new))
         else:
             print(strings.INFO_SAVED_NEW_COPY.format(new))
+        # whole, checked and in place: a retry that carries on from this run passes it over
+        if work: self.saved_formats.setdefault(str(work), set()).add(filetype.upper())
         return saved
 
 
@@ -2202,7 +2545,8 @@ class Ao3:
 
         work = parse_text.get_work_number(link or '')
         if any(x['link'] == link for x in self.failures): return
-        self.failures.append({'id': work, 'link': link, 'error': str(exception)})
+        self.failures.append({'id': work, 'link': link, 'error': str(exception),
+                              **failure_reason(exception)})
 
 
     def log_error(self, log: dict, exception: Exception):

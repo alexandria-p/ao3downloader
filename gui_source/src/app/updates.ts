@@ -1,3 +1,4 @@
+import { UPDATE_BANNER_KEY } from './preferences';
 import { Injectable, signal } from '@angular/core';
 import { HelperConnection } from './helper-connection';
 import { safeGet, safeSet } from './storage';
@@ -23,7 +24,7 @@ import { safeGet, safeSet } from './storage';
  * more: the check still runs, for the footer.
  */
 
-export const DISMISSED_KEY = 'ao3.updateCheckDismissed';
+export const DISMISSED_KEY = UPDATE_BANNER_KEY;
 /** the last update failure this browser has been shown and said OK to */
 export const FAILURE_SEEN_KEY = 'ao3.updateFailureSeen';
 

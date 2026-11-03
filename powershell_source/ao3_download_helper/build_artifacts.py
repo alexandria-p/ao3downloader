@@ -401,7 +401,8 @@ This folder was produced by `generate_build_artifacts.ps1` in the project root. 
 needed to run the site is here; nothing outside this folder is required.
 
 Do not edit anything in here by hand except `config/settings.ini`. Regenerating the bundle
-overwrites the rest.
+overwrites the rest. The page's **User settings** tab can edit `config/settings.ini` too,
+changing values in place and keeping your comments.
 
 ## What is in it
 

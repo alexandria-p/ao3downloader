@@ -1,3 +1,4 @@
+import { HIDE_WARNING_KEY } from './preferences';
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, hiddenKey, viewableInBrowser } from './library';
@@ -99,6 +100,9 @@ export class WorkList {
   protected readonly typeFilter = signal<'' | BookmarkType>('');
   /** where a work came from - your bookmarks, a collection, anything else - or '' for all */
   protected readonly originFilter = signal<'' | Origin>('');
+  /** bookmarks you wrote a note on, and bookmarks you marked as a rec */
+  protected readonly withNotes = signal(false);
+  protected readonly recommended = signal(false);
   /** hidden works are left out unless this is ticked - and then shown, marked as hidden */
   protected readonly showHidden = signal(false);
   /** tags a work must carry, every one of them, and tags it must not carry - as on ao3 */
@@ -141,6 +145,8 @@ export class WorkList {
         this.bookmarkedTo() ||
         this.typeFilter() ||
         this.originFilter() ||
+        this.withNotes() ||
+        this.recommended() ||
         this.includeTags().length ||
         this.excludeTags().length
       ),
@@ -171,10 +177,14 @@ export class WorkList {
     const include = this.includeTags();
     const exclude = this.excludeTags();
     const origin = this.originFilter();
+    const withNotes = this.withNotes();
+    const recommended = this.recommended();
 
     return this.visibleWorks().filter((work) => {
       if (type && bookmarkTypeOf(work) !== type) return false;
       if (origin && originOf(work) !== origin) return false;
+      if (withNotes && !(work.bookmark_notes ?? '').trim()) return false;
+      if (recommended && !work.bookmark_rec) return false;
       if (!matchesTags(work, include, exclude)) return false;
       if (title && !(work.title ?? '').toLowerCase().includes(title)) return false;
       if (author && !(work.authors ?? []).some((name) =>
@@ -310,6 +320,8 @@ export class WorkList {
         const names = work.from_collections ?? [];
         return `From ${names.length === 1 ? 'the collection ' + names[0] : names.length + ' collections'}`;
       }
+      case 'link':
+        return 'Downloaded by ID or URL';
       case 'other':
         return 'Not in your AO3 bookmarks';
       default:
@@ -317,10 +329,21 @@ export class WorkList {
     }
   }
 
+  /** where an entry came from, worded as the Came from filter words it - the icon's name */
+  protected originLabel(work: Bookmark): string {
+    const origin = originOf(work);
+    return 'Came from: ' + (ORIGINS.find((x) => x.origin === origin)?.label ?? 'Unknown');
+  }
+
   protected originTitle(work: Bookmark): string {
-    return originOf(work) === 'collection'
-      ? `Not in your AO3 bookmarks - it is here because an indexed collection holds it: ${(work.from_collections ?? []).join(', ')}`
-      : 'Not in your AO3 bookmarks - indexed another way, such as downloading it by its link, or brought in with an imported index';
+    switch (originOf(work)) {
+      case 'collection':
+        return `Not in your AO3 bookmarks - it is here because an indexed collection holds it: ${(work.from_collections ?? []).join(', ')}`;
+      case 'link':
+        return 'Not in your AO3 bookmarks - downloaded by its link or work number';
+      default:
+        return 'Not in your AO3 bookmarks - where it came from is not recorded, such as an imported index';
+    }
   }
 
   /** the warning first, unless it has been turned off - then straight to hiding */
@@ -691,6 +714,8 @@ export class WorkList {
     this.bookmarkedTo.set('');
     this.typeFilter.set('');
     this.originFilter.set('');
+    this.withNotes.set(false);
+    this.recommended.set(false);
     this.includeTags.set([]);
     this.excludeTags.set([]);
     this.sortBy.set(DEFAULT_SORT);
@@ -825,7 +850,7 @@ export class WorkList {
 }
 
 /** set once someone ticks 'do not warn me again' before hiding a work */
-const HIDE_WARNING_KEY = 'ao3.hideWarningOff';
+
 
 /** a work and an external work can share a number, so the kind is part of the key */
 function keyOf(work: Bookmark): string {

@@ -11,7 +11,7 @@ A fork of [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader) th
 
 ## Everything else
 
-- [[History and resuming]] - what the History tab says, and picking a run back up.
+- [[History and resuming]] - what the History tab says, and retrying a run: every choice, and how each workflow picks up again.
 - [[Settings]] - every line in `settings.ini`.
 - [[Updating and versions]] - new releases, and what happens to your settings.
 - [[Hosting your own copy]] - the page on GitHub Pages and the helper on Render, for one person.

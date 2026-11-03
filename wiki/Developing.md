@@ -40,7 +40,7 @@ To check the parsers against today's AO3, refresh the test fixtures by hand: `de
 
 - **Only one helper at a time.** A stale helper on 4400 answers a new page with old code - the usual cause of "half-working" features.
 - **`settings.ini` is only ever added to.** Every key the code reads must be in the template, or it gets commented out as deprecated in every install.
-- **Nothing is half-written.** A run pauses only before a request or between chunks of a download held in memory, never mid-save.
+- **Nothing is half-written.** A pause lands at once - before or during a request, during a wait, or between whole library reads and writes - but never inside a save.
 - **A file's name carries its version.** The work number leads, the AO3 update date trails, and nothing else decides "outdated".
 - **Keep `TERMINOLOGY.md` current** with every change to a workflow, option or step.
 

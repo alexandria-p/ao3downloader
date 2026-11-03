@@ -8,7 +8,7 @@ import {
   AnswerChoice,
   JobAction,
   JobEvent,
-  ResumableRun,
+  RetryableRun,
   RunHistory,
   Jobs,
   ServerConfig,
@@ -64,11 +64,11 @@ class FakeJobs extends Jobs {
     return this.activeRuns();
   }
 
-  /** the unfinished runs the helper would offer for resuming */
-  resumableOnRecord: ResumableRun[] = [];
+  /** the ended runs the helper would offer for retrying */
+  retryableOnRecord: RetryableRun[] = [];
 
-  override async loadResumableRuns(): Promise<ResumableRun[] | null> {
-    return this.resumableOnRecord;
+  override async loadRetryableRuns(): Promise<RetryableRun[] | null> {
+    return this.retryableOnRecord;
   }
 
   /** how many times the history was checked for interrupted runs */
@@ -609,6 +609,55 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('since the last successful');
   });
 
+  it('warns before measuring back to a scan that could not download some works', async () => {
+    jobs.floorRunsOnRecord = [
+      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7', '9'] },
+      scanOnRecord('a', '2026-08-01T09:00:00'),
+    ];
+    await open('quick');
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('floor-warning');
+    const said = element.querySelector('.floor-warning')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(said).toContain('could not download 2 works: 7, 9');
+
+    // using it goes on as usual, measuring back to it
+    button('Use it as the floor')!.click();
+    await fixture.whenStable();
+    expect(currentStep()).not.toBe('floor-warning');
+    expect(currentStep()).not.toBe('floor');
+  });
+
+  it('lets another scan be chosen instead of one that could not download some works', async () => {
+    jobs.floorRunsOnRecord = [
+      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] },
+      scanOnRecord('a', '2026-08-01T09:00:00'),
+    ];
+    await open('quick');
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    button('Choose a different scan')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('floor');
+    // the partly finished one is still listed, saying what it missed
+    expect(element.querySelector('.floor-runs')?.textContent).toContain('could not download 7');
+  });
+
+  it('asks nothing when the last scan got everything', async () => {
+    jobs.floorRunsOnRecord = [scanOnRecord('a', '2026-08-01T09:00:00')];
+    await open('quick');
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).not.toBe('floor-warning');
+  });
+
   it('sends no floor for a quick scan measuring back to its last run as usual', async () => {
     await open('quick');
     await advanceTo('running');
@@ -1025,6 +1074,15 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  it('says nothing at the end about the listing, which takes in an ordinary run\'s changes itself', async () => {
+    await finishWithFailures([]);
+
+    const said = element.textContent ?? '';
+    expect(said).not.toContain('Point the folder picker');
+    expect(said).not.toContain('brings itself up to date');
+    expect(said).not.toContain('brought up to date');
+  });
+
   it('says which works could not be downloaded', async () => {
     await finishWithFailures();
 
@@ -1257,6 +1315,18 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('before file names carried a date');
   });
 
+  it('says what an unanswered question will take, and after how long', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'fichub', count: 1, ids: ['75354806'],
+                 choices: ['yes', 'no'], default: 'yes', timeoutMinutes: 5 } as JobEvent);
+    await fixture.whenStable();
+
+    const said = element.querySelector('.question-default')?.textContent ?? '';
+    expect(said).toContain('within 5 minutes');
+    expect(said).toContain('yes');
+  });
+
   it('tries FicHub when told to, and leaves the works when told not to', async () => {
     await askedAboutFicHub();
     button('Try FicHub')!.click();
@@ -1267,6 +1337,59 @@ describe('DownloadDialog', () => {
   it('leaves the works as failures when told not to try FicHub', async () => {
     await askedAboutFicHub();
     button('No, leave them')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
+  });
+
+  /** FicHub's copy older than the index, with a format there is no file of */
+  async function askedAboutOlderFicHub(): Promise<void> {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'fichub-outdated', count: 1, ids: ['75354806'],
+                 formats: ['HTML', 'PDF'], date: '2026-04-27', indexed: '2026-05-10',
+                 choices: ['yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+  }
+
+  it('asks whether to take an older FicHub copy, saying both dates and the missing formats', async () => {
+    await askedAboutOlderFicHub();
+
+    const said = element.querySelector('[data-question="fichub-outdated"]')?.textContent ?? '';
+    expect(said).toContain('older');
+    expect(said).toContain('FicHub: 2026-04-27, your index: 2026-05-10');
+    expect(said).toContain('HTML, PDF');
+    expect(said).toContain('never replaced');
+    // its own panel, not the generic one as well
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+  });
+
+  it('takes the older version, or leaves it, as told', async () => {
+    await askedAboutOlderFicHub();
+    button('Yes, take the older version')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'yes', date: '' }]);
+
+    await askedAboutOlderFicHub();
+    button('No, leave it')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers.at(-1)).toEqual({ jobId: 'job-1', choice: 'no', date: '' });
+  });
+
+  it('asks before replacing a newer copy with an older version, keeping it by default', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'overwrite-older', count: 1, ids: ['1'],
+                 formats: ['EPUB'], date: '2026-04-27', newer: '2026-05-10',
+                 choices: ['yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+
+    const said = element.querySelector('[data-question="overwrite-older"]')?.textContent ?? '';
+    expect(said).toContain('EPUB');
+    expect(said).toContain('newer (2026-05-10) than the version it would be replaced with (2026-04-27)');
+    expect(said).toContain('keeps your newer copy after 30 minutes');
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+
+    button('No, keep my newer copy')!.click();
     await fixture.whenStable();
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
   });
@@ -1391,6 +1514,22 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
 
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'refresh', date: '' }]);
+  });
+
+  it('starts with the formats chosen in User settings ticked, and they can still be changed', async () => {
+    localStorage.setItem('ao3.defaultFiletypes', JSON.stringify(['EPUB']));
+    await open('bookmarks');
+    await advanceTo('filetypes');
+
+    expect(checkbox('JSON')!.checked).toBe(true);
+    expect(checkbox('EPUB')!.checked).toBe(true);
+    expect(checkbox('HTML')!.checked).toBe(false);
+
+    checkbox('EPUB')!.click();
+    checkbox('HTML')!.click();
+    await fixture.whenStable();
+    await advanceTo('running');
+    expect(jobs.started[0].filetypes).toEqual(['JSON', 'HTML']);
   });
 
   it('defaults the date to today, meaning what I have is current', async () => {
@@ -3094,44 +3233,67 @@ describe('DownloadDialog', () => {
 
   // endregion
 
-  // region picking up an earlier run
+  // region retrying an earlier run
 
-  function unfinished(over: Partial<ResumableRun> = {}): ResumableRun {
+  const ALL_MODES = (available: Partial<Record<string, string>> = {}) =>
+    (['top', 'reindex', 'index', 'redownload', 'downloads', 'failed'] as const).map((mode) => ({
+      mode, available: !(mode in available), reason: available[mode] ?? '',
+    }));
+
+  function ended(over: Partial<RetryableRun> = {}): RetryableRun {
     return {
       file: 'r.json', id: 'r1', action: 'quick', actionName: 'Quick Scan',
-      started: '2026-09-20T21:15:00', finished: null, status: 'interrupted',
+      started: '2026-09-20T21:15:00', finished: null, status: 'partial',
       filetypes: ['JSON', 'PDF'], options: { series: true, nonBookmarks: true },
       reindexed: [], downloaded: [], updated: [], choices: [], failures: [], skipped: [],
-      error: '', progress: { step: 'download', stepLabel: 'Download or update works as necessary' },
-      resumable: true, reason: '', warnings: [], ...over,
+      error: '',
+      progress: {
+        step: 'download', stepLabel: 'Download or update works as necessary',
+        stepPlan: [['login', 'Log in'], ['bookmarked', 'Index newly bookmarked'],
+                   ['index', 'Index recently updated'], ['download', 'Download']],
+        steps: { login: 'done', bookmarked: 'done', index: 'failed', download: 'done' },
+      },
+      retry: { modes: ALL_MODES({ failed: 'Every work it set out to get arrived.' }),
+               default: 'index', failedWorks: 0 },
+      warnings: [], ...over,
     };
   }
 
-  async function toResumePage() {
+  async function toRetryPage() {
     await open('custom');
     await advanceTo('options');
-    checkbox('Pick up where an earlier run left off')!.click();
+    checkbox('Retry an earlier run')!.click();
     await fixture.whenStable();
     button('Continue')!.click();
     await fixture.whenStable();
   }
 
-  it('offers picking up an earlier run as an experimental choice on a custom run only',
+  async function pick(id = 'r1') {
+    element.querySelector<HTMLInputElement>(`input[name="resumeRun"][value="${id}"]`)!.click();
+    await fixture.whenStable();
+  }
+
+  async function acknowledge() {
+    element.querySelector<HTMLInputElement>('input[name="retryAcknowledged"]')!.click();
+    await fixture.whenStable();
+  }
+
+  it('offers retrying an earlier run as an experimental choice on a custom run only',
     async () => {
       await open('custom');
       await advanceTo('options');
-      expect(checkbox('[EXPERIMENTAL] Pick up where an earlier run left off')).toBeDefined();
+      expect(checkbox('[EXPERIMENTAL] Retry an earlier run')).toBeDefined();
 
       fixture.destroy();
       await open('quick');
       await advanceTo('options');
-      expect(checkbox('Pick up where an earlier run left off')).toBeUndefined();
+      expect(checkbox('Retry an earlier run')).toBeUndefined();
     });
 
-  it('greys out every other option once resuming is chosen', async () => {
+  it('greys out every other option once retrying is chosen', async () => {
     await open('custom');
     await advanceTo('options');
-    checkbox('Pick up where an earlier run left off')!.click();
+    checkbox('Retry an earlier run')!.click();
     await fixture.whenStable();
 
     for (const label of ['Skip indexing', 'Overwrite existing downloads',
@@ -3141,33 +3303,63 @@ describe('DownloadDialog', () => {
     }
   });
 
-  it('lists the unfinished runs, and says why one cannot be picked up', async () => {
-    jobs.resumableOnRecord = [
-      unfinished({ warnings: ['It has already been resumed once.'] }),
-      unfinished({ id: 'r2', action: 'custom', actionName: 'Custom run', resumable: false,
-                   reason: 'A custom run over a slice of your bookmarks listing cannot be resumed' }),
+  it('lists every ended run, finished ones included, with any warnings', async () => {
+    jobs.retryableOnRecord = [
+      ended({ warnings: ['It has already been resumed once.'] }),
+      ended({ id: 'r2', status: 'success', actionName: 'Full Scan',
+              retry: { modes: ALL_MODES({ reindex: 'x', index: 'x', redownload: 'x', downloads: 'x', failed: 'x' }),
+                       default: 'top', failedWorks: 0 } }),
     ];
-    await toResumePage();
+    await toRetryPage();
 
     expect(currentStep()).toBe('resume');
     const said = element.querySelector('.floor-runs')?.textContent ?? '';
     expect(said).toContain('Quick Scan');
-    expect(said).toContain('Download or update works as necessary');
+    expect(said).toContain('partly finished');
+    expect(said).toContain('Full Scan');
+    expect(said).toContain('finished');
     expect(said).toContain('It has already been resumed once.');
-
-    const [ok, slice] = element.querySelectorAll<HTMLInputElement>('input[name="resumeRun"]');
-    expect(ok.disabled).toBe(false);
-    expect(slice.disabled).toBe(true);
-    // said on hover, and in words beside it
-    expect(slice.closest('label')!.title).toContain('cannot be resumed');
     expect(button('Continue')!.disabled).toBe(true);
   });
 
-  it('starts the run as the one it picks up, with that run\'s file types', async () => {
-    jobs.resumableOnRecord = [unfinished()];
-    await toResumePage();
-    element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.click();
+  it('says how each step went, the last one that finished, and offers carrying on from there',
+    async () => {
+      jobs.retryableOnRecord = [ended()];
+      await toRetryPage();
+      await pick();
+
+      const steps = Array.from(element.querySelectorAll('.retry-steps li'))
+        .map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+      expect(steps).toEqual([
+        'Log in - finished', 'Index newly bookmarked - finished',
+        'Index recently updated - failed', 'Download - finished',
+      ]);
+      expect(element.querySelector('.retry-steps .hint')?.textContent)
+        .toContain('The last step it finished was Index newly bookmarked');
+
+      // the helper's default is picked, and a way it cannot be retried is greyed with why
+      const modes = Array.from(element.querySelectorAll<HTMLInputElement>('input[name="retryMode"]'));
+      expect(modes.find((m) => m.checked)?.value).toBe('index');
+      // every way, in order: from the top, then indexing from its start or where it stopped,
+      // then downloads from their start or where they stopped, then just the failures
+      expect(modes.map((m) => m.value)).toEqual(
+        ['top', 'reindex', 'index', 'redownload', 'downloads', 'failed']);
+      const said = element.querySelector('.retry-modes')?.textContent ?? '';
+      expect(said).toContain('Start its indexing from the top');
+      expect(said).toContain('Start its downloads from the top');
+      expect(said).toContain('the rest of one it was partway through');
+      const failed = modes.find((m) => m.value === 'failed')!;
+      expect(failed.disabled).toBe(true);
+      expect(failed.closest('label')!.title).toContain('Every work it set out to get arrived');
+    });
+
+  it('starts the retry as the run it retries, with the way of retrying chosen', async () => {
+    jobs.retryableOnRecord = [ended()];
+    await toRetryPage();
+    await pick();
+    element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
     await fixture.whenStable();
+    await acknowledge();
     button('Continue')!.click();
     await fixture.whenStable();
 
@@ -3185,10 +3377,94 @@ describe('DownloadDialog', () => {
     expect(started.action).toBe('quick');
     expect(started.filetypes).toEqual(['JSON', 'PDF']);
     expect(started.options.resume).toBe('r1');
+    expect(started.options.retryMode).toBe('top');
   });
 
-  it('opens set to resume a run picked from the history', async () => {
-    jobs.resumableOnRecord = [unfinished()];
+  it('retries a fic run as a custom run, which the helper turns back into the fic run', async () => {
+    jobs.retryableOnRecord = [ended({
+      action: 'works', actionName: 'Download several fics', status: 'failed',
+      failures: [{ id: '7', link: 'https://archiveofourown.org/works/7', error: 'gone' }],
+      retry: { modes: ALL_MODES().filter((m) => m.mode === 'top' || m.mode === 'failed'),
+               default: 'failed', failedWorks: 1 },
+    })];
+    await toRetryPage();
+    await pick();
+
+    expect(element.querySelector('.retry-modes')?.textContent).toContain('Just the 1 work it could not get');
+    await acknowledge();
+    button('Continue')!.click();
+    await fixture.whenStable();
+    await advanceTo('running');
+
+    expect(jobs.started[0].action).toBe('custom');
+    expect(jobs.started[0].options.retryMode).toBe('failed');
+  });
+
+  it('asks for the original run\'s dates and settings to be acknowledged before going on',
+    async () => {
+      jobs.retryableOnRecord = [ended({
+        baseline: '2026-09-20T21:15:00', options: { series: true, overwrite: true },
+        progress: { ...ended().progress, floor: '2026-09-01' },
+      })];
+      await toRetryPage();
+      await pick();
+
+      const terms = element.querySelector('.retry-terms')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(terms).toContain('Back to 2026-09-01, and up to 2026-09-20');
+      expect(terms).toContain('File types: JSON, PDF');
+      expect(terms).toContain('overwrite existing downloads');
+      expect(terms).toContain('get all works from encountered series');
+      expect(button('Continue')!.disabled).toBe(true);
+
+      await acknowledge();
+      expect(button('Continue')!.disabled).toBe(false);
+
+      // picking another way of retrying the same run keeps the tick
+      element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
+      await fixture.whenStable();
+      expect(button('Continue')!.disabled).toBe(false);
+    });
+
+  it('shows the chosen run\'s warnings in a panel of their own', async () => {
+    jobs.retryableOnRecord = [ended({
+      warnings: ['Some of its indexing failed, so it may have missed fics.'],
+    })];
+    await toRetryPage();
+    await pick();
+
+    expect(element.querySelector('.retry-warning')?.textContent)
+      .toContain('Some of its indexing failed');
+  });
+
+  it('names a date range as the dates a retry keeps', async () => {
+    jobs.retryableOnRecord = [ended({
+      action: 'custom', actionName: 'Custom run',
+      options: { dates: true, dateFrom: '2026-01-01', dateTo: '2026-02-01' },
+    })];
+    await toRetryPage();
+    await pick();
+
+    expect(element.querySelector('.retry-dates')?.textContent)
+      .toContain('Fics AO3 updated from 2026-01-01 to 2026-02-01');
+  });
+
+  it('offers several fics carrying on from where they stopped', async () => {
+    jobs.retryableOnRecord = [ended({
+      action: 'works', actionName: 'Download several fics', status: 'stopped',
+      retry: { modes: ALL_MODES().filter((m) => ['top', 'downloads', 'failed'].includes(m.mode)),
+               default: 'downloads', failedWorks: 0 },
+    })];
+    await toRetryPage();
+    await pick();
+
+    expect(element.querySelector('.retry-modes')?.textContent)
+      .toContain('Carry on from where it stopped - a fic it saved in every format is passed over');
+    expect(element.querySelector<HTMLInputElement>('input[name="retryMode"]:checked')!.value)
+      .toBe('downloads');
+  });
+
+  it('opens set to retry a run picked from the history, with its default way picked', async () => {
+    jobs.retryableOnRecord = [ended()];
     fixture = TestBed.createComponent(DownloadDialog);
     fixture.componentRef.setInput('action', 'custom');
     fixture.componentRef.setInput('resumeFrom', 'r1');
@@ -3196,10 +3472,11 @@ describe('DownloadDialog', () => {
     element = fixture.nativeElement as HTMLElement;
     await advanceTo('options');
 
-    expect(checkbox('Pick up where an earlier run left off')!.checked).toBe(true);
+    expect(checkbox('Retry an earlier run')!.checked).toBe(true);
     button('Continue')!.click();
     await fixture.whenStable();
     expect(element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.checked).toBe(true);
+    expect(element.querySelector<HTMLInputElement>('input[name="retryMode"]:checked')!.value).toBe('index');
   });
 
   // endregion

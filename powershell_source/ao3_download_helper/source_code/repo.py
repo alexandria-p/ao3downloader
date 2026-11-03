@@ -57,6 +57,8 @@ class Repository:
     # how long apart. maintenance is usually minutes or hours, not seconds, so the full
     # MaxRetries would only spend a quarter of an hour per request learning nothing new
     maintenance_retries = 2
+    # the status of the last page `get_soup` fetched
+    last_status: int | None = None
     maintenance_delay = 30
 
 
@@ -72,6 +74,16 @@ class Repository:
         self.extra_wait = fileops.get_ini_value_integer(strings.INI_WAIT_TIME, 0)
         self.max_retries = fileops.get_ini_value_integer(strings.INI_MAX_RETRIES, 0)
         self.max_timeouts = fileops.get_ini_value_integer(strings.INI_MAX_TIMEOUTS, 3)
+        # the time limits below are settings; the class's values are the defaults, and what a
+        # settings.ini that cannot be read (or a test's stand-in) leaves in force
+        self.timeout = self.setting(strings.INI_REQUEST_TIMEOUT, type(self).timeout, 1)
+        self.waiting_note = self.setting(strings.INI_STILL_WAITING, type(self).waiting_note, 1)
+        self.maintenance_retries = self.setting(strings.INI_MAINTENANCE_RETRIES,
+                                                type(self).maintenance_retries)
+        self.maintenance_delay = self.setting(strings.INI_MAINTENANCE_DELAY,
+                                              type(self).maintenance_delay)
+        self.retry_max_delay = self.setting(strings.INI_RETRY_MAX_DELAY,
+                                            type(self).retry_max_delay)
         # True once logged in, False for a run told not to, None until either is known
         self.logged_in: bool | None = None
         # set once a request has given up on ao3's maintenance page: every later request to
@@ -109,9 +121,18 @@ class Repository:
             sleep(seconds)
             return
 
+        # a pause lands here too, at once - and the time it is held counts toward the wait,
+        # since ao3's clock keeps running whether or not the run is paused. resumed, the run
+        # waits out only what is left of it, then carries on with the request it was waiting
+        # to make
         remaining = seconds
         while remaining > 0:
             self.check_cancelled()
+            if self.held is not None and self.held():
+                began = monotonic()
+                self.hold_if_asked()
+                remaining -= monotonic() - began
+                continue
             slice_length = min(self.pause_slice, remaining)
             sleep(slice_length)
             remaining -= slice_length
@@ -147,8 +168,11 @@ class Repository:
         Nothing is lost by walking away: the bytes are in memory until the whole body has
         arrived and been judged, so nothing has been written. The abandoned thread is left to
         finish or time out on its own; it reads no further than its next chunk, because
-        `read_body` checks the same stop and pause. A POST is only abandoned for a stop - a
-        login form sent twice is not the same as a page asked for twice.
+        `read_body` checks the same stop and pause. **Every method is abandoned for a pause**,
+        a POST included: a PATCH (mark as read) is asked again as it was, while a POST -
+        the login - is handed back to its caller (`my_request` re-raises `PausedException`),
+        which holds and then starts the whole login again with a fresh token, since a login
+        form ao3 may already have taken is not one to send twice.
 
         **`timeout` is a limit on the whole request here**, not only on silence: requests'
         own timeout fires only when the connection says nothing for that long, so a server
@@ -176,7 +200,7 @@ class Repository:
         said = 0
         while not finished.wait(self.pause_slice):
             self.check_cancelled()
-            if method.upper() == 'GET' and self.held is not None and self.held():
+            if self.held is not None and self.held():
                 raise exceptions.PausedException()
             waited = monotonic() - began
             if waited >= self.timeout:
@@ -199,9 +223,8 @@ class Repository:
         once the caller has them all and has judged them, so there is no part-written file
         to clean up and the retry starts from nothing.
 
-        **Only GETs are abandoned.** A GET can be asked for again; a POST cannot. Re-sending
-        a login form or a mark-as-read is not the same thing as asking for a page twice, so
-        those are read to the end whatever has been pressed.
+        Every method is abandoned for a pause - see `abandonable` for what then happens to a
+        POST.
         """
 
         chunks = []
@@ -209,7 +232,7 @@ class Repository:
             for chunk in response.iter_content(self.chunk_size):
                 chunks.append(chunk)
                 self.check_cancelled()
-                if method.upper() == 'GET' and self.held is not None and self.held():
+                if self.held is not None and self.held():
                     raise exceptions.PausedException()
         except BaseException:
             # the connection is no use half-read, and leaving it open holds a pool slot
@@ -226,24 +249,12 @@ class Repository:
     def hold_if_asked(self) -> None:
         """Wait here for as long as the user has the run paused.
 
-        A run waits in exactly two places, and both are inside the request path:
-
-        - here, before a request goes out, which is where a run with nothing in flight sits
-        - and again after `read_body` abandons a part-read body, which is how a pause
-          pressed during a long transfer takes effect at once rather than when it finishes
-
-        **Neither is anywhere near the writing.** Bytes are held in memory until the caller
-        has the whole body and has judged it, so at both points nothing on disk is open,
-        part-written or renamed.
-
-        Do not add a third gate inside a download or a save loop. A gate that can fire
-        anywhere is a gate that can fire halfway through writing an epub, and the failure it
-        causes - a truncated file with a name that says it is complete - is exactly the one
-        `saved_intact` and the replace guards exist to prevent.
-
-        It is not folded into `check_cancelled` either, because that is called from inside
-        `wait`: holding there would stretch an ao3 rate limit break, and the run would go
-        back to a request it had already been told to wait longer for.
+        Called wherever a pause lands - before a request, after one abandoned for a pause,
+        inside `wait` (whose caller counts the time held toward the wait), and before every
+        request to the library (`PageStorage.gate`). Never inside a write: bytes are held in
+        memory until a body is whole and judged, and a library write is one request, so at
+        every one of these points nothing on disk is open, part-written or renamed. Do not add
+        a gate inside a download or a save loop - see CLAUDE.md.
 
         A stop still works while held - the wait is in slices and each one checks - so a
         paused run is never a stuck one. A stop taken here unwinds without ever claiming
@@ -275,8 +286,11 @@ class Repository:
     def get_soup(self, url: str) -> BeautifulSoup:
         """Get BeautifulSoup object from a url."""
 
-        html = self.my_request('GET', url).text
-        soup = BeautifulSoup(html, 'html.parser')
+        response = self.my_request('GET', url)
+        # kept for whoever asked, so a page ao3 answered with 401, 403 or 404 - served like
+        # any other - can be told from the page that was wanted (`Ao3.fetch_page`)
+        self.last_status = response.status_code
+        soup = BeautifulSoup(response.text, 'html.parser')
         return soup
 
 
@@ -348,6 +362,9 @@ class Repository:
                 except requests.exceptions.Timeout as e: # raw timeout exceptions are way too verbose
                     raise exceptions.TimeoutException(strings.ERROR_TIMEOUT.format(self.timeout)) from e
             except exceptions.PausedException:
+                # a login form ao3 may already have taken is not one to send again: its
+                # caller holds, then starts the login over with a fresh token
+                if method.upper() == 'POST': raise
                 # the body was abandoned partway through. wait for the resume, then ask for
                 # the whole thing again - nothing was kept, so this starts clean. it does
                 # not count as an attempt: the user pausing is not the server failing
@@ -401,11 +418,12 @@ class Repository:
                     pause_time = 300  # default to 5 minutes in case there was a problem getting retry-after
                 if pause_time <= 0:
                     pause_time = 300  # default to 5 minutes if retry-after is an invalid value
-                now = datetime.datetime.now()
+                # in UTC and said so, as every time the app writes is
+                now = datetime.datetime.now(datetime.timezone.utc)
                 later = now + datetime.timedelta(0, pause_time)
-                print(strings.MESSAGE_TOO_MANY_REQUESTS.format(pause_time, now.strftime('%H:%M:%S'), later.strftime('%H:%M:%S')))
+                print(strings.MESSAGE_TOO_MANY_REQUESTS.format(pause_time, now.strftime('%H:%M:%S UTC'), later.strftime('%H:%M:%S UTC')))
                 progress.report(self.progress, progress.PAUSED, seconds=pause_time,
-                                until=later.strftime('%H:%M:%S'))
+                                until=later.strftime('%H:%M:%S UTC'))
                 self.pause(pause_time)
                 print(strings.MESSAGE_RESUMING)
                 progress.report(self.progress, progress.RESUMED)
@@ -438,11 +456,20 @@ class Repository:
         # know there is no session to have lapsed
         self.logged_in = True
 
-        soup = self.get_soup(strings.AO3_LOGIN_URL)
-        if not soup: raise Exception(strings.ERROR_FAILED_LOGIN.format(strings.FAILED_LOGIN_NOT_FOUND))
-        token = parse_soup.get_login_token(soup)
-        payload = parse_text.get_payload(username, password, token)
-        response = self.my_request('POST', strings.AO3_LOGIN_URL, payload)
+        while True:
+            soup = self.get_soup(strings.AO3_LOGIN_URL)
+            if not soup: raise Exception(strings.ERROR_FAILED_LOGIN.format(strings.FAILED_LOGIN_NOT_FOUND))
+            # a login paused after ao3 had taken the form: the session is already logged in
+            if parse_soup.is_logged_in(soup): return
+            token = parse_soup.get_login_token(soup)
+            payload = parse_text.get_payload(username, password, token)
+            try:
+                response = self.my_request('POST', strings.AO3_LOGIN_URL, payload)
+                break
+            except exceptions.PausedException:
+                # paused mid-login: hold, then log in again from a fresh login page - the
+                # interrupted line, asked again
+                self.hold_if_asked()
         soup = BeautifulSoup(response.text, 'html.parser')
         if not soup: raise Exception(strings.ERROR_FAILED_LOGIN.format(strings.FAILED_LOGIN_NO_RESPONSE))
         if not parse_soup.is_logged_in(soup): # raise exception type that indicates we should clear username and password data
@@ -552,6 +579,17 @@ class Repository:
             '_cf_chl_opt',
         ]
         return any(marker in response.text.lower() for marker in cloudflare_markers)
+
+
+    def setting(self, key: str, fallback, minimum: int = 0):
+        """A whole-number setting, or `fallback` when settings.ini has none or cannot say."""
+
+        try:
+            value = self.fileops.get_ini_value_integer(key, fallback)
+        except Exception:
+            return fallback
+        if not isinstance(value, int) or isinstance(value, bool): return fallback
+        return max(minimum, value)
 
 
     def get_delay(self, attempt: int) -> float:

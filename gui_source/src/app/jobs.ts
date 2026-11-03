@@ -54,6 +54,10 @@ export interface ServerSettings {
   debugTools?: boolean;
   /** minutes a paused background run is kept before the helper abandons it; 0 is never */
   pausedRunTimeoutMinutes?: number;
+  /** minutes a question waits for its answer before taking its default; 0 is at once */
+  questionTimeoutMinutes?: number;
+  /** what each question answers itself with when nobody answers it, from settings.ini */
+  answerDefaults?: Partial<Record<QuestionName, string>>;
 }
 
 export interface ServerConfig {
@@ -135,6 +139,8 @@ export interface JobOptions {
    * record and takes its workflow, file types and options from it - see RESUMING.md.
    */
   resume?: string;
+  /** how that run is retried - the helper's RETRY_MODES */
+  retryMode?: RetryMode;
 }
 
 /** what to do about downloaded files that carry no date, asked part way through a run */
@@ -194,15 +200,60 @@ export interface RunStep {
  */
 /**
  * How a run ended. `abandoned` is a background run the helper ended because it was left
- * paused past `PausedRunTimeoutMinutes` - ended the way a stop ends one, and resumable.
+ * paused past `PausedRunTimeoutMinutes` - ended the way a stop ends one. `partial` reached its end
+ * but some indexing failed (`indexFailures` says where) or some fic or format could not be
+ * downloaded - never a floor for a quick scan. `failed` includes a run whose indexing failed
+ * everywhere it tried and got nothing.
  */
 export type RunStatus =
   | 'running'
   | 'success'
+  | 'partial'
   | 'failed'
   | 'stopped'
   | 'interrupted'
   | 'abandoned';
+
+/**
+ * One place a run's indexing broke off. A listing or a collection's listing says which pages
+ * were read (`firstPage` to `lastPage`, null when none were), the page that failed, and how far
+ * back in date it got; a fic run's fic says which work's own page would not read.
+ */
+export interface IndexGap {
+  kind: 'listing' | 'collection' | 'work';
+  /** which of the run's walks: 'all', 'bookmarked' or 'updated' */
+  walk?: string;
+  listing?: string;
+  /** the date the listing is in order of: 'bookmarked', 'updated', or '' for ao3's default */
+  sort?: string;
+  collection?: string;
+  /** a collection's 'works' or 'bookmarked items' */
+  items?: string;
+  firstPage?: number;
+  lastPage?: number | null;
+  failedPage?: number;
+  totalPages?: number | null;
+  works?: number;
+  reachedBookmarked?: string;
+  reachedUpdated?: string;
+  id?: string;
+  link?: string;
+  error: string;
+  /** why: 'maintenance', 'status' (with `status`), 'connection', 'no-data' or 'other' */
+  reason?: string;
+  status?: number;
+}
+
+/** how a run can be retried - see the helper's RETRY_MODES */
+export type RetryMode = 'top' | 'reindex' | 'index' | 'redownload' | 'downloads' | 'failed';
+
+export interface RetryChoices {
+  modes: { mode: RetryMode; available: boolean; reason: string }[];
+  /** the way that picks up from its first step that did not finish; '' when none can */
+  default: RetryMode | '';
+  /** how many works it could not get */
+  failedWorks: number;
+}
 
 /** something a run stopped to ask, what was answered, and what came of it */
 export interface RunChoice {
@@ -216,12 +267,16 @@ export interface RunChoice {
   files?: number;
   /** the work numbers the question was about */
   works?: string[];
+  /** the formats a `fichub-outdated` question was about */
+  formats?: string[];
   /** the files given a date, when that was the answer */
   renamed?: { id: string; from: string; to: string }[];
 }
 
 /** one past run, as the helper wrote it down */
 export interface RunHistory {
+  /** on a floor offered to a quick scan: the works a partly finished one could not download */
+  missingDownloads?: string[];
   file: string;
   id: string;
   action: string;
@@ -265,17 +320,24 @@ export interface RunHistory {
   /** how many lines of the run window's account its history file holds, and how many it dropped */
   logLines?: number;
   logTrimmed?: number;
-  /** how far the run got, as it saved it - see RESUMING.md */
-  progress?: { step?: string; stepLabel?: string } & Record<string, unknown>;
+  /** where its indexing broke off - absent on older runs */
+  indexFailures?: IndexGap[];
+  /**
+   * How far the run got, as it saved it - see RESUMING.md. `stepPlan` is the steps it set out
+   * to take, `steps` how each had gone when it last saved.
+   */
+  progress?: {
+    step?: string;
+    stepLabel?: string;
+    stepPlan?: [string, string][];
+    steps?: Record<string, string>;
+  } & Record<string, unknown>;
 }
 
-/** an unfinished run, as offered for resuming */
-export interface ResumableRun extends RunHistory {
-  /** whether it can be picked up at all */
-  resumable: boolean;
-  /** why not, when it cannot */
-  reason: string;
-  /** things worth knowing before picking it up */
+/** a run that has ended, as offered for retrying */
+export interface RetryableRun extends RunHistory {
+  retry: RetryChoices;
+  /** things worth knowing before retrying it */
   warnings: string[];
 }
 
@@ -390,6 +452,15 @@ export interface JobEvent {
   choices?: string[];
   /** on a `question` event: the date the question is offering, where it has one */
   date?: string;
+  /** on a `fichub-outdated` question: the formats there is no file of, and the date the
+   *  index has for the work (FicHub's own is `date`) */
+  formats?: string[];
+  indexed?: string;
+  /** on an `overwrite-older` question: the date of the copy on disk, newer than `date` */
+  newer?: string;
+  /** a question's: the answer it takes if nobody gives one, and after how many minutes */
+  default?: string;
+  timeoutMinutes?: number;
   seconds?: number;
   until?: string;
   error?: string;
@@ -426,10 +497,17 @@ export interface StartRequest {
   answers?: BackgroundAnswers;
   /** a background run's way into the library; sealed with the login when there is a key */
   dropbox?: DropboxHandover | null;
+  /**
+   * What unanswered questions take, and after how many minutes, from this browser's User
+   * settings - sent only by a page whose helper's settings.ini it cannot edit (a hosted copy)
+   */
+  answerDefaults?: Partial<Record<QuestionName, string>>;
+  questionTimeoutMinutes?: number;
 }
 
 /** the questions a run can stop to ask, by the name the helper gives them */
-export type QuestionName = 'undated' | 'quick-floor' | 'duplicates' | 'fichub';
+export type QuestionName =
+  'undated' | 'quick-floor' | 'duplicates' | 'fichub' | 'fichub-outdated' | 'overwrite-older';
 
 /** answers given before a background run starts, since nobody will be there to give them */
 export type BackgroundAnswers = Partial<Record<QuestionName, { choice: AnswerChoice; date?: string }>>;
@@ -612,17 +690,17 @@ export class Jobs {
    * The unfinished scans that could be picked up, newest first, each saying whether it can
    * be and what to know first. The rule is the helper's, so it is asked, as for floors.
    */
-  async loadResumableRuns(store: LibraryStore | null): Promise<ResumableRun[] | null> {
+  async loadRetryableRuns(store: LibraryStore | null): Promise<RetryableRun[] | null> {
     if (!store) return null;
     try {
       await this.settleInterrupted(store);
-      const response = await this.helper.call(`/api/runs/resumable`, {
+      const response = await this.helper.call(`/api/runs/retryable`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ runs: await readRunHistory(store) }),
       });
       if (!response.ok) throw new Error(String(response.status));
-      return ((await response.json()) as { runs: ResumableRun[] }).runs ?? [];
+      return ((await response.json()) as { runs: RetryableRun[] }).runs ?? [];
     } catch {
       return null;
     }

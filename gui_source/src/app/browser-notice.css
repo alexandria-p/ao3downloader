@@ -147,3 +147,12 @@ footer {
 .button.primary:hover {
   background: #3d6580;
 }
+
+/* only while set to ask always: the box that stops it, on the left of the footer */
+footer .check {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  margin-right: auto;
+  font-size: 0.88rem;
+}
