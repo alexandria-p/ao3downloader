@@ -1712,7 +1712,7 @@
         }
 
         @if (log().length) {
-          <pre class="log">@for (line of log(); track $index) {{{ line }}
+          <pre class="log">@for (line of log(); track $index) {<span class="log-time">{{ lineTime(line.at) }}</span> {{ line.text }}
 }</pre>
         }
 
@@ -1947,7 +1947,7 @@
           </p>
         }
         @if (log().length) {
-          <pre class="log">@for (line of log(); track $index) {{{ line }}
+          <pre class="log">@for (line of log(); track $index) {<span class="log-time">{{ lineTime(line.at) }}</span> {{ line.text }}
 }</pre>
         }
       </section>
@@ -1986,7 +1986,7 @@
           <p class="error">{{ error() }}</p>
         }
         @if (log().length) {
-          <pre class="log">@for (line of log(); track $index) {{{ line }}
+          <pre class="log">@for (line of log(); track $index) {<span class="log-time">{{ lineTime(line.at) }}</span> {{ line.text }}
 }</pre>
         }
       </section>

@@ -515,6 +515,10 @@ class Job:
         self.baseline = ''
 
     def emit(self, event: dict) -> None:
+        if event.get('type') == progress.MESSAGE and 'at' not in event:
+            # when it was said, in UTC: the window shows it in the reader's own zone, and a
+            # page reattaching to a background run replays lines said hours before
+            event = {**event, 'at': runs.now()}
         with self.lock:
             self.history.append(event)
             if self.background and event.get('type') == progress.MESSAGE:

@@ -519,3 +519,12 @@ def test_a_run_s_file_name_still_sorts_by_when_it_started_and_ends_with_its_id(t
 
 
 # endregion
+
+
+def test_every_line_a_run_says_reaches_the_page_with_when_it_was_said_in_utc():
+    from source_code import progress, server
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON'], 'Someone')
+    job.emit({'type': progress.MESSAGE, 'text': 'looking up work 7'})
+    [event] = job.history
+    assert event['text'] == 'looking up work 7'
+    assert event['at'].endswith('+00:00')

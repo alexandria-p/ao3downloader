@@ -1083,6 +1083,18 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('brought up to date');
   });
 
+  it('shows each line of the log with when it was said, in this browser\'s own time', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    const at = '2026-11-03T10:15:42+00:00';
+    jobs.push!({ type: 'message', text: 'looking up work 7 on AO3', at } as JobEvent);
+    await fixture.whenStable();
+
+    const shown = element.querySelector('.log')?.textContent ?? '';
+    const local = new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    expect(shown).toContain(`${local} looking up work 7 on AO3`);
+  });
+
   it('says which works could not be downloaded', async () => {
     await finishWithFailures();
 

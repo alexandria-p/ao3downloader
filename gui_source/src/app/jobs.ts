@@ -398,6 +398,8 @@ export interface WorkFailure {
 export interface JobEvent {
   type: string;
   text?: string;
+  /** a `message` event's: when the helper said it, in UTC */
+  at?: string;
   /** on a `page` event: position within the slice being fetched, which drives the bar */
   page?: number;
   total?: number;

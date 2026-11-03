@@ -10,6 +10,7 @@ The words this project uses. `TERMINOLOGY.md` in the repository has the full lis
 | **Index / index entry** | The `indexing/` folder: one JSON file per work, keeping its history. |
 | **Run** | One press of a button, from login to report. |
 | **Step** | One stage of a run, ticked off in the run window. |
+| **Log line** | One thing a run said as it went - "looking up work 7 on AO3", "new download: ..." - with when it was said. The run window shows each line's time in your own time zone; **Download log** in History keeps the same lines stamped in UTC (`[2026-11-03 10:15:42 UTC]`), so logs from different places line up. Logs from older versions may have no times. |
 | **Walk** | Reading a listing page by page, 20 works a page. |
 | **Floor** | The date a walk stops at - for a Quick Scan, the date of the last scan that read your whole listing (a partly finished one counts only if all its indexing passed, after a warning); for a date range, its start. A retry keeps the first attempt's. |
 | **Ceiling** | On a retry, the newest date a walk wants anything from - the day the first attempt started, or a date range's end. Fics dated after it are left for the next scan. |
@@ -21,7 +22,6 @@ The words this project uses. `TERMINOLOGY.md` in the repository has the full lis
 | **Background run** | A run the helper finishes with the page closed. Dropbox only. |
 | **Abandoned** | A background run left paused too long, ended by the helper. |
 | **Interrupted** | A run cut off before it could say how it ended. |
-| **Resume** | Carrying on an unfinished run as the same run. |
 | **The page** | The web app, in your browser. |
 | **Helper** | The program that talks to AO3, on `127.0.0.1:4400` or Render. |
 | **Bundle** | The page and helper built into `build/`, run with PowerShell and uv. |

@@ -67,6 +67,17 @@ const COLLECTION_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/collections\/(
 /** any chapter or page of a work will do, so this only asks that digits follow /works/ */
 const WORK_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/works\/(\d+)/i;
 
+/** a line of the run window's log, and when it was said */
+export interface LogLine {
+  text: string;
+  at: Date;
+}
+
+/** a log line's time as the window shows it: the reader's own zone, to the second */
+export function lineTime(at: Date): string {
+  return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 /** the most fics one 'several fics' run takes - the helper's MAX_WORK_LINKS */
 export const MAX_WORKS = 500;
 
@@ -320,7 +331,9 @@ export class DownloadDialog implements OnDestroy {
   protected readonly dateFrom = signal('');
   protected readonly dateTo = signal('');
 
-  protected readonly log = signal<string[]>([]);
+  /** what the run has said, each line with when it was said - shown in the reader's own time */
+  protected readonly log = signal<LogLine[]>([]);
+  protected readonly lineTime = lineTime;
   protected readonly percent = signal<number | null>(null);
   protected readonly paused = signal<{ seconds: number; until: string } | null>(null);
   protected readonly summary = signal('');
@@ -1711,7 +1724,7 @@ export class DownloadDialog implements OnDestroy {
         this.answering.set(false);
         break;
       case 'message':
-        if (event.text) this.append(event.text);
+        if (event.text) this.append(event.text, event.at);
         break;
       case 'finished':
         this.wasCancelled.set(!!event.cancelled);
@@ -1868,8 +1881,14 @@ export class DownloadDialog implements OnDestroy {
     }
   }
 
-  private append(text: string): void {
-    const lines = [...this.log(), text];
+  /**
+   * One line for the window. `at` is when the helper said it (UTC, on its `message` event), so a
+   * background run's replayed lines keep their own times; a line the page says itself is now.
+   */
+  private append(text: string, at?: string): void {
+    const said = at ? new Date(at) : new Date();
+    const line = { text, at: Number.isNaN(said.getTime()) ? new Date() : said };
+    const lines = [...this.log(), line];
     this.log.set(lines.length > MAX_LOG ? lines.slice(-MAX_LOG) : lines);
   }
 

@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2011 python passed; 823 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2012 python passed; 824 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1040,8 +1040,11 @@ lines printed before the record exists (the setup, 'logging in') are held and pa
 abandonment notice - is added by hand. **Every line starts with when it was said**
 (`runs.stamped`: `[YYYY-MM-DD HH:MM:SS UTC] `, always UTC and marked so - the hosted helper's clock is not the reader's) - stamped as it is said, so the held
 `printed` lines are stamped in `said` rather than when the record takes them, and the
-force-stop line is stamped too. The page shows no times in the run window; the downloaded
-log and the feedback log carry them as kept. Older records' lines have none and download
+force-stop line is stamped too. **The run window shows each line's time in the reader's own
+zone** (`.log-time`, `lineTime`): `Job.emit` gives every `message` event an `at` (UTC, `runs.now()`),
+so a background run's replayed lines keep their own times, and a line the page says itself takes
+the moment it is said (`LogLine`). The downloaded log and the feedback log carry the UTC stamps
+as kept. Older records' lines have none and download
 as they are. **The downloaded log opens with how the run was set up** (`runSettingsHead`),
 read from the same file: link(s), file types, background, helper, then every recorded
 option and every settings.ini value as `key: value` - all of them, not only what the History
