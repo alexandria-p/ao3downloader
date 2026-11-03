@@ -64,6 +64,16 @@ def now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
 
+def file_stamp(stamp: str) -> str:
+    """A UTC time as a run file's name starts with it: `20261103T101542Z`, ISO 8601's basic
+    form. It sorts by time, carries its zone as the standard `Z`, has nothing a file system or
+    Dropbox could object to, and sorts after every older name (`2026-11-03T...`, local time),
+    since a digit sorts after `-` - so the newest run is the last name, whichever wrote it."""
+
+    at = datetime.datetime.fromisoformat(stamp).astimezone(datetime.timezone.utc)
+    return at.strftime('%Y%m%dT%H%M%SZ')
+
+
 def shown(stamp: str) -> str:
     """A recorded time as a run's own lines say it: `YYYY-MM-DD HH:MM UTC`, or, for an older
     record's naive local time, as it was written."""
@@ -138,7 +148,7 @@ class RunRecord:
         # a run thread still stuck somewhere must not wake later and write over it
         self.frozen = False
         self.path = os.path.join(
-            fileops.runsfolder, f'{now().replace(":", "")}-{job_id[:8]}.json')
+            fileops.runsfolder, f'{file_stamp(now())}-{job_id[:8]}.json')
         self.data: dict = {
             'id': job_id,
             'action': action,

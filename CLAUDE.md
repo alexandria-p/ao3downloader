@@ -1010,7 +1010,8 @@ lines; ao3's 429 break is said in UTC too, and `log.jsonl`'s timestamps are UTC.
 local time, which was UTC on Render and the reader's zone in the apps, so the same field
 meant two different things. A record written before carries a naive time; the page reads that
 as local, as it always did, and `shown` writes it as it was. The run file's name is the UTC
-start (`2026-11-03T101542+0000-<id8>.json`): it still sorts by start, and still ends with the
+start in ISO 8601's basic form (`20261103T101542Z-<id8>.json`, `runs.file_stamp`): it still sorts by
+start, sorts after every older local-time name (a digit sorts after `-`), and still ends with the
 id `freshness.ts` reads. The page already wrote UTC (`toISOString`) everywhere it records a
 time, and shows every time in the reader's own zone.
 

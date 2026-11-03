@@ -514,7 +514,12 @@ def test_a_recorded_time_is_said_in_utc_and_an_older_naive_one_as_written():
 def test_a_run_s_file_name_still_sorts_by_when_it_started_and_ends_with_its_id(tmp_path):
     record = runs.RunRecord(fake_fileops(tmp_path), 'abcdef1234', 'sync', 'A', ['JSON'], {})
     name = os.path.basename(record.path)
-    assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d{6}\+0000-abcdef12\.json', name)
+    assert re.fullmatch(r'\d{8}T\d{6}Z-abcdef12\.json', name)
+    # the name and the record's own start are the same moment
+    assert name[:16] == runs.file_stamp(record.data['started'])
+    # and it sorts after every name an older version wrote, in local time: those are all from
+    # before it, and within a year the digit after the year sorts after their '-'
+    assert name > f'{name[:4]}-12-31T235959-ffffffff.json'
     assert record.data['started'].endswith('+00:00')
 
 
