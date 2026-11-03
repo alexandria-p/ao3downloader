@@ -418,11 +418,12 @@ class Repository:
                     pause_time = 300  # default to 5 minutes in case there was a problem getting retry-after
                 if pause_time <= 0:
                     pause_time = 300  # default to 5 minutes if retry-after is an invalid value
-                now = datetime.datetime.now()
+                # in UTC and said so, as every time the app writes is
+                now = datetime.datetime.now(datetime.timezone.utc)
                 later = now + datetime.timedelta(0, pause_time)
-                print(strings.MESSAGE_TOO_MANY_REQUESTS.format(pause_time, now.strftime('%H:%M:%S'), later.strftime('%H:%M:%S')))
+                print(strings.MESSAGE_TOO_MANY_REQUESTS.format(pause_time, now.strftime('%H:%M:%S UTC'), later.strftime('%H:%M:%S UTC')))
                 progress.report(self.progress, progress.PAUSED, seconds=pause_time,
-                                until=later.strftime('%H:%M:%S'))
+                                until=later.strftime('%H:%M:%S UTC'))
                 self.pause(pause_time)
                 print(strings.MESSAGE_RESUMING)
                 progress.report(self.progress, progress.RESUMED)

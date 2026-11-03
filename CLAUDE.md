@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2008 python passed; 823 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2011 python passed; 823 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1002,6 +1002,17 @@ hands back anything carrying an `id` and a run record has one.
 `FileOps.initialize` checks the library's root is still there (`storage.ensure_root`) before
 making the library folders (`LIBRARY_FOLDER_NAMES`, `runs` among them) inside it, so a
 library that has gone away fails on the root rather than on whichever subfolder came first.
+
+**Every time the helper writes is UTC, marked so.** `runs.now()` is
+`YYYY-MM-DDTHH:MM:SS+00:00` - a run's `started`, `finished`, `baseline`, the pause clock
+(`held_at`, `abandonsAt`) - and `runs.shown` says one as `YYYY-MM-DD HH:MM UTC` in a run's own
+lines; ao3's 429 break is said in UTC too, and `log.jsonl`'s timestamps are UTC. It was naive
+local time, which was UTC on Render and the reader's zone in the apps, so the same field
+meant two different things. A record written before carries a naive time; the page reads that
+as local, as it always did, and `shown` writes it as it was. The run file's name is the UTC
+start (`2026-11-03T101542+0000-<id8>.json`): it still sorts by start, and still ends with the
+id `freshness.ts` reads. The page already wrote UTC (`toISOString`) everywhere it records a
+time, and shows every time in the reader's own zone.
 
 **The file is written when the run starts, not when it ends.** A run killed mid-flight
 cannot write its own epitaph, so a record still saying `running` *is* the evidence that it

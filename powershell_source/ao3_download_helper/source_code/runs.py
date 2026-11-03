@@ -55,9 +55,26 @@ LOG_MAX_LINES = 5000
 
 
 def now() -> str:
-    """The moment, to the second, in a form that sorts and survives a file name."""
+    """The moment, to the second, **in UTC and marked so** (`+00:00`), in a form that sorts and
+    survives a file name. Every time the app writes is UTC - the hosted helper's clock and the
+    reader's need not share a zone, and a run's `started`/`finished` are read by a page that
+    shows them in the reader's own. Records written before this carry naive local times,
+    which the page reads as local, as it always did."""
 
-    return datetime.datetime.now().replace(microsecond=0).isoformat()
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def shown(stamp: str) -> str:
+    """A recorded time as a run's own lines say it: `YYYY-MM-DD HH:MM UTC`, or, for an older
+    record's naive local time, as it was written."""
+
+    text = str(stamp or '')
+    try:
+        at = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return text[:16].replace('T', ' ')
+    if at.tzinfo is None: return text[:16].replace('T', ' ')
+    return at.astimezone(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
 
 
 def snapshot(record: 'RunRecord') -> dict:

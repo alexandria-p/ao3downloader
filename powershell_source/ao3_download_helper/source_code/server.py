@@ -1178,7 +1178,7 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
              RETRY_REDOWNLOAD: strings.AO3_INFO_RETRY_REDOWNLOAD,
              RETRY_DOWNLOADS: strings.AO3_INFO_RETRY_DOWNLOADS,
              RETRY_FAILED: strings.AO3_INFO_RETRY_FAILED.format(failed)}[mode],
-            str(earlier.get('started') or '')[:16].replace('T', ' '),
+            runs.shown(earlier.get('started')),
             earlier.get('status') or ''))
     # what the earlier attempt was actually told wins; a background run's up-front answers
     # stand in for any question it never reached. not from the top: that asks everything again
@@ -1190,7 +1190,7 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
                                 if isinstance(c, dict) and c.get('question') and c.get('choice')}}
     print(strings.AO3_INFO_RESUMING.format(
         earlier.get('actionName') or earlier['action'],
-        str(earlier.get('started') or '')[:16].replace('T', ' '),
+        runs.shown(earlier.get('started')),
         (earlier.get('progress') or {}).get('stepLabel') or strings.AO3_INFO_RESUME_NO_STEP))
 
 
