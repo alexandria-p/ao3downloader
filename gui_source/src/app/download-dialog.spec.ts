@@ -635,15 +635,20 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('since the last successful');
   });
 
+  async function settled() {
+    for (let i = 0; i < 5; i++) {
+      await new Promise((done) => setTimeout(done, 0));
+      await fixture.whenStable();
+    }
+  }
+
   it('needs no read at all for "since my last run" when the newest floor was found as it opened', async () => {
     const newest = vi.spyOn(jobs, 'loadNewestFloor');
     const all = vi.spyOn(jobs, 'loadFloorRuns');
-    fixture = TestBed.createComponent(DownloadDialog);
-    fixture.componentRef.setInput('action', 'quick');
-    fixture.componentRef.setInput('newestFloorAhead',
+    jobs.floorAhead = Promise.resolve(
       { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] });
-    await fixture.whenStable();
-    element = fixture.nativeElement as HTMLElement;
+    await open('quick');
+    await settled();
     await advanceTo('options');
     button('Continue')!.click();
     await fixture.whenStable();
@@ -654,74 +659,104 @@ describe('DownloadDialog', () => {
     expect(all).not.toHaveBeenCalled();
   });
 
-  it('reads only the newest floor for "since my last run", and the whole list only when choosing', async () => {
-    jobs.floorRunsOnRecord = [
-      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] },
-      scanOnRecord('a', '2026-08-01T09:00:00'),
-    ];
-    const all = vi.spyOn(jobs, 'loadFloorRuns');
-    const newest = vi.spyOn(jobs, 'loadNewestFloor');
-    await open('quick');
-    await advanceTo('options');
-    button('Continue')!.click();
-    await fixture.whenStable();
-
-    expect(currentStep()).toBe('floor-warning');
-    expect(newest).toHaveBeenCalledTimes(1);
-    expect(all).not.toHaveBeenCalled();
-
-    button('Choose a different scan')!.click();
-    await fixture.whenStable();
-    expect(currentStep()).toBe('floor');
-    expect(all).toHaveBeenCalledTimes(1);
-
-    // back and on again: what was read is kept for as long as the window is open
-    button('Back')?.click();
-    await fixture.whenStable();
-    await advanceTo('options');
-    button('Continue')!.click();
-    await fixture.whenStable();
-    expect(all).toHaveBeenCalledTimes(1);
-    expect(newest).toHaveBeenCalledTimes(1);
-  });
-
-  it('warns before measuring back to a scan that could not download some works', async () => {
+  it('goes on past "since my last run" without waiting for the floor, and warns on the run page', async () => {
     jobs.floorRunsOnRecord = [
       { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7', '9'] },
       scanOnRecord('a', '2026-08-01T09:00:00'),
     ];
+    let found: (floor: RunHistory | null) => void = () => undefined;
+    vi.spyOn(jobs, 'loadNewestFloor').mockImplementation(
+      () => new Promise((resolve) => (found = resolve)));
+    const all = vi.spyOn(jobs, 'loadFloorRuns');
     await open('quick');
     await advanceTo('options');
     button('Continue')!.click();
     await fixture.whenStable();
 
-    expect(currentStep()).toBe('floor-warning');
+    // not found yet, and not waited for
+    expect(currentStep()).toBe('filetypes');
+    await advanceTo('running');
+    await settled();
+    expect(element.querySelector('.run-waiting')?.textContent).toContain('Finding the scan to measure back to');
+    expect(jobs.started).toHaveLength(0);
+
+    found(jobs.floorRunsOnRecord[0]);
+    await settled();
     const said = element.querySelector('.floor-warning')?.textContent?.replace(/\s+/g, ' ') ?? '';
     expect(said).toContain('could not download 2 works: 7, 9');
+    expect(jobs.started).toHaveLength(0);
+    expect(all).not.toHaveBeenCalled();
 
-    // using it goes on as usual, measuring back to it
+    // using it starts the run, measuring back to it
     button('Use it as the floor')!.click();
-    await fixture.whenStable();
-    expect(currentStep()).not.toBe('floor-warning');
-    expect(currentStep()).not.toBe('floor');
+    await settled();
+    expect(jobs.started).toHaveLength(1);
   });
 
-  it('lets another scan be chosen instead of one that could not download some works', async () => {
+  it('starts at once when the floor needs no warning', async () => {
+    jobs.floorRunsOnRecord = [scanOnRecord('a', '2026-08-01T09:00:00')];
+    await open('quick');
+    await advanceTo('running');
+    await settled();
+    expect(element.querySelector('.run-waiting')).toBeNull();
+    expect(jobs.started).toHaveLength(1);
+  });
+
+  it('lets another scan be chosen from the run page instead of one that could not download some works', async () => {
     jobs.floorRunsOnRecord = [
       { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] },
       scanOnRecord('a', '2026-08-01T09:00:00'),
     ];
     await open('quick');
-    await advanceTo('options');
-    button('Continue')!.click();
-    await fixture.whenStable();
+    await advanceTo('running');
+    await settled();
 
     button('Choose a different scan')!.click();
-    await fixture.whenStable();
+    await settled();
 
     expect(currentStep()).toBe('floor');
+    expect(jobs.started).toHaveLength(0);
     // the partly finished one is still listed, saying what it missed
     expect(element.querySelector('.floor-runs')?.textContent).toContain('could not download 7');
+  });
+
+  it('waits on the run page for a helper still waking, and can be cancelled', async () => {
+    let answer: (config: null) => void = () => undefined;
+    // what the page heard from the helper as it loaded; this window's own ask is still out
+    jobs.config.set(await jobs.loadConfig());
+    jobs.connecting = new Promise((resolve) => (answer = resolve));
+    await open('update');
+    await advanceTo('running');
+    await settled();
+
+    expect(element.querySelector('.run-waiting')?.textContent).toContain('Waiting for the helper to answer');
+    expect(jobs.started).toHaveLength(0);
+    let closed = false;
+    fixture.componentInstance.closed.subscribe(() => (closed = true));
+    button('Cancel')!.click();
+    expect(closed).toBe(true);
+    answer(null);
+    await settled();
+    expect(jobs.started).toHaveLength(0);
+  });
+
+  it('gives up on a helper that does not answer in 2 minutes, offering to try again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      jobs.config.set(await jobs.loadConfig());
+      jobs.connecting = new Promise(() => undefined);
+      await open('update');
+      await advanceTo('running');
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000 + 10);
+      await fixture.whenStable();
+
+      expect(currentStep()).toBe('failed');
+      expect(element.querySelector('.error')?.textContent).toContain('did not answer within 2 minutes');
+      expect(button('Try again')).toBeTruthy();
+      expect(jobs.started).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('asks nothing when the last scan got everything', async () => {

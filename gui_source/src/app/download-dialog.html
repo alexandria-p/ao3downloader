@@ -37,8 +37,6 @@
     <footer>
       <button type="button" class="button" (click)="close()">Close</button>
     </footer>
-  } @else if (available() === null) {
-    <section class="body"><p class="hint">Looking for the local helper...</p></section>
   } @else {
     <!-- until init has worked out which step this run opens on - see Step's 'preparing' -->
     @if (step() === 'preparing') {
@@ -1309,7 +1307,47 @@
     }
 
     <!-- step 3: working -->
-    @if (step() === 'running') {
+    @if (step() === 'running' && waiting()) {
+      <section class="body run-waiting" role="status">
+        @if (waiting() === 'floor-warning') {
+          @if (automaticFloor(); as floor) {
+            <div class="retry-warning floor-warning" role="note">
+              <p>
+                This quick scan will measure back to the last scan, which started
+                <strong>{{ baselineOf(floor).slice(0, 10) }}</strong> - but that scan could not
+                download {{ floor.missingDownloads?.length }}
+                {{ floor.missingDownloads?.length === 1 ? 'work' : 'works' }}:
+                {{ floor.missingDownloads?.join(', ') }}.
+              </p>
+              <p>
+                Its indexing all passed, so it still covers everything up to then. Would you still
+                like to use it as the floor, or choose a different scan to measure back to?
+              </p>
+            </div>
+          }
+        } @else {
+          <p class="preparing">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>
+              {{ waiting() === 'helper' ? 'Waiting for the helper to answer' : 'Finding the scan to measure back to' }}...
+              <span class="dim">({{ waitedSeconds() }}s)</span>
+            </span>
+          </p>
+          <p class="hint">
+            Nothing has started yet. A hosted helper that has been asleep can take a minute or so
+            to wake; this gives up after 2 minutes.
+          </p>
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="cancelWaiting()">Cancel</button>
+        @if (waiting() === 'floor-warning') {
+          <button type="button" class="button" (click)="chooseAnotherFloorFromRun()">Choose a different scan</button>
+          <button type="button" class="button primary" (click)="startWithFloor()">Use it as the floor</button>
+        }
+      </footer>
+    }
+    @if (step() === 'running' && !waiting()) {
       <section class="body">
         @if (runningInBackground()) {
           <p class="notice background-running">
@@ -2057,11 +2095,16 @@
         }
       </section>
       <footer>
-        <!-- a rejected login sends you back to the details, not to the file types -->
-        <button type="button" class="button subtle"
-                (click)="step.set(loginVerified() === false ? 'credentials' : firstStep())">
-          Try again
-        </button>
+        @if (helperNeverAnswered()) {
+          <!-- the run never started: the same run, once the helper answers -->
+          <button type="button" class="button primary" (click)="retryConnecting()">Try again</button>
+        } @else {
+          <!-- a rejected login sends you back to the details, not to the file types -->
+          <button type="button" class="button subtle"
+                  (click)="step.set(loginVerified() === false ? 'credentials' : firstStep())">
+            Try again
+          </button>
+        }
         <button type="button" class="button" (click)="close()">Close</button>
       </footer>
     }

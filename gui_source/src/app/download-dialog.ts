@@ -28,6 +28,8 @@ import {
   RunInProgressError,
   StartRequest,
   WorkFailure,
+  BUILT_IN_CONFIG,
+  ServerConfig,
 } from './jobs';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
@@ -62,6 +64,15 @@ type Step =
   | 'running'
   | 'done'
   | 'failed';
+
+/** how long the run page waits on the helper (and a quick scan's floor) before giving up */
+export const START_WAIT_MS = 2 * 60 * 1000;
+const TIMED_OUT = Symbol('timed out');
+const CANCELLED = Symbol('cancelled');
+const HELPER_TIMED_OUT =
+  'The helper did not answer within 2 minutes, so this run was not started. Nothing has changed.';
+const HELPER_UNREACHABLE =
+  'The helper could not be reached, so this run was not started. Nothing has changed.';
 
 /** any page of a collection will do, so this only asks that a name follows /collections/ */
 const COLLECTION_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/collections\/([^/?#]+)/i;
@@ -153,11 +164,13 @@ export class DownloadDialog implements OnDestroy {
    * the newest records are read for it - never the whole history (`Jobs.loadNewestFloor`).
    */
   private readonly newestFloorRead = signal<RunHistory | null | undefined>(undefined);
-  /** found as the window was opened, alongside the run history check (`App.openRun`) */
-  readonly newestFloorAhead = input<RunHistory | null | undefined>(undefined);
-  private readonly newestFloor = computed(() =>
-    this.newestFloorRead() !== undefined ? this.newestFloorRead() : this.newestFloorAhead(),
-  );
+  private readonly newestFloor = this.newestFloorRead;
+  /** the newest floor as it is being found - looked for as the window opened (`Jobs.floorAhead`) */
+  private floorFinding: Promise<RunHistory | null> | null = null;
+  /** the helper's answer to the config asked for as the window opened */
+  private helperAnswer: Promise<ServerConfig | null> = Promise.resolve(null);
+  /** the file types were changed by hand, so the helper's own defaults arriving late leave them */
+  private filetypesTouched = false;
   /** the whole list is being read - asked for once, kept for as long as the window is open */
   private floorsLoading = false;
 
@@ -1173,20 +1186,43 @@ export class DownloadDialog implements OnDestroy {
   }
 
   private async init(): Promise<void> {
-    const config = await this.jobs.loadConfig();
-    if (!config) return;
-    // a hosted copy's own User settings come before its helper's; a helper on this
-    // computer has settings.ini for them, edited from the same tab
-    this.startFromDefaults({ ...(config.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
+    // the helper is asked as the window opens (`App.openRun`), and not waited on here: what it
+    // said last, or the built-in lists, are enough to choose the options and file types by,
+    // and Start waits for its answer (`readyToStart`)
+    this.helperAnswer = this.jobs.connecting ?? this.jobs.loadConfig();
+    this.jobs.connecting = null;
+    this.floorFinding = this.jobs.floorAhead;
+    this.jobs.floorAhead = null;
+    void this.floorFinding?.then((floor) => {
+      if (this.newestFloorRead() === undefined) this.newestFloorRead.set(floor);
+    });
 
-    // read after the await, not before: inputs are set once the constructor has returned
+    // read after an await, not before: inputs are set once the constructor has returned
+    await Promise.resolve();
     const attaching = this.attachTo();
     if (attaching) {
       // nothing to choose: the run is already going, so this opens straight onto it
+      if (!(await this.helperAnswer)) return;
       this.folder.set(this.library.store()?.label ?? '');
       this.attach(attaching);
       return;
     }
+    const known = this.config();
+    const config = known ?? BUILT_IN_CONFIG;
+    // a hosted copy's own User settings come before its helper's; a helper on this
+    // computer has settings.ini for them, edited from the same tab
+    this.startFromDefaults({ ...(config.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
+    // when the helper answers for the first time, what it says replaces the built-in lists
+    // for whatever has not been chosen yet
+    void this.helperAnswer.then((answer) => {
+      if (!answer || known) return;
+      if (!this.filetypesTouched) this.selected.set(startingFiletypes(answer));
+      // the up-front answers are chosen on the login step: until then they are the defaults
+      if (this.step() !== 'credentials') {
+        this.startFromDefaults({ ...(answer.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
+      }
+      if (!this.username().trim()) this.username.set(answer.username || '');
+    });
 
     // the library the page has open is where everything goes - the helper has none of its own
     this.folder.set(this.library.store()?.label ?? '');
@@ -1255,6 +1291,7 @@ export class DownloadDialog implements OnDestroy {
 
   protected toggle(filetype: string): void {
     if (this.isLocked(filetype)) return;
+    this.filetypesTouched = true;
     const current = this.selected();
     this.selected.set(
       current.includes(filetype) ? current.filter((x) => x !== filetype) : [...current, filetype],
@@ -1317,13 +1354,9 @@ export class DownloadDialog implements OnDestroy {
         );
         return;
       }
-      this.step.set('floor-warning');
-      void this.jobs.loadNewestFloor(this.library.store()).then((floor) => {
-        this.newestFloorRead.set(floor);
-        if (this.step() === 'floor-warning' && !floor?.missingDownloads?.length) {
-          this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
-        }
-      });
+      // not found yet: on without it - the run page waits for it, and warns there if it must
+      if (!this.floorFinding) this.floorFinding = this.jobs.loadNewestFloor(this.library.store());
+      this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
       return;
     }
     this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
@@ -1528,10 +1561,109 @@ export class DownloadDialog implements OnDestroy {
 
   // region running
 
+  /**
+   * What the run page waits on before it starts a run, if it is still on its way: the helper's
+   * answer (a hosted helper waking), and a quick scan's newest floor when it measures back to
+   * its last run - with that floor's warning shown here, before anything starts, when it could
+   * not download some works. Gives up after START_WAIT_MS. Cancel closes the window.
+   */
+  protected readonly waiting = signal<'' | 'helper' | 'floor' | 'floor-warning'>('');
+  protected readonly waitedSeconds = signal(0);
+  private waitDecided: ((go: boolean) => void) | null = null;
+
+  private async readyToStart(): Promise<boolean> {
+    const deadline = Date.now() + START_WAIT_MS;
+    const started = Date.now();
+    const tick = setInterval(() => this.waitedSeconds.set(Math.round((Date.now() - started) / 1000)), 1000);
+    this.waitedSeconds.set(0);
+    try {
+      this.waiting.set('helper');
+      const answer = await this.waitFor(this.helperAnswer, deadline);
+      if (answer === CANCELLED) return false;
+      if (answer === TIMED_OUT || !answer) {
+        this.error.set(answer === TIMED_OUT ? HELPER_TIMED_OUT : HELPER_UNREACHABLE);
+        this.step.set('failed');
+        return false;
+      }
+      if (this.action() === 'quick' && this.coverage() === 'all' && !this.resuming()) {
+        let floor = this.newestFloor();
+        if (floor === undefined) {
+          this.waiting.set('floor');
+          const found = await this.waitFor(
+            this.floorFinding ?? this.jobs.loadNewestFloor(this.library.store()), deadline);
+          if (found === CANCELLED) return false;
+          if (found === TIMED_OUT) {
+            this.error.set(HELPER_TIMED_OUT);
+            this.step.set('failed');
+            return false;
+          }
+          floor = found;
+          this.newestFloorRead.set(floor);
+        }
+        if (floor?.missingDownloads?.length) {
+          clearInterval(tick);
+          this.waiting.set('floor-warning');
+          const go = await new Promise<boolean>((decide) => (this.waitDecided = decide));
+          if (!go) return false;
+        }
+      }
+      return true;
+    } finally {
+      clearInterval(tick);
+      this.waitDecided = null;
+      this.waiting.set('');
+    }
+  }
+
+  /** a promise, or TIMED_OUT at the deadline, or CANCELLED if the wait was cancelled */
+  private waitFor<T>(promise: Promise<T>, deadline: number): Promise<T | typeof TIMED_OUT | typeof CANCELLED> {
+    return new Promise((done) => {
+      const timer = setTimeout(() => done(TIMED_OUT), Math.max(0, deadline - Date.now()));
+      this.waitDecided = () => {
+        clearTimeout(timer);
+        done(CANCELLED);
+      };
+      void promise.then((value) => {
+        clearTimeout(timer);
+        done(value);
+      });
+    });
+  }
+
+  /** the run failed before starting because the helper never answered */
+  protected readonly helperNeverAnswered = computed(
+    () => this.error() === HELPER_TIMED_OUT || this.error() === HELPER_UNREACHABLE,
+  );
+
+  /** the waiting page's Cancel: nothing has started, so the window just closes */
+  protected cancelWaiting(): void {
+    this.waitDecided?.(false);
+    this.closed.emit();
+  }
+
+  /** the floor warning on the waiting page answered: measure back to it anyway */
+  protected startWithFloor(): void {
+    this.waitDecided?.(true);
+  }
+
+  /** the floor warning answered: pick another scan, back in the options */
+  protected chooseAnotherFloorFromRun(): void {
+    this.waitDecided?.(false);
+    this.coverage.set('run');
+    this.toFloorPage();
+  }
+
+  /** the helper did not answer: ask it again, and try once more */
+  protected retryConnecting(): void {
+    this.helperAnswer = this.jobs.loadConfig();
+    void this.run();
+  }
+
   private async run(): Promise<void> {
     this.step.set('running');
     this.resetRunState();
     this.runningInBackground.set(this.background());
+    if (!(await this.readyToStart())) return;
 
     let jobId: string;
     try {

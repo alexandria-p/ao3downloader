@@ -19,7 +19,7 @@ import { Faq } from './faq';
 import { Feedback } from './feedback';
 import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
-import { ActiveRun, JobAction, Jobs, RunHistory } from './jobs';
+import { ActiveRun, JobAction, Jobs } from './jobs';
 import { HelperConnection } from './helper-connection';
 import { Library, describeReadProgress } from './library';
 import { LibraryFreshness } from './freshness';
@@ -112,20 +112,6 @@ export class App {
    */
   protected readonly activeRun = computed(() => this.jobs.activeRuns()[0] ?? null);
   /**
-   * What is still being done before a run window opens, all of it at once: the run history
-   * checked for interrupted runs, the helper woken and asked for its config, and - for a quick
-   * scan - the newest scan it would measure back to. The notice names the first still going
-   */
-  protected readonly preparing = signal<readonly Preparation[]>([]);
-  protected readonly checkingRuns = computed(() => this.preparing().length > 0);
-  /** the newest scan a quick scan would measure back to, found before its window opened */
-  protected readonly newestFloor = signal<RunHistory | null | undefined>(undefined);
-  protected readonly preparingNote = computed(() => {
-    const left = this.preparing();
-    return PREPARATIONS.find((step) => left.includes(step.id))?.note ?? '';
-  });
-
-  /**
    * Whether the one-off browser note is up.
    *
    * Said on the first visit and never again: writing into a folder you chose needs the
@@ -145,36 +131,20 @@ export class App {
   private readonly footer = viewChild<ElementRef<HTMLElement>>('appFooter');
 
   /**
-   * Open a run's window, once any run the history still calls 'running' has been checked
-   * against the helper. A run left 'running' by a page that closed or a helper that stopped
-   * is marked interrupted first, so what the window offers - resuming it - is up to date.
+   * Open a run's window at once. Nothing it needs from the helper or the library holds it up:
+   * the helper is asked for its config, and a quick scan's newest floor is looked for, in the
+   * background (`Jobs.connecting`, `Jobs.floorAhead`) - a hosted helper asleep on Render's free
+   * tier takes most of a minute to wake, and the options can be chosen meanwhile. The run page
+   * waits on them only when Start is pressed (`DownloadDialog.readyToStart`). Runs left
+   * 'running' are checked for in the background too: nothing in starting a run depends on it,
+   * and the Retry list checks again itself.
    */
-  protected async openRun(action: JobAction): Promise<void> {
-    if (this.checkingRuns() || this.activeRun()) return;
+  protected openRun(action: JobAction): void {
+    if (this.activeRun()) return;
     const store = this.library.store();
-    const quick = action === 'quick';
-    this.newestFloor.set(undefined);
-    this.preparing.set(quick ? ['history', 'helper', 'floor'] : ['history', 'helper']);
-    const finished = (id: Preparation) => () =>
-      this.preparing.update((left) => left.filter((step) => step !== id));
-
-    // all at once. the helper's config is the run window's first request, and a hosted
-    // helper asleep since its last run (Render's free tier) takes most of a minute to wake -
-    // so that starts now rather than after the history. a quick scan also finds the newest
-    // scan it would measure back to - a handful of records, newest first - so 'since my last
-    // run' needs nothing more once its window is open. the whole list waits for 'choose which
-    // earlier scan', in the window
-    const settle = this.jobs.settleInterrupted(store).finally(finished('history'));
-    const config = this.jobs.loadConfig().finally(finished('helper'));
-    const floor = quick
-      ? this.jobs.loadNewestFloor(store).finally(finished('floor'))
-      : Promise.resolve(undefined);
-    try {
-      const [, , newest] = await Promise.all([settle, config, floor]);
-      this.newestFloor.set(newest);
-    } finally {
-      this.preparing.set([]);
-    }
+    this.jobs.connecting = this.jobs.loadConfig();
+    this.jobs.floorAhead = action === 'quick' ? this.jobs.loadNewestFloor(store) : null;
+    void this.jobs.settleInterrupted(store);
     this.dialogAction.set(action);
   }
 
@@ -277,6 +247,13 @@ export class App {
       watching.observe(footer);
       note();
       this.destroyRef.onDestroy(() => watching.disconnect());
+    });
+    // runs left 'running' by a page that closed or a helper that stopped are marked
+    // interrupted whenever a library is opened or refreshed - in the background, since nothing
+    // waits on it (History and the Retry list check again for themselves)
+    effect(() => {
+      const read = this.library.lastRead();
+      if (read) untracked(() => void this.jobs.settleInterrupted(read.store));
     });
     // finishes a sign-in if this load is the way back from dropbox.com
     void this.dropbox.restore();
@@ -473,12 +450,6 @@ export class App {
  * value that will not parse (an old file's free-text retrieval time) is shown as it was written.
  */
 /** what openRun does before a window opens, in the order its notice names them */
-type Preparation = 'history' | 'helper' | 'floor';
-const PREPARATIONS: { id: Preparation; note: string }[] = [
-  { id: 'history', note: 'Checking your run history...' },
-  { id: 'helper', note: 'Connecting to the helper...' },
-  { id: 'floor', note: 'Reading your scan history...' },
-];
 
 export function shownTime(value: string | Date): string {
   const at = value instanceof Date ? value : new Date(value);

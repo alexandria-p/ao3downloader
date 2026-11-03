@@ -457,63 +457,43 @@ describe('App', () => {
     expect(actionLabels(element)).toContain('Quick Scan');
   });
 
-  it('gets a quick scan window ready all at once, naming whatever is still going, before it opens',
-    async () => {
-      const library = TestBed.inject(Library);
-      library.data.set(exportOf(1));
-      openLibrary();
-      const jobs = TestBed.inject(Jobs);
-      let settled: (n: number) => void = () => undefined;
-      let connected: (c: null) => void = () => undefined;
-      const settle = vi.spyOn(jobs, 'settleInterrupted').mockImplementation(
-        () => new Promise<number>((resolve) => (settled = resolve)),
-      );
-      const config = vi.spyOn(jobs, 'loadConfig').mockImplementation(
-        () => new Promise((resolve) => (connected = resolve)),
-      );
-      let found: (f: null) => void = () => undefined;
-      const newest = vi.spyOn(jobs, 'loadNewestFloor').mockImplementation(
-        () => new Promise((resolve) => (found = resolve)),
-      );
-      const floors = vi.spyOn(jobs, 'loadFloorRuns');
-      const tick = async () => {
-        await new Promise((done) => setTimeout(done, 0));
-        fixture.detectChanges();
-      };
-      const notice = () => element.querySelector('.checking-runs')?.textContent ?? null;
+  it('opens a run window at once, asking the helper and the history in the background', async () => {
+    const library = TestBed.inject(Library);
+    library.data.set(exportOf(1));
+    openLibrary();
+    const jobs = TestBed.inject(Jobs);
+    const settle = vi.spyOn(jobs, 'settleInterrupted').mockImplementation(() => new Promise(() => undefined));
+    const config = vi.spyOn(jobs, 'loadConfig').mockImplementation(() => new Promise(() => undefined));
+    const newest = vi.spyOn(jobs, 'loadNewestFloor').mockImplementation(() => new Promise(() => undefined));
+    const floors = vi.spyOn(jobs, 'loadFloorRuns');
 
-      const fixture = TestBed.createComponent(App);
-      await fixture.whenStable();
-      const element = fixture.nativeElement as HTMLElement;
-      // the page asks for the config once as it opens, too
-      const before = config.mock.calls.length;
-      Array.from(element.querySelectorAll<HTMLButtonElement>('.actions button'))
-        .find((b) => b.textContent?.includes('Quick Scan'))!.click();
-      await tick();
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    const before = { settle: settle.mock.calls.length, config: config.mock.calls.length };
+    Array.from(element.querySelectorAll<HTMLButtonElement>('.actions button'))
+      .find((b) => b.textContent?.includes('Quick Scan'))!.click();
+    fixture.detectChanges();
 
-      // all started together: the newest floor too, but never the whole list of them
-      expect(settle).toHaveBeenCalledTimes(1);
-      expect(config.mock.calls.length).toBe(before + 1);
-      expect(newest).toHaveBeenCalledTimes(1);
-      expect(floors).not.toHaveBeenCalled();
-      expect(notice()).toContain('Checking your run history');
-      expect(element.querySelector('app-download-dialog')).toBeNull();
+    // none of them answered, and the window is open anyway
+    expect(element.querySelector('app-download-dialog')).toBeTruthy();
+    expect(settle.mock.calls.length).toBe(before.settle + 1);
+    expect(config.mock.calls.length).toBe(before.config + 1);
+    expect(newest).toHaveBeenCalledTimes(1);
+    expect(floors).not.toHaveBeenCalled();
+  });
 
-      settled(0);
-      await tick();
-      expect(notice()).toContain('Connecting to the helper');
-      expect(element.querySelector('app-download-dialog')).toBeNull();
-
-      connected(null);
-      await tick();
-      expect(notice()).toContain('Reading your scan history');
-      expect(element.querySelector('app-download-dialog')).toBeNull();
-
-      found(null);
-      await tick();
-      expect(notice()).toBeNull();
-      expect(element.querySelector('app-download-dialog')).toBeTruthy();
-    });
+  it('checks for interrupted runs whenever a library is read', async () => {
+    const jobs = TestBed.inject(Jobs);
+    const settle = vi.spyOn(jobs, 'settleInterrupted').mockResolvedValue(0);
+    const library = TestBed.inject(Library);
+    TestBed.createComponent(App);
+    TestBed.tick();
+    const store = { label: 'x' } as never;
+    library.lastRead.set({ store, at: Date.now() });
+    TestBed.tick();
+    expect(settle).toHaveBeenCalledWith(store);
+  });
 
   it('offers no run for a folder that is only remembered, waiting on a reconnect', async () => {
     // a run writes through the page, and the page cannot write there until access is confirmed

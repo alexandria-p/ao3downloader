@@ -80,6 +80,19 @@ export interface ServerConfig {
   app?: AppStatus;
 }
 
+/**
+ * What a run window works from until the helper has answered - the helper's own lists
+ * (`strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES_WITH_METADATA`, `FORCED_FILETYPES`,
+ * `DEFAULT_FILETYPES`), so the options and file types can be chosen while a hosted helper
+ * wakes. The run is never started on it: Start waits for the helper's real answer.
+ */
+export const BUILT_IN_CONFIG: ServerConfig = {
+  username: '',
+  filetypes: ['AZW3', 'EPUB', 'MOBI', 'PDF', 'HTML', 'JSON'],
+  forced: ['JSON'],
+  defaults: ['JSON', 'HTML'],
+};
+
 /** the questions the console menu asks after the file types */
 export interface JobOptions {
   /**
@@ -738,6 +751,15 @@ export class Jobs {
    * than the whole history read again (`loadRetryableRun`).
    */
   historyRead: { store: LibraryStore; runs: RunHistory[] } | null = null;
+
+  /**
+   * The helper's answer to the config asked for as a run window opened (`App.openRun`) - in
+   * the background, so the options can be chosen while a hosted helper wakes. The run page
+   * waits on it before starting (`DownloadDialog.readyToStart`).
+   */
+  connecting: Promise<ServerConfig | null> | null = null;
+  /** a quick scan's newest floor, looked for as its window opened; null when none was asked */
+  floorAhead: Promise<RunHistory | null> | null = null;
 
   /**
    * One run, with how it can be retried. The helper judges it alongside the runs newer than

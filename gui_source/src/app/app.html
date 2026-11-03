@@ -296,20 +296,9 @@
 
 @if (dialogAction(); as action) {
   <app-download-dialog [action]="action" [resumeFrom]="resumeFrom()" [attachTo]="attachTo()"
-                       [newestFloorAhead]="newestFloor()"
                        (closed)="dialogClosed()" />
 }
 
-<!--
-  before a run window opens, runs the history still calls 'running' are checked against the
-  helper - so one that was interrupted is marked so, and can be offered for resuming
--->
-@if (checkingRuns()) {
-  <div class="checking-runs" role="status">
-    <span class="spinner" aria-hidden="true"></span>
-    <span>{{ preparingNote() }}</span>
-  </div>
-}
 
 @if (mode() === 'local') {
   @if (needsReconnect()) {
