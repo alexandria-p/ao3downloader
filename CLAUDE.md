@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2056 python passed; 851 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2056 python passed; 853 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1192,6 +1192,12 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
   step in the plan done, earlier or skipped; else `status == success`) greys `index` and
   `downloads` with `RETRY_ALL_DONE`. **Download several fics has `downloads`** (single fic does
   not): `run_works` passes over fics with every format in `formats_done`, unlooked-up.
+- **The retry page says what went wrong last time** (`.retry-issues`, `attemptIssues` in
+  `issues.ts`, read off the run's own record as History reads it): how it ended (failed, stopped,
+  interrupted, abandoned, and its `error`), where indexing broke off (`describeGap`), the works it
+  could not download (`failureWords`), copies to check by hand and older copies not removed - the
+  first `ATTEMPT_ISSUES_SHOWN` (5) of each, then how many more. Skipped bookmarks are left out:
+  retrying cannot make one a work. A record with none says *Nothing*.
 - **A retry is acknowledged first**, on a page of its own after the list (`retry-how`): it shows
   `retryTerms` (the original run's floor and ceiling or range, file types and ticked options) and
   Continue stays disabled until `retryAcknowledged` is ticked - reset whenever another run is

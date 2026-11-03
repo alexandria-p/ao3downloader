@@ -37,7 +37,7 @@ import { LibraryFreshness } from './freshness';
 import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
-import { RunIssues, issueCount, issuesReport } from './issues';
+import { RunIssues, attemptIssues, issueCount, issuesReport } from './issues';
 import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
 
 type Step =
@@ -339,6 +339,12 @@ export class DownloadDialog implements OnDestroy {
         failed: 'failed', running: 'did not finish', pending: 'not reached' } as Record<string, string>
     )[outcome] ?? outcome;
   }
+
+  /** what went wrong on the run being retried, said on the retry page */
+  protected readonly retryIssues = computed(() => {
+    const run = this.chosenResume();
+    return run ? attemptIssues(run) : [];
+  });
 
   protected statusWord(status: RunStatus): string {
     return (

@@ -759,6 +759,30 @@
                 {{ statusWord(run.status) }}
               </span>
             </p>
+            <div class="retry-issues">
+              <p><strong>What went wrong last time</strong></p>
+              @if (retryIssues().length) {
+                <ul>
+                  @for (issue of retryIssues(); track $index) {
+                    <li>
+                      {{ issue.summary }}
+                      @if (issue.details.length) {
+                        <ul class="retry-issue-details">
+                          @for (line of issue.details; track $index) {
+                            <li>{{ line }}</li>
+                          }
+                          @if (issue.more) {
+                            <li class="dim">and {{ issue.more | number }} more - History lists them all</li>
+                          }
+                        </ul>
+                      }
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <p class="dim">Nothing - its record holds no failures, gaps or copies to check.</p>
+              }
+            </div>
             @if (run.warnings.length) {
               <div class="retry-warning" role="note">
                 @for (warning of run.warnings; track $index) {

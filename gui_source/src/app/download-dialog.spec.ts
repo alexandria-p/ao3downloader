@@ -3542,6 +3542,49 @@ describe('DownloadDialog', () => {
       expect(failed.closest('label')!.title).toContain('Every work it set out to get arrived');
     });
 
+  it('says on the retry page what went wrong on the run being retried', async () => {
+    const failures = Array.from({ length: 7 }, (_, i) => ({
+      id: String(100 + i), link: `https://archiveofourown.org/works/${100 + i}`,
+      error: 'not found', reason: 'status', status: 404,
+    }));
+    jobs.retryableOnRecord = [ended({
+      status: 'stopped',
+      failures,
+      skipped: [{ id: null, link: '', error: 'a series' }],
+      keptCopies: [{ id: '9', link: '', error: 'could not delete', file: '9 A - B 2026-01-01.pdf' }],
+      indexFailures: [{
+        kind: 'listing', walk: 'updated', sort: 'updated', failedPage: 4, totalPages: 9,
+        firstPage: 1, lastPage: 3, works: 60, reason: 'maintenance', error: '',
+      }],
+    })];
+    await toRetryPage();
+    await pick();
+    await toHow();
+
+    const said = element.querySelector('.retry-issues')?.textContent ?? '';
+    expect(said).toContain('What went wrong last time');
+    expect(said).toContain('It was stopped before it finished');
+    expect(said).toContain('Its indexing broke off in 1 place');
+    expect(said).toContain('stopped at page 4 of 9: AO3 was down for maintenance');
+    expect(said).toContain('7 works could not be downloaded');
+    expect(said).toContain('Work 100: AO3 answered with status 404');
+    // the first five, then how many more
+    expect(said).not.toContain('Work 105');
+    expect(said).toContain('and 2 more');
+    expect(said).toContain('1 copy needs checking by hand');
+    // retrying cannot turn a series into a work, so it is not one of the run's problems
+    expect(said).not.toContain('a series');
+  });
+
+  it('says on the retry page when the run being retried recorded nothing wrong', async () => {
+    jobs.retryableOnRecord = [ended({ status: 'success' })];
+    await toRetryPage();
+    await pick();
+    await toHow();
+
+    expect(element.querySelector('.retry-issues')?.textContent).toContain('Nothing');
+  });
+
   it('retries a run that went without logging in without asking for a password', async () => {
     jobs.retryableOnRecord = [ended({ options: { skipLogin: true }, username: 'Someone' })];
     await toRetryPage();
