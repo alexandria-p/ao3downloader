@@ -245,6 +245,15 @@ export class Library {
 
   private handle: DirectoryHandle | null = null;
 
+  /**
+   * The last time the whole library was read, and from which store - what `LibraryFreshness`
+   * measures a finished run against. A run's own changes taken in by `refreshAfterRun` do
+   * not count as a read: they bring in that run alone.
+   */
+  readonly lastRead = signal<{ store: LibraryStore; at: number } | null>(null);
+  /** a full read again, with the listing kept on screen meanwhile (`refresh`) */
+  readonly refreshing = signal(false);
+
   /** Show the folder on this computer: reopen the remembered one if it can still be read. */
   async showLocal(): Promise<void> {
     if (this.showing === 'dropbox') {
@@ -263,10 +272,12 @@ export class Library {
    * folder. Works are not read at all until one is opened. A folder with nothing in it yet
    * is an empty library, not an error - a folder chosen a minute ago is exactly that.
    */
-  async showDropbox(): Promise<void> {
+  async showDropbox(keep = false): Promise<void> {
     this.showing = 'dropbox';
     const generation = ++this.generation;
-    this.clearLibrary();
+    // a refresh keeps what is on screen until the new read replaces it, so the listing and its
+    // filters stay put; opening the library starts from nothing
+    if (!keep) this.clearLibrary();
     // the local folder is not what a run would write to now; Dropbox's replaces it once open
     this.store.set(null);
     this.error.set('');
@@ -305,6 +316,9 @@ export class Library {
       // the listing says whether there is one, so a library with nothing hidden costs no download
       const hiddenPath = `${folder.path}/${HIDDEN_FILE}`.toLowerCase();
       await this.readHidden(generation, files.some((f) => f.path.toLowerCase() === hiddenPath));
+      if (generation === this.generation && this.store()) {
+        this.lastRead.set({ store: this.store()!, at: Date.now() });
+      }
     } catch (error) {
       if (generation !== this.generation) return;
       this.error.set(
@@ -380,7 +394,24 @@ export class Library {
     this.folderName.set('');
     this.needsReconnect.set(false);
     this.store.set(null);
+    this.lastRead.set(null);
     this.clearLibrary();
+  }
+
+  /**
+   * Read the library open now again, all of it, keeping the listing on screen until the new
+   * read replaces it - for changes this page did not make: a background run, another device,
+   * files changed by hand.
+   */
+  async refresh(): Promise<void> {
+    if (this.refreshing()) return;
+    this.refreshing.set(true);
+    try {
+      if (this.showing === 'dropbox') await this.showDropbox(true);
+      else if (this.localHandle && this.store()) await this.readHandle(this.localHandle, ++this.generation);
+    } finally {
+      this.refreshing.set(false);
+    }
   }
 
   /** What is on screen, without touching which local folder is remembered. */
@@ -485,6 +516,7 @@ export class Library {
       // not the wrong folder
       await this.ingestRecords(jsonOf(everything), this.mapCopies(works), false);
       await this.readHidden(generation);
+      if (current() && this.store()) this.lastRead.set({ store: this.store()!, at: Date.now() });
     } catch {
       if (current()) this.error.set(`Could not read ${handle.name}.`);
     } finally {

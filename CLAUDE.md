@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2008 python passed; 808 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2008 python passed; 816 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2306,8 +2306,24 @@ re-reads only the changed index files (`indexing/`, `collections/`), swaps them 
 entries and collections they hold (`entries`, kept by `publish`), and lists `works/` again only
 if the run touched it (`listCopies`). A different library now on screen, a later read
 (`generation`), or a failure leaves the listing as it was. An index file deleted outside a run
-keeps its entry until the next full read; runs never delete one. A **background** run answers
-storage itself, so the page sees none of its changes - its results show on the next read.
+keeps its entry until the next full read; runs never delete one. The run window says
+nothing about it - the user asked that an ordinary run's refresh go unannounced.
+
+A **background** run answers storage itself, so the page sees none of its changes. **The
+works and collections views notice instead** (`freshness.ts`, `LibraryFreshness.behind`): every
+full read sets `Library.lastRead`, and the freshness service then lists `runs/` and asks the
+helper what is going (`refreshActiveRuns`). A check lists `runs/` again and reads only the
+records new since, or going then (by the run id in the file name, `<started>-<id8>.json`);
+one that has finished, and is not `takenIn` (the run window marks an ordinary run's id as it
+finishes), sets `behind`. **No clocks are compared** - a hosted helper writes naive local
+times and need not agree with the browser, and two helpers can share one Dropbox library.
+`App` checks on switching to either view and on a tab coming back into view (each at most
+every `CHECK_EVERY_MS`), and whenever a run leaves `Jobs.activeRuns`. The notice's
+**Refresh** is `Library.refresh`: a full read again **without clearing the listing first**
+(`showDropbox(keep)`, or `readHandle` again), so the works list and its filters stay on screen
+until the new read replaces them; disabled while a run is going. A run from another helper
+that was already going at the read is not known to have been going, so its ending is not
+seen until a later run's record appears.
 
 ### Every downloaded format has a button beside the title
 

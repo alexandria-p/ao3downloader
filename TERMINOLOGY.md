@@ -97,6 +97,7 @@ the same thing in conversation.
 - **Index** - the `indexing` folder: one JSON file per work, plus `series/` and `external/` subfolders.
 - **Run history** [run record, history file] - one JSON file per run in `runs/`, saying what it did - including the AO3 account it logged in as (`username`, never the password), which History shows as *AO3 account*.
 
+- **Library behind** [stale listing, needs refresh] - the works or collections list noticed a run finished since the library was read whose changes this page did not take in (a background run, or one from another tab or device): it says so with a **Refresh** button (`LibraryFreshness.behind`, `Library.refresh`, which keeps the list on screen). An ordinary run's changes are taken in as it ends, unannounced.
 
 ## The app
 

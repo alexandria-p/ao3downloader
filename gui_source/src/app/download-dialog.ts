@@ -31,6 +31,7 @@ import {
 } from './jobs';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
+import { LibraryFreshness } from './freshness';
 import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
@@ -115,6 +116,7 @@ export class DownloadDialog implements OnDestroy {
   private readonly library = inject(Library);
   private readonly dropbox = inject(DropboxSession);
   private readonly helper = inject(HelperConnection);
+  private readonly freshness = inject(LibraryFreshness);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly action = input.required<JobAction>();
@@ -1847,6 +1849,9 @@ export class DownloadDialog implements OnDestroy {
     this.held.set(false);
     this.holdPending.set(false);
     this.cancelling.set(false);
+    // every change an ordinary run made went through this page and is taken in below, so it
+    // is not one the works list should offer to refresh for. a background run's were not
+    if (!this.runningInBackground()) this.freshness.takenIn(this.jobId);
     this.jobId = null;
     this.stop?.();
     this.stop = null;

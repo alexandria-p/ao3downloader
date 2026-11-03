@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { effect } from '@angular/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { Library } from './library';
 import { LibrarySetup } from './library-setup';
@@ -191,6 +192,27 @@ describe('Library', () => {
     expect(store.remembered).toBe(1);
     expect(library.folderName()).toBe('downloads');
     expect(library.data()?.works.length).toBe(1);
+  });
+
+  it('notes when the whole library was last read, and a refresh reads it again without clearing the listing', async () => {
+    await library.pickFolder();
+    const first = library.lastRead();
+    expect(first?.store).toBe(library.store());
+
+    let emptied = false;
+    const watching = TestBed.runInInjectionContext(() =>
+      effect(() => {
+        if (library.data() === null) emptied = true;
+      }),
+    );
+    await library.refresh();
+    TestBed.tick();
+    watching.destroy();
+
+    expect(emptied).toBe(false);
+    expect(library.data()?.works.length).toBe(1);
+    expect(library.lastRead()).not.toBe(first);
+    expect(library.refreshing()).toBe(false);
   });
 
   it('clears everything when the folder is forgotten', async () => {

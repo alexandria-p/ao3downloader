@@ -430,3 +430,11 @@
   color: var(--text-dim);
   font-size: 0.88rem;
 }
+
+/* the works list is behind a run that finished elsewhere - said beside the way to catch up */
+.notice.library-behind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}

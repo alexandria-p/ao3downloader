@@ -394,6 +394,14 @@
     }
   </section>
 } @else if (view() === 'bookmarks') {
+  @if (freshness.behind()) {
+    <p class="notice library-behind" role="status">
+      A run has finished since this library was read, so the list may not show what it changed.
+      <button type="button" class="button subtle" [disabled]="refreshing() || !!activeRun()" (click)="refreshLibrary()">
+        {{ refreshing() ? 'Refreshing...' : 'Refresh' }}
+      </button>
+    </p>
+  }
   @if (data()) {
     <app-work-list
       [works]="works()"
@@ -409,6 +417,14 @@
     </p>
   }
 } @else if (view() === 'collections') {
+  @if (freshness.behind()) {
+    <p class="notice library-behind" role="status">
+      A run has finished since this library was read, so the list may not show what it changed.
+      <button type="button" class="button subtle" [disabled]="refreshing() || !!activeRun()" (click)="refreshLibrary()">
+        {{ refreshing() ? 'Refreshing...' : 'Refresh' }}
+      </button>
+    </p>
+  }
   <app-collections-view />
 } @else if (view() === 'history') {
   <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)" />

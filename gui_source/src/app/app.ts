@@ -20,6 +20,7 @@ import { FolderWarning, folderWarningDismissed } from './folder-warning';
 import { ActiveRun, JobAction, Jobs } from './jobs';
 import { HelperConnection } from './helper-connection';
 import { Library, describeReadProgress } from './library';
+import { LibraryFreshness } from './freshness';
 import { LibrarySetup } from './library-setup';
 import { PasscodeGate } from './passcode-gate';
 import { SetupOverlay } from './setup-overlay';
@@ -42,9 +43,13 @@ export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug' | 'se
     CollectionsView, Feedback, PasscodeGate, SetupOverlay, UserSettings],
   styleUrl: './app.css',
   templateUrl: './app.html',
+  // a tab coming back into view is when a run elsewhere is most likely to have finished
+  host: { '(document:visibilitychange)': 'lookAgain()' },
 })
 export class App {
   private readonly library = inject(Library);
+  protected readonly freshness = inject(LibraryFreshness);
+  protected readonly refreshing = this.library.refreshing;
   private readonly jobs = inject(Jobs);
   private readonly storage = inject(StorageChoice);
   private readonly dropbox = inject(DropboxSession);
@@ -257,6 +262,14 @@ export class App {
     // and asked about again while one is going, so the banner goes when it finishes. only
     // then: with nothing running there is nothing to watch for, and a hosted helper is left
     // to sleep
+    // a run the helper stops listing has ended - whatever it changed may not be on screen
+    let going = new Set<string>();
+    effect(() => {
+      const now = new Set(this.jobs.activeRuns().map((run) => run.id));
+      const ended = [...going].some((id) => !now.has(id));
+      going = now;
+      if (ended) untracked(() => void this.freshness.check());
+    });
     this.watch = setInterval(() => {
       if (this.activeRun()) void this.jobs.refreshActiveRuns();
     }, ACTIVE_RUN_POLL_MS);
@@ -297,6 +310,19 @@ export class App {
 
   protected setView(view: View): void {
     this.view.set(view);
+    if (view === 'bookmarks' || view === 'collections') void this.freshness.check(true);
+  }
+
+  /** a works list in view is when it is worth knowing it is behind */
+  protected lookAgain(): void {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    const view = this.view();
+    if (view === 'bookmarks' || view === 'collections') void this.freshness.check(true);
+  }
+
+  /** read the whole library again, keeping the listing and its filters meanwhile */
+  protected refreshLibrary(): void {
+    void this.library.refresh();
   }
 
   protected async choose(event: Event): Promise<void> {
