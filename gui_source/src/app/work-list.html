@@ -193,49 +193,6 @@
   </p>
 </details>
 
-<!--
-  picking works for a collection of your own. what is ticked is what the filters still show, so
-  narrowing the listing narrows what an action touches, and nothing hidden changes unseen
--->
-@if (canSelect()) {
-  <div class="selection" role="region" aria-label="Selected works">
-    <p class="selection-bar">
-      <button type="button" class="button subtle" (click)="toggleAllShown()">
-        {{ allShownSelected() ? 'Untick all' : 'Tick all ' + (total() | number) + (filtering() ? ' shown' : '') }}
-      </button>
-      <span class="selection-count">{{ selectedShown().length | number }} ticked</span>
-      @if (selectedShown().length) {
-        <button type="button" class="button subtle" (click)="clearSelection()">Clear</button>
-        <!-- a series cannot go in a collection: with only series ticked there is nothing to add -->
-        <button type="button" class="button primary" [disabled]="busy() || !tickedCollectable().length"
-          [title]="tickedCollectable().length ? '' : 'A series cannot be added to a collection - only works can'"
-          (click)="openAdd()">
-          Add to a collection...
-        </button>
-        @if (removableFrom(); as from) {
-          <button type="button" class="button danger" [disabled]="busy()" (click)="removeSelected()">
-            Remove from this collection
-          </button>
-        }
-        <!-- only what applies: Hide for what is showing, Unhide for what is hidden, both for a mix -->
-        @if (tickedShowing().length) {
-          <button type="button" class="button" [disabled]="busy()" (click)="hideTicked()">{{ hideLabel() }}</button>
-        }
-        @if (tickedHidden().length) {
-          <button type="button" class="button" [disabled]="busy()" (click)="unhideTicked()">{{ unhideLabel() }}</button>
-        }
-      }
-    </p>
-
-    @if (outcome()) {
-      <p class="selection-outcome" role="status">{{ outcome() }}</p>
-    }
-    @if (problem()) {
-      <p class="error" role="alert">Not saved: {{ problem() }}</p>
-    }
-  </div>
-}
-
 <!-- where to add to: a window rather than a panel, so it is in view from any fic's menu too -->
 @if (adding() && addingWith(); as works) {
   <div class="hide-modal">
@@ -787,3 +744,50 @@
     </button>
   }
 </ng-template>
+
+<!--
+  picking works for a collection of your own. what is ticked is what the filters still show, so
+  narrowing the listing narrows what an action touches, and nothing hidden changes unseen.
+  shown only once something is ticked, pinned to the bottom of the window above the version
+  bar (--app-footer-height) so it stays in reach however far down the list you are. what the
+  last action did stays a moment after the ticks it acted on are cleared
+-->
+@if (canSelect() && (selectedShown().length || outcome() || problem())) {
+  <div class="selection" role="region" aria-label="Selected works">
+    @if (selectedShown().length) {
+    <p class="selection-bar">
+      <button type="button" class="button subtle" (click)="toggleAllShown()">
+        {{ allShownSelected() ? 'Untick all' : 'Tick all ' + (total() | number) + (filtering() ? ' shown' : '') }}
+      </button>
+      <span class="selection-count">{{ selectedShown().length | number }} ticked</span>
+        <button type="button" class="button subtle" (click)="clearSelection()">Clear</button>
+        <!-- a series cannot go in a collection: with only series ticked there is nothing to add -->
+        <button type="button" class="button primary" [disabled]="busy() || !tickedCollectable().length"
+          [title]="tickedCollectable().length ? '' : 'A series cannot be added to a collection - only works can'"
+          (click)="openAdd()">
+          Add to a collection...
+        </button>
+        @if (removableFrom(); as from) {
+          <button type="button" class="button danger" [disabled]="busy()" (click)="removeSelected()">
+            Remove from this collection
+          </button>
+        }
+        <!-- only what applies: Hide for what is showing, Unhide for what is hidden, both for a mix -->
+        @if (tickedShowing().length) {
+          <button type="button" class="button" [disabled]="busy()" (click)="hideTicked()">{{ hideLabel() }}</button>
+        }
+        @if (tickedHidden().length) {
+          <button type="button" class="button" [disabled]="busy()" (click)="unhideTicked()">{{ unhideLabel() }}</button>
+        }
+    </p>
+    }
+
+    @if (outcome()) {
+      <p class="selection-outcome" role="status">{{ outcome() }}</p>
+    }
+    @if (problem()) {
+      <p class="error" role="alert">Not saved: {{ problem() }}</p>
+    }
+  </div>
+}
+

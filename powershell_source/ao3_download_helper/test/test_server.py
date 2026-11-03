@@ -3566,11 +3566,33 @@ def test_a_fic_run_told_to_skip_the_login_needs_no_credentials_and_keeps_none(ac
     assert thread.call_args.kwargs['args'][1] == ''
 
 
-def test_skipping_the_login_is_only_for_the_fic_runs():
-    sent, jobs, _ = start_request(server.ACTION_BOOKMARKS, username='', password='',
-                                  skipLogin=True)
+@pytest.mark.parametrize('action', server.USERNAME_ACTIONS)
+def test_a_run_of_your_own_listing_told_to_skip_the_login_still_needs_a_username(action):
+    sent, jobs, _ = start_request(action, username='', password='', skipLogin=True)
     assert sent['status'] == 400
+    assert 'username' in sent['body']['error']
     assert jobs == []
+
+
+@pytest.mark.parametrize('action', server.USERNAME_ACTIONS)
+def test_a_run_of_your_own_listing_may_skip_the_login_and_keeps_only_the_username(action):
+    sent, [job], thread = start_request(action, username='Someone', password='secret',
+                                        skipLogin=True)
+    assert sent['status'] == 202
+    assert sent['body']['options']['skipLogin'] is True
+    assert job.username == 'Someone'
+    assert thread.call_args.kwargs['args'][1] == ''
+
+
+def test_every_run_may_skip_the_login():
+    for action in server.ACTIONS:
+        link = 'https://archiveofourown.org/collections/Some_Collection' \
+            if action == server.ACTION_COLLECTION else '123'
+        sent, jobs, _ = start_request(action, link, username='Someone', password='',
+                                      skipLogin=True)
+        assert sent['status'] == 202, (action, sent['body'])
+        assert jobs[0].options['skipLogin'] is True
+        if action not in server.USERNAME_ACTIONS: assert jobs[0].username == ''
 
 
 def test_a_run_told_to_skip_the_login_never_logs_in(fake_environment):

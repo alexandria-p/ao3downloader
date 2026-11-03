@@ -179,8 +179,9 @@ AO3_INFO_LOGIN = 'logging in'
 # the web ui shows the console output as the run's log, and logging in is the first thing
 # it does. without a line here the modal opens on an empty log and looks like it hung
 AO3_INFO_LOGGING_IN = 'logging in as {}'
-AO3_INFO_NOT_LOGGING_IN = ('not logging in to AO3, as asked. works only logged-in users can see will '
-                           'fail, and FicHub is offered for them at the end')
+AO3_INFO_NOT_LOGGING_IN = ('not logging in to AO3, as asked. private bookmarks will not be found, '
+                           'works only logged-in users can see will fail, and FicHub is offered '
+                           'for them at the end')
 AO3_INFO_LOGGED_IN = 'successfully logged in'
 AO3_INFO_DOWNLOADING = 'downloading works'
 AO3_INFO_FILE_TYPE = 'added {} to list of download types'

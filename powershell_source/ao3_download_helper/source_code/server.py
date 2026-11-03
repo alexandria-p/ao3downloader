@@ -212,9 +212,17 @@ ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTIO
 # actions that need a link from the caller rather than working it out from the username
 ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK, ACTION_WORKS)
 
-# the runs pointed at fics by hand, which may be told not to log in (`skipLogin`). Every
-# other run reads your own bookmarks or collections, which only a login can see
-SKIP_LOGIN_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+# the runs pointed at fics by hand. a fic they index that is not your bookmark is marked
+# as having come in by its link (`from_link`)
+FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+
+# every run may be told not to log in (`skipLogin`). these still need a username without
+# one, because they read your own bookmarks or collections listing, found by your name -
+# logged out, ao3 shows only what anyone may see there, so private works and bookmarks are
+# missed. the rest need nothing: an update run works from the index, a collection run from
+# its link, a fic run from its fics
+USERNAME_ACTIONS = (ACTION_BOOKMARKS, ACTION_NEW, ACTION_SYNC, ACTION_CUSTOM, ACTION_QUICK,
+                    ACTION_COLLECTIONS)
 
 # the most fics one 'several fics' run takes. a paste of a whole library belongs to a scan
 MAX_WORK_LINKS = 500
@@ -352,7 +360,7 @@ def resolve_options(requested) -> dict:
         # both: one picks works by where they sit in the listing and the other by when ao3
         # last touched them, and a run cannot be walking a listing and not walking it.
         'dates': bool(given.get('dates')),
-        # a run pointed at fics by hand may go without logging in - see SKIP_LOGIN_ACTIONS
+        # any run may go without logging in - see USERNAME_ACTIONS for what it still needs
         'skipLogin': bool(given.get('skipLogin')),
         # a typed range: the page sends each end as the UTC moment it begins (from) or ends
         # (to) in the person's AO3 zone, and it is kept so. `range_day` dates it in that zone
@@ -1078,8 +1086,9 @@ def run_job(job: Job, password: str) -> None:
                 job.checkpoint(stepPlan=[[step, label] for step, label in job.steps.plan],
                                steps=dict(job.steps.outcomes))
                 if skip_login:
-                    # asked for, on a run pointed at fics by hand: everything goes on as it
-                    # would, and what ao3 shows only to a login fails and goes to FicHub
+                    # asked for: everything goes on as it would, with what ao3 shows anyone.
+                    # private bookmarks are not on the listing, and a work only a login can
+                    # see fails and goes to FicHub
                     print(strings.AO3_INFO_NOT_LOGGING_IN)
                     repo.logged_in = False
                     begin_record(job, fileops)
@@ -1174,8 +1183,9 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
     job.filetypes = list(earlier.get('filetypes') or [])
     # the collection it was pointed at; a resume request carries no link of its own
     job.url = earlier.get('url') or job.url
+    # whether to log in is this attempt's own choice, made with the login it was given
     job.options = {**resolve_options(earlier.get('options')), 'resume': earlier['id'],
-                   'retryMode': mode}
+                   'retryMode': mode, 'skipLogin': bool(job.options.get('skipLogin'))}
     job.resume = {
         'id': earlier['id'],
         'file': earlier.get('file') or '',
@@ -3651,7 +3661,7 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         answer = fichub.lookup(ao3.repo, link)
         record = fichub.entry_from(answer, link, entry)
         # a fic run asked for this one by its link: say so, unless it is your bookmark
-        if job is not None and job.action in SKIP_LOGIN_ACTIONS and not was_bookmark(entry):
+        if job is not None and job.action in FIC_ACTIONS and not was_bookmark(entry):
             record[strings.FROM_LINK_FIELD] = True
         title = record.get('title') or title
         print(strings.AO3_INFO_FICHUB_FOUND.format(failure['id'], title))
@@ -4796,11 +4806,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {'error': str(e)})
             return
         options = resolve_options(body.get('options'))
-        # only a run pointed at fics by hand may go without a login; any other always logs in
-        if action not in SKIP_LOGIN_ACTIONS: options['skipLogin'] = False
         if options['skipLogin']:
-            # whatever was typed is not used, so it is not kept either
-            username, password = '', ''
+            # no password is used, so none is kept. a run reading your own listing is found
+            # by your username; any other has no use for one either
+            password = ''
+            if action not in USERNAME_ACTIONS: username = ''
+            elif not username:
+                self.send_json(400, {'error': 'a username is required to read your bookmarks '
+                                              'or collections, even without logging in'})
+                return
         elif not username or not password:
             self.send_json(400, {'error': 'username and password are required'})
             return

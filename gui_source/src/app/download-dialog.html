@@ -149,28 +149,6 @@
           <p class="hint">Saved to <code>{{ folder() }}</code>, alongside your own collections.</p>
         }
 
-        @if (picksSkipLogin()) {
-          <label class="check">
-            <input
-              type="checkbox"
-              name="skipLogin"
-              [checked]="skipLogin()"
-              (change)="skipLogin.set($any($event.target).checked)"
-            />
-            <span>Skip AO3 login?</span>
-          </label>
-          @if (skipLogin()) {
-            <div class="warning skip-login-warning">
-              <p><strong>This is not recommended.</strong></p>
-              <p>
-                Without logging in, fics their authors have restricted to AO3 users are much
-                harder to reach - AO3 will not show them to this run. Anything it cannot get from
-                AO3 while logged out, the run may have to fall back on fetching from FicHub
-                instead.
-              </p>
-            </div>
-          }
-        }
       </form>
       <footer>
         <button type="button" class="button subtle" (click)="close()">Cancel</button>
@@ -603,6 +581,33 @@
 
         </fieldset>
 
+        <fieldset class="login-choice">
+          <legend>Logging in</legend>
+          <label class="check">
+            <input
+              type="checkbox"
+              name="skipLogin"
+              [checked]="skipLogin()"
+              (change)="skipLogin.set($any($event.target).checked)"
+            />
+            <span>Skip AO3 login?</span>
+          </label>
+          @if (skipLogin()) {
+            <div class="warning skip-login-warning">
+              <p><strong>This is not recommended.</strong></p>
+              <p>
+                Without logging in, AO3 shows this run only what anyone can see. Private
+                bookmarks will not be picked up, and fics their authors have restricted to AO3
+                users will fail - the run may have to fall back on fetching those from FicHub
+                instead.
+              </p>
+              @if (needsUsername()) {
+                <p>You will still be asked for your AO3 username, to find your bookmarks and collections - but not your password.</p>
+              }
+            </div>
+          }
+        </fieldset>
+
       </section>
       <footer>
         <button type="button" class="button subtle" (click)="backFrom('options')">
@@ -1007,9 +1012,32 @@
       <form class="body" (submit)="submit($event)">
         @if (!logsIn()) {
           <p class="not-logging-in">
-            <strong>Not logging in to AO3</strong>, as you chose. Fics only logged-in users can
-            see will fail, and the run will offer to try FicHub for them at the end.
+            <strong>Not logging in to AO3</strong>, as you chose. Private bookmarks will not be
+            picked up, fics only logged-in users can see will fail, and the run will offer to try
+            FicHub for them at the end.
           </p>
+          @if (needsUsername()) {
+            <label class="field">
+              <span>Username</span>
+              <input
+                type="text"
+                name="username"
+                autocomplete="username"
+                required
+                [value]="username()"
+                (input)="setUsername($any($event.target).value)"
+              />
+            </label>
+            <p class="hint">Your username finds your bookmarks and collections. No password is needed or sent.</p>
+            <label class="check">
+              <input
+                type="checkbox"
+                [checked]="remember()"
+                (change)="toggleRemember($any($event.target).checked)"
+              />
+              <span>Remember my username</span>
+            </label>
+          }
         } @else {
         <p>Log in to AO3 so restricted works and your own bookmarks are visible.</p>
 

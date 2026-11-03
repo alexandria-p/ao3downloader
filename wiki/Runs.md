@@ -37,7 +37,7 @@ Each run asks its options, then which file types, then your login.
 - **Save embedded images separately** - custom run only. Usually unnecessary: images are already inside the downloaded work.
 - **Index and download encountered works** - collection runs only. Off: just records which works the collection holds. On: indexes and downloads them too.
 - **Include subcollections / parent collections** - collection runs only. Follows the family, each collection once, up to 200.
-- **Skip AO3 login?** - the fic runs only, off by default. Not recommended: fics restricted to AO3 users can't be reached logged out, and may have to come from FicHub instead.
+- **Skip AO3 login?** - on every run, off by default. Not recommended: logged out, private bookmarks are missed and fics restricted to AO3 users can't be reached, so they may have to come from FicHub instead. Scans of your own bookmarks or collections still ask for your username, never your password.
 
 ## Questions a run may stop to ask
 

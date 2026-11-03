@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2033 python passed; 832 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2047 python passed; 838 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1037,7 +1037,7 @@ stands for (`quick_scan_floor_at`, `chosen_floor_at`, `newest_indexed_at`, the r
 `dateFrom`) and compared as `ao3_day` of it; an older record's day floor reads as itself. The
 page shows kept moments as days in the zone (`utcToZonedDay`, the Retry step's terms). **Every
 time shown is in the AO3 zone**: the page through `inAo3Zone` (log lines, List refreshed,
-Last indexed, History, abandon times), a run's own lines through `runs.shown(stamp, zone)`
+History, abandon times), a run's own lines through `runs.shown(stamp, zone)`
 and `Repository.zone` (AO3's break), naming the zone. Log stamps stay UTC as kept.
 
 **The file is written when the run starts, not when it ends.** A run killed mid-flight
@@ -2075,15 +2075,19 @@ minutes), said before and after (`AO3_INFO_INDEX_CHECK`, then `_FOUND` with the 
 failure that never reads the library and goes to FicHub at the end. No other workflow uses
 `index_one_work`.
 
-**`skipLogin` belongs to `SKIP_LOGIN_ACTIONS` (`work`, `works`) alone** - `do_POST` clamps it
-off for every other run, since they read your own bookmarks. With it, the credentials are
-neither required nor kept (`username`/`password` emptied), `run_job` skips the login step
+**Every run may skip the login** (`skipLogin`, the last thing on every options step - which
+is why every run now has one, `hasOptions`). With it the password is neither required nor
+kept; the runs that read your own listing (`USERNAME_ACTIONS`) still need the username,
+since the url is built from it, and `do_POST` answers 400 without one - every other run's
+username is emptied. Logged out, ao3 shows only what anyone may see, so private bookmarks are
+missed. A retry keeps **this** attempt's choice (`prepare_resume`), not the earlier run's.
+`FIC_ACTIONS` (`work`, `works`) is now only what `from_link` is written for. Then `run_job` skips the login step
 (marked `skipped`, no `authenticated` event) and sets `repo.logged_in = False`, and
 `Ao3.check_session` returns early on that - a logged-out run would otherwise take its first
 failure for a lapsed session and end. `logged_in` is `None` until known, so a mocked or
 console `Repository` keeps the old behaviour. The page's checkbox is unticked by default and
-shows a warning when ticked; its credentials step then asks for nothing, and a hosted page
-seals an empty login.
+shows a warning when ticked; its credentials step then asks for the username alone where one
+is needed (`needsUsername`, from `sentAction`), and a hosted page seals an empty password.
 
 ### Stop and pause land mid-request; force stop ends a run that will not
 
@@ -2221,7 +2225,7 @@ own generation check, so switching library mid-read never leaves the old read's 
 it is cleared once the library is on screen. A local folder is read in the page itself,
 fast enough to need only the plain notice.
 
-### The Bookmarks tab lists the whole index, saying where each came from
+### The Works tab lists the whole index, saying where each came from
 
 It used to list only `isBookmarkEntry` (`bookmarked !== false`), so a fic downloaded by its link
 or found through a collection was on disk and in the index but nowhere in the page.
@@ -2253,6 +2257,14 @@ puts it back if the write fails. Hidden works are left out before any filter (`v
 not counted as a filter - the heading says how many are hidden - and **Show hidden works**
 brings them back dimmed with **Unhide**. The warning before hiding says what it does and how
 to undo it, and can be turned off (`ao3.hideWarningOff`, per browser).
+
+**The selection bar shows only once something is ticked**, and is pinned (`position: sticky`,
+at the end of `work-list.html`) to the bottom of the window just above the version bar - whose
+height `App` measures into `--app-footer-height`, since it wraps on a narrow window. What the
+last action did (`outcome`, `problem`) keeps it up after the ticks clear. **A modal is never
+taller than the window**: `.hide-modal .dialog` caps its height and its body scrolls, and the
+series warning's list scrolls on its own, so sixty ticked series cannot push the buttons off
+screen.
 
 **Ticked works hide and unhide together**, from the selection bar, which offers only what
 applies (`tickedShowing` / `tickedHidden`): Hide or Unhide for one ticked work, Hide all when
@@ -2367,9 +2379,9 @@ again and again. `Library.refresh` is a full read **without clearing the listing
 (`showDropbox(keep)`, or `readHandle` again), so the works list and its filters stay on screen
 until the new read replaces them, with a notice while it reads. A run from another helper
 that was already going at the read is not known to have been going, so its ending is not
-seen until a later run's record appears. **The listing's *Last indexed* is the newest
-`last_indexed` of any entry** (`newestIndexed`), so `refreshAfterRun` taking in a run's
-entries moves it on; it used to be whichever entry came first. Beside it, *List refreshed* is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, both through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** in the top bar is `Library.refresh` on demand. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and Refresh are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
+seen until a later run's record appears. **Above the listing, *List refreshed* is the only
+time shown** (a *Last indexed* beside it was removed at the user's request; `data.retrieved`,
+the newest `last_indexed`, is still worked out). It is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** in the top bar is `Library.refresh` on demand. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and Refresh are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
 
 ### Every downloaded format has a button beside the title
 

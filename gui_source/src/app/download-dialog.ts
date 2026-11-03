@@ -110,6 +110,12 @@ export function parseWorkList(text: string): { ids: string[]; unknown: string[] 
 /** the workflows the helper retries as themselves - its RESUME_ACTIONS */
 const RETRY_AS_ITSELF = ['bookmarks', 'quick', 'custom', 'collections', 'collection'];
 
+/**
+ * The runs that read your own bookmarks or collections, found by your username - so they
+ * need one even without a login. The helper's `USERNAME_ACTIONS`.
+ */
+export const USERNAME_ACTIONS: readonly string[] = ['bookmarks', 'new', 'sync', 'custom', 'quick', 'collections'];
+
 const METADATA = 'JSON';
 
 const USERNAME_KEY = 'ao3.username';
@@ -643,15 +649,25 @@ export class DownloadDialog implements OnDestroy {
   protected readonly maxWorks = MAX_WORKS;
 
   /**
-   * Whether to go without an AO3 login: the runs pointed at fics by hand alone, since every
-   * other one reads your own bookmarks or collections. Off unless ticked, and warned about.
+   * Whether to go without an AO3 login, offered on every run's options. Off unless ticked,
+   * and warned about: logged out, AO3 shows only what anyone may see, so private bookmarks
+   * are missed and restricted works fail.
    */
-  protected readonly picksSkipLogin = computed(
-    () => this.action() === 'work' || this.action() === 'works',
-  );
   protected readonly skipLogin = signal(false);
   /** whether this run will log in at all */
-  protected readonly logsIn = computed(() => !(this.picksSkipLogin() && this.skipLogin()));
+  protected readonly logsIn = computed(() => !this.skipLogin());
+  /**
+   * Whether this run still needs a username without a login: the ones that read your own
+   * bookmarks or collections, found by your name. The helper's `USERNAME_ACTIONS`.
+   */
+  protected readonly needsUsername = computed(() => USERNAME_ACTIONS.includes(this.sentAction()));
+  /** the workflow the start request names - a retry is sent as the run it retries, or custom */
+  protected readonly sentAction = computed<JobAction>(() => {
+    const resumed = this.resuming() ? this.chosenResume() : null;
+    return resumed
+      ? RETRY_AS_ITSELF.includes(resumed.action) ? (resumed.action as JobAction) : 'custom'
+      : this.action();
+  });
 
   /**
    * Which runs say what they cannot do before anyone logs in for them.
@@ -670,26 +686,12 @@ export class DownloadDialog implements OnDestroy {
   });
 
   /**
-   * Whether this run has anything to ask on the options step.
-   *
-   * A step with nothing on it is worse than no step: it reads as something that failed to
-   * load. When there is nothing to choose the run goes straight past it, in both
-   * directions, rather than showing a page that says so.
+   * Whether this run has anything to ask on the options step - always, now: every run can be
+   * told to skip the login. Kept as a computed so the steps that read it need not change
+   * should a run with nothing to choose come back; a step with nothing on it is worse than
+   * none, since it reads as something that failed to load.
    */
-  protected readonly hasOptions = computed(
-    () =>
-      this.picksPages() ||
-      // a run that has swapped pages for a date window still has that choice to offer
-      this.picksDates() ||
-      this.picksSeries() ||
-      this.picksImages() ||
-      this.picksReindex() ||
-      this.picksOverwrite() ||
-      this.picksNonBookmarks() ||
-      this.picksCollectionWorks() ||
-      // it can always be pointed at an earlier scan, so it always has a choice to offer
-      this.action() === 'quick',
-  );
+  protected readonly hasOptions = computed(() => true);
 
   /**
    * The options come before the file types, for every run.
@@ -1426,11 +1428,12 @@ export class DownloadDialog implements OnDestroy {
   protected async submit(event: Event): Promise<void> {
     event.preventDefault();
     if (this.logsIn() && (!this.username().trim() || !this.password())) return;
+    if (this.needsUsername() && !this.username().trim()) return;
 
     // only the username is ours to keep. the password is left to the browser's own
     // password manager, which stores it in the OS keychain rather than in page storage.
     // a run that does not log in leaves whatever was remembered alone
-    if (!this.logsIn()) {
+    if (!this.logsIn() && !this.needsUsername()) {
       // nothing typed is used, so nothing typed is kept
     } else if (this.remember()) {
       safeSet(REMEMBER_KEY, 'true');
@@ -1534,9 +1537,7 @@ export class DownloadDialog implements OnDestroy {
       // a retry goes as the earlier run's own workflow where the helper resumes that kind, and
       // as a custom run otherwise (a fic run, a debug run) - the helper takes the workflow, file
       // types and options from the earlier run's record either way
-      action: resumed
-        ? (RETRY_AS_ITSELF.includes(resumed.action) ? (resumed.action as JobAction) : 'custom')
-        : this.action(),
+      action: this.sentAction(),
       filetypes: this.chosenFiletypes(),
       options: {
         // a slice is only sent by the run that asked for one. the inputs keep whatever
@@ -1570,11 +1571,11 @@ export class DownloadDialog implements OnDestroy {
         // the helper takes everything else from that run's own record
         resume: resumed ? resumed.id : '',
         retryMode: resumed ? this.retryMode() || undefined : undefined,
-        // only a run pointed at fics by hand can go without a login
         skipLogin: !this.logsIn(),
       } satisfies JobOptions,
-      // nothing is sent for a run that will not log in, whatever is in the boxes
-      username: this.logsIn() ? this.username().trim() : '',
+      // nothing is sent for a run that will not log in, whatever is in the boxes - but a
+      // run reading your own listing is found by your username, login or not
+      username: this.logsIn() || this.needsUsername() ? this.username().trim() : '',
       password: this.logsIn() ? this.password() : '',
       url: this.needsLink() ? this.collectionUrl().trim() : undefined,
     };

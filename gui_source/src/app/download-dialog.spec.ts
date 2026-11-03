@@ -704,22 +704,23 @@ describe('DownloadDialog', () => {
     }
   });
 
-  it('skips the options step when there is nothing to choose', async () => {
-    // a step with nothing on it reads as one that failed to load
+  it('opens every run without a link on its options, since any run can skip the login', async () => {
     for (const action of ['sync', 'new', 'update'] as const) {
       await open(action);
 
-      expect(currentStep(), action).toBe('filetypes');
+      expect(currentStep(), action).toBe('options');
+      expect(checkbox('Skip AO3 login?'), action).toBeTruthy();
     }
   });
 
-  it('steps back past a skipped options step rather than into it', async () => {
+  it('steps back from the file types to the options, and out from there', async () => {
     await open('sync');
     await advanceTo('filetypes');
 
-    // nothing before the file types on this run, so there is nowhere back to go
+    button('Back')!.click();
+    await fixture.whenStable();
+    expect(currentStep()).toBe('options');
     expect(button('Cancel')).toBeTruthy();
-    expect(button('Back')).toBeUndefined();
   });
 
   it('does not offer the publication date lookup', async () => {
@@ -741,8 +742,8 @@ describe('DownloadDialog', () => {
     await open('update');
 
     // no listing to page through, no work page to read anything off, nothing to date - so
-    // there is no options step at all, and it opens on the file types
-    expect(currentStep()).toBe('filetypes');
+    // its options step offers only skipping the login
+    expect(currentStep()).toBe('options');
     expect(element.querySelector('input[name="pages"]')).toBeNull();
     expect(checkbox('encountered series')).toBeUndefined();
     expect(checkbox('publication date')).toBeUndefined();
@@ -2446,9 +2447,10 @@ describe('DownloadDialog', () => {
     expect(jobs.started[0].options.skipLogin).toBe(false);
   });
 
-  for (const action of ['work', 'works'] as JobAction[]) {
+  for (const action of ['work', 'works', 'bookmarks', 'quick', 'update', 'collection'] as JobAction[]) {
     it(`offers skipping the login on ${action}, unticked, warning when ticked`, async () => {
       await open(action);
+      await advanceTo('options');
       const box = checkbox('Skip AO3 login?')!;
       expect(box.checked).toBe(false);
       expect(element.querySelector('.skip-login-warning')).toBeNull();
@@ -2459,11 +2461,13 @@ describe('DownloadDialog', () => {
       expect(warning).toContain('not recommended');
       expect(warning).toContain('restricted');
       expect(warning).toContain('FicHub');
+      expect(warning).toContain('Private bookmarks');
     });
   }
 
   it('starts without a login when told to skip it, sending no credentials', async () => {
     await open('work');
+    await advanceTo('options');
     checkbox('Skip AO3 login?')!.click();
     await fixture.whenStable();
     await advanceTo('credentials');
@@ -2476,11 +2480,32 @@ describe('DownloadDialog', () => {
     expect(jobs.started[0].password).toBe('');
   });
 
-  it('never offers skipping the login on a run that reads your bookmarks', async () => {
+  it('asks a run reading your own bookmarks for a username but no password when skipping the login', async () => {
     await open('bookmarks');
-    expect(checkbox('Skip AO3 login?')).toBeUndefined();
-    await open('collection');
-    expect(checkbox('Skip AO3 login?')).toBeUndefined();
+    await advanceTo('options');
+    checkbox('Skip AO3 login?')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('.skip-login-warning')?.textContent).toContain('not your password');
+    await advanceTo('credentials');
+    expect(element.querySelector('input[name="password"]')).toBeNull();
+    const name = element.querySelector<HTMLInputElement>('input[name="username"]')!;
+    expect(name.value).toBe('Someone');
+
+    // a run reading your bookmarks cannot start without one
+    name.value = '';
+    name.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    button('Start download')!.click();
+    await fixture.whenStable();
+    expect(jobs.started.length).toBe(0);
+
+    name.value = 'Someone';
+    name.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    await advanceTo('running');
+    expect(jobs.started[0].options.skipLogin).toBe(true);
+    expect(jobs.started[0].username).toBe('Someone');
+    expect(jobs.started[0].password).toBe('');
   });
 
   it('offers skipping the indexing only on a custom run', async () => {

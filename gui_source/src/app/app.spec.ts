@@ -533,10 +533,23 @@ describe('App', () => {
     expect(element.querySelector('app-collections-view')).toBeTruthy();
     expect(element.querySelectorAll('.blurb').length).toBe(0);
 
-    tab(element, 'Bookmarks')!.click();
+    tab(element, 'Works')!.click();
     await fixture.whenStable();
     expect(element.querySelector('app-collections-view')).toBeNull();
     expect(element.querySelectorAll('.blurb').length).toBe(3);
+  });
+
+  it('says above the listing when it was refreshed, and not when the index was last written', async () => {
+    const library = TestBed.inject(Library);
+    library.data.set(exportOf(3));
+    library.listedAt.set(new Date('2026-11-03T10:00:00Z'));
+
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    expect(text).toContain('List refreshed');
+    expect(text).not.toContain('Last indexed');
   });
 
   it('counts what each page holds on its tab', async () => {
@@ -548,7 +561,7 @@ describe('App', () => {
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
 
-    expect(tab(element, 'Bookmarks')?.textContent).toContain('3');
+    expect(tab(element, 'Works')?.textContent).toContain('3');
     expect(tab(element, 'Collections')?.textContent).toContain('2');
   });
 
@@ -851,7 +864,7 @@ describe('App', () => {
   it('says its version and links the repository on every tab', async () => {
     const { fixture, element } = await render(1);
     TestBed.inject(HelperConnection).settings.update((c) => ({ ...c, version: '1.8.2' }));
-    for (const name of ['Bookmarks', 'Collections', 'History', 'FAQ']) {
+    for (const name of ['Works', 'Collections', 'History', 'FAQ']) {
       tab(element, name)!.click();
       fixture.detectChanges();
       await fixture.whenStable();

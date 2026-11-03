@@ -518,8 +518,10 @@ one fic, and downloads it in the formats you pick. A link to any chapter of it w
 line or separated by commas, spaces or semicolons, up to 500. Each is indexed in turn, then
 all are downloaded; FicHub is offered once, at the end, for every fic that failed.
 
-Both offer **Skip AO3 login?**, unticked by default and not recommended: without a login,
-fics restricted to AO3 users can't be reached, and the run may have to fall back on FicHub.
+Every run's options offer **Skip AO3 login?**, unticked by default and not recommended:
+logged out, private bookmarks are not picked up, fics restricted to AO3 users can't be
+reached, and the run may have to fall back on FicHub. A run reading your own bookmarks or
+collections still asks for your username, but never your password.
 
 **Custom run** is the full scan with its parts made optional. It covers exactly one of
 three things, which it asks before anything else: **all bookmarks**, a **slice** of your
@@ -633,7 +635,7 @@ its place after every page of each collection, so resuming skips the collections
 finished and carries on from the page it reached.
 
 Clicking a collection opens what was recorded about it, along with the works in it, in the
-same listing the Bookmarks tab uses. Works it holds that are not in your index are still
+same listing the Works tab uses. Works it holds that are not in your index are still
 listed, by work number, with a link to ao3.
 
 ## Where downloads go

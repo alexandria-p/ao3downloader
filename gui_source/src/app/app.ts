@@ -3,6 +3,7 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -126,7 +127,10 @@ export class App {
 
   /** the fallback picker, for browsers with no directory picker of their own */
   private readonly feedback = viewChild(Feedback);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly folderInput = viewChild<ElementRef<HTMLInputElement>>('folderInput');
+  /** the version bar, measured so what is pinned to the bottom sits just above it */
+  private readonly footer = viewChild<ElementRef<HTMLElement>>('appFooter');
 
   /**
    * Open a run's window, once any run the history still calls 'running' has been checked
@@ -232,6 +236,18 @@ export class App {
   );
 
   constructor() {
+    // the selection bar is pinned above the version bar, which wraps onto more lines on a
+    // narrow window - so its height is measured rather than guessed (--app-footer-height)
+    afterNextRender(() => {
+      const footer = this.footer()?.nativeElement;
+      if (!footer || typeof ResizeObserver === 'undefined') return;
+      const note = () =>
+        document.documentElement.style.setProperty('--app-footer-height', `${footer.offsetHeight}px`);
+      const watching = new ResizeObserver(note);
+      watching.observe(footer);
+      note();
+      this.destroyRef.onDestroy(() => watching.disconnect());
+    });
     // finishes a sign-in if this load is the way back from dropbox.com
     void this.dropbox.restore();
     // show whichever library is chosen, and show it again whenever that changes. signing in
@@ -307,19 +323,13 @@ export class App {
   protected readonly works = computed<Bookmark[]>(() => this.data()?.works ?? []);
   protected readonly owner = computed(() => ownerFromSource(this.data()?.source ?? ''));
 
-  /** shown above the listing: when the index was last brought up to date */
-  protected readonly retrieved = computed(() => this.data()?.retrieved ?? '');
-
   /**
-   * Above the listing: when the index was last written, and when this list was last brought
-   * up to date from the library - a read, a refresh, or a run's changes taken in
+   * Above the listing: when this list was last brought up to date from the library - a read,
+   * a refresh, or a run's changes taken in
    */
   protected readonly listingNote = computed(() => {
-    const parts: string[] = [];
-    if (this.retrieved()) parts.push(`Last indexed ${shownTime(this.retrieved())}.`);
     const listed = this.library.listedAt();
-    if (listed) parts.push(`List refreshed ${shownTime(listed)}.`);
-    return parts.join(' ');
+    return listed ? `List refreshed ${shownTime(listed)}.` : '';
   });
 
   /** a folder with nothing in it at all is what the getting-started panel is for */
