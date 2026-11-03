@@ -126,6 +126,32 @@ helper needs before a page exists); or a hosted copy gets an editable store of i
 helper side, so both are settings.ini-first. Whichever, the page should say where each value
 comes from.
 
+## TODO: one library, two AO3 accounts
+
+Nothing in a library says whose it is. A run records the account it used (`username` in its
+history file), but no index entry, floor or listing check looks at it. So scanning one
+library with two accounts, one after the other, mixes them:
+
+- **The quick scan measures back to the other account's scan.** `runs.last_successful`
+  and `covered_the_whole_listing` pick the latest qualifying run whatever its account, so
+  account B's quick scan stops at the day account A last scanned, and never sees B's
+  bookmarks made or updated before that day.
+- **The new-bookmarks walk stops early** (combined run, 'new bookmarks only').
+  `shared.indexed_work_ids` holds every indexed work, so B's walk stops at the first fic
+  A had already indexed, even though B never bookmarked it.
+- **`bookmarked: true` means "bookmarked by someone who scanned here"**, and a page never
+  unmarks a known bookmark (`page_bookmark_state`), so it never goes back to false.
+- **The bookmark's own fields** (notes, your tags, rec, date bookmarked) and `source` /
+  `position` belong to whichever account's walk read that fic last. A fic both accounts
+  bookmarked shows the latest of the two.
+- **The heading says "Bookmarks by" one name** (`ownerFromSource`, from the first entry's
+  `source`), however many accounts the list really holds.
+- The run history, the hidden works and the custom collections are shared between both.
+
+The workaround today is one library folder per account. A fix would start by recording the
+account on each entry's bookmark (`bookmarked_by`, a list) and matching floors and the
+known-works set to the run's own username.
+
 ## Other known gaps
 
 - **The order of a collection's works listing** was not checked against the live site. A

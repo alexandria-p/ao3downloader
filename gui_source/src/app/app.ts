@@ -1,7 +1,9 @@
+import { inAo3Zone } from './preferences';
 import {
   Component,
   DestroyRef,
   ElementRef,
+  afterNextRender,
   computed,
   effect,
   inject,
@@ -109,8 +111,6 @@ export class App {
    * whole run window only to be refused at the end of it.
    */
   protected readonly activeRun = computed(() => this.jobs.activeRuns()[0] ?? null);
-  /** set while the run history is checked for interrupted runs, before a window opens */
-  protected readonly checkingRuns = signal(false);
   /**
    * Whether the one-off browser note is up.
    *
@@ -125,21 +125,26 @@ export class App {
 
   /** the fallback picker, for browsers with no directory picker of their own */
   private readonly feedback = viewChild(Feedback);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly folderInput = viewChild<ElementRef<HTMLInputElement>>('folderInput');
+  /** the version bar, measured so what is pinned to the bottom sits just above it */
+  private readonly footer = viewChild<ElementRef<HTMLElement>>('appFooter');
 
   /**
-   * Open a run's window, once any run the history still calls 'running' has been checked
-   * against the helper. A run left 'running' by a page that closed or a helper that stopped
-   * is marked interrupted first, so what the window offers - resuming it - is up to date.
+   * Open a run's window at once. Nothing it needs from the helper or the library holds it up:
+   * the helper is asked for its config, and a quick scan's newest floor is looked for, in the
+   * background (`Jobs.connecting`, `Jobs.floorAhead`) - a hosted helper asleep on Render's free
+   * tier takes most of a minute to wake, and the options can be chosen meanwhile. The run page
+   * waits on them only when Start is pressed (`DownloadDialog.readyToStart`). Runs left
+   * 'running' are checked for in the background too: nothing in starting a run depends on it,
+   * and the Retry list checks again itself.
    */
-  protected async openRun(action: JobAction): Promise<void> {
-    if (this.checkingRuns() || this.activeRun()) return;
-    this.checkingRuns.set(true);
-    try {
-      await this.jobs.settleInterrupted(this.library.store());
-    } finally {
-      this.checkingRuns.set(false);
-    }
+  protected openRun(action: JobAction): void {
+    if (this.activeRun()) return;
+    const store = this.library.store();
+    this.jobs.connecting = this.jobs.loadConfig();
+    this.jobs.floorAhead = action === 'quick' ? this.jobs.loadNewestFloor(store) : null;
+    void this.jobs.settleInterrupted(store);
     this.dialogAction.set(action);
   }
 
@@ -148,7 +153,7 @@ export class App {
     const parsed = new Date(stamp);
     return Number.isNaN(parsed.getTime())
       ? ''
-      : parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      : parsed.toLocaleTimeString([], inAo3Zone({ hour: '2-digit', minute: '2-digit' }));
   }
 
   /** from the banner: the history, where the run in progress is pinned to the top */
@@ -231,6 +236,25 @@ export class App {
   );
 
   constructor() {
+    // the selection bar is pinned above the version bar, which wraps onto more lines on a
+    // narrow window - so its height is measured rather than guessed (--app-footer-height)
+    afterNextRender(() => {
+      const footer = this.footer()?.nativeElement;
+      if (!footer || typeof ResizeObserver === 'undefined') return;
+      const note = () =>
+        document.documentElement.style.setProperty('--app-footer-height', `${footer.offsetHeight}px`);
+      const watching = new ResizeObserver(note);
+      watching.observe(footer);
+      note();
+      this.destroyRef.onDestroy(() => watching.disconnect());
+    });
+    // runs left 'running' by a page that closed or a helper that stopped are marked
+    // interrupted whenever a library is opened or refreshed - in the background, since nothing
+    // waits on it (History and the Retry list check again for themselves)
+    effect(() => {
+      const read = this.library.lastRead();
+      if (read) untracked(() => void this.jobs.settleInterrupted(read.store));
+    });
     // finishes a sign-in if this load is the way back from dropbox.com
     void this.dropbox.restore();
     // show whichever library is chosen, and show it again whenever that changes. signing in
@@ -306,19 +330,13 @@ export class App {
   protected readonly works = computed<Bookmark[]>(() => this.data()?.works ?? []);
   protected readonly owner = computed(() => ownerFromSource(this.data()?.source ?? ''));
 
-  /** shown above the listing: when the index was last brought up to date */
-  protected readonly retrieved = computed(() => this.data()?.retrieved ?? '');
-
   /**
-   * Above the listing: when the index was last written, and when this list was last brought
-   * up to date from the library - a read, a refresh, or a run's changes taken in
+   * Above the listing: when this list was last brought up to date from the library - a read,
+   * a refresh, or a run's changes taken in
    */
   protected readonly listingNote = computed(() => {
-    const parts: string[] = [];
-    if (this.retrieved()) parts.push(`Last indexed ${shownTime(this.retrieved())}.`);
     const listed = this.library.listedAt();
-    if (listed) parts.push(`List refreshed ${shownTime(listed)}.`);
-    return parts.join(' ');
+    return listed ? `List refreshed ${shownTime(listed)}.` : '';
   });
 
   /** a folder with nothing in it at all is what the getting-started panel is for */
@@ -431,8 +449,10 @@ export class App {
  * A time as the listing shows it: the reader's own time zone, date and time to the minute. A
  * value that will not parse (an old file's free-text retrieval time) is shown as it was written.
  */
+/** what openRun does before a window opens, in the order its notice names them */
+
 export function shownTime(value: string | Date): string {
   const at = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(at.getTime())) return String(value);
-  return at.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return at.toLocaleString([], inAo3Zone({ dateStyle: 'medium', timeStyle: 'short' }));
 }

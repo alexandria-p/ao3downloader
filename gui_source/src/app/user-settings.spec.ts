@@ -4,6 +4,7 @@ import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
 import { Jobs, ServerConfig } from './jobs';
 import {
   ANSWER_DEFAULTS_KEY,
+  AO3_TIME_ZONE_KEY,
   BROWSER_NOTICE_KEY,
   QUESTION_TIMEOUT_KEY,
   DEFAULT_FILETYPES_KEY,
@@ -336,6 +337,24 @@ describe('UserSettings', () => {
     await settle();
     const listed = element.querySelector('.reset-window, [role="dialog"]')?.textContent ?? '';
     expect(listed).toContain('Minutes a question waits for you');
+  });
+
+  it('starts the AO3 time zone at this browser\'s own, keeps another when chosen, and Reset puts it back', async () => {
+    const own = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    await open();
+    const select = () => element.querySelector<HTMLSelectElement>('.ao3-zone select')!;
+    expect(select().value).toBe(own);
+
+    const other = own === 'Australia/Sydney' ? 'Europe/London' : 'Australia/Sydney';
+    choose('.ao3-zone select', other);
+    await settle();
+    expect(localStorage.getItem(AO3_TIME_ZONE_KEY)).toBe(other);
+    expect(toast()).toContain(`AO3 dates are read in ${other}`);
+
+    // the browser's own is not kept, so the setting follows the browser
+    choose('.ao3-zone select', own);
+    await settle();
+    expect(localStorage.getItem(AO3_TIME_ZONE_KEY)).toBeNull();
   });
 
   it('keeps no question defaults of its own where settings.ini holds them', async () => {

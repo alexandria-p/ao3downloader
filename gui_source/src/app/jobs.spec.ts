@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Jobs } from './jobs';
+import { Jobs, RunHistory } from './jobs';
 import { LibraryStore } from './library-store';
 
 /** a library that is only its runs folder, in memory */
@@ -95,6 +95,60 @@ describe('Jobs.settleInterrupted', () => {
     expect(statusOf(store, 'b.json')).toBe('stopped');
   });
 
+  it('reads a run it already found ended only once, however many windows open', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'success'), 'b.json': run('b', 'running') });
+    const reads: string[] = [];
+    const read = store.read;
+    store.read = async (path: string) => {
+      reads.push(path);
+      return read(path);
+    };
+    helperWorkingOn('b');
+
+    await new Jobs().settleInterrupted(store);
+    await new Jobs().settleInterrupted(store);
+
+    expect(reads.filter((path) => path === 'runs/a.json')).toHaveLength(1);
+    // still going, so it might yet be interrupted: read every time
+    expect(reads.filter((path) => path === 'runs/b.json')).toHaveLength(2);
+  });
+
+  it('does not read again a run it marked interrupted itself', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'running') });
+    helperWorkingOn();
+    await new Jobs().settleInterrupted(store);
+
+    const reads: string[] = [];
+    const read = store.read;
+    store.read = async (path: string) => {
+      reads.push(path);
+      return read(path);
+    };
+    await new Jobs().settleInterrupted(store);
+    expect(reads).toEqual([]);
+  });
+
+  it('marks a history already read in place, reading only the run it settles', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'running'), 'b.json': run('b', 'success') });
+    helperWorkingOn();
+    const history = [
+      { ...run('a', 'running'), file: 'a.json' },
+      { ...run('b', 'success'), file: 'b.json' },
+    ] as unknown as RunHistory[];
+    const reads: string[] = [];
+    const read = store.read;
+    store.read = async (path: string) => {
+      reads.push(path);
+      return read(path);
+    };
+
+    expect(await new Jobs().settleInterrupted(store, history)).toBe(1);
+
+    expect(history[0].status).toBe('interrupted');
+    expect(statusOf(store, 'a.json')).toBe('interrupted');
+    expect(reads).toEqual(['runs/a.json']);
+  });
+
   it('does nothing without a library', async () => {
     expect(await new Jobs().settleInterrupted(null)).toBe(0);
   });
@@ -138,5 +192,61 @@ describe('Jobs.forceStop', () => {
   it('says so when the helper will not', async () => {
     helperForceStops(null, 404);
     await expect(new Jobs().forceStop('gone', runsFolder({}))).rejects.toThrow();
+  });
+});
+
+describe('Jobs.loadNewestFloor', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('stops reading at the first batch holding a scan to measure back to', async () => {
+    const records: Record<string, object> = {};
+    for (let n = 10; n < 40; n++) records[`2026${n}.json`] = run(`r${n}`, 'success');
+    const store = runsFolder(records);
+    const reads: string[] = [];
+    const read = store.read;
+    store.read = async (path: string) => {
+      reads.push(path);
+      return read(path);
+    };
+    // the helper says every run it is shown qualifies
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) =>
+      new Response(JSON.stringify({ runs: JSON.parse(String(init?.body)).runs }))));
+
+    const floor = await new Jobs().loadNewestFloor(store);
+
+    expect(floor?.id).toBe('r39');
+    // one batch of the thirty, not the whole history
+    expect(reads.length).toBeLessThan(10);
+  });
+});
+
+describe('Jobs.loadRetryableRun', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('judges one run against the history History already read, reading nothing', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'stopped'), 'b.json': run('b', 'success') });
+    const reads: string[] = [];
+    store.read = async (path: string) => {
+      reads.push(path);
+      return null;
+    };
+    const sent: RunHistory[][] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const runs = JSON.parse(String(init?.body)).runs as RunHistory[];
+      sent.push(runs);
+      return new Response(JSON.stringify({ runs: runs.map((r) => ({ ...r, retry: {}, warnings: [] })) }));
+    }));
+    const jobs = new Jobs();
+    jobs.historyRead = {
+      store,
+      runs: [{ ...run('b', 'success'), file: 'b.json' }, { ...run('a', 'stopped'), file: 'a.json' }] as unknown as RunHistory[],
+    };
+
+    const found = await jobs.loadRetryableRun(store, 'a');
+
+    expect(found?.id).toBe('a');
+    expect(reads).toEqual([]);
+    // with the runs newer than it, for the helper's warnings, and nothing older
+    expect(sent[0].map((r) => r.id)).toEqual(['b', 'a']);
   });
 });

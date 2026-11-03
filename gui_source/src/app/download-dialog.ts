@@ -28,6 +28,8 @@ import {
   RunInProgressError,
   StartRequest,
   WorkFailure,
+  BUILT_IN_CONFIG,
+  ServerConfig,
 } from './jobs';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
@@ -36,7 +38,7 @@ import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, issueCount, issuesReport } from './issues';
-import { SYNC_ACK_KEY, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
+import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
 
 type Step =
   /**
@@ -55,17 +57,39 @@ type Step =
   | 'floor-warning'
   /** a custom run choosing which unfinished run to pick up where it left off */
   | 'resume'
+  /** how the chosen run is retried, and its original dates and settings acknowledged */
+  | 'retry-how'
   | 'acknowledge'
   | 'credentials'
   | 'running'
   | 'done'
   | 'failed';
 
+/** how long the run page waits on the helper (and a quick scan's floor) before giving up */
+export const START_WAIT_MS = 2 * 60 * 1000;
+const TIMED_OUT = Symbol('timed out');
+const CANCELLED = Symbol('cancelled');
+const HELPER_TIMED_OUT =
+  'The helper did not answer within 2 minutes, so this run was not started. Nothing has changed.';
+const HELPER_UNREACHABLE =
+  'The helper could not be reached, so this run was not started. Nothing has changed.';
+
 /** any page of a collection will do, so this only asks that a name follows /collections/ */
 const COLLECTION_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/collections\/([^/?#]+)/i;
 
 /** any chapter or page of a work will do, so this only asks that digits follow /works/ */
 const WORK_URL = /^https?:\/\/(www\.)?archiveofourown\.org\/works\/(\d+)/i;
+
+/** a line of the run window's log, and when it was said */
+export interface LogLine {
+  text: string;
+  at: Date;
+}
+
+/** a log line's time as the window shows it: the reader's own zone, to the second */
+export function lineTime(at: Date): string {
+  return at.toLocaleTimeString([], inAo3Zone({ hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+}
 
 /** the most fics one 'several fics' run takes - the helper's MAX_WORK_LINKS */
 export const MAX_WORKS = 500;
@@ -99,6 +123,12 @@ export function parseWorkList(text: string): { ids: string[]; unknown: string[] 
 /** the workflows the helper retries as themselves - its RESUME_ACTIONS */
 const RETRY_AS_ITSELF = ['bookmarks', 'quick', 'custom', 'collections', 'collection'];
 
+/**
+ * The runs that read your own bookmarks or collections, found by your username - so they
+ * need one even without a login. The helper's `USERNAME_ACTIONS`.
+ */
+export const USERNAME_ACTIONS: readonly string[] = ['bookmarks', 'new', 'sync', 'custom', 'quick', 'collections'];
+
 const METADATA = 'JSON';
 
 const USERNAME_KEY = 'ao3.username';
@@ -128,6 +158,32 @@ export class DownloadDialog implements OnDestroy {
    * it would have had it been open all along.
    */
   readonly attachTo = input<ActiveRun | null>(null);
+  /**
+   * The newest scan a quick scan would measure back to, once read: undefined until then, null
+   * when there is none. 'Anything that has changed since my last run' needs only this, so only
+   * the newest records are read for it - never the whole history (`Jobs.loadNewestFloor`).
+   */
+  private readonly newestFloorRead = signal<RunHistory | null | undefined>(undefined);
+  private readonly newestFloor = this.newestFloorRead;
+  /** the newest floor as it is being found - looked for as the window opened (`Jobs.floorAhead`) */
+  private floorFinding: Promise<RunHistory | null> | null = null;
+  /** the helper's answer to the config asked for as the window opened */
+  private helperAnswer: Promise<ServerConfig | null> = Promise.resolve(null);
+  /** the file types were changed by hand, so the helper's own defaults arriving late leave them */
+  private filetypesTouched = false;
+  /** the whole list is being read - asked for once, kept for as long as the window is open */
+  private floorsLoading = false;
+
+  /** every scan to measure back to, read the first time it is wanted and kept after */
+  private loadAllFloors(): void {
+    if (this.floorRuns() !== null || this.floorsLoading) return;
+    this.floorsLoading = true;
+    void this.jobs.loadFloorRuns(this.library.store()).then((runs) => {
+      this.floorsLoading = false;
+      this.floorRuns.set(runs ?? []);
+      this.newestFloorRead.set(runs?.[0] ?? null);
+    });
+  }
   readonly closed = output<void>();
 
   protected readonly step = signal<Step>('preparing');
@@ -186,6 +242,11 @@ export class DownloadDialog implements OnDestroy {
   );
   /** the earlier runs on offer for retrying, once they have been asked for */
   protected readonly retryableRuns = signal<RetryableRun[] | null>(null);
+  /**
+   * The list holds only the run History sent here, not every earlier run - so going back to
+   * the list reads them all then, and only then.
+   */
+  private retryListPartial = false;
   /** the id of the one chosen */
   protected readonly resumeRun = signal('');
   protected readonly chosenResume = computed(
@@ -211,7 +272,8 @@ export class DownloadDialog implements OnDestroy {
    */
   protected retryTerms(run: RetryableRun): { dates: string; settings: string[] } {
     const options = run.options ?? {};
-    const day = (value: unknown) => String(value ?? '').slice(0, 10);
+    // every kept moment, said as the day it is in the person's AO3 zone
+    const day = (value: unknown) => utcToZonedDay(value);
     const began = day(baselineOf(run));
     const ranged = !!options['dates'];
     let dates: string;
@@ -301,7 +363,10 @@ export class DownloadDialog implements OnDestroy {
         }
         return 'Carry on from where its downloads stopped - only the formats it had not saved yet: nothing for a fic it finished, the rest of one it was partway through, every format of one it never reached';
       case 'failed':
-        return `Just the ${run.retry.failedWorks} ${run.retry.failedWorks === 1 ? 'work' : 'works'} it could not get`;
+        // with none, a count of 0 reads as a promise that nothing went missing
+        return run.retry.failedWorks
+          ? `Just the ${run.retry.failedWorks} ${run.retry.failedWorks === 1 ? 'work' : 'works'} it could not get`
+          : 'Just the works it could not get (none failed)';
     }
   }
   /** the earlier scans a quick scan can be measured back to, once they have been asked for */
@@ -320,7 +385,11 @@ export class DownloadDialog implements OnDestroy {
   protected readonly dateFrom = signal('');
   protected readonly dateTo = signal('');
 
-  protected readonly log = signal<string[]>([]);
+  /** what the run has said, each line with when it was said - shown in the reader's own time */
+  protected readonly log = signal<LogLine[]>([]);
+  protected readonly lineTime = lineTime;
+  /** the zone a typed date range is in: the AO3 one, so it compares with AO3's dates as typed */
+  protected readonly ao3Zone = ao3TimeZone();
   protected readonly percent = signal<number | null>(null);
   protected readonly paused = signal<{ seconds: number; until: string } | null>(null);
   protected readonly summary = signal('');
@@ -627,15 +696,25 @@ export class DownloadDialog implements OnDestroy {
   protected readonly maxWorks = MAX_WORKS;
 
   /**
-   * Whether to go without an AO3 login: the runs pointed at fics by hand alone, since every
-   * other one reads your own bookmarks or collections. Off unless ticked, and warned about.
+   * Whether to go without an AO3 login, offered on every run's options. Off unless ticked,
+   * and warned about: logged out, AO3 shows only what anyone may see, so private bookmarks
+   * are missed and restricted works fail.
    */
-  protected readonly picksSkipLogin = computed(
-    () => this.action() === 'work' || this.action() === 'works',
-  );
   protected readonly skipLogin = signal(false);
   /** whether this run will log in at all */
-  protected readonly logsIn = computed(() => !(this.picksSkipLogin() && this.skipLogin()));
+  protected readonly logsIn = computed(() => !this.skipLogin());
+  /**
+   * Whether this run still needs a username without a login: the ones that read your own
+   * bookmarks or collections, found by your name. The helper's `USERNAME_ACTIONS`.
+   */
+  protected readonly needsUsername = computed(() => USERNAME_ACTIONS.includes(this.sentAction()));
+  /** the workflow the start request names - a retry is sent as the run it retries, or custom */
+  protected readonly sentAction = computed<JobAction>(() => {
+    const resumed = this.resuming() ? this.chosenResume() : null;
+    return resumed
+      ? RETRY_AS_ITSELF.includes(resumed.action) ? (resumed.action as JobAction) : 'custom'
+      : this.action();
+  });
 
   /**
    * Which runs say what they cannot do before anyone logs in for them.
@@ -654,26 +733,12 @@ export class DownloadDialog implements OnDestroy {
   });
 
   /**
-   * Whether this run has anything to ask on the options step.
-   *
-   * A step with nothing on it is worse than no step: it reads as something that failed to
-   * load. When there is nothing to choose the run goes straight past it, in both
-   * directions, rather than showing a page that says so.
+   * Whether this run has anything to ask on the options step - always, now: every run can be
+   * told to skip the login. Kept as a computed so the steps that read it need not change
+   * should a run with nothing to choose come back; a step with nothing on it is worse than
+   * none, since it reads as something that failed to load.
    */
-  protected readonly hasOptions = computed(
-    () =>
-      this.picksPages() ||
-      // a run that has swapped pages for a date window still has that choice to offer
-      this.picksDates() ||
-      this.picksSeries() ||
-      this.picksImages() ||
-      this.picksReindex() ||
-      this.picksOverwrite() ||
-      this.picksNonBookmarks() ||
-      this.picksCollectionWorks() ||
-      // it can always be pointed at an earlier scan, so it always has a choice to offer
-      this.action() === 'quick',
-  );
+  protected readonly hasOptions = computed(() => true);
 
   /**
    * The options come before the file types, for every run.
@@ -932,7 +997,7 @@ export class DownloadDialog implements OnDestroy {
     const at = this.jobs.activeRuns().find((run) => run.id === this.runId())?.abandonsAt;
     const when = at ? new Date(at) : null;
     return when && !Number.isNaN(when.getTime())
-      ? when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? when.toLocaleTimeString([], inAo3Zone({ hour: '2-digit', minute: '2-digit' }))
       : '';
   });
 
@@ -1045,11 +1110,13 @@ export class DownloadDialog implements OnDestroy {
   }
 
   /** what a hosted copy's User settings say about questions, sent with every run */
-  private questionSettings(): Pick<StartRequest, 'answerDefaults' | 'questionTimeoutMinutes'> {
-    if (this.helper.isLocal()) return {};
+  private questionSettings(): Pick<StartRequest, 'answerDefaults' | 'questionTimeoutMinutes' | 'ao3TimeZone'> {
+    // every page sends the AO3 zone: it is this browser's setting wherever the helper is
+    if (this.helper.isLocal()) return { ao3TimeZone: ao3TimeZone() };
     const answers = savedAnswerDefaults();
     const timeout = savedQuestionTimeout();
     return {
+      ao3TimeZone: ao3TimeZone(),
       ...(Object.keys(answers).length ? { answerDefaults: answers } : {}),
       ...(timeout === null ? {} : { questionTimeoutMinutes: timeout }),
     };
@@ -1108,7 +1175,7 @@ export class DownloadDialog implements OnDestroy {
     this.runId.set(run.id);
     this.runningInBackground.set(true);
     this.held.set(run.paused);
-    this.append(`showing the ${run.actionName} started ${new Date(run.started).toLocaleString()}`);
+    this.append(`showing the ${run.actionName} started ${new Date(run.started).toLocaleString([], inAo3Zone())}`);
     this.stop = this.jobs.stream(run.id, (event) => this.onEvent(event), () => this.onStreamEnd());
   }
 
@@ -1119,20 +1186,43 @@ export class DownloadDialog implements OnDestroy {
   }
 
   private async init(): Promise<void> {
-    const config = await this.jobs.loadConfig();
-    if (!config) return;
-    // a hosted copy's own User settings come before its helper's; a helper on this
-    // computer has settings.ini for them, edited from the same tab
-    this.startFromDefaults({ ...(config.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
+    // the helper is asked as the window opens (`App.openRun`), and not waited on here: what it
+    // said last, or the built-in lists, are enough to choose the options and file types by,
+    // and Start waits for its answer (`readyToStart`)
+    this.helperAnswer = this.jobs.connecting ?? this.jobs.loadConfig();
+    this.jobs.connecting = null;
+    this.floorFinding = this.jobs.floorAhead;
+    this.jobs.floorAhead = null;
+    void this.floorFinding?.then((floor) => {
+      if (this.newestFloorRead() === undefined) this.newestFloorRead.set(floor);
+    });
 
-    // read after the await, not before: inputs are set once the constructor has returned
+    // read after an await, not before: inputs are set once the constructor has returned
+    await Promise.resolve();
     const attaching = this.attachTo();
     if (attaching) {
       // nothing to choose: the run is already going, so this opens straight onto it
+      if (!(await this.helperAnswer)) return;
       this.folder.set(this.library.store()?.label ?? '');
       this.attach(attaching);
       return;
     }
+    const known = this.config();
+    const config = known ?? BUILT_IN_CONFIG;
+    // a hosted copy's own User settings come before its helper's; a helper on this
+    // computer has settings.ini for them, edited from the same tab
+    this.startFromDefaults({ ...(config.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
+    // when the helper answers for the first time, what it says replaces the built-in lists
+    // for whatever has not been chosen yet
+    void this.helperAnswer.then((answer) => {
+      if (!answer || known) return;
+      if (!this.filetypesTouched) this.selected.set(startingFiletypes(answer));
+      // the up-front answers are chosen on the login step: until then they are the defaults
+      if (this.step() !== 'credentials') {
+        this.startFromDefaults({ ...(answer.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
+      }
+      if (!this.username().trim()) this.username.set(answer.username || '');
+    });
 
     // the library the page has open is where everything goes - the helper has none of its own
     this.folder.set(this.library.store()?.label ?? '');
@@ -1142,7 +1232,7 @@ export class DownloadDialog implements OnDestroy {
     this.step.set(this.firstStep());
     if (this.resumeFrom() && this.action() === 'custom') {
       this.coverage.set('resume');
-      this.resumeRun.set(this.resumeFrom());
+      this.toRetryHow(this.resumeFrom());
     }
 
     const remembered = safeGet(REMEMBER_KEY) === 'true';
@@ -1201,6 +1291,7 @@ export class DownloadDialog implements OnDestroy {
 
   protected toggle(filetype: string): void {
     if (this.isLocked(filetype)) return;
+    this.filetypesTouched = true;
     const current = this.selected();
     this.selected.set(
       current.includes(filetype) ? current.filter((x) => x !== filetype) : [...current, filetype],
@@ -1243,14 +1334,7 @@ export class DownloadDialog implements OnDestroy {
 
   protected afterOptions(): void {
     if (this.resuming()) {
-      this.step.set('resume');
-      // asked for fresh each time: a run may have been interrupted since the dialog opened
-      this.retryableRuns.set(null);
-      void this.jobs.loadRetryableRuns(this.library.store()).then((runs) => {
-        this.retryableRuns.set(runs ?? []);
-        // a run chosen from History arrives with its default way of retrying picked
-        if (this.resumeRun()) this.chooseRetryRun(this.resumeRun());
-      });
+      this.toRetryList();
       return;
     }
     if (this.picksFloorRun()) {
@@ -1260,29 +1344,31 @@ export class DownloadDialog implements OnDestroy {
     if (this.action() === 'quick' && this.coverage() === 'all') {
       // the floor the helper will measure back to is the newest scan that qualifies. one that
       // could not download some works still does - but say so, and offer another
-      this.step.set('floor-warning');
-      this.floorRuns.set(null);
-      void this.jobs.loadFloorRuns(this.library.store()).then((runs) => {
-        this.floorRuns.set(runs ?? []);
-        if (this.step() === 'floor-warning' && !this.automaticFloor()?.missingDownloads?.length) {
-          this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
-        }
-      });
+      const known = this.newestFloor();
+      if (known !== undefined) {
+        // found as the window opened: nothing to read, and no warning page unless it needs one
+        this.step.set(
+          known?.missingDownloads?.length
+            ? 'floor-warning'
+            : this.picksFiletypes() ? 'filetypes' : 'credentials',
+        );
+        return;
+      }
+      // not found yet: on without it - the run page waits for it, and warns there if it must
+      if (!this.floorFinding) this.floorFinding = this.jobs.loadNewestFloor(this.library.store());
+      this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
       return;
     }
     this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
   }
 
   /** the floor a quick scan measures back to when none is chosen: the newest that qualifies */
-  protected readonly automaticFloor = computed(() => this.floorRuns()?.[0] ?? null);
+  protected readonly automaticFloor = computed(() => this.newestFloor() ?? null);
 
+  /** the whole list is read only here, once someone chooses to pick a scan themselves */
   private toFloorPage(): void {
     this.step.set('floor');
-    // asked for fresh each time: a scan may have finished since the dialog opened
-    this.floorRuns.set(null);
-    void this.jobs
-      .loadFloorRuns(this.library.store())
-      .then((runs) => this.floorRuns.set(runs ?? []));
+    this.loadAllFloors();
   }
 
   /** the warning answered: measure back to it anyway */
@@ -1300,6 +1386,40 @@ export class DownloadDialog implements OnDestroy {
    * On with the run chosen. Its options are shown back in the (greyed-out) boxes, so the
    * settings panel and the options page say what the run will actually do.
    */
+  /** the list of earlier runs to retry, read whole */
+  private toRetryList(): void {
+    this.step.set('resume');
+    this.retryListPartial = false;
+    // asked for fresh each time: a run may have been interrupted since the dialog opened
+    this.retryableRuns.set(null);
+    void this.jobs.loadRetryableRuns(this.library.store()).then((runs) => {
+      this.retryableRuns.set(runs ?? []);
+      // a run already chosen keeps its choice
+      if (this.resumeRun()) this.chooseRetryRun(this.resumeRun());
+    });
+  }
+
+  /**
+   * Straight to how one run is retried - a retry started from History. Only that run is
+   * judged, against the list History already read, so no list of every run is waited for.
+   */
+  private toRetryHow(runId: string): void {
+    this.step.set('retry-how');
+    this.retryListPartial = true;
+    this.retryableRuns.set(null);
+    this.resumeRun.set(runId);
+    void this.jobs.loadRetryableRun(this.library.store(), runId).then((run) => {
+      this.retryableRuns.set(run ? [run] : []);
+      if (run) this.chooseRetryRun(run.id);
+    });
+  }
+
+  /** from the list of earlier runs: on to how the chosen one is retried */
+  protected afterRetryChoice(): void {
+    if (!this.chosenResume()?.retry.default) return;
+    this.step.set('retry-how');
+  }
+
   protected afterResume(): void {
     const chosen = this.chosenResume();
     if (!chosen?.retry.default || !this.retryMode() || !this.retryAcknowledged()) return;
@@ -1309,6 +1429,12 @@ export class DownloadDialog implements OnDestroy {
     this.overwrite.set(!!options['overwrite']);
     this.nonBookmarks.set(!!options['nonBookmarks']);
     this.reindex.set(options['reindex'] !== false);
+    // a retry logs in as the run it retries did: one that went without asks for no password,
+    // and one reading your own listing is found by the account it read
+    this.skipLogin.set(!!options['skipLogin']);
+    if (this.skipLogin() && chosen.username && !this.username().trim()) {
+      this.username.set(chosen.username);
+    }
     this.step.set('filetypes');
   }
 
@@ -1328,7 +1454,7 @@ export class DownloadDialog implements OnDestroy {
     if (this.needsLink()) earlier.push('link');
     if (this.hasOptions()) earlier.push('options');
     if (this.picksFloorRun()) earlier.push('floor');
-    if (this.resuming()) earlier.push('resume');
+    if (this.resuming()) earlier.push('resume', 'retry-how');
     if (this.picksFiletypes()) earlier.push('filetypes');
     if (this.needsAcknowledgement()) earlier.push('acknowledge');
     earlier.push('credentials');
@@ -1339,6 +1465,11 @@ export class DownloadDialog implements OnDestroy {
 
   protected backFrom(step: Step): void {
     const previous = this.stepBefore(step);
+    // the list was never read for a retry that came straight from History: read it now
+    if (previous === 'resume' && this.retryListPartial) {
+      this.toRetryList();
+      return;
+    }
     if (previous) {
       this.step.set(previous);
       return;
@@ -1408,11 +1539,12 @@ export class DownloadDialog implements OnDestroy {
   protected async submit(event: Event): Promise<void> {
     event.preventDefault();
     if (this.logsIn() && (!this.username().trim() || !this.password())) return;
+    if (this.needsUsername() && !this.username().trim()) return;
 
     // only the username is ours to keep. the password is left to the browser's own
     // password manager, which stores it in the OS keychain rather than in page storage.
     // a run that does not log in leaves whatever was remembered alone
-    if (!this.logsIn()) {
+    if (!this.logsIn() && !this.needsUsername()) {
       // nothing typed is used, so nothing typed is kept
     } else if (this.remember()) {
       safeSet(REMEMBER_KEY, 'true');
@@ -1429,10 +1561,109 @@ export class DownloadDialog implements OnDestroy {
 
   // region running
 
+  /**
+   * What the run page waits on before it starts a run, if it is still on its way: the helper's
+   * answer (a hosted helper waking), and a quick scan's newest floor when it measures back to
+   * its last run - with that floor's warning shown here, before anything starts, when it could
+   * not download some works. Gives up after START_WAIT_MS. Cancel closes the window.
+   */
+  protected readonly waiting = signal<'' | 'helper' | 'floor' | 'floor-warning'>('');
+  protected readonly waitedSeconds = signal(0);
+  private waitDecided: ((go: boolean) => void) | null = null;
+
+  private async readyToStart(): Promise<boolean> {
+    const deadline = Date.now() + START_WAIT_MS;
+    const started = Date.now();
+    const tick = setInterval(() => this.waitedSeconds.set(Math.round((Date.now() - started) / 1000)), 1000);
+    this.waitedSeconds.set(0);
+    try {
+      this.waiting.set('helper');
+      const answer = await this.waitFor(this.helperAnswer, deadline);
+      if (answer === CANCELLED) return false;
+      if (answer === TIMED_OUT || !answer) {
+        this.error.set(answer === TIMED_OUT ? HELPER_TIMED_OUT : HELPER_UNREACHABLE);
+        this.step.set('failed');
+        return false;
+      }
+      if (this.action() === 'quick' && this.coverage() === 'all' && !this.resuming()) {
+        let floor = this.newestFloor();
+        if (floor === undefined) {
+          this.waiting.set('floor');
+          const found = await this.waitFor(
+            this.floorFinding ?? this.jobs.loadNewestFloor(this.library.store()), deadline);
+          if (found === CANCELLED) return false;
+          if (found === TIMED_OUT) {
+            this.error.set(HELPER_TIMED_OUT);
+            this.step.set('failed');
+            return false;
+          }
+          floor = found;
+          this.newestFloorRead.set(floor);
+        }
+        if (floor?.missingDownloads?.length) {
+          clearInterval(tick);
+          this.waiting.set('floor-warning');
+          const go = await new Promise<boolean>((decide) => (this.waitDecided = decide));
+          if (!go) return false;
+        }
+      }
+      return true;
+    } finally {
+      clearInterval(tick);
+      this.waitDecided = null;
+      this.waiting.set('');
+    }
+  }
+
+  /** a promise, or TIMED_OUT at the deadline, or CANCELLED if the wait was cancelled */
+  private waitFor<T>(promise: Promise<T>, deadline: number): Promise<T | typeof TIMED_OUT | typeof CANCELLED> {
+    return new Promise((done) => {
+      const timer = setTimeout(() => done(TIMED_OUT), Math.max(0, deadline - Date.now()));
+      this.waitDecided = () => {
+        clearTimeout(timer);
+        done(CANCELLED);
+      };
+      void promise.then((value) => {
+        clearTimeout(timer);
+        done(value);
+      });
+    });
+  }
+
+  /** the run failed before starting because the helper never answered */
+  protected readonly helperNeverAnswered = computed(
+    () => this.error() === HELPER_TIMED_OUT || this.error() === HELPER_UNREACHABLE,
+  );
+
+  /** the waiting page's Cancel: nothing has started, so the window just closes */
+  protected cancelWaiting(): void {
+    this.waitDecided?.(false);
+    this.closed.emit();
+  }
+
+  /** the floor warning on the waiting page answered: measure back to it anyway */
+  protected startWithFloor(): void {
+    this.waitDecided?.(true);
+  }
+
+  /** the floor warning answered: pick another scan, back in the options */
+  protected chooseAnotherFloorFromRun(): void {
+    this.waitDecided?.(false);
+    this.coverage.set('run');
+    this.toFloorPage();
+  }
+
+  /** the helper did not answer: ask it again, and try once more */
+  protected retryConnecting(): void {
+    this.helperAnswer = this.jobs.loadConfig();
+    void this.run();
+  }
+
   private async run(): Promise<void> {
     this.step.set('running');
     this.resetRunState();
     this.runningInBackground.set(this.background());
+    if (!(await this.readyToStart())) return;
 
     let jobId: string;
     try {
@@ -1516,9 +1747,7 @@ export class DownloadDialog implements OnDestroy {
       // a retry goes as the earlier run's own workflow where the helper resumes that kind, and
       // as a custom run otherwise (a fic run, a debug run) - the helper takes the workflow, file
       // types and options from the earlier run's record either way
-      action: resumed
-        ? (RETRY_AS_ITSELF.includes(resumed.action) ? (resumed.action as JobAction) : 'custom')
-        : this.action(),
+      action: this.sentAction(),
       filetypes: this.chosenFiletypes(),
       options: {
         // a slice is only sent by the run that asked for one. the inputs keep whatever
@@ -1542,19 +1771,21 @@ export class DownloadDialog implements OnDestroy {
         // a window of time and a slice of the listing are alternatives, so the one not
         // chosen is not sent at all rather than sent and ignored
         dates: this.picksDates() && this.useDates(),
-        dateFrom: this.useDates() ? this.dateFrom() : '',
+        // typed in the person's AO3 zone, sent as the UTC moments that day begins and the
+        // newer end's ends - how the helper keeps them; it dates them in that zone again
+        dateFrom: this.useDates() ? zonedDayToUtc(this.dateFrom()) : '',
         // an open-topped window has no newer end, so it must not carry one left behind
         // from a moment when 'between two dates' was ticked
-        dateTo: this.useDates() && this.betweenDates() ? this.dateTo() : '',
+        dateTo: this.useDates() && this.betweenDates() ? zonedDayToUtc(this.dateTo(), true) : '',
         floorRun: this.picksFloorRun() ? this.floorRun() : '',
         // the helper takes everything else from that run's own record
         resume: resumed ? resumed.id : '',
         retryMode: resumed ? this.retryMode() || undefined : undefined,
-        // only a run pointed at fics by hand can go without a login
         skipLogin: !this.logsIn(),
       } satisfies JobOptions,
-      // nothing is sent for a run that will not log in, whatever is in the boxes
-      username: this.logsIn() ? this.username().trim() : '',
+      // nothing is sent for a run that will not log in, whatever is in the boxes - but a
+      // run reading your own listing is found by your username, login or not
+      username: this.logsIn() || this.needsUsername() ? this.username().trim() : '',
       password: this.logsIn() ? this.password() : '',
       url: this.needsLink() ? this.collectionUrl().trim() : undefined,
     };
@@ -1711,7 +1942,7 @@ export class DownloadDialog implements OnDestroy {
         this.answering.set(false);
         break;
       case 'message':
-        if (event.text) this.append(event.text);
+        if (event.text) this.append(event.text, event.at);
         break;
       case 'finished':
         this.wasCancelled.set(!!event.cancelled);
@@ -1868,8 +2099,14 @@ export class DownloadDialog implements OnDestroy {
     }
   }
 
-  private append(text: string): void {
-    const lines = [...this.log(), text];
+  /**
+   * One line for the window. `at` is when the helper said it (UTC, on its `message` event), so a
+   * background run's replayed lines keep their own times; a line the page says itself is now.
+   */
+  private append(text: string, at?: string): void {
+    const said = at ? new Date(at) : new Date();
+    const line = { text, at: Number.isNaN(said.getTime()) ? new Date() : said };
+    const lines = [...this.log(), line];
     this.log.set(lines.length > MAX_LOG ? lines.slice(-MAX_LOG) : lines);
   }
 

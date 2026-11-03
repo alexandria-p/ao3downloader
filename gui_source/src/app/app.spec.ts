@@ -457,36 +457,43 @@ describe('App', () => {
     expect(actionLabels(element)).toContain('Quick Scan');
   });
 
-  it('checks the run history for interrupted runs, with a spinner, before a run window opens',
-    async () => {
-      const library = TestBed.inject(Library);
-      library.data.set(exportOf(1));
-      openLibrary();
-      let finish: (settled: number) => void = () => undefined;
-      const settle = vi.spyOn(TestBed.inject(Jobs), 'settleInterrupted').mockImplementation(
-        () => new Promise<number>((resolve) => (finish = resolve)),
-      );
+  it('opens a run window at once, asking the helper and the history in the background', async () => {
+    const library = TestBed.inject(Library);
+    library.data.set(exportOf(1));
+    openLibrary();
+    const jobs = TestBed.inject(Jobs);
+    const settle = vi.spyOn(jobs, 'settleInterrupted').mockImplementation(() => new Promise(() => undefined));
+    const config = vi.spyOn(jobs, 'loadConfig').mockImplementation(() => new Promise(() => undefined));
+    const newest = vi.spyOn(jobs, 'loadNewestFloor').mockImplementation(() => new Promise(() => undefined));
+    const floors = vi.spyOn(jobs, 'loadFloorRuns');
 
-      const fixture = TestBed.createComponent(App);
-      await fixture.whenStable();
-      const element = fixture.nativeElement as HTMLElement;
-      Array.from(element.querySelectorAll<HTMLButtonElement>('.actions button'))
-        .find((b) => b.textContent?.includes('Quick Scan'))!.click();
-      fixture.detectChanges();
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    const before = { settle: settle.mock.calls.length, config: config.mock.calls.length };
+    Array.from(element.querySelectorAll<HTMLButtonElement>('.actions button'))
+      .find((b) => b.textContent?.includes('Quick Scan'))!.click();
+    fixture.detectChanges();
 
-      expect(settle).toHaveBeenCalledTimes(1);
-      expect(element.querySelector('.checking-runs')?.textContent).toContain(
-        'Checking your run history',
-      );
-      expect(element.querySelector('app-download-dialog')).toBeNull();
+    // none of them answered, and the window is open anyway
+    expect(element.querySelector('app-download-dialog')).toBeTruthy();
+    expect(settle.mock.calls.length).toBe(before.settle + 1);
+    expect(config.mock.calls.length).toBe(before.config + 1);
+    expect(newest).toHaveBeenCalledTimes(1);
+    expect(floors).not.toHaveBeenCalled();
+  });
 
-      finish(0);
-      await fixture.whenStable();
-      fixture.detectChanges();
-
-      expect(element.querySelector('.checking-runs')).toBeNull();
-      expect(element.querySelector('app-download-dialog')).toBeTruthy();
-    });
+  it('checks for interrupted runs whenever a library is read', async () => {
+    const jobs = TestBed.inject(Jobs);
+    const settle = vi.spyOn(jobs, 'settleInterrupted').mockResolvedValue(0);
+    const library = TestBed.inject(Library);
+    TestBed.createComponent(App);
+    TestBed.tick();
+    const store = { label: 'x' } as never;
+    library.lastRead.set({ store, at: Date.now() });
+    TestBed.tick();
+    expect(settle).toHaveBeenCalledWith(store);
+  });
 
   it('offers no run for a folder that is only remembered, waiting on a reconnect', async () => {
     // a run writes through the page, and the page cannot write there until access is confirmed
@@ -533,10 +540,23 @@ describe('App', () => {
     expect(element.querySelector('app-collections-view')).toBeTruthy();
     expect(element.querySelectorAll('.blurb').length).toBe(0);
 
-    tab(element, 'Bookmarks')!.click();
+    tab(element, 'Works')!.click();
     await fixture.whenStable();
     expect(element.querySelector('app-collections-view')).toBeNull();
     expect(element.querySelectorAll('.blurb').length).toBe(3);
+  });
+
+  it('says above the listing when it was refreshed, and not when the index was last written', async () => {
+    const library = TestBed.inject(Library);
+    library.data.set(exportOf(3));
+    library.listedAt.set(new Date('2026-11-03T10:00:00Z'));
+
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+
+    expect(text).toContain('List refreshed');
+    expect(text).not.toContain('Last indexed');
   });
 
   it('counts what each page holds on its tab', async () => {
@@ -548,7 +568,7 @@ describe('App', () => {
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
 
-    expect(tab(element, 'Bookmarks')?.textContent).toContain('3');
+    expect(tab(element, 'Works')?.textContent).toContain('3');
     expect(tab(element, 'Collections')?.textContent).toContain('2');
   });
 
@@ -851,7 +871,7 @@ describe('App', () => {
   it('says its version and links the repository on every tab', async () => {
     const { fixture, element } = await render(1);
     TestBed.inject(HelperConnection).settings.update((c) => ({ ...c, version: '1.8.2' }));
-    for (const name of ['Bookmarks', 'Collections', 'History', 'FAQ']) {
+    for (const name of ['Works', 'Collections', 'History', 'FAQ']) {
       tab(element, name)!.click();
       fixture.detectChanges();
       await fixture.whenStable();

@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2011 python passed; 823 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2056 python passed; 850 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1010,9 +1010,35 @@ lines; ao3's 429 break is said in UTC too, and `log.jsonl`'s timestamps are UTC.
 local time, which was UTC on Render and the reader's zone in the apps, so the same field
 meant two different things. A record written before carries a naive time; the page reads that
 as local, as it always did, and `shown` writes it as it was. The run file's name is the UTC
-start (`2026-11-03T101542+0000-<id8>.json`): it still sorts by start, and still ends with the
+start in ISO 8601's basic form (`20261103T101542Z-<id8>.json`, `runs.file_stamp`): it still sorts by
+start, sorts after every older local-time name (a digit sorts after `-`), and still ends with the
 id `freshness.ts` reads. The page already wrote UTC (`toISOString`) everywhere it records a
 time, and shows every time in the reader's own zone.
+
+**AO3's dates are compared in the person's AO3 zone, never as UTC.** AO3 writes only a date
+on a listing, in the zone it shows that person (their AO3 preference) - a date, not a moment,
+so it cannot be turned into UTC without guessing a time. The moment goes the other way:
+every floor and ceiling (`quick_scan_floor`, `chosen_floor`, `retry_ceiling`, `run_quick`'s
+own, `newest_indexed_on`) is a UTC moment turned into a date **in that zone** by `ao3_day`, so
+a fic AO3 dates on or after it was updated on or after the moment - no gap, whichever side of
+UTC the zone is. The zone is the page's (*Your AO3 time zone* in User settings,
+`ao3.ao3TimeZone`, this browser's own until changed and not stored while it is), sent as
+`ao3TimeZone` with every run from every page; `ao3_zone` refuses a non-name with a 400 and
+takes one this computer cannot look up as UTC, said in the log. The run says its zone up front
+(`AO3_INFO_AO3_ZONE`) and records it (`ao3TimeZone`). An older record's naive time is taken
+as written. **`tzdata` is a dependency** because Windows has no zone database: `package_app`
+packs it (`--collect-data tzdata`), `/api/config` says `zoneLookup`, and `build-windows.yml`
+fails without it. **Floors, ceilings and typed ranges are entered in the AO3 zone, kept in
+UTC, and dated in the AO3 zone again to compare.** A typed range is sent as the UTC moment its
+older day begins and its newer day ends there (`zonedDayToUtc`; the run window says which zone,
+`.range-zone`) and kept so (`range_moment`; a bare day from an older page is kept as one);
+`range_day` dates it for the walk. A quick scan's floor is kept in progress as the moment it
+stands for (`quick_scan_floor_at`, `chosen_floor_at`, `newest_indexed_at`, the range's
+`dateFrom`) and compared as `ao3_day` of it; an older record's day floor reads as itself. The
+page shows kept moments as days in the zone (`utcToZonedDay`, the Retry step's terms). **Every
+time shown is in the AO3 zone**: the page through `inAo3Zone` (log lines, List refreshed,
+History, abandon times), a run's own lines through `runs.shown(stamp, zone)`
+and `Repository.zone` (AO3's break), naming the zone. Log stamps stay UTC as kept.
 
 **The file is written when the run starts, not when it ends.** A run killed mid-flight
 cannot write its own epitaph, so a record still saying `running` *is* the evidence that it
@@ -1040,8 +1066,11 @@ lines printed before the record exists (the setup, 'logging in') are held and pa
 abandonment notice - is added by hand. **Every line starts with when it was said**
 (`runs.stamped`: `[YYYY-MM-DD HH:MM:SS UTC] `, always UTC and marked so - the hosted helper's clock is not the reader's) - stamped as it is said, so the held
 `printed` lines are stamped in `said` rather than when the record takes them, and the
-force-stop line is stamped too. The page shows no times in the run window; the downloaded
-log and the feedback log carry them as kept. Older records' lines have none and download
+force-stop line is stamped too. **The run window shows each line's time in the reader's own
+zone** (`.log-time`, `lineTime`): `Job.emit` gives every `message` event an `at` (UTC, `runs.now()`),
+so a background run's replayed lines keep their own times, and a line the page says itself takes
+the moment it is said (`LogLine`). The downloaded log and the feedback log carry the UTC stamps
+as kept. Older records' lines have none and download
 as they are. **The downloaded log opens with how the run was set up** (`runSettingsHead`),
 read from the same file: link(s), file types, background, helper, then every recorded
 option and every settings.ini value as `key: value` - all of them, not only what the History
@@ -1066,10 +1095,32 @@ and fic lists as of its last save, rather than the empty lists it had when only
 the end, with `logTrimmed` counting what went. The page's `readRunHistory` drops `log` from the
 listing and keeps `logLines`, and History's **Download log** reads the one file again when
 asked - a hundred records of thousands of lines would be a lot to read to draw a list.
-**Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
+**The interrupted-run check reads only what might still be running** (`readUnsettledRuns`):
+every record read anywhere that has ended is noted in memory, per library (`endedRuns`), and
+one `settleInterrupted` marks is noted too (`noteRunEnded`) - an ended run never says
+`running` again - so after the first, opening a run window downloads none or one record
+instead of a hundred, logs and all. **`App.openRun` opens the window at once and waits on nothing.** It asks the helper for its
+config (`Jobs.connecting`) and, for a quick scan, the newest floor (`Jobs.floorAhead`,
+`loadNewestFloor`: newest first `PARALLEL_READS` at a time, `runHistoryBatches`, stopping at the
+first batch the helper finds a floor in) in the background; the window works from the config the
+page already has, or `BUILT_IN_CONFIG`, meanwhile. **Interrupted runs are marked in the
+background** whenever a library is read or refreshed (an effect on `Library.lastRead`), when
+History opens, and when a workflow opens - nothing in starting a run depends on it, since the
+helper refuses a second run itself (409). **Start waits on the run page** (`readyToStart`,
+`.run-waiting`): for the helper's answer, then for a quick scan measuring back to its last run,
+the floor - whose warning (`missingDownloads`) is shown there, before anything starts, with
+*Use it as the floor* / *Choose a different scan*. It gives up after `START_WAIT_MS` (2 minutes:
+Render takes about one to wake) with **Try again** (`retryConnecting`), and **Cancel** closes the
+window, nothing started. *Choose which earlier scan to measure back to* reads the whole list
+(`loadFloorRuns`) on its Continue. Both are kept for as long as the window is open
+(`newestFloor`, `floorRuns`), never read twice. **Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
 history before every run window opens, and in Dropbox each record is a download of its own, so
 one after another a long history held the window for most of a minute. A record that will not
-read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many.
+read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many. The History tab says it shows only that many (`.history-limit`); older records stay in `runs/`. **The helper reads records lazily too** (`runs.iter_runs`): `last_successful` stops at
+the first floor, usually the newest record, rather than reading 100 first; `find_run` (a
+retry, a chosen floor's `chosen_floor_at`) reads only the file whose name ends with the id's
+first 8, falling back to the rest only for a hand-renamed file. History marks interrupted runs
+in the list it already read (`settleInterrupted(store, history)`) rather than reading it all again.
 
 **The AO3 account goes in too** (`username`): `run_job` hands `job.username` to the
 `RunRecord` it builds just before the login, so even a refused login names the account it
@@ -1141,9 +1192,12 @@ the old Resume button; **Resume** now means only un-pausing a run still going.
   step in the plan done, earlier or skipped; else `status == success`) greys `index` and
   `downloads` with `RETRY_ALL_DONE`. **Download several fics has `downloads`** (single fic does
   not): `run_works` passes over fics with every format in `formats_done`, unlooked-up.
-- **A retry is acknowledged first**: the Retry step shows `retryTerms` (the original run's
-  floor and ceiling or range, file types and ticked options) and Continue stays disabled until
-  `retryAcknowledged` is ticked - reset whenever another run is picked.
+- **A retry is acknowledged first**, on a page of its own after the list (`retry-how`): it shows
+  `retryTerms` (the original run's floor and ceiling or range, file types and ticked options) and
+  Continue stays disabled until `retryAcknowledged` is ticked - reset whenever another run is
+  picked. **History's Retry opens straight on that page** (`toRetryHow`): `Jobs.loadRetryableRun`
+  sends the helper that run and the ones newer than it out of `Jobs.historyRead` (what History
+  last read), so nothing is downloaded; Back reads the whole list then (`retryListPartial`).
 - **Every run saves how each step went** (`Steps.on_change` -> progress `steps`) **and its plan**
   (`stepPlan`, written with the record), which the Retry step lists, naming the last step that
   finished.
@@ -2046,15 +2100,19 @@ minutes), said before and after (`AO3_INFO_INDEX_CHECK`, then `_FOUND` with the 
 failure that never reads the library and goes to FicHub at the end. No other workflow uses
 `index_one_work`.
 
-**`skipLogin` belongs to `SKIP_LOGIN_ACTIONS` (`work`, `works`) alone** - `do_POST` clamps it
-off for every other run, since they read your own bookmarks. With it, the credentials are
-neither required nor kept (`username`/`password` emptied), `run_job` skips the login step
+**Every run may skip the login** (`skipLogin`, the last thing on every options step - which
+is why every run now has one, `hasOptions`). With it the password is neither required nor
+kept; the runs that read your own listing (`USERNAME_ACTIONS`) still need the username,
+since the url is built from it, and `do_POST` answers 400 without one - every other run's
+username is emptied. Logged out, ao3 shows only what anyone may see, so private bookmarks are
+missed. A retry goes in as the run it retries did: `afterResume` sets `skipLogin` from that run's options (and the username it read, if none is typed), so a logged-out run's retry asks for no password; the helper takes what the retry request says (`prepare_resume`).
+`FIC_ACTIONS` (`work`, `works`) is now only what `from_link` is written for. Then `run_job` skips the login step
 (marked `skipped`, no `authenticated` event) and sets `repo.logged_in = False`, and
 `Ao3.check_session` returns early on that - a logged-out run would otherwise take its first
 failure for a lapsed session and end. `logged_in` is `None` until known, so a mocked or
 console `Repository` keeps the old behaviour. The page's checkbox is unticked by default and
-shows a warning when ticked; its credentials step then asks for nothing, and a hosted page
-seals an empty login.
+shows a warning when ticked; its credentials step then asks for the username alone where one
+is needed (`needsUsername`, from `sentAction`), and a hosted page seals an empty password.
 
 ### Stop and pause land mid-request; force stop ends a run that will not
 
@@ -2192,7 +2250,7 @@ own generation check, so switching library mid-read never leaves the old read's 
 it is cleared once the library is on screen. A local folder is read in the page itself,
 fast enough to need only the plain notice.
 
-### The Bookmarks tab lists the whole index, saying where each came from
+### The Works tab lists the whole index, saying where each came from
 
 It used to list only `isBookmarkEntry` (`bookmarked !== false`), so a fic downloaded by its link
 or found through a collection was on disk and in the index but nowhere in the page.
@@ -2224,6 +2282,14 @@ puts it back if the write fails. Hidden works are left out before any filter (`v
 not counted as a filter - the heading says how many are hidden - and **Show hidden works**
 brings them back dimmed with **Unhide**. The warning before hiding says what it does and how
 to undo it, and can be turned off (`ao3.hideWarningOff`, per browser).
+
+**The selection bar shows only once something is ticked**, and is pinned (`position: sticky`,
+at the end of `work-list.html`) to the bottom of the window just above the version bar - whose
+height `App` measures into `--app-footer-height`, since it wraps on a narrow window. What the
+last action did (`outcome`, `problem`) keeps it up after the ticks clear. **A modal is never
+taller than the window**: `.hide-modal .dialog` caps its height and its body scrolls, and the
+series warning's list scrolls on its own, so sixty ticked series cannot push the buttons off
+screen.
 
 **Ticked works hide and unhide together**, from the selection bar, which offers only what
 applies (`tickedShowing` / `tickedHidden`): Hide or Unhide for one ticked work, Hide all when
@@ -2338,9 +2404,9 @@ again and again. `Library.refresh` is a full read **without clearing the listing
 (`showDropbox(keep)`, or `readHandle` again), so the works list and its filters stay on screen
 until the new read replaces them, with a notice while it reads. A run from another helper
 that was already going at the read is not known to have been going, so its ending is not
-seen until a later run's record appears. **The listing's *Last indexed* is the newest
-`last_indexed` of any entry** (`newestIndexed`), so `refreshAfterRun` taking in a run's
-entries moves it on; it used to be whichever entry came first. Beside it, *List refreshed* is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, both through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** in the top bar is `Library.refresh` on demand. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and Refresh are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
+seen until a later run's record appears. **Above the listing, *List refreshed* is the only
+time shown** (a *Last indexed* beside it was removed at the user's request; `data.retrieved`,
+the newest `last_indexed`, is still worked out). It is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** in the top bar is `Library.refresh` on demand. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and Refresh are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
 
 ### Every downloaded format has a button beside the title
 
@@ -2385,6 +2451,9 @@ collection made in the page. What not to break:
   work from its own ⋯ menu. A menu add never touches the ticks (`addFromBar` decides whether a
   finished add clears them). The add panel is a modal, so it is in view from a menu far down
   the page.
+- **The top right corner of an entry** (`.blurb-corner`) holds the date, then the origin icon
+to its right, and the *From FicHub* badge beneath them at the far right; `.blurb-head` keeps
+120px clear for it.
 - **Every entry with a number has the eye and a ⋯ menu** (`.entry-actions`) - works, external
   works, series and placeholders alike - **on a row of their own at the end of the entry, in
   the flow**. They were pinned to the bottom corner, where the *Bookmarked by* box (`.user`:

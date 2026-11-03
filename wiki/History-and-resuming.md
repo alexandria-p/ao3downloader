@@ -1,4 +1,4 @@
-Every run is written into the **History** tab (`runs/` in your library) the moment it logs in, and kept up to date as it goes. Each entry names the **AO3 account** it logged in as (never the password) and offers **Download log** (every line timestamped in UTC, under the run's links, file types, options and settings), and **Download issues** when there is anything to report.
+Every run is written into the **History** tab (`runs/` in your library) the moment it logs in, and kept up to date as it goes. Each entry names the **AO3 account** it logged in as (never the password) and offers **Download log** (every line timestamped in UTC, under the run's links, file types, options and settings), and **Download issues** when there is anything to report. The tab lists your 100 most recent runs; older ones stay in `runs/` but are not shown.
 
 ## What the status means
 
@@ -31,7 +31,7 @@ interrupted or abandoned - from its History entry, or from **Custom run > Retry 
 run**. A retry is a **new run** with its own History entry, linked both ways to the run it
 retries, so a retry can be retried in turn.
 
-Before it goes on, the Retry window lists **the original run's dates and settings** - for a
+From History, **Retry** opens straight on how to retry that run; from Custom run you pick the run first, then choose how. Before it goes on, the Retry window lists **the original run's dates and settings** - for a
 Quick Scan, back to its floor and up to the day it first started; for a date range, the range;
 its file types and the options it had ticked - and asks you to tick that you understand the
 retry uses those, not today's date or settings chosen now.

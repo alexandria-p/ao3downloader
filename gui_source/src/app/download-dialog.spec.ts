@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DownloadDialog, parseWorkList } from './download-dialog';
 import { Library } from './library';
 import { LibraryStore, StorageRequest } from './library-store';
@@ -15,6 +15,7 @@ import {
   StartRequest,
   UndatedChoice,
 } from './jobs';
+import { AO3_TIME_ZONE_KEY, zonedDayToUtc } from './preferences';
 
 const CONFIG: ServerConfig = {
   username: 'Someone',
@@ -51,6 +52,9 @@ function fakeStore(label: string): LibraryStore {
   };
 }
 
+/** how many times the whole list of runs to retry was asked for */
+let listsRead = 0;
+
 class FakeJobs extends Jobs {
   started: StartRequest[] = [];
   /** the scans the helper would offer as floors */
@@ -58,6 +62,10 @@ class FakeJobs extends Jobs {
 
   override async loadFloorRuns(): Promise<RunHistory[] | null> {
     return this.floorRunsOnRecord;
+  }
+
+  override async loadNewestFloor(): Promise<RunHistory | null> {
+    return this.floorRunsOnRecord[0] ?? null;
   }
 
   override async refreshActiveRuns(): Promise<ActiveRun[] | null> {
@@ -68,7 +76,12 @@ class FakeJobs extends Jobs {
   retryableOnRecord: RetryableRun[] = [];
 
   override async loadRetryableRuns(): Promise<RetryableRun[] | null> {
+    listsRead++;
     return this.retryableOnRecord;
+  }
+
+  override async loadRetryableRun(_store: unknown, runId: string): Promise<RetryableRun | null> {
+    return this.retryableOnRecord.find((run) => run.id === runId) ?? null;
   }
 
   /** how many times the history was checked for interrupted runs */
@@ -332,11 +345,24 @@ describe('DownloadDialog', () => {
     await open('bookmarks');
     await advanceTo('running');
     expect(Object.keys(jobs.started[0]).sort()).toEqual(
-      ['action', 'filetypes', 'options', 'password', 'url', 'username'].filter(
+      ['action', 'ao3TimeZone', 'filetypes', 'options', 'password', 'url', 'username'].filter(
         (key) => key in jobs.started[0],
       ),
     );
     expect(JSON.stringify(jobs.started[0])).not.toMatch(/storage|refresh|dropbox/i);
+  });
+
+  it('tells the helper the AO3 time zone - this browser\'s own until one is chosen', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    expect(jobs.started[0].ao3TimeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it('tells the helper the AO3 time zone chosen in User settings', async () => {
+    localStorage.setItem(AO3_TIME_ZONE_KEY, 'Australia/Sydney');
+    await open('bookmarks');
+    await advanceTo('running');
+    expect(jobs.started[0].ao3TimeZone).toBe('Australia/Sydney');
   });
 
   it('says files go to the library the page has open', async () => {
@@ -609,43 +635,128 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('since the last successful');
   });
 
-  it('warns before measuring back to a scan that could not download some works', async () => {
-    jobs.floorRunsOnRecord = [
-      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7', '9'] },
-      scanOnRecord('a', '2026-08-01T09:00:00'),
-    ];
+  async function settled() {
+    for (let i = 0; i < 5; i++) {
+      await new Promise((done) => setTimeout(done, 0));
+      await fixture.whenStable();
+    }
+  }
+
+  it('needs no read at all for "since my last run" when the newest floor was found as it opened', async () => {
+    const newest = vi.spyOn(jobs, 'loadNewestFloor');
+    const all = vi.spyOn(jobs, 'loadFloorRuns');
+    jobs.floorAhead = Promise.resolve(
+      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] });
     await open('quick');
+    await settled();
     await advanceTo('options');
     button('Continue')!.click();
     await fixture.whenStable();
 
     expect(currentStep()).toBe('floor-warning');
-    const said = element.querySelector('.floor-warning')?.textContent?.replace(/\s+/g, ' ') ?? '';
-    expect(said).toContain('could not download 2 works: 7, 9');
-
-    // using it goes on as usual, measuring back to it
-    button('Use it as the floor')!.click();
-    await fixture.whenStable();
-    expect(currentStep()).not.toBe('floor-warning');
-    expect(currentStep()).not.toBe('floor');
+    expect(element.querySelector('.floor-warning')?.textContent).toContain('could not');
+    expect(newest).not.toHaveBeenCalled();
+    expect(all).not.toHaveBeenCalled();
   });
 
-  it('lets another scan be chosen instead of one that could not download some works', async () => {
+  it('goes on past "since my last run" without waiting for the floor, and warns on the run page', async () => {
     jobs.floorRunsOnRecord = [
-      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] },
+      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7', '9'] },
       scanOnRecord('a', '2026-08-01T09:00:00'),
     ];
+    let found: (floor: RunHistory | null) => void = () => undefined;
+    vi.spyOn(jobs, 'loadNewestFloor').mockImplementation(
+      () => new Promise((resolve) => (found = resolve)));
+    const all = vi.spyOn(jobs, 'loadFloorRuns');
     await open('quick');
     await advanceTo('options');
     button('Continue')!.click();
     await fixture.whenStable();
 
+    // not found yet, and not waited for
+    expect(currentStep()).toBe('filetypes');
+    await advanceTo('running');
+    await settled();
+    expect(element.querySelector('.run-waiting')?.textContent).toContain('Finding the scan to measure back to');
+    expect(jobs.started).toHaveLength(0);
+
+    found(jobs.floorRunsOnRecord[0]);
+    await settled();
+    const said = element.querySelector('.floor-warning')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    expect(said).toContain('could not download 2 works: 7, 9');
+    expect(jobs.started).toHaveLength(0);
+    expect(all).not.toHaveBeenCalled();
+
+    // using it starts the run, measuring back to it
+    button('Use it as the floor')!.click();
+    await settled();
+    expect(jobs.started).toHaveLength(1);
+  });
+
+  it('starts at once when the floor needs no warning', async () => {
+    jobs.floorRunsOnRecord = [scanOnRecord('a', '2026-08-01T09:00:00')];
+    await open('quick');
+    await advanceTo('running');
+    await settled();
+    expect(element.querySelector('.run-waiting')).toBeNull();
+    expect(jobs.started).toHaveLength(1);
+  });
+
+  it('lets another scan be chosen from the run page instead of one that could not download some works', async () => {
+    jobs.floorRunsOnRecord = [
+      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] },
+      scanOnRecord('a', '2026-08-01T09:00:00'),
+    ];
+    await open('quick');
+    await advanceTo('running');
+    await settled();
+
     button('Choose a different scan')!.click();
-    await fixture.whenStable();
+    await settled();
 
     expect(currentStep()).toBe('floor');
+    expect(jobs.started).toHaveLength(0);
     // the partly finished one is still listed, saying what it missed
     expect(element.querySelector('.floor-runs')?.textContent).toContain('could not download 7');
+  });
+
+  it('waits on the run page for a helper still waking, and can be cancelled', async () => {
+    let answer: (config: null) => void = () => undefined;
+    // what the page heard from the helper as it loaded; this window's own ask is still out
+    jobs.config.set(await jobs.loadConfig());
+    jobs.connecting = new Promise((resolve) => (answer = resolve));
+    await open('update');
+    await advanceTo('running');
+    await settled();
+
+    expect(element.querySelector('.run-waiting')?.textContent).toContain('Waiting for the helper to answer');
+    expect(jobs.started).toHaveLength(0);
+    let closed = false;
+    fixture.componentInstance.closed.subscribe(() => (closed = true));
+    button('Cancel')!.click();
+    expect(closed).toBe(true);
+    answer(null);
+    await settled();
+    expect(jobs.started).toHaveLength(0);
+  });
+
+  it('gives up on a helper that does not answer in 2 minutes, offering to try again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      jobs.config.set(await jobs.loadConfig());
+      jobs.connecting = new Promise(() => undefined);
+      await open('update');
+      await advanceTo('running');
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000 + 10);
+      await fixture.whenStable();
+
+      expect(currentStep()).toBe('failed');
+      expect(element.querySelector('.error')?.textContent).toContain('did not answer within 2 minutes');
+      expect(button('Try again')).toBeTruthy();
+      expect(jobs.started).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('asks nothing when the last scan got everything', async () => {
@@ -690,22 +801,23 @@ describe('DownloadDialog', () => {
     }
   });
 
-  it('skips the options step when there is nothing to choose', async () => {
-    // a step with nothing on it reads as one that failed to load
+  it('opens every run without a link on its options, since any run can skip the login', async () => {
     for (const action of ['sync', 'new', 'update'] as const) {
       await open(action);
 
-      expect(currentStep(), action).toBe('filetypes');
+      expect(currentStep(), action).toBe('options');
+      expect(checkbox('Skip AO3 login?'), action).toBeTruthy();
     }
   });
 
-  it('steps back past a skipped options step rather than into it', async () => {
+  it('steps back from the file types to the options, and out from there', async () => {
     await open('sync');
     await advanceTo('filetypes');
 
-    // nothing before the file types on this run, so there is nowhere back to go
+    button('Back')!.click();
+    await fixture.whenStable();
+    expect(currentStep()).toBe('options');
     expect(button('Cancel')).toBeTruthy();
-    expect(button('Back')).toBeUndefined();
   });
 
   it('does not offer the publication date lookup', async () => {
@@ -727,8 +839,8 @@ describe('DownloadDialog', () => {
     await open('update');
 
     // no listing to page through, no work page to read anything off, nothing to date - so
-    // there is no options step at all, and it opens on the file types
-    expect(currentStep()).toBe('filetypes');
+    // its options step offers only skipping the login
+    expect(currentStep()).toBe('options');
     expect(element.querySelector('input[name="pages"]')).toBeNull();
     expect(checkbox('encountered series')).toBeUndefined();
     expect(checkbox('publication date')).toBeUndefined();
@@ -822,6 +934,21 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  it('says a typed date range is in the AO3 time zone chosen in User settings', async () => {
+    localStorage.setItem(AO3_TIME_ZONE_KEY, 'Australia/Sydney');
+    await open('custom');
+    await advanceTo('options');
+    await chooseWindow('2024-01-01', '2024-06-30');
+
+    expect(element.querySelector('.range-zone')?.textContent).toContain('Australia/Sydney');
+    // and the dates go to the helper as the UTC moments they stand for
+    await advanceTo('running');
+    // typed in the AO3 zone, sent as the UTC moment that day begins there
+    expect(jobs.started[0].options.dateFrom).toBe('2023-12-31T13:00:00+00:00');
+    expect(jobs.started[0].options.dateTo).toBe('2024-06-30T13:59:59+00:00');
+    expect(jobs.started[0].ao3TimeZone).toBe('Australia/Sydney');
+  });
+
   it('sends a date window instead of pages when the custom run asks for one', async () => {
     await open('custom');
     await advanceTo('options');
@@ -830,8 +957,8 @@ describe('DownloadDialog', () => {
     await advanceTo('running');
 
     expect(jobs.started[0].options.dates).toBe(true);
-    expect(jobs.started[0].options.dateFrom).toBe('2024-01-01');
-    expect(jobs.started[0].options.dateTo).toBe('2024-06-30');
+    expect(jobs.started[0].options.dateFrom).toBe(zonedDayToUtc('2024-01-01'));
+    expect(jobs.started[0].options.dateTo).toBe(zonedDayToUtc('2024-06-30', true));
   });
 
   // 'since a date' is open at the top, so there is no newer end to send. a date left over
@@ -848,7 +975,7 @@ describe('DownloadDialog', () => {
 
     await advanceTo('running');
 
-    expect(jobs.started[0].options.dateFrom).toBe('2024-01-01');
+    expect(jobs.started[0].options.dateFrom).toBe(zonedDayToUtc('2024-01-01'));
     expect(jobs.started[0].options.dateTo).toBe('');
   });
 
@@ -1081,6 +1208,18 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('Point the folder picker');
     expect(said).not.toContain('brings itself up to date');
     expect(said).not.toContain('brought up to date');
+  });
+
+  it('shows each line of the log with when it was said, in this browser\'s own time', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    const at = '2026-11-03T10:15:42+00:00';
+    jobs.push!({ type: 'message', text: 'looking up work 7 on AO3', at } as JobEvent);
+    await fixture.whenStable();
+
+    const shown = element.querySelector('.log')?.textContent ?? '';
+    const local = new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    expect(shown).toContain(`${local} looking up work 7 on AO3`);
   });
 
   it('says which works could not be downloaded', async () => {
@@ -2207,14 +2346,14 @@ describe('DownloadDialog', () => {
   // a listing of your bookmarks never shows a work you did not bookmark, so a scan only
   // reads one again when it is asked to
   it.each(['bookmarks', 'quick', 'custom'] as const)(
-    'lets a %s run check non-bookmarks for updates, with a warning',
+    'lets a %s run check non-bookmarks for updates, saying what it checks',
     async (action) => {
       await open(action);
       await advanceTo('options');
 
-      const box = checkbox('Include any changes to non-bookmarks');
+      const box = checkbox('Check all non-bookmarks for updates too');
       expect(element.querySelector('.dialog .body')?.textContent).toContain(
-        'not affected by the date range',
+        'added by URL or id',
       );
       box!.click();
       await fixture.whenStable();
@@ -2230,7 +2369,7 @@ describe('DownloadDialog', () => {
       await open(action);
       await advanceTo('filetypes');
 
-      expect(checkbox('Include any changes to non-bookmarks')).toBeUndefined();
+      expect(checkbox('Check all non-bookmarks for updates too')).toBeUndefined();
     },
   );
 
@@ -2239,11 +2378,11 @@ describe('DownloadDialog', () => {
     await open('custom');
     await advanceTo('options');
 
-    checkbox('Include any changes to non-bookmarks')!.click();
+    checkbox('Check all non-bookmarks for updates too')!.click();
     checkbox('Skip indexing')!.click();
     await fixture.whenStable();
 
-    expect(checkbox('Include any changes to non-bookmarks')).toBeUndefined();
+    expect(checkbox('Check all non-bookmarks for updates too')).toBeUndefined();
     await advanceTo('running');
     expect(jobs.started[0].options.nonBookmarks).toBe(false);
   });
@@ -2273,7 +2412,7 @@ describe('DownloadDialog', () => {
     await advanceTo('running');
 
     expect(jobs.started[0].options.dates).toBe(true);
-    expect(jobs.started[0].options.dateFrom).toBe('2026-01-01');
+    expect(jobs.started[0].options.dateFrom).toBe(zonedDayToUtc('2026-01-01'));
   });
 
   it('leaves a quick scan measuring back to the last run unless told otherwise', async () => {
@@ -2405,9 +2544,10 @@ describe('DownloadDialog', () => {
     expect(jobs.started[0].options.skipLogin).toBe(false);
   });
 
-  for (const action of ['work', 'works'] as JobAction[]) {
+  for (const action of ['work', 'works', 'bookmarks', 'quick', 'update', 'collection'] as JobAction[]) {
     it(`offers skipping the login on ${action}, unticked, warning when ticked`, async () => {
       await open(action);
+      await advanceTo('options');
       const box = checkbox('Skip AO3 login?')!;
       expect(box.checked).toBe(false);
       expect(element.querySelector('.skip-login-warning')).toBeNull();
@@ -2418,11 +2558,13 @@ describe('DownloadDialog', () => {
       expect(warning).toContain('not recommended');
       expect(warning).toContain('restricted');
       expect(warning).toContain('FicHub');
+      expect(warning).toContain('Private bookmarks');
     });
   }
 
   it('starts without a login when told to skip it, sending no credentials', async () => {
     await open('work');
+    await advanceTo('options');
     checkbox('Skip AO3 login?')!.click();
     await fixture.whenStable();
     await advanceTo('credentials');
@@ -2435,11 +2577,32 @@ describe('DownloadDialog', () => {
     expect(jobs.started[0].password).toBe('');
   });
 
-  it('never offers skipping the login on a run that reads your bookmarks', async () => {
+  it('asks a run reading your own bookmarks for a username but no password when skipping the login', async () => {
     await open('bookmarks');
-    expect(checkbox('Skip AO3 login?')).toBeUndefined();
-    await open('collection');
-    expect(checkbox('Skip AO3 login?')).toBeUndefined();
+    await advanceTo('options');
+    checkbox('Skip AO3 login?')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('.skip-login-warning')?.textContent).toContain('not your password');
+    await advanceTo('credentials');
+    expect(element.querySelector('input[name="password"]')).toBeNull();
+    const name = element.querySelector<HTMLInputElement>('input[name="username"]')!;
+    expect(name.value).toBe('Someone');
+
+    // a run reading your bookmarks cannot start without one
+    name.value = '';
+    name.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    button('Start download')!.click();
+    await fixture.whenStable();
+    expect(jobs.started.length).toBe(0);
+
+    name.value = 'Someone';
+    name.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    await advanceTo('running');
+    expect(jobs.started[0].options.skipLogin).toBe(true);
+    expect(jobs.started[0].username).toBe('Someone');
+    expect(jobs.started[0].password).toBe('');
   });
 
   it('offers skipping the indexing only on a custom run', async () => {
@@ -3273,6 +3436,11 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  async function toHow() {
+    button('Continue')!.click();
+    await fixture.whenStable();
+  }
+
   async function acknowledge() {
     element.querySelector<HTMLInputElement>('input[name="retryAcknowledged"]')!.click();
     await fixture.whenStable();
@@ -3337,6 +3505,9 @@ describe('DownloadDialog', () => {
       expect(element.querySelector('.retry-steps .hint')?.textContent)
         .toContain('The last step it finished was Index newly bookmarked');
 
+      // how to retry it is on a page of its own, after the list
+      await toHow();
+      expect(currentStep()).toBe('retry-how');
       // the helper's default is picked, and a way it cannot be retried is greyed with why
       const modes = Array.from(element.querySelectorAll<HTMLInputElement>('input[name="retryMode"]'));
       expect(modes.find((m) => m.checked)?.value).toBe('index');
@@ -3353,10 +3524,33 @@ describe('DownloadDialog', () => {
       expect(failed.closest('label')!.title).toContain('Every work it set out to get arrived');
     });
 
+  it('retries a run that went without logging in without asking for a password', async () => {
+    jobs.retryableOnRecord = [ended({ options: { skipLogin: true }, username: 'Someone' })];
+    await toRetryPage();
+    await pick();
+    await toHow();
+    element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
+    await fixture.whenStable();
+    await acknowledge();
+    button('Continue')!.click();
+    await fixture.whenStable();
+    await advanceTo('credentials');
+
+    expect(element.querySelector('input[name="password"]')).toBeNull();
+    expect(element.querySelector('.not-logging-in')?.textContent).toContain('the run you are retrying');
+    // a quick scan reads your bookmarks, found by the account the earlier run read
+    expect(element.querySelector<HTMLInputElement>('input[name="username"]')?.value).toBe('Someone');
+
+    await advanceTo('running');
+    expect(jobs.started[0].options.skipLogin).toBe(true);
+    expect(jobs.started[0].password).toBe('');
+  });
+
   it('starts the retry as the run it retries, with the way of retrying chosen', async () => {
     jobs.retryableOnRecord = [ended()];
     await toRetryPage();
     await pick();
+    await toHow();
     element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
     await fixture.whenStable();
     await acknowledge();
@@ -3389,6 +3583,7 @@ describe('DownloadDialog', () => {
     })];
     await toRetryPage();
     await pick();
+    await toHow();
 
     expect(element.querySelector('.retry-modes')?.textContent).toContain('Just the 1 work it could not get');
     await acknowledge();
@@ -3408,6 +3603,7 @@ describe('DownloadDialog', () => {
       })];
       await toRetryPage();
       await pick();
+      await toHow();
 
       const terms = element.querySelector('.retry-terms')?.textContent?.replace(/\s+/g, ' ') ?? '';
       expect(terms).toContain('Back to 2026-09-01, and up to 2026-09-20');
@@ -3431,6 +3627,7 @@ describe('DownloadDialog', () => {
     })];
     await toRetryPage();
     await pick();
+    await toHow();
 
     expect(element.querySelector('.retry-warning')?.textContent)
       .toContain('Some of its indexing failed');
@@ -3443,6 +3640,7 @@ describe('DownloadDialog', () => {
     })];
     await toRetryPage();
     await pick();
+    await toHow();
 
     expect(element.querySelector('.retry-dates')?.textContent)
       .toContain('Fics AO3 updated from 2026-01-01 to 2026-02-01');
@@ -3456,6 +3654,7 @@ describe('DownloadDialog', () => {
     })];
     await toRetryPage();
     await pick();
+    await toHow();
 
     expect(element.querySelector('.retry-modes')?.textContent)
       .toContain('Carry on from where it stopped - a fic it saved in every format is passed over');
@@ -3463,20 +3662,31 @@ describe('DownloadDialog', () => {
       .toBe('downloads');
   });
 
-  it('opens set to retry a run picked from the history, with its default way picked', async () => {
+  it('opens a retry picked from the history straight on how to retry it', async () => {
     jobs.retryableOnRecord = [ended()];
+    listsRead = 0;
     fixture = TestBed.createComponent(DownloadDialog);
     fixture.componentRef.setInput('action', 'custom');
     fixture.componentRef.setInput('resumeFrom', 'r1');
     await fixture.whenStable();
     element = fixture.nativeElement as HTMLElement;
-    await advanceTo('options');
-
-    expect(checkbox('Retry an earlier run')!.checked).toBe(true);
-    button('Continue')!.click();
+    await new Promise((done) => setTimeout(done, 0));
     await fixture.whenStable();
-    expect(element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.checked).toBe(true);
+
+    // straight to how it is retried: the list of every earlier run is never read
+    expect(currentStep()).toBe('retry-how');
+    expect(element.querySelector('.retry-which')?.textContent).toContain('Quick Scan');
     expect(element.querySelector<HTMLInputElement>('input[name="retryMode"]:checked')!.value).toBe('index');
+    expect(listsRead).toBe(0);
+
+    // going back reads the list then, with the run still chosen
+    button('Back')!.click();
+    await fixture.whenStable();
+    await new Promise((done) => setTimeout(done, 0));
+    await fixture.whenStable();
+    expect(currentStep()).toBe('resume');
+    expect(listsRead).toBe(1);
+    expect(element.querySelector<HTMLInputElement>('input[name="resumeRun"]')!.checked).toBe(true);
   });
 
   // endregion

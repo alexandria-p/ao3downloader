@@ -11,6 +11,12 @@
   margin-bottom: 12px;
 }
 
+.history-limit {
+  margin: -6px 0 12px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
 .history-head h2 {
   margin: 0;
   font-size: 1.15rem;

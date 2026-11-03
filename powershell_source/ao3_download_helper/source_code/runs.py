@@ -64,9 +64,20 @@ def now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
 
-def shown(stamp: str) -> str:
-    """A recorded time as a run's own lines say it: `YYYY-MM-DD HH:MM UTC`, or, for an older
-    record's naive local time, as it was written."""
+def file_stamp(stamp: str) -> str:
+    """A UTC time as a run file's name starts with it: `20261103T101542Z`, ISO 8601's basic
+    form. It sorts by time, carries its zone as the standard `Z`, has nothing a file system or
+    Dropbox could object to, and sorts after every older name (`2026-11-03T...`, local time),
+    since a digit sorts after `-` - so the newest run is the last name, whichever wrote it."""
+
+    at = datetime.datetime.fromisoformat(stamp).astimezone(datetime.timezone.utc)
+    return at.strftime('%Y%m%dT%H%M%SZ')
+
+
+def shown(stamp: str, zone=None) -> str:
+    """A recorded (UTC) time as a run's own lines say it: in the person's AO3 zone when the run
+    was given one, named - `2026-11-03 21:15 Australia/Sydney` - else `YYYY-MM-DD HH:MM UTC`. An
+    older record's naive local time is said as it was written."""
 
     text = str(stamp or '')
     try:
@@ -74,7 +85,15 @@ def shown(stamp: str) -> str:
     except ValueError:
         return text[:16].replace('T', ' ')
     if at.tzinfo is None: return text[:16].replace('T', ' ')
+    if zone is not None:
+        return f"{at.astimezone(zone).strftime('%Y-%m-%d %H:%M')} {zone_name(zone)}"
     return at.astimezone(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
+
+def zone_name(zone) -> str:
+    """A zone as a line names it: its IANA name (`Australia/Sydney`)."""
+
+    return str(getattr(zone, 'key', None) or zone)
 
 
 def snapshot(record: 'RunRecord') -> dict:
@@ -138,7 +157,7 @@ class RunRecord:
         # a run thread still stuck somewhere must not wake later and write over it
         self.frozen = False
         self.path = os.path.join(
-            fileops.runsfolder, f'{now().replace(":", "")}-{job_id[:8]}.json')
+            fileops.runsfolder, f'{file_stamp(now())}-{job_id[:8]}.json')
         self.data: dict = {
             'id': job_id,
             'action': action,
@@ -321,7 +340,18 @@ class RunRecord:
 
 
 def read_runs(fileops, limit: int = 100, with_log: bool = False) -> list[dict]:
-    """Every run on record, newest first.
+    """Every run on record, newest first - `iter_runs`, read to the end."""
+
+    return list(iter_runs(fileops, limit, with_log))
+
+
+def iter_runs(fileops, limit: int = 100, with_log: bool = False, names=None):
+    """The runs on record, newest first, read one at a time as they are asked for.
+
+    A caller that stops early - `last_successful` at the first floor, usually the newest
+    record - reads only that far. In Dropbox every record is a download through the page, so
+    reading all `limit` of them first cost a quick scan most of a minute before it began.
+    `names` narrows it to those file names (`find_run`).
 
     A file that cannot be read is skipped rather than ending the listing - one damaged
     record should not hide the history around it.
@@ -333,26 +363,27 @@ def read_runs(fileops, limit: int = 100, with_log: bool = False) -> list[dict]:
     """
 
     folder = fileops.runsfolder
-    try:
-        names = fileops.list_files(folder)
-    except Exception:
-        return []
+    if names is None:
+        try:
+            names = fileops.list_files(folder)
+        except Exception:
+            return
 
-    found: list[dict] = []
+    found = 0
     for name in sorted(names, reverse=True):
         if not name.lower().endswith('.json'): continue
         try:
             record = json.loads(fileops.read_text(os.path.join(folder, name)))
-            if isinstance(record, dict):
-                record['file'] = name
-                if not with_log:
-                    record['logLines'] = len(record.get('log') or [])
-                    record.pop('log', None)
-                found.append(record)
         except Exception:
             continue
-        if len(found) >= limit: break
-    return found
+        if not isinstance(record, dict): continue
+        record['file'] = name
+        if not with_log:
+            record['logLines'] = len(record.get('log') or [])
+            record.pop('log', None)
+        yield record
+        found += 1
+        if found >= limit: break
 
 
 def baseline_of(record: dict) -> str:
@@ -366,8 +397,18 @@ def find_run(fileops, run_id: str) -> dict | None:
     """One run's record by its id, with the name of the file it is in."""
 
     if not run_id: return None
-    for record in read_runs(fileops, limit=100000):
-        if str(record.get('id') or '') == run_id: return record
+    # every run file's name ends with the first 8 of its id, so only those are read - not the
+    # whole folder, which in Dropbox is a download per record. a name that does not follow it
+    # (none has, but a hand-renamed file might) is still found by reading the rest
+    try:
+        names = fileops.list_files(fileops.runsfolder)
+    except Exception:
+        return None
+    suffix = f'-{run_id[:8]}.json'.lower()
+    named = [name for name in names if name.lower().endswith(suffix)]
+    for candidates in (named, [name for name in names if name not in named]):
+        for record in iter_runs(fileops, limit=100000, names=candidates):
+            if str(record.get('id') or '') == run_id: return record
     return None
 
 
@@ -401,7 +442,8 @@ def last_successful(fileops, match=None, statuses=(STATUS_SUCCESS,)) -> dict | N
     `match` holds.
     """
 
-    for record in read_runs(fileops):
+    # read newest first, stopping at the first that qualifies - usually the newest record
+    for record in iter_runs(fileops):
         if record.get('status') not in statuses: continue
         if match is not None and not match(record): continue
         return record

@@ -1,5 +1,13 @@
 import { Injectable, signal } from '@angular/core';
-import { LibraryStore, StorageRequest, answerStorage, readRunHistory } from './library-store';
+import {
+  LibraryStore,
+  StorageRequest,
+  answerStorage,
+  noteRunEnded,
+  readRunHistory,
+  readUnsettledRuns,
+  runHistoryBatches,
+} from './library-store';
 import { HelperConnection } from './helper-connection';
 import { DropboxHandover } from './dropbox';
 import type { AppStatus } from './updates';
@@ -71,6 +79,19 @@ export interface ServerConfig {
   /** only the Windows, Mac or Linux app: its version, and whether it can update itself */
   app?: AppStatus;
 }
+
+/**
+ * What a run window works from until the helper has answered - the helper's own lists
+ * (`strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES_WITH_METADATA`, `FORCED_FILETYPES`,
+ * `DEFAULT_FILETYPES`), so the options and file types can be chosen while a hosted helper
+ * wakes. The run is never started on it: Start waits for the helper's real answer.
+ */
+export const BUILT_IN_CONFIG: ServerConfig = {
+  username: '',
+  filetypes: ['AZW3', 'EPUB', 'MOBI', 'PDF', 'HTML', 'JSON'],
+  forced: ['JSON'],
+  defaults: ['JSON', 'HTML'],
+};
 
 /** the questions the console menu asks after the file types */
 export interface JobOptions {
@@ -398,6 +419,8 @@ export interface WorkFailure {
 export interface JobEvent {
   type: string;
   text?: string;
+  /** a `message` event's: when the helper said it, in UTC */
+  at?: string;
   /** on a `page` event: position within the slice being fetched, which drives the bar */
   page?: number;
   total?: number;
@@ -503,6 +526,8 @@ export interface StartRequest {
    */
   answerDefaults?: Partial<Record<QuestionName, string>>;
   questionTimeoutMinutes?: number;
+  /** the zone AO3 shows this person's dates in (User settings; the browser's own by default) */
+  ao3TimeZone?: string;
 }
 
 /** the questions a run can stop to ask, by the name the helper gives them */
@@ -601,6 +626,31 @@ export class Jobs {
   }
 
   /**
+   * The newest run a quick scan would measure back to, or null when there is none (or the
+   * helper cannot say). Read newest first a few records at a time, each batch put to the
+   * helper, stopping at the first that qualifies - so a library whose last scan was a floor
+   * downloads a handful of records, not the whole history.
+   */
+  async loadNewestFloor(store: LibraryStore | null): Promise<RunHistory | null> {
+    if (!store) return null;
+    try {
+      for await (const batch of runHistoryBatches(store)) {
+        const response = await this.helper.call(`/api/runs/floors`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runs: batch }),
+        });
+        if (!response.ok) throw new Error(String(response.status));
+        const floors = ((await response.json()) as { runs: RunHistory[] }).runs ?? [];
+        if (floors.length) return floors[0];
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * The runs the helper is working on right now, or null when it cannot be asked.
    */
   /**
@@ -651,11 +701,14 @@ export class Jobs {
    * Whatever cannot be read or rewritten is left as it is: this is a correction, never worth
    * failing over.
    */
-  async settleInterrupted(store: LibraryStore | null): Promise<number> {
+  async settleInterrupted(store: LibraryStore | null, history?: RunHistory[]): Promise<number> {
     if (!store) return 0;
     let settled = 0;
     try {
-      const running = (await readRunHistory(store)).filter(
+      // only the records not already known to have ended - see readUnsettledRuns - unless the
+      // caller has the history in hand (the History tab), whose runs are then marked in place
+      // so it need not read it all again
+      const running = (history ?? (await readUnsettledRuns(store))).filter(
         (run) => run.status === 'running' && this.isThisHelpers(run),
       );
       if (!running.length) return 0;
@@ -670,6 +723,8 @@ export class Jobs {
           if (record['status'] !== 'running') continue;
           record['status'] = 'interrupted';
           await store.write(path, new Response(JSON.stringify(record, null, 2)));
+          noteRunEnded(store, run.file);
+          run.status = 'interrupted';
           settled++;
         } catch {
           continue;
@@ -690,6 +745,47 @@ export class Jobs {
    * The unfinished scans that could be picked up, newest first, each saying whether it can
    * be and what to know first. The rule is the helper's, so it is asked, as for floors.
    */
+  /**
+   * The run history the History tab last read, for the library it read it from. A retry
+   * started from History opens on that run straight away, judged against this list rather
+   * than the whole history read again (`loadRetryableRun`).
+   */
+  historyRead: { store: LibraryStore; runs: RunHistory[] } | null = null;
+
+  /**
+   * The helper's answer to the config asked for as a run window opened (`App.openRun`) - in
+   * the background, so the options can be chosen while a hosted helper wakes. The run page
+   * waits on it before starting (`DownloadDialog.readyToStart`).
+   */
+  connecting: Promise<ServerConfig | null> | null = null;
+  /** a quick scan's newest floor, looked for as its window opened; null when none was asked */
+  floorAhead: Promise<RunHistory | null> | null = null;
+
+  /**
+   * One run, with how it can be retried. The helper judges it alongside the runs newer than
+   * it (a newer full scan is one of its warnings), taken from the list History already read
+   * when there is one - so nothing is downloaded - and from the library otherwise.
+   */
+  async loadRetryableRun(store: LibraryStore | null, runId: string): Promise<RetryableRun | null> {
+    if (!store || !runId) return null;
+    try {
+      const read = this.historyRead?.store === store ? this.historyRead.runs : null;
+      const history = read?.some((run) => run.id === runId) ? read : await readRunHistory(store);
+      const at = history.findIndex((run) => run.id === runId);
+      if (at < 0) return null;
+      const response = await this.helper.call(`/api/runs/retryable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runs: history.slice(0, at + 1) }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      const runs = ((await response.json()) as { runs: RetryableRun[] }).runs ?? [];
+      return runs.find((run) => run.id === runId) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async loadRetryableRuns(store: LibraryStore | null): Promise<RetryableRun[] | null> {
     if (!store) return null;
     try {

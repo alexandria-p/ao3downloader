@@ -212,9 +212,17 @@ ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTIO
 # actions that need a link from the caller rather than working it out from the username
 ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK, ACTION_WORKS)
 
-# the runs pointed at fics by hand, which may be told not to log in (`skipLogin`). Every
-# other run reads your own bookmarks or collections, which only a login can see
-SKIP_LOGIN_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+# the runs pointed at fics by hand. a fic they index that is not your bookmark is marked
+# as having come in by its link (`from_link`)
+FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+
+# every run may be told not to log in (`skipLogin`). these still need a username without
+# one, because they read your own bookmarks or collections listing, found by your name -
+# logged out, ao3 shows only what anyone may see there, so private works and bookmarks are
+# missed. the rest need nothing: an update run works from the index, a collection run from
+# its link, a fic run from its fics
+USERNAME_ACTIONS = (ACTION_BOOKMARKS, ACTION_NEW, ACTION_SYNC, ACTION_CUSTOM, ACTION_QUICK,
+                    ACTION_COLLECTIONS)
 
 # the most fics one 'several fics' run takes. a paste of a whole library belongs to a scan
 MAX_WORK_LINKS = 500
@@ -352,10 +360,13 @@ def resolve_options(requested) -> dict:
         # both: one picks works by where they sit in the listing and the other by when ao3
         # last touched them, and a run cannot be walking a listing and not walking it.
         'dates': bool(given.get('dates')),
-        # a run pointed at fics by hand may go without logging in - see SKIP_LOGIN_ACTIONS
+        # any run may go without logging in - see USERNAME_ACTIONS for what it still needs
         'skipLogin': bool(given.get('skipLogin')),
-        'dateFrom': parse_text.get_date_stamp(given.get('dateFrom') or ''),
-        'dateTo': parse_text.get_date_stamp(given.get('dateTo') or ''),
+        # a typed range: the page sends each end as the UTC moment it begins (from) or ends
+        # (to) in the person's AO3 zone, and it is kept so. `range_day` dates it in that zone
+        # again before AO3's dates are compared. a bare date (an older page) is kept as one
+        'dateFrom': range_moment(given.get('dateFrom')),
+        'dateTo': range_moment(given.get('dateTo')),
         # a quick scan told which earlier scan to measure back to, by that run's id. only the
         # id travels: the date is read off the run's own record, so a request cannot invent one
         'floorRun': str(given.get('floorRun') or '').strip(),
@@ -511,10 +522,19 @@ class Job:
         # None leaves settings.ini in force. see `run_question_settings`
         self.answer_defaults: dict[str, str] = {}
         self.question_timeout_minutes: int | None = None
+        # the zone AO3 shows this person's dates in, from the page (`ao3_zone`); None is UTC.
+        # every floor and ceiling is turned into a date in it before AO3's dates are compared
+        self.ao3_zone = None
+        self.ao3_zone_name = ''
+        self.ao3_zone_missing = ''
         # the moment the login succeeded, or the first attempt's when resuming
         self.baseline = ''
 
     def emit(self, event: dict) -> None:
+        if event.get('type') == progress.MESSAGE and 'at' not in event:
+            # when it was said, in UTC: the window shows it in the reader's own zone, and a
+            # page reattaching to a background run replays lines said hours before
+            event = {**event, 'at': runs.now()}
         with self.lock:
             self.history.append(event)
             if self.background and event.get('type') == progress.MESSAGE:
@@ -1021,8 +1041,16 @@ def run_job(job: Job, password: str) -> None:
                             held=job.held.is_set) as repo:
                 # a pause lands between the library's reads and writes too, not only at ao3
                 if isinstance(fileops.storage, PageStorage): fileops.storage.gate = repo.hold_if_asked
+                # the zone a run's own lines say a time in - the person's AO3 zone
+                repo.zone = job.ao3_zone
                 job.emit({'type': progress.STARTED, 'action': job.action,
                           'filetypes': job.filetypes, 'options': job.options})
+                # which zone the floors and ceilings are turned into dates in, said up front -
+                # it decides where every walk with a date stops
+                if job.ao3_zone_missing:
+                    print(strings.AO3_INFO_AO3_ZONE_MISSING.format(job.ao3_zone_missing))
+                elif job.ao3_zone_name:
+                    print(strings.AO3_INFO_AO3_ZONE.format(job.ao3_zone_name))
                 # the checklist goes out before anything happens, so the ui can show what
                 # is still to come rather than only what has already been done
                 job.steps = Steps(report, step_plan(job), on_start=lambda step, label:
@@ -1058,8 +1086,9 @@ def run_job(job: Job, password: str) -> None:
                 job.checkpoint(stepPlan=[[step, label] for step, label in job.steps.plan],
                                steps=dict(job.steps.outcomes))
                 if skip_login:
-                    # asked for, on a run pointed at fics by hand: everything goes on as it
-                    # would, and what ao3 shows only to a login fails and goes to FicHub
+                    # asked for: everything goes on as it would, with what ao3 shows anyone.
+                    # private bookmarks are not on the listing, and a work only a login can
+                    # see fails and goes to FicHub
                     print(strings.AO3_INFO_NOT_LOGGING_IN)
                     repo.logged_in = False
                     begin_record(job, fileops)
@@ -1154,8 +1183,9 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
     job.filetypes = list(earlier.get('filetypes') or [])
     # the collection it was pointed at; a resume request carries no link of its own
     job.url = earlier.get('url') or job.url
+    # whether to log in is this attempt's own choice, made with the login it was given
     job.options = {**resolve_options(earlier.get('options')), 'resume': earlier['id'],
-                   'retryMode': mode}
+                   'retryMode': mode, 'skipLogin': bool(job.options.get('skipLogin'))}
     job.resume = {
         'id': earlier['id'],
         'file': earlier.get('file') or '',
@@ -1178,7 +1208,7 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
              RETRY_REDOWNLOAD: strings.AO3_INFO_RETRY_REDOWNLOAD,
              RETRY_DOWNLOADS: strings.AO3_INFO_RETRY_DOWNLOADS,
              RETRY_FAILED: strings.AO3_INFO_RETRY_FAILED.format(failed)}[mode],
-            runs.shown(earlier.get('started')),
+            runs.shown(earlier.get('started'), job.ao3_zone),
             earlier.get('status') or ''))
     # what the earlier attempt was actually told wins; a background run's up-front answers
     # stand in for any question it never reached. not from the top: that asks everything again
@@ -1190,7 +1220,7 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
                                 if isinstance(c, dict) and c.get('question') and c.get('choice')}}
     print(strings.AO3_INFO_RESUMING.format(
         earlier.get('actionName') or earlier['action'],
-        runs.shown(earlier.get('started')),
+        runs.shown(earlier.get('started'), job.ao3_zone),
         (earlier.get('progress') or {}).get('stepLabel') or strings.AO3_INFO_RESUME_NO_STEP))
 
 
@@ -1206,6 +1236,8 @@ def begin_record(job: Job, fileops: FileOps) -> None:
     resume = job.resume
     job.baseline = (resume or {}).get('baseline') or runs.now()
     if not job.record: return
+    # which zone its floors and ceilings were dated in - explains where a walk stopped
+    job.record.data['ao3TimeZone'] = job.ao3_zone_name or 'UTC'
     if resume:
         job.record.data['progress'] = json.loads(json.dumps(resume['progress']))
         job.record.logged_in(job.baseline, resumes=resume['id'], first=resume['first'])
@@ -1361,7 +1393,10 @@ def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
     if mode == RETRY_FAILED:
         if action not in RESUME_ACTIONS and action not in FIC_ACTIONS:
             return strings.RETRY_FAILED_WRONG_ACTION
-        return '' if failed_work_ids(record) else strings.RETRY_NO_FAILURES
+        if failed_work_ids(record): return ''
+        # only a run that finished everything can say everything arrived
+        return strings.RETRY_NO_FAILURES if record.get('status') == runs.STATUS_SUCCESS \
+            else strings.RETRY_NO_FAILURES_UNFINISHED
     if action not in RESUME_ACTIONS: return strings.RETRY_NO_INDEX
     if action == ACTION_CUSTOM and not options.get('dates') and \
             (int(options.get('pages') or 0) or int(options.get('start') or 1) > 1):
@@ -1604,6 +1639,70 @@ def restore_series(job: Job, ao3: Ao3) -> None:
         ao3.series_read.setdefault(str(series_id), [])
 
 
+# an IANA time zone name as a browser gives it: `Europe/London`, `America/Argentina/Salta`, `UTC`
+ZONE_NAME = re.compile(r'^[A-Za-z][A-Za-z0-9_+\-]*(/[A-Za-z0-9_+\-]+)*$')
+
+
+def ao3_zone(name):
+    """The zone AO3 shows this person's dates in - from the page's User settings, the
+    browser's own zone unless they changed it - or None for UTC. ValueError for something that
+    is not a zone name at all. A name this computer cannot look up (no tz database) is None,
+    said in the run's log by the caller, rather than refusing the run."""
+
+    if name in (None, ''): return None
+    if not isinstance(name, str) or len(name) > 64 or not ZONE_NAME.match(name):
+        raise ValueError(f"'{name}' is not a time zone name")
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+    except Exception:
+        return None
+
+
+def range_moment(value) -> str:
+    """A typed range end as it is kept: a UTC moment `YYYY-MM-DDTHH:MM:SS+00:00`, or a bare
+    `YYYY-MM-DD` from a page that sent one. Anything else is '' - no limit at that end, the
+    safe direction, as `get_date_stamp` has always made it."""
+
+    text = str(value or '').strip()
+    try:
+        at = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return parse_text.get_date_stamp(text)
+    if at.tzinfo is None: return parse_text.get_date_stamp(text[:10])
+    return at.astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def range_day(job, key: str) -> str:
+    """A typed range end (`dateFrom`/`dateTo`) as the day it is in the person's AO3 zone - what
+    AO3's dates are compared with."""
+
+    return ao3_day(job.options.get(key), job.ao3_zone)
+
+
+def zone_lookup_works() -> bool:
+    """Whether a zone other than UTC can be looked up here - false on a system with no zone
+    database and no `tzdata` packed in, where every AO3 zone falls back to UTC."""
+
+    return ao3_zone('Europe/London') is not None
+
+
+def ao3_day(stamp, zone=None) -> str:
+    """The day a recorded moment fell on as AO3 dates things: `YYYY-MM-DD` in `zone` (UTC when
+    None). AO3 writes only a date on its listings, in the zone it shows this person, so a floor
+    or ceiling - a UTC moment - is turned into a date **in that zone** before the two are
+    compared: a fic AO3 dates on or after it was updated on or after the moment, and none is
+    missed. A naive time (written before times were UTC) is taken as written."""
+
+    text = str(stamp or '')
+    try:
+        at = datetime.datetime.fromisoformat(text)
+    except ValueError:
+        return text[:10]
+    if at.tzinfo is None: return text[:10]
+    return at.astimezone(zone or datetime.timezone.utc).strftime('%Y-%m-%d')
+
+
 def retry_ceiling(job: Job, end: str = '') -> str:
     """The newest date a retry wants anything from: the day its first attempt started (its
     baseline), or `end` - a date range's - when that is earlier. A first attempt has none, and
@@ -1611,7 +1710,7 @@ def retry_ceiling(job: Job, end: str = '') -> str:
     one of them stops at the same ceiling."""
 
     if not job.resume: return ''
-    started = str(job.baseline or '')[:10]
+    started = ao3_day(job.baseline, job.ao3_zone)
     end = parse_text.get_date_stamp(end) if end else ''
     return min(d for d in (started, end) if d) if (started or end) else ''
 
@@ -2599,42 +2698,50 @@ def run_quick(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     # a date range gives both walks their floor directly, and a ceiling too; otherwise the
     # floor comes from an earlier scan
     window = bool(job.options['dates'])
-    ceiling = job.options['dateTo'] if window else ''
+    ceiling = range_day(job, 'dateTo') if window else ''
     earlier = job.earlier_progress()
     if job.resume and job.baseline:
         # a resumed scan finishes the first attempt's work, which reached up to the moment
         # it logged in. anything changed since is the next scan's to find
-        started = job.baseline[:10]
+        started = ao3_day(job.baseline, job.ao3_zone)
         ceiling = min(ceiling, started) if ceiling else started
 
     # the user may have picked the scan to measure back to, in which case nothing is worked
     # out or asked
-    floor = chosen_floor(fileops, job.options['floorRun']) if job.options.get('floorRun') else ''
+    # the floor is kept as the UTC moment it stands for (`floor_at`) and compared as the day
+    # that moment is in the person's AO3 zone (`floor`)
+    floor_at = (chosen_floor_at(fileops, job.options['floorRun'])
+                if job.options.get('floorRun') else '')
     if job.resume and 'floor' in earlier:
         # the floor the first attempt measured back to, not one worked out afresh - the runs
-        # on record have changed since, and this is still that run
-        floor = str(earlier.get('floor') or '')
+        # on record have changed since, and this is still that run. an older record kept a day
+        floor_at = str(earlier.get('floor') or '')
+        floor = ao3_day(floor_at, job.ao3_zone)
         print(strings.AO3_INFO_RESUME_FLOOR.format(floor or strings.AO3_INFO_DATE_ANY))
     elif window:
-        floor = job.options['dateFrom']
+        floor_at = job.options['dateFrom']
+        floor = range_day(job, 'dateFrom')
         print(strings.AO3_INFO_QUICK_WINDOW.format(floor or strings.AO3_INFO_DATE_ANY,
                                                     ceiling or strings.AO3_INFO_DATE_NOW))
-    elif floor:
+    elif floor_at:
+        floor = ao3_day(floor_at, job.ao3_zone)
         print(strings.AO3_INFO_QUICK_CHOSEN_FLOOR.format(floor))
     else:
         if job.options.get('floorRun'):
             # it was checked when the run was started, so this is a history file removed in
             # between. falling back to the usual rules beats guessing at a date
             print(strings.AO3_INFO_QUICK_CHOSEN_GONE)
-        floor = quick_scan_floor(fileops)
+        floor_at = quick_scan_floor_at(fileops)
+        floor = ao3_day(floor_at, job.ao3_zone)
         if floor:
             print(strings.AO3_INFO_QUICK_FLOOR.format(floor))
         else:
             # nothing qualifies as a floor, but an index already here is worth measuring from
             # if the user says so - see settle_quick_floor
-            floor = settle_quick_floor(job, fileops, report)
+            floor_at = settle_quick_floor(job, fileops, report)
+            floor = ao3_day(floor_at, job.ao3_zone)
             if not floor: print(strings.AO3_INFO_QUICK_NO_FLOOR)
-    job.checkpoint(floor=floor)
+    job.checkpoint(floor=floor_at)
 
     records: list[dict] = []
     if metadata:
@@ -2736,7 +2843,7 @@ def merge_by_work(*passes: list[dict]) -> list[dict]:
     return list(merged.values())
 
 
-def quick_scan_floor(fileops: FileOps) -> str:
+def quick_scan_floor(fileops: FileOps, zone=None) -> str:
     """The date a quick scan indexes back to, or '' when there is nothing to go on.
 
     The day the last successful **full scan or quick scan** started. Two conditions, and
@@ -2754,14 +2861,19 @@ def quick_scan_floor(fileops: FileOps) -> str:
       that day, so measuring back to one would skip it permanently.
     """
 
+    return ao3_day(quick_scan_floor_at(fileops), zone)
+
+
+def quick_scan_floor_at(fileops: FileOps) -> str:
+    """The moment `quick_scan_floor` stands for, in UTC as it is kept: when the last run that
+    qualifies began its reach (its login, or its first attempt's if resumed). '' for none."""
+
     last = runs.last_successful(fileops, match=floor_worthy,
                                 statuses=(runs.STATUS_SUCCESS, runs.STATUS_PARTIAL))
-    if not last: return ''
-    # when its reach began: the moment its login worked, or its first attempt's if resumed
-    return runs.baseline_of(last)[:10]
+    return runs.baseline_of(last) if last else ''
 
 
-def newest_indexed_on(records: list[dict]) -> str:
+def newest_indexed_on(records: list[dict], zone=None) -> str:
     """The day the index was last written, as `YYYY-MM-DD`, or '' when it never was.
 
     `last_indexed` is stamped on every entry each time a run touches it, so the newest one
@@ -2769,10 +2881,21 @@ def newest_indexed_on(records: list[dict]) -> str:
     date the index itself can offer as a floor.
     """
 
-    newest = ''
+    return ao3_day(newest_indexed_at(records), zone)
+
+
+def newest_indexed_at(records: list[dict]) -> str:
+    """The latest `last_indexed` moment across the index, as written (UTC), or ''."""
+
+    newest, newest_at = '', None
     for record in records:
-        stamp = str(record.get(indexing.LAST_INDEXED) or '')[:10]
-        if len(stamp) == 10 and stamp > newest: newest = stamp
+        stamp = str(record.get(indexing.LAST_INDEXED) or '')
+        try:
+            at = datetime.datetime.fromisoformat(stamp)
+        except ValueError:
+            continue
+        if at.tzinfo is None: at = at.replace(tzinfo=datetime.timezone.utc)
+        if newest_at is None or at > newest_at: newest, newest_at = stamp, at
     return newest
 
 
@@ -2790,13 +2913,14 @@ def settle_quick_floor(job: Job, fileops: FileOps, report) -> str:
     that cannot leave a gap. Whatever goes wrong here, a quick scan must not quietly decide
     to look at less than it should.
 
-    Returns the date to index back to, or '' for the whole listing.
+    Returns the moment to index back to (UTC, as kept), or '' for the whole listing.
     """
 
     records = shared.read_index(fileops)
     if not records: return ''
 
-    indexed_on = newest_indexed_on(records)
+    indexed_at = newest_indexed_at(records)
+    indexed_on = ao3_day(indexed_at, job.ao3_zone)
     if not indexed_on: return ''
 
     print(strings.AO3_INFO_QUICK_ASKING.format(len(records), indexed_on))
@@ -2815,7 +2939,7 @@ def settle_quick_floor(job: Job, fileops: FileOps, report) -> str:
 
     if choice == QUICK_SINCE_INDEX:
         print(strings.AO3_INFO_QUICK_SINCE_INDEX.format(indexed_on))
-        return indexed_on
+        return indexed_at
 
     print(strings.AO3_INFO_QUICK_CHOSE_FULL)
     return ''
@@ -2869,14 +2993,21 @@ def missing_downloads(record: dict) -> list[str]:
             if isinstance(x, dict) and x.get('id')]
 
 
-def chosen_floor(fileops: FileOps, run_id: str) -> str:
-    """The day a chosen earlier scan started, or '' when it is not a run that can be one."""
+def chosen_floor(fileops: FileOps, run_id: str, zone=None) -> str:
+    """The day a chosen earlier scan started, in the person's AO3 zone, or '' when it is not a
+    run that can be one."""
+
+    return ao3_day(chosen_floor_at(fileops, run_id), zone)
+
+
+def chosen_floor_at(fileops: FileOps, run_id: str) -> str:
+    """The moment a chosen earlier scan's reach began (UTC, as kept), or '' when it is not a
+    run that can be one."""
 
     if not run_id: return ''
-    for record in floor_runs(fileops):
-        if str(record.get('id') or '') == run_id:
-            return runs.baseline_of(record)[:10]
-    return ''
+    # that one run's record, by its file name, and the same rule `floor_runs` applies
+    record = runs.find_run(fileops, run_id)
+    return runs.baseline_of(record) if record and floors_among([record]) else ''
 
 
 def covered_the_whole_listing(record: dict) -> bool:
@@ -3532,7 +3663,7 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         answer = fichub.lookup(ao3.repo, link)
         record = fichub.entry_from(answer, link, entry)
         # a fic run asked for this one by its link: say so, unless it is your bookmark
-        if job is not None and job.action in SKIP_LOGIN_ACTIONS and not was_bookmark(entry):
+        if job is not None and job.action in FIC_ACTIONS and not was_bookmark(entry):
             record[strings.FROM_LINK_FIELD] = True
         title = record.get('title') or title
         print(strings.AO3_INFO_FICHUB_FOUND.format(failure['id'], title))
@@ -4056,8 +4187,9 @@ def run_custom_dates(job: Job, fileops: FileOps, ao3: Ao3, downloadtypes: list[s
     pass re-reads before it decides what to download.
     """
 
-    start = job.options['dateFrom']
-    end = job.options['dateTo']
+    # the typed range, as days in the person's AO3 zone - the dates AO3's are compared with
+    start = range_day(job, 'dateFrom')
+    end = range_day(job, 'dateTo')
     metadata = strings.AO3_DOWNLOAD_TYPE_METADATA in job.filetypes
 
     restore_series(job, ao3)
@@ -4550,6 +4682,9 @@ class Handler(BaseHTTPRequestHandler):
                 'forced': FORCED_FILETYPES,
                 'defaults': DEFAULT_FILETYPES,
                 'settings': read_settings(fileops),
+                # whether this helper can look up an AO3 time zone at all - the Windows app's
+                # build checks it, since Windows has no zone database but the one packed in
+                'zoneLookup': zone_lookup_works(),
                 # only the Windows app: its version, and how an update is going
                 **({'app': Handler.updater.status()} if Handler.updater else {}),
             })
@@ -4673,11 +4808,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(400, {'error': str(e)})
             return
         options = resolve_options(body.get('options'))
-        # only a run pointed at fics by hand may go without a login; any other always logs in
-        if action not in SKIP_LOGIN_ACTIONS: options['skipLogin'] = False
         if options['skipLogin']:
-            # whatever was typed is not used, so it is not kept either
-            username, password = '', ''
+            # no password is used, so none is kept. a run reading your own listing is found
+            # by your username; any other has no use for one either
+            password = ''
+            if action not in USERNAME_ACTIONS: username = ''
+            elif not username:
+                self.send_json(400, {'error': 'a username is required to read your bookmarks '
+                                              'or collections, even without logging in'})
+                return
         elif not username or not password:
             self.send_json(400, {'error': 'username and password are required'})
             return
@@ -4760,6 +4899,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             answer_defaults, question_timeout = run_question_settings(
                 body.get('answerDefaults'), body.get('questionTimeoutMinutes'))
+            zone_name = str(body.get('ao3TimeZone') or '')
+            zone = ao3_zone(zone_name)
         except ValueError as e:
             self.send_json(400, {'error': str(e)})
             return
@@ -4768,6 +4909,10 @@ class Handler(BaseHTTPRequestHandler):
                   library=library, answers=answers)
         job.answer_defaults = answer_defaults
         job.question_timeout_minutes = question_timeout
+        job.ao3_zone = zone
+        job.ao3_zone_name = zone_name if zone is not None else ''
+        # a name this computer could not look up is said in the run's log once it starts
+        job.ao3_zone_missing = zone_name if zone_name and zone is None else ''
         # only a label, written into the history file: which helper the page started it on
         job.helper = str(body.get('helper') or '')[:300]
         # one run at a time, checked and taken under the same lock so two starts arriving

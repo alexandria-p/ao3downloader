@@ -37,8 +37,6 @@
     <footer>
       <button type="button" class="button" (click)="close()">Close</button>
     </footer>
-  } @else if (available() === null) {
-    <section class="body"><p class="hint">Looking for the local helper...</p></section>
   } @else {
     <!-- until init has worked out which step this run opens on - see Step's 'preparing' -->
     @if (step() === 'preparing') {
@@ -149,28 +147,6 @@
           <p class="hint">Saved to <code>{{ folder() }}</code>, alongside your own collections.</p>
         }
 
-        @if (picksSkipLogin()) {
-          <label class="check">
-            <input
-              type="checkbox"
-              name="skipLogin"
-              [checked]="skipLogin()"
-              (change)="skipLogin.set($any($event.target).checked)"
-            />
-            <span>Skip AO3 login?</span>
-          </label>
-          @if (skipLogin()) {
-            <div class="warning skip-login-warning">
-              <p><strong>This is not recommended.</strong></p>
-              <p>
-                Without logging in, fics their authors have restricted to AO3 users are much
-                harder to reach - AO3 will not show them to this run. Anything it cannot get from
-                AO3 while logged out, the run may have to fall back on fetching from FicHub
-                instead.
-              </p>
-            </div>
-          }
-        }
       </form>
       <footer>
         <button type="button" class="button subtle" (click)="close()">Cancel</button>
@@ -353,6 +329,11 @@
 
           <p class="hint">
             Both ends count. This run will fetch <strong>{{ dateRange() }}</strong>.
+          </p>
+          <!-- the dates are the person's own, in the zone AO3 dates fics in for them, so the
+               two are compared as typed - see User settings -->
+          <p class="hint range-zone">
+            Dates are in your AO3 time zone, <strong>{{ ao3Zone }}</strong> - change it in User settings.
           </p>
 
           @if (action() === 'quick') {
@@ -571,15 +552,12 @@
               [checked]="nonBookmarks()"
               (change)="nonBookmarks.set($any($event.target).checked)"
             />
-            <span>
-              Include any changes to non-bookmarks (for example, works discovered as part of
-              another work's series)
-            </span>
+            <span>Check all non-bookmarks for updates too</span>
           </label>
           <p class="hint">
-            <strong>Warning:</strong> this is not affected by the date range, and will check
-            all non-bookmarks for updates. Their series are read first, 20 works to a request;
-            any the series do not cover are read one request each.
+            This option will check: any works that were added by URL or id, any works that were
+            imported, and any works that <i>aren't</i> bookmarked but <i>are</i> a part of a
+            series you have indexed previously.
           </p>
         }
 
@@ -596,6 +574,33 @@
           </p>
         }
 
+        </fieldset>
+
+        <fieldset class="login-choice">
+          <legend>Logging in</legend>
+          <label class="check">
+            <input
+              type="checkbox"
+              name="skipLogin"
+              [checked]="skipLogin()"
+              (change)="skipLogin.set($any($event.target).checked)"
+            />
+            <span>Skip AO3 login?</span>
+          </label>
+          @if (skipLogin()) {
+            <div class="warning skip-login-warning">
+              <p><strong>This is not recommended.</strong></p>
+              <p>
+                Without logging in, AO3 shows this run only what anyone can see. Private
+                bookmarks will not be picked up, and fics their authors have restricted to AO3
+                users will fail - the run may have to fall back on fetching those from FicHub
+                instead.
+              </p>
+              @if (needsUsername()) {
+                <p>You will still be asked for your AO3 username, to find your bookmarks and collections - but not your password.</p>
+              }
+            </div>
+          }
         </fieldset>
 
       </section>
@@ -752,6 +757,41 @@
               </div>
             }
 
+          }
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="backFrom('resume')">Back</button>
+        <button type="button" class="button primary" [disabled]="!chosenResume()?.retry?.default"
+                (click)="afterRetryChoice()">
+          Continue
+        </button>
+      </footer>
+    }
+
+    <!-- step 2c: how the chosen run is retried, with the dates and settings it carries -->
+    @if (step() === 'retry-how') {
+      <section class="body retry">
+        @if (retryableRuns() === null) {
+          <p class="hint">Reading this run...</p>
+        } @else if (!chosenResume()) {
+          <p class="warning">That run could not be read, so it cannot be retried from here.</p>
+        } @else {
+          @if (chosenResume(); as run) {
+            <p class="retry-which">
+              Retrying <strong>{{ run.actionName || run.action }}</strong>
+              <span class="dim">
+                - started {{ run.started.slice(0, 10) }} {{ run.started.slice(11, 16) }},
+                {{ statusWord(run.status) }}
+              </span>
+            </p>
+            @if (run.warnings.length) {
+              <div class="retry-warning" role="note">
+                @for (warning of run.warnings; track $index) {
+                  <p>{{ warning }}</p>
+                }
+              </div>
+            }
             <fieldset class="retry-modes">
               <legend>Retry it</legend>
               @for (choice of run.retry.modes; track choice.mode) {
@@ -798,7 +838,7 @@
         }
       </section>
       <footer>
-        <button type="button" class="button subtle" (click)="backFrom('resume')">Back</button>
+        <button type="button" class="button subtle" (click)="backFrom('retry-how')">Back</button>
         <button type="button" class="button primary"
                 [disabled]="!chosenResume()?.retry?.default || !retryMode() || !retryAcknowledged()"
                 (click)="afterResume()">
@@ -1002,9 +1042,33 @@
       <form class="body" (submit)="submit($event)">
         @if (!logsIn()) {
           <p class="not-logging-in">
-            <strong>Not logging in to AO3</strong>, as you chose. Fics only logged-in users can
-            see will fail, and the run will offer to try FicHub for them at the end.
+            <strong>Not logging in to AO3</strong>,
+            {{ resuming() ? 'as the run you are retrying did' : 'as you chose' }}. Private bookmarks will not be
+            picked up, fics only logged-in users can see will fail, and the run will offer to try
+            FicHub for them at the end.
           </p>
+          @if (needsUsername()) {
+            <label class="field">
+              <span>Username</span>
+              <input
+                type="text"
+                name="username"
+                autocomplete="username"
+                required
+                [value]="username()"
+                (input)="setUsername($any($event.target).value)"
+              />
+            </label>
+            <p class="hint">Your username finds your bookmarks and collections. No password is needed or sent.</p>
+            <label class="check">
+              <input
+                type="checkbox"
+                [checked]="remember()"
+                (change)="toggleRemember($any($event.target).checked)"
+              />
+              <span>Remember my username</span>
+            </label>
+          }
         } @else {
         <p>Log in to AO3 so restricted works and your own bookmarks are visible.</p>
 
@@ -1243,7 +1307,47 @@
     }
 
     <!-- step 3: working -->
-    @if (step() === 'running') {
+    @if (step() === 'running' && waiting()) {
+      <section class="body run-waiting" role="status">
+        @if (waiting() === 'floor-warning') {
+          @if (automaticFloor(); as floor) {
+            <div class="retry-warning floor-warning" role="note">
+              <p>
+                This quick scan will measure back to the last scan, which started
+                <strong>{{ baselineOf(floor).slice(0, 10) }}</strong> - but that scan could not
+                download {{ floor.missingDownloads?.length }}
+                {{ floor.missingDownloads?.length === 1 ? 'work' : 'works' }}:
+                {{ floor.missingDownloads?.join(', ') }}.
+              </p>
+              <p>
+                Its indexing all passed, so it still covers everything up to then. Would you still
+                like to use it as the floor, or choose a different scan to measure back to?
+              </p>
+            </div>
+          }
+        } @else {
+          <p class="preparing">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>
+              {{ waiting() === 'helper' ? 'Waiting for the helper to answer' : 'Finding the scan to measure back to' }}...
+              <span class="dim">({{ waitedSeconds() }}s)</span>
+            </span>
+          </p>
+          <p class="hint">
+            Nothing has started yet. A hosted helper that has been asleep can take a minute or so
+            to wake; this gives up after 2 minutes.
+          </p>
+        }
+      </section>
+      <footer>
+        <button type="button" class="button subtle" (click)="cancelWaiting()">Cancel</button>
+        @if (waiting() === 'floor-warning') {
+          <button type="button" class="button" (click)="chooseAnotherFloorFromRun()">Choose a different scan</button>
+          <button type="button" class="button primary" (click)="startWithFloor()">Use it as the floor</button>
+        }
+      </footer>
+    }
+    @if (step() === 'running' && !waiting()) {
       <section class="body">
         @if (runningInBackground()) {
           <p class="notice background-running">
@@ -1712,7 +1816,7 @@
         }
 
         @if (log().length) {
-          <pre class="log">@for (line of log(); track $index) {{{ line }}
+          <pre class="log">@for (line of log(); track $index) {<span class="log-time">{{ lineTime(line.at) }}</span> {{ line.text }}
 }</pre>
         }
 
@@ -1947,7 +2051,7 @@
           </p>
         }
         @if (log().length) {
-          <pre class="log">@for (line of log(); track $index) {{{ line }}
+          <pre class="log">@for (line of log(); track $index) {<span class="log-time">{{ lineTime(line.at) }}</span> {{ line.text }}
 }</pre>
         }
       </section>
@@ -1986,16 +2090,21 @@
           <p class="error">{{ error() }}</p>
         }
         @if (log().length) {
-          <pre class="log">@for (line of log(); track $index) {{{ line }}
+          <pre class="log">@for (line of log(); track $index) {<span class="log-time">{{ lineTime(line.at) }}</span> {{ line.text }}
 }</pre>
         }
       </section>
       <footer>
-        <!-- a rejected login sends you back to the details, not to the file types -->
-        <button type="button" class="button subtle"
-                (click)="step.set(loginVerified() === false ? 'credentials' : firstStep())">
-          Try again
-        </button>
+        @if (helperNeverAnswered()) {
+          <!-- the run never started: the same run, once the helper answers -->
+          <button type="button" class="button primary" (click)="retryConnecting()">Try again</button>
+        } @else {
+          <!-- a rejected login sends you back to the details, not to the file types -->
+          <button type="button" class="button subtle"
+                  (click)="step.set(loginVerified() === false ? 'credentials' : firstStep())">
+            Try again
+          </button>
+        }
         <button type="button" class="button" (click)="close()">Close</button>
       </footer>
     }

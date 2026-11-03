@@ -871,3 +871,8 @@ fieldset.bare:disabled {
   font-size: 0.9em;
   opacity: 0.85;
 }
+
+/* when each line was said, in the reader's own time - quieter than what was said */
+.log-time {
+  opacity: 0.6;
+}

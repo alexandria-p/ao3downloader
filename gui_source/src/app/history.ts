@@ -1,8 +1,10 @@
+import { inAo3Zone } from './preferences';
 import { Component, effect, inject, signal, untracked, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
 import { describeGap, issueCount, issuesOf, issuesReport, saveText } from './issues';
 import { Library } from './library';
+import { HISTORY_LIMIT } from './library-store';
 
 
 /**
@@ -23,6 +25,8 @@ export class History {
   private readonly library = inject(Library);
 
   protected readonly runs = signal<RunHistory[]>([]);
+  /** the most runs the tab reads and lists - older ones stay in runs/, just not shown */
+  protected readonly historyLimit = HISTORY_LIMIT;
   protected readonly loading = signal(true);
   /** true when the helper could not be reached at all, which is not the same as no runs */
   protected readonly unavailable = signal(false);
@@ -106,15 +110,18 @@ export class History {
     // what is going now, for the pinned panel - not waited on: the history is read out of
     // the library, and is worth showing whether or not the helper answers
     void this.jobs.refreshActiveRuns();
-    let found = await this.jobs.loadRuns(this.library.store());
+    const found = await this.jobs.loadRuns(this.library.store());
     // a run the history calls 'running' that the helper is not working on was interrupted:
-    // marked so, and read again. only asked when there is one, which is seldom
-    if (found?.some((run) => run.status === 'running') &&
-        (await this.jobs.settleInterrupted(this.library.store()))) {
-      found = await this.jobs.loadRuns(this.library.store());
+    // marked so in the file and in the list already read - never the whole history again.
+    // only asked when there is one, which is seldom
+    if (found?.some((run) => run.status === 'running')) {
+      await this.jobs.settleInterrupted(this.library.store(), found);
     }
     this.unavailable.set(found === null);
     this.runs.set(found ?? []);
+    // a retry started from here opens on its run using this list, rather than reading it again
+    const store = this.library.store();
+    this.jobs.historyRead = found && store ? { store, runs: found } : null;
     this.loading.set(false);
   }
 
@@ -226,7 +233,7 @@ export class History {
   protected timeOf(stamp: string | undefined): string {
     const parsed = stamp ? new Date(stamp) : null;
     return parsed && !Number.isNaN(parsed.getTime())
-      ? parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      ? parsed.toLocaleTimeString([], inAo3Zone({ hour: '2-digit', minute: '2-digit' }))
       : '';
   }
 
@@ -234,11 +241,11 @@ export class History {
     return describeGap(gap);
   }
 
-  /** when it ran, in the reader's own locale rather than as an iso stamp */
+  /** when it ran, in the person's AO3 zone rather than as an iso stamp */
   protected when(stamp: string | null): string {
     if (!stamp) return '';
     const parsed = new Date(stamp);
-    return Number.isNaN(parsed.getTime()) ? stamp : parsed.toLocaleString();
+    return Number.isNaN(parsed.getTime()) ? stamp : parsed.toLocaleString([], inAo3Zone());
   }
 
   /** the settings worth showing back, as words rather than as a json dump */

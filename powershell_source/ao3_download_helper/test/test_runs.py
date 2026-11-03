@@ -383,6 +383,53 @@ def test_no_history_yet_is_not_an_error(tmp_path):
     assert runs.read_runs(fake_fileops(tmp_path)) == []
 
 
+def records_on_disk(tmp_path, names_and_records):
+    folder = tmp_path / 'runs'
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, record in names_and_records:
+        (folder / name).write_text(json.dumps(record), encoding='utf-8')
+    fileops = fake_fileops(tmp_path)
+    return fileops
+
+
+def read_names(fileops) -> list[str]:
+    return [os.path.basename(call.args[0]) for call in fileops.read_text.call_args_list]
+
+
+def test_the_last_successful_run_reads_only_as_far_as_the_first_that_qualifies(tmp_path):
+    fileops = records_on_disk(tmp_path, [
+        (f'202601{day:02}T000000Z-{day:08}.json', {'id': str(day), 'status': runs.STATUS_SUCCESS})
+        for day in range(1, 21)])
+
+    assert runs.last_successful(fileops)['id'] == '20'
+    assert read_names(fileops) == ['20260120T000000Z-00000020.json']
+
+
+def test_a_run_is_found_by_its_file_name_without_reading_the_rest(tmp_path):
+    fileops = records_on_disk(tmp_path, [
+        ('20260101T000000Z-aaaaaaaa.json', {'id': 'aaaaaaaa-1111', 'status': runs.STATUS_SUCCESS}),
+        ('20260102T000000Z-bbbbbbbb.json', {'id': 'bbbbbbbb-2222', 'status': runs.STATUS_STOPPED}),
+        ('20260103T000000Z-cccccccc.json', {'id': 'cccccccc-3333', 'status': runs.STATUS_SUCCESS}),
+    ])
+
+    assert runs.find_run(fileops, 'aaaaaaaa-1111')['file'] == '20260101T000000Z-aaaaaaaa.json'
+    assert read_names(fileops) == ['20260101T000000Z-aaaaaaaa.json']
+
+
+def test_a_run_in_a_file_named_otherwise_is_still_found(tmp_path):
+    fileops = records_on_disk(tmp_path, [
+        ('renamed by hand.json', {'id': 'dddddddd-4444', 'status': runs.STATUS_SUCCESS})])
+    assert runs.find_run(fileops, 'dddddddd-4444')['file'] == 'renamed by hand.json'
+
+
+def test_newer_names_sort_after_every_older_style_of_name():
+    # runs are listed newest first by name: the compact UTC names written now must come after
+    # the dashed local-time and +0000 names earlier versions wrote, whatever the date in them
+    older = ['2026-12-31T235959-aaaaaaaa.json', '2026-12-31T235959+0000-bbbbbbbb.json']
+    newer = '20260101T000000Z-cccccccc.json'
+    assert sorted([*older, newer], reverse=True)[0] == newer
+
+
 def test_the_last_successful_run_ignores_the_ones_that_did_not_finish(tmp_path):
     # a stopped run may have stopped before reaching fics updated before it started, so
     # trusting it as a floor would leave exactly those unseen
@@ -514,8 +561,22 @@ def test_a_recorded_time_is_said_in_utc_and_an_older_naive_one_as_written():
 def test_a_run_s_file_name_still_sorts_by_when_it_started_and_ends_with_its_id(tmp_path):
     record = runs.RunRecord(fake_fileops(tmp_path), 'abcdef1234', 'sync', 'A', ['JSON'], {})
     name = os.path.basename(record.path)
-    assert re.fullmatch(r'\d{4}-\d\d-\d\dT\d{6}\+0000-abcdef12\.json', name)
+    assert re.fullmatch(r'\d{8}T\d{6}Z-abcdef12\.json', name)
+    # the name and the record's own start are the same moment
+    assert name[:16] == runs.file_stamp(record.data['started'])
+    # and it sorts after every name an older version wrote, in local time: those are all from
+    # before it, and within a year the digit after the year sorts after their '-'
+    assert name > f'{name[:4]}-12-31T235959-ffffffff.json'
     assert record.data['started'].endswith('+00:00')
 
 
 # endregion
+
+
+def test_every_line_a_run_says_reaches_the_page_with_when_it_was_said_in_utc():
+    from source_code import progress, server
+    job = server.Job(server.ACTION_BOOKMARKS, ['JSON'], 'Someone')
+    job.emit({'type': progress.MESSAGE, 'text': 'looking up work 7'})
+    [event] = job.history
+    assert event['text'] == 'looking up work 7'
+    assert event['at'].endswith('+00:00')

@@ -255,3 +255,9 @@ def test_a_given_settings_ini_is_shipped_and_the_page_is_pointed_by_it(tmp_path,
     assert config['releasesRepo'] == 'someone/ao3downloader'
 
 # endregion
+
+
+def test_the_time_zone_database_is_packed_in_for_a_system_with_none_of_its_own():
+    arguments = package_app.pyinstaller_arguments(Path('root'), Path('web'), Path('config'))
+    collected = [arguments[i + 1] for i, a in enumerate(arguments) if a == '--collect-data']
+    assert 'tzdata' in collected

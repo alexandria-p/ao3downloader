@@ -20,6 +20,21 @@ from source_code import exceptions, parse_text, progress, server, strings
 from source_code.fileio import FileOps as RealFileOps
 from source_code.storage import LocalStorage
 
+
+@contextlib.contextmanager
+def history_on_record(records):
+    """The run history as these records, newest first, however a caller reads it - all at once,
+    one at a time until it has what it wants, or one run by its id."""
+
+    def find(_fileops, run_id):
+        return next((r for r in records if str(r.get('id') or '') == run_id), None)
+
+    with patch.object(server.runs, 'read_runs', return_value=records), \
+         patch.object(server.runs, 'iter_runs', side_effect=lambda *a, **k: iter(records)), \
+         patch.object(server.runs, 'find_run', side_effect=find):
+        yield
+
+
 def on_disk(fileops, root: str):
     """Give a mocked FileOps a real local library underneath: run records and index files are
     read and written through the storage layer now, so a mock needs the real methods for it."""
@@ -1945,7 +1960,7 @@ def test_only_completed_scans_that_covered_everything_are_offered_as_floors(fake
         {'id': 'sync', 'action': server.ACTION_SYNC, 'status': server.runs.STATUS_SUCCESS},
     ]
 
-    with patch.object(server.runs, 'read_runs', return_value=on_record):
+    with history_on_record(on_record):
         offered = [r['id'] for r in server.floor_runs(fake_environment['fileops'])]
 
     assert offered == ['scan', 'quick']
@@ -1955,7 +1970,7 @@ def test_a_chosen_scan_gives_the_day_it_started(fake_environment):
     on_record = history({'id': 'a', 'action': server.ACTION_BOOKMARKS,
                          'started': '2026-03-04T09:00:00'})
 
-    with patch.object(server.runs, 'read_runs', return_value=on_record):
+    with history_on_record(on_record):
         assert server.chosen_floor(fake_environment['fileops'], 'a') == '2026-03-04'
         # a run that is not a valid floor gives nothing, however it was named
         assert server.chosen_floor(fake_environment['fileops'], 'nope') == ''
@@ -1972,7 +1987,7 @@ def test_a_quick_scan_measures_back_to_the_scan_it_was_given(fake_environment):
         {'id': 'newer', 'action': server.ACTION_QUICK, 'started': '2026-09-01T12:00:00'},
         {'id': 'older', 'action': server.ACTION_BOOKMARKS, 'started': '2026-02-01T12:00:00'})
 
-    with patch.object(server, 'Ao3', return_value=ao3),          patch.object(server.runs, 'read_runs', return_value=on_record),          patch.object(server, 'download_planned'):
+    with patch.object(server, 'Ao3', return_value=ao3),          history_on_record(on_record),          patch.object(server, 'download_planned'):
         server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert all(c.kwargs['stop_before'] == '2026-02-01' for c in ao3.get_metadata.call_args_list)
@@ -1987,7 +2002,7 @@ def test_a_chosen_scan_that_has_since_gone_falls_back_to_the_usual_floor(fake_en
     on_record = history({'id': 'latest', 'action': server.ACTION_QUICK,
                          'started': '2026-09-01T12:00:00'})
 
-    with patch.object(server, 'Ao3', return_value=ao3),          patch.object(server.runs, 'read_runs', return_value=on_record),          patch.object(server, 'download_planned'):
+    with patch.object(server, 'Ao3', return_value=ao3),          history_on_record(on_record),          patch.object(server, 'download_planned'):
         server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
 
     assert ao3.get_metadata.call_args_list[0].kwargs['stop_before'] == '2026-09-01'
@@ -2012,7 +2027,7 @@ def test_a_chosen_floor_is_checked_by_the_run_once_it_can_read_the_history(fake_
 
 
 def test_only_a_quick_scan_can_be_given_a_floor(fake_environment):
-    with patch.object(server.runs, 'read_runs', return_value=[]):
+    with history_on_record([]):
         assert started_options(server.ACTION_BOOKMARKS, {'floorRun': 'anything'})['floorRun'] == ''
 
 # endregion
@@ -2131,7 +2146,7 @@ def test_the_floor_skips_finished_runs_that_were_not_scans(fake_environment):
                {'status': server.runs.STATUS_SUCCESS, 'action': server.ACTION_BOOKMARKS,
                 'started': '2026-09-01T12:00:00'}]
 
-    with patch.object(server.runs, 'read_runs', return_value=history):
+    with history_on_record(history):
         assert server.quick_scan_floor(fake_environment['fileops']) == '2026-09-01'
 
 
@@ -3566,11 +3581,33 @@ def test_a_fic_run_told_to_skip_the_login_needs_no_credentials_and_keeps_none(ac
     assert thread.call_args.kwargs['args'][1] == ''
 
 
-def test_skipping_the_login_is_only_for_the_fic_runs():
-    sent, jobs, _ = start_request(server.ACTION_BOOKMARKS, username='', password='',
-                                  skipLogin=True)
+@pytest.mark.parametrize('action', server.USERNAME_ACTIONS)
+def test_a_run_of_your_own_listing_told_to_skip_the_login_still_needs_a_username(action):
+    sent, jobs, _ = start_request(action, username='', password='', skipLogin=True)
     assert sent['status'] == 400
+    assert 'username' in sent['body']['error']
     assert jobs == []
+
+
+@pytest.mark.parametrize('action', server.USERNAME_ACTIONS)
+def test_a_run_of_your_own_listing_may_skip_the_login_and_keeps_only_the_username(action):
+    sent, [job], thread = start_request(action, username='Someone', password='secret',
+                                        skipLogin=True)
+    assert sent['status'] == 202
+    assert sent['body']['options']['skipLogin'] is True
+    assert job.username == 'Someone'
+    assert thread.call_args.kwargs['args'][1] == ''
+
+
+def test_every_run_may_skip_the_login():
+    for action in server.ACTIONS:
+        link = 'https://archiveofourown.org/collections/Some_Collection' \
+            if action == server.ACTION_COLLECTION else '123'
+        sent, jobs, _ = start_request(action, link, username='Someone', password='',
+                                      skipLogin=True)
+        assert sent['status'] == 202, (action, sent['body'])
+        assert jobs[0].options['skipLogin'] is True
+        if action not in server.USERNAME_ACTIONS: assert jobs[0].username == ''
 
 
 def test_a_run_told_to_skip_the_login_never_logs_in(fake_environment):

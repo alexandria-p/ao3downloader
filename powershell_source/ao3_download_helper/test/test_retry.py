@@ -255,9 +255,20 @@ def test_only_a_run_that_settled_its_works_can_go_straight_to_its_downloads():
 
 
 def test_only_a_run_with_failures_can_retry_just_those():
-    assert server.retry_problem(a_record(), server.RETRY_FAILED, set()) == strings.RETRY_NO_FAILURES
+    # stopped (force stopped among them) with nothing failed: it did not get everything either
+    assert server.retry_problem(a_record(), server.RETRY_FAILED, set()) == \
+        strings.RETRY_NO_FAILURES_UNFINISHED
+    assert server.retry_problem(a_record(status=runs.STATUS_SUCCESS), server.RETRY_FAILED,
+                                set()) == strings.RETRY_NO_FAILURES
     record = a_record(failures=[{'id': '7', 'link': 'https://archiveofourown.org/works/7'}])
     assert server.retry_problem(record, server.RETRY_FAILED, set()) == ''
+
+
+@pytest.mark.parametrize('status', [runs.STATUS_STOPPED, runs.STATUS_INTERRUPTED,
+                                    runs.STATUS_ABANDONED, runs.STATUS_FAILED, runs.STATUS_PARTIAL])
+def test_a_run_that_did_not_finish_is_never_said_to_have_got_everything(status):
+    assert server.retry_problem(a_record(status=status), server.RETRY_FAILED, set()) == \
+        strings.RETRY_NO_FAILURES_UNFINISHED
 
 
 def test_a_single_fic_run_is_offered_the_top_and_its_failed_fic_only():

@@ -693,6 +693,19 @@ def test_a_resumed_run_takes_the_earlier_runs_workflow_settings_and_answers(libr
         {'choice': 'newest'}
 
 
+@pytest.mark.parametrize('earlier_skipped, now_skips', [(True, False), (False, True)])
+def test_whether_a_retry_logs_in_is_its_own_choice_not_the_earlier_run_s(
+        library, earlier_skipped, now_skips):
+    write_run(library, id='e' * 32, action=server.ACTION_QUICK, status=runs.STATUS_STOPPED,
+              options={'skipLogin': earlier_skipped}, progress={'step': 'check', 'floor': ''})
+    job = server.Job(server.ACTION_QUICK, ['JSON'], 'Someone',
+                     server.resolve_options({'resume': 'e' * 32, 'skipLogin': now_skips}))
+
+    server.prepare_resume(job, library)
+
+    assert job.options['skipLogin'] is now_skips
+
+
 def test_a_run_that_cannot_be_resumed_is_refused_before_it_starts(library):
     write_run(library, id='f' * 32, action=server.ACTION_QUICK, status=runs.STATUS_SUCCESS,
               progress={})

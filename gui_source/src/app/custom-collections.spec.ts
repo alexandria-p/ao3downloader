@@ -297,6 +297,8 @@ describe('ticking works in the listing', () => {
   it('never adds a work twice, and says which were already there', async () => {
     const made = await custom.create('Mine', { works: ['1'], externals: [] });
     await listing([work('1'), work('2')]);
+    // the bar shows only once something is ticked
+    await tick(0);
     button('Tick all').click();
     await settle();
     button('Add to a collection').click();
@@ -327,10 +329,20 @@ describe('ticking works in the listing', () => {
   it('ticks everything the filters show, across pages', async () => {
     await listing(Array.from({ length: 25 }, (_, i) => work(String(i + 1))));
 
+    // the bar shows only once something is ticked
+    await tick(0);
     button('Tick all').click();
     await settle();
 
     expect(element.textContent).toContain('25 ticked');
+  });
+
+  it('shows the selection bar only once something is ticked', async () => {
+    await listing([work('1'), work('2')]);
+    expect(element.querySelector('.selection-bar')).toBeNull();
+
+    await tick(0);
+    expect(element.querySelector('.selection-bar')?.textContent).toContain('1 ticked');
   });
 
   it('lets a series be ticked too, so it can be hidden with the rest', async () => {
@@ -342,6 +354,8 @@ describe('ticking works in the listing', () => {
     const made = await custom.create('Mine', { works: [], externals: [] });
     const series = { ...work('7', 'series bookmark'), title: 'A Long Series' };
     await listing([work('1'), work('2'), series]);
+    // the bar shows only once something is ticked
+    await tick(0);
     button('Tick all').click();
     await settle();
 
@@ -366,6 +380,8 @@ describe('ticking works in the listing', () => {
   it('adds nothing, and keeps the ticks, when the series warning is cancelled', async () => {
     await custom.create('Mine', { works: [], externals: [] });
     await listing([work('1'), work('7', 'series bookmark')]);
+    // the bar shows only once something is ticked
+    await tick(0);
     button('Tick all').click();
     await settle();
 

@@ -179,8 +179,9 @@ AO3_INFO_LOGIN = 'logging in'
 # the web ui shows the console output as the run's log, and logging in is the first thing
 # it does. without a line here the modal opens on an empty log and looks like it hung
 AO3_INFO_LOGGING_IN = 'logging in as {}'
-AO3_INFO_NOT_LOGGING_IN = ('not logging in to AO3, as asked. works only logged-in users can see will '
-                           'fail, and FicHub is offered for them at the end')
+AO3_INFO_NOT_LOGGING_IN = ('not logging in to AO3, as asked. private bookmarks will not be found, '
+                           'works only logged-in users can see will fail, and FicHub is offered '
+                           'for them at the end')
 AO3_INFO_LOGGED_IN = 'successfully logged in'
 AO3_INFO_DOWNLOADING = 'downloading works'
 AO3_INFO_FILE_TYPE = 'added {} to list of download types'
@@ -681,6 +682,11 @@ RETRY_STILL_RUNNING = 'That run is still going - wait for it to finish, or stop 
 RETRY_NO_INDEX = 'Only a full scan, quick scan, custom run or collection run can carry on with its indexing.'
 RETRY_NO_DOWNLOADS = 'It never got as far as settling which works to check and download.'
 RETRY_NO_FAILURES = 'Every work it set out to get arrived - there is nothing that failed to retry.'
+# a run that did not finish - stopped, force stopped, interrupted, abandoned, failed or partly
+# done - has no failures to retry, but did not get everything either: never say it did
+RETRY_NO_FAILURES_UNFINISHED = ('This run did not get everything it set out to get, but nothing it '
+                                'tried to download failed - so there is nothing for this choice to '
+                                'retry. Choose another way to retry it.')
 RETRY_FAILED_WRONG_ACTION = 'Only a scan, a collection run or a fic run can retry just the works it could not get.'
 RETRY_PARTIAL_DONE = ('It reached the end, so there is nothing to carry on from - start its '
                       'indexing or its downloads from the top, or retry just the works it could '
@@ -767,6 +773,8 @@ AO3_INFO_RESUME_NO_STEP = 'before its first step'
 AO3_INFO_RESUME_ANSWER = 'using the answer the earlier attempt was given: {}'
 AO3_INFO_ABANDONED = 'this background run was left paused for {} minutes, so the helper has abandoned it. everything it saved is kept - resume it from the History tab, or start the same run again and it carries on from what is still missing.'
 AO3_INFO_BACKGROUND_ANSWER = 'using the answer given before this background run started: {}'
+AO3_INFO_AO3_ZONE = "AO3's dates are read as dates in {}"
+AO3_INFO_AO3_ZONE_MISSING = "this computer cannot look up the time zone {}, so AO3's dates are read as dates in UTC"
 AO3_INFO_QUESTION_NOT_ASKED = 'settings.ini says to take the default here without asking (QuestionTimeoutMinutes is 0), so it takes: {}'
 AO3_INFO_QUESTION_TIMED_OUT = 'nobody answered in time (QuestionTimeoutMinutes), so it takes the default: {}'
 AO3_INFO_BACKGROUND_DEFAULT = 'this background run was not told what to do here, so it takes the default: {}'

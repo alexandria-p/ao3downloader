@@ -32,12 +32,12 @@ Each run asks its options, then which file types, then your login.
 
 - **File types** - JSON is the index and always on. HTML starts ticked. Untick everything else for a metadata-only run, about a twentieth of the requests.
 - **Get all works from encountered series** - also downloads the rest of each series.
-- **Include any changes to non-bookmarks** - re-checks works you have indexed but not bookmarked (found through a series or collection).
+- **Check all non-bookmarks for updates too** - re-checks works you have indexed but not bookmarked: works added by URL or id, imported works, and works in a series you have indexed. Their series are read first; it is not limited by a date range.
 - **Overwrite existing downloads** - full scan and custom run only. Fetches every format again, for when you suspect a damaged file. If a file you have is **newer** than the version it would be replaced with, the run asks first (no, keep it, if you don't answer). The fic runs, which always replace, ask the same.
 - **Save embedded images separately** - custom run only. Usually unnecessary: images are already inside the downloaded work.
 - **Index and download encountered works** - collection runs only. Off: just records which works the collection holds. On: indexes and downloads them too.
 - **Include subcollections / parent collections** - collection runs only. Follows the family, each collection once, up to 200.
-- **Skip AO3 login?** - the fic runs only, off by default. Not recommended: fics restricted to AO3 users can't be reached logged out, and may have to come from FicHub instead.
+- **Skip AO3 login?** - on every run, off by default. Not recommended: logged out, private bookmarks are missed and fics restricted to AO3 users can't be reached, so they may have to come from FicHub instead. Scans of your own bookmarks or collections still ask for your username, never your password.
 
 ## Questions a run may stop to ask
 
