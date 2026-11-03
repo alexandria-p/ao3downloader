@@ -301,6 +301,10 @@ def pyinstaller_arguments(root: Path, web: Path, defaults: Path) -> list[str]:
         '--add-data', f'{settings}:{PACKAGE_NAME}/settings',
         '--add-data', f'{web}:{build_artifacts.WEB_FOLDER}',
         '--add-data', f'{defaults}:{DEFAULTS_FOLDER}',
+        # the time zone database, for the AO3 zone a run dates its floors in. zoneinfo reads it
+        # as data, and Windows has none of its own - without this every zone would be UTC there
+        '--collect-data', 'tzdata',
+        '--hidden-import', 'tzdata',
     ]
 
 

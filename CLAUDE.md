@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2012 python passed; 824 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2028 python passed; 827 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1014,6 +1014,21 @@ start in ISO 8601's basic form (`20261103T101542Z-<id8>.json`, `runs.file_stamp`
 start, sorts after every older local-time name (a digit sorts after `-`), and still ends with the
 id `freshness.ts` reads. The page already wrote UTC (`toISOString`) everywhere it records a
 time, and shows every time in the reader's own zone.
+
+**AO3's dates are compared in the person's AO3 zone, never as UTC.** AO3 writes only a date
+on a listing, in the zone it shows that person (their AO3 preference) - a date, not a moment,
+so it cannot be turned into UTC without guessing a time. The moment goes the other way:
+every floor and ceiling (`quick_scan_floor`, `chosen_floor`, `retry_ceiling`, `run_quick`'s
+own, `newest_indexed_on`) is a UTC moment turned into a date **in that zone** by `ao3_day`, so
+a fic AO3 dates on or after it was updated on or after the moment - no gap, whichever side of
+UTC the zone is. The zone is the page's (*Your AO3 time zone* in User settings,
+`ao3.ao3TimeZone`, this browser's own until changed and not stored while it is), sent as
+`ao3TimeZone` with every run from every page; `ao3_zone` refuses a non-name with a 400 and
+takes one this computer cannot look up as UTC, said in the log. The run says its zone up front
+(`AO3_INFO_AO3_ZONE`) and records it (`ao3TimeZone`). An older record's naive time is taken
+as written. **`tzdata` is a dependency** because Windows has no zone database: `package_app`
+packs it (`--collect-data tzdata`), `/api/config` says `zoneLookup`, and `build-windows.yml`
+fails without it. A date range the person types is compared as typed - it is already a date.
 
 **The file is written when the run starts, not when it ends.** A run killed mid-flight
 cannot write its own epitaph, so a record still saying `running` *is* the evidence that it

@@ -21,6 +21,7 @@ export const UPDATE_BANNER_KEY = 'ao3.updateCheckDismissed';
 export const DEFAULT_FILETYPES_KEY = 'ao3.defaultFiletypes';
 export const ANSWER_DEFAULTS_KEY = 'ao3.answerDefaults';
 export const QUESTION_TIMEOUT_KEY = 'ao3.questionTimeoutMinutes';
+export const AO3_TIME_ZONE_KEY = 'ao3.ao3TimeZone';
 
 export type PromptArea = 'Your library' | 'Runs' | 'Updates';
 
@@ -200,4 +201,44 @@ export function savedQuestionTimeout(): number | null {
 export function saveQuestionTimeout(minutes: number | null): void {
   if (minutes === null) safeRemove(QUESTION_TIMEOUT_KEY);
   else safeSet(QUESTION_TIMEOUT_KEY, String(minutes));
+}
+
+/** this browser's own time zone, as an IANA name - the default for the AO3 one */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/** every zone this browser knows, for the setting's list; just the browser's and UTC without the api */
+export function knownTimeZones(): string[] {
+  const own = browserTimeZone();
+  let zones: string[] = [];
+  try {
+    zones = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.('timeZone') ?? [];
+  } catch {
+    zones = [];
+  }
+  return [...new Set(['UTC', own, ...zones])].sort((a, b) => (a === 'UTC' ? -1 : b === 'UTC' ? 1 : a.localeCompare(b)));
+}
+
+/**
+ * The zone AO3 shows this person's dates in - set in User settings, this browser's own until
+ * then (nothing stored). Sent with every run, so the helper dates its floors and ceilings as
+ * AO3 dates the fics they are compared with.
+ */
+export function savedAo3TimeZone(): string | null {
+  const raw = safeGet(AO3_TIME_ZONE_KEY);
+  return raw && /^[A-Za-z][A-Za-z0-9_+\-]*(\/[A-Za-z0-9_+\-]+)*$/.test(raw) ? raw : null;
+}
+
+export function ao3TimeZone(): string {
+  return savedAo3TimeZone() ?? browserTimeZone();
+}
+
+export function saveAo3TimeZone(zone: string | null): void {
+  if (zone === null) safeRemove(AO3_TIME_ZONE_KEY);
+  else safeSet(AO3_TIME_ZONE_KEY, zone);
 }

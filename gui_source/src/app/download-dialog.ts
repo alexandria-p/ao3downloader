@@ -36,7 +36,7 @@ import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, issueCount, issuesReport } from './issues';
-import { SYNC_ACK_KEY, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
+import { SYNC_ACK_KEY, ao3TimeZone, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
 
 type Step =
   /**
@@ -1058,11 +1058,13 @@ export class DownloadDialog implements OnDestroy {
   }
 
   /** what a hosted copy's User settings say about questions, sent with every run */
-  private questionSettings(): Pick<StartRequest, 'answerDefaults' | 'questionTimeoutMinutes'> {
-    if (this.helper.isLocal()) return {};
+  private questionSettings(): Pick<StartRequest, 'answerDefaults' | 'questionTimeoutMinutes' | 'ao3TimeZone'> {
+    // every page sends the AO3 zone: it is this browser's setting wherever the helper is
+    if (this.helper.isLocal()) return { ao3TimeZone: ao3TimeZone() };
     const answers = savedAnswerDefaults();
     const timeout = savedQuestionTimeout();
     return {
+      ao3TimeZone: ao3TimeZone(),
       ...(Object.keys(answers).length ? { answerDefaults: answers } : {}),
       ...(timeout === null ? {} : { questionTimeoutMinutes: timeout }),
     };

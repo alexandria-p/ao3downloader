@@ -505,6 +505,8 @@ export interface StartRequest {
    */
   answerDefaults?: Partial<Record<QuestionName, string>>;
   questionTimeoutMinutes?: number;
+  /** the zone AO3 shows this person's dates in (User settings; the browser's own by default) */
+  ao3TimeZone?: string;
 }
 
 /** the questions a run can stop to ask, by the name the helper gives them */

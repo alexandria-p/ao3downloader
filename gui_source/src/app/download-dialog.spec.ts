@@ -15,6 +15,7 @@ import {
   StartRequest,
   UndatedChoice,
 } from './jobs';
+import { AO3_TIME_ZONE_KEY } from './preferences';
 
 const CONFIG: ServerConfig = {
   username: 'Someone',
@@ -332,11 +333,24 @@ describe('DownloadDialog', () => {
     await open('bookmarks');
     await advanceTo('running');
     expect(Object.keys(jobs.started[0]).sort()).toEqual(
-      ['action', 'filetypes', 'options', 'password', 'url', 'username'].filter(
+      ['action', 'ao3TimeZone', 'filetypes', 'options', 'password', 'url', 'username'].filter(
         (key) => key in jobs.started[0],
       ),
     );
     expect(JSON.stringify(jobs.started[0])).not.toMatch(/storage|refresh|dropbox/i);
+  });
+
+  it('tells the helper the AO3 time zone - this browser\'s own until one is chosen', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    expect(jobs.started[0].ao3TimeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it('tells the helper the AO3 time zone chosen in User settings', async () => {
+    localStorage.setItem(AO3_TIME_ZONE_KEY, 'Australia/Sydney');
+    await open('bookmarks');
+    await advanceTo('running');
+    expect(jobs.started[0].ao3TimeZone).toBe('Australia/Sydney');
   });
 
   it('says files go to the library the page has open', async () => {

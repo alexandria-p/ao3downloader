@@ -125,6 +125,9 @@ jobs:
             }
             if (-not $page -or $page.StatusCode -ne 200) { throw 'the page never answered on localhost:4200' }
             if (-not $helper -or $helper.StatusCode -ne 200) { throw 'the helper never answered on 127.0.0.1:4400' }
+            # Windows has no time zone database of its own: the one packed in (tzdata) has to work,
+            # or every AO3 zone would be read as UTC
+            if (-not ($helper.Content | ConvertFrom-Json).zoneLookup) { throw 'the helper cannot look up a time zone - tzdata was not packed in' }
             $settings = Join-Path $place 'ao3downloader\config\settings.ini'
             if (-not (Test-Path $settings)) { throw "no settings.ini beside the exe at $settings" }
             # the page must be pointed at the exe's own helper, never the hosted one

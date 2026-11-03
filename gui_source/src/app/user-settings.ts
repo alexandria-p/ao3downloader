@@ -11,6 +11,10 @@ import {
   Prompt,
   UPDATE_BANNER_KEY,
   promptAsks,
+  ao3TimeZone,
+  browserTimeZone,
+  knownTimeZones,
+  saveAo3TimeZone,
   saveAnswerDefaults,
   saveDefaultFiletypes,
   saveQuestionTimeout,
@@ -42,7 +46,7 @@ interface IniFile {
 
 /** one value Reset to defaults would change, as its window lists it */
 export interface ResetChange {
-  group: 'Prompts' | 'Download formats' | 'Questions' | 'settings.ini';
+  group: 'Prompts' | 'Download formats' | 'AO3 time zone' | 'Questions' | 'settings.ini';
   name: string;
   current: string;
   default: string;
@@ -119,6 +123,19 @@ export class UserSettings implements OnDestroy {
     return question.choices.find((c) => c.value === value)?.label ?? value;
   }
 
+  /** the zone AO3 shows this person's dates in - this browser's own until changed */
+  protected readonly browserZone = browserTimeZone();
+  protected readonly zones = knownTimeZones();
+  protected readonly ao3Zone = signal(ao3TimeZone());
+
+  protected setAo3Zone(zone: string): void {
+    if (!this.zones.includes(zone)) return;
+    // this browser's own zone is not kept, so the setting follows the browser if it moves
+    saveAo3TimeZone(zone === this.browserZone ? null : zone);
+    this.ao3Zone.set(zone);
+    this.say(`Saved: AO3 dates are read in ${zone} - from the next run`);
+  }
+
   /** the Reset to defaults window is open */
   protected readonly confirmingReset = signal(false);
 
@@ -141,6 +158,10 @@ export class UserSettings implements OnDestroy {
       const now = order(this.formats());
       const fresh = order([...config.forced, ...(config.defaults ?? [])]);
       if (now !== fresh) changes.push({ group: 'Download formats', name: 'Formats a run starts with', current: now, default: fresh });
+    }
+    if (this.ao3Zone() !== this.browserZone) {
+      changes.push({ group: 'AO3 time zone', name: 'Your AO3 time zone', current: this.ao3Zone(),
+                     default: `${this.browserZone} (this browser)` });
     }
     if (!this.local) {
       if (this.questionTimeout() !== this.helperTimeout()) {
@@ -288,6 +309,8 @@ export class UserSettings implements OnDestroy {
     saveDefaultFiletypes(null);
     saveAnswerDefaults(null);
     saveQuestionTimeout(null);
+    saveAo3TimeZone(null);
+    this.ao3Zone.set(this.browserZone);
     this.savedAnswers.set({});
     this.savedTimeout.set(null);
     const config = this.config();

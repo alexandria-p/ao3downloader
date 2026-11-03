@@ -28,6 +28,9 @@ dependencies = [
     "pypdf>=6.14.2",
     "requests>=2.32.5",
     "tqdm>=4.67.1",
+    # the time zone database zoneinfo reads, for the AO3 zone a run's floors are dated in -
+    # Windows has none of its own
+    "tzdata>=2024.1",
 ]
 
 [project.urls]

@@ -18,10 +18,15 @@ settings come from its deployment, so the tab does not offer them there.
   you open the page, with its own "Don't show this again" box.
 - **Default download formats** - the formats ticked when a run's window opens. You can still
   change them in each run. JSON is always on, because it is the index.
+- **Your AO3 time zone** - the zone AO3 shows your dates in (the one in your AO3 preferences).
+  It starts as this browser's own. AO3's listings give only a date, so a scan turns its floor
+  and ceiling - the moment the last scan started, kept in UTC - into a date in this zone before
+  comparing: a fic AO3 dates on or after it is never passed over. Each run's log says which
+  zone it used. Reset to defaults puts it back to this browser's.
 - **settings.ini** - the settings below, on a copy whose helper runs on your computer. The
   hosting settings (`HelperUrl`, `RequirePasscode`, `PageOrigin`) are left to the file itself.
 
-Prompts and formats are kept by **this browser** - another browser, a private window or
+Prompts, formats and your AO3 time zone are kept by **this browser** - another browser, a private window or
 another device has its own, and clearing the site's data resets them. settings.ini is a file
 on your computer, the same in every browser.
 

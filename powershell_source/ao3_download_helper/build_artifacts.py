@@ -402,7 +402,8 @@ needed to run the site is here; nothing outside this folder is required.
 
 Do not edit anything in here by hand except `config/settings.ini`. Regenerating the bundle
 overwrites the rest. The page's **User settings** tab can edit `config/settings.ini` too,
-changing values in place and keeping your comments.
+changing values in place and keeping your comments. It also sets your AO3 time zone (the
+zone AO3 shows your dates in, this browser's own by default), kept in your browser.
 
 ## What is in it
 
