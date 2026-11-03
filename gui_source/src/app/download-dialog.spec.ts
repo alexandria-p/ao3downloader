@@ -2566,6 +2566,40 @@ describe('DownloadDialog', () => {
       expect(element.querySelector('input[name="username"]')).toBeNull();
     });
 
+    it('asks for a login, in case some of the works are restricted to AO3 users', async () => {
+      await openImport();
+      expect(checkbox('Skip AO3 login?')!.checked).toBe(false);
+      expect(element.querySelector('.login-reason')?.textContent).toContain('restricted to AO3 users');
+      expect(element.querySelector('input[name="username"]')).toBeTruthy();
+      const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
+      expect(password).toBeTruthy();
+
+      // not started without the password
+      password.value = '';
+      password.dispatchEvent(new Event('input'));
+      await fixture.whenStable();
+      button('Start download')!.click();
+      await fixture.whenStable();
+      expect(jobs.started).toHaveLength(0);
+
+      await advanceTo('running');
+      expect(jobs.started[0].options.skipLogin).toBe(false);
+      expect(jobs.started[0].username).toBe('Someone');
+      expect(jobs.started[0].password).toBe('a-password');
+    });
+
+    it('goes without the login only when told to skip it', async () => {
+      await openImport();
+      checkbox('Skip AO3 login?')!.click();
+      await fixture.whenStable();
+      expect(element.querySelector('.login-reason')).toBeNull();
+      expect(element.querySelector('input[name="password"]')).toBeNull();
+      button('Start download')!.click();
+      await fixture.whenStable();
+      expect(jobs.started[0].options.skipLogin).toBe(true);
+      expect(jobs.started[0].password).toBe('');
+    });
+
     it('sends the works, the formats and whether to replace outdated copies', async () => {
       await openImport();
       await advanceTo('running');

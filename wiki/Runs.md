@@ -86,6 +86,6 @@ When a library opens and `works/` has files named for a work number that your in
 
 1. **Dates.** Files with no date in their name can be given one - each on its own, one date for all, or skipped. The date is the version the file holds (the day AO3 last updated it). Not sure? Skip it: the import leaves a skipped file alone.
 2. **Fetch from AO3 now?** Yes looks each work up and indexes it. Tick any **other formats** to download for works that don't have them, and **Replace a copy AO3 has a newer version of** if you want outdated copies replaced (off by default; undated and current copies are never replaced).
-3. Then the usual run window: background (on a hosted copy) and the login.
+3. Then the usual run window: background (on a hosted copy), then the **AO3 login** - asked in case some of the works are restricted to AO3 users. You can tick **Skip AO3 login?**, but those works will then fail.
 
 Imported works show as **Imported from an external source** in the Works tab, unless they turn out to be your bookmarks. While another run is going nothing is renamed or started; the offer comes back once that run has finished. Tick **Don't ask me again** on its first page to stop it opening by itself (turn it back on in User settings); the Works tab still offers it.

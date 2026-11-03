@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2077 python passed; 882 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2077 python passed; 884 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2155,7 +2155,9 @@ break:
 - **The run window has no link, options or file types step for it** (`importing` input: links,
   count, file types, `replaceOutdated`), only the background step and the login, with the
   import's summary (`importBlurb`) on whichever comes first. Its background questions leave out
-  `undated`. It needs no username (`USERNAME_ACTIONS` leaves it out). At most
+  `undated`. **It asks for the AO3 login** like any run, worded for it (`.login-reason`: some of
+  the works may be restricted to AO3 users), unless *Skip AO3 login?* is ticked - then it needs no
+  username (`USERNAME_ACTIONS` leaves it out). At most
   `MAX_IMPORT_LINKS` (5,000) works; the page imports the first that many and offers the rest
   after. Retried as fic runs are (`FIC_ACTIONS`, `LIST_ACTIONS`): a retry of its failures stays
   an import.

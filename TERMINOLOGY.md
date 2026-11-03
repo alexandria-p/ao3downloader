@@ -259,7 +259,7 @@ With a date range, steps 2 and 3 read "…in that date range".
   1. *found* - the works and their files, and how many have no date in their name
   2. *dates* (only with undated files) - a date for each file, one for all (*Use for all*), or *Skip all*; every file needs a date or a skip. Dating **renames the file in the page** (`dateFiles`: ` YYYY-MM-DD` before the extension, `datedName`), never over another file
   3. *fetch* - *Fetch their index entries from AO3 now?*; *Also download them in other formats?* (none ticked; fetched only for works without them); *Replace a copy you have when AO3 has a newer version* (`replaceOutdated`, off)
-- Then the run window opens on the background step (hosted copy) or the login; no link, options or file types step. Needs no username.
+- Then the run window opens on the background step (hosted copy) or the login; no link, options or file types step. **It asks for the AO3 login**, in case some of the works are restricted to AO3 users (`.login-reason`), unless *Skip AO3 login?* is ticked - and then it needs no username either.
 - **Rules:** never overwrites; a copy is replaced only when outdated and `replaceOutdated` is on (`keep_existing_copies` otherwise keeps every copy held - *keeping the copy you have*); undated files are left alone without asking (`AO3_INFO_IMPORT_UNDATED_KEPT`). Each new entry is marked `from_import` unless it is your bookmark. At most 5,000 works (`MAX_IMPORT_LINKS`). Retried like several fics: from the top, carrying on fic by fic, or just the failures - still as an import.
 - **Steps:**
   1. Log in to AO3 (skipped with *Skip AO3 login?*)

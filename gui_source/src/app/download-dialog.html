@@ -1263,7 +1263,14 @@
         </div>
 
         @if (logsIn()) {
-        <p>Log in to AO3 so restricted works and your own {{ listingWord() }} are visible.</p>
+        @if (action() === 'import') {
+          <p class="login-reason">
+            Log in to AO3 in case some of these works are restricted to AO3 users - logged out,
+            AO3 will not show them, and they cannot be indexed or downloaded from there.
+          </p>
+        } @else {
+          <p>Log in to AO3 so restricted works and your own {{ listingWord() }} are visible.</p>
+        }
 
         <label class="field">
           <span>Username</span>

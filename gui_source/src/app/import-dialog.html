@@ -178,6 +178,10 @@
             <span class="hint">A copy with no date is never replaced, and neither is one that is current.</span>
           </span>
         </label>
+        <p class="hint login-next">
+          Next you log in to AO3, in case some of these works are restricted to AO3 users. You
+          can skip the login there, but works only AO3 users can see will then fail.
+        </p>
         @if (tooMany()) {
           <p class="warning" role="note">
             One import takes at most {{ maxWorks | number }} works, so the first
