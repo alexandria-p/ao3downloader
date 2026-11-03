@@ -44,13 +44,13 @@
           will be offered again then.
         </p>
       }
-      <label class="check">
-        <input type="checkbox" name="askAgain" [checked]="!askAgain()"
-               (change)="askAgainChanged.emit(!$any($event.target).checked)" />
-        <span>Do not offer this by itself when a library opens (the Works tab still offers it)</span>
-      </label>
     </section>
     <footer>
+      <label class="check dont-ask" title="You can still import them from the Works tab, and turn this back on in User settings">
+        <input type="checkbox" name="askAgain" [checked]="!askAgain()"
+               (change)="askAgainChanged.emit(!$any($event.target).checked)" />
+        <span>Don't ask me again</span>
+      </label>
       <button type="button" class="button subtle" (click)="close()">Not now</button>
       <button type="button" class="button primary" [disabled]="busy()" (click)="fromFound()">
         Continue

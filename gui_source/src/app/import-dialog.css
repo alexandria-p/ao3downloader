@@ -64,6 +64,7 @@ header h2 {
 
 footer {
   display: flex;
+  align-items: center;
   gap: 8px;
   justify-content: flex-end;
   padding: 12px 16px;
@@ -237,4 +238,12 @@ input[type='date'] {
 .dating tr.skipped .file-name {
   color: var(--text-dim);
   text-decoration: line-through;
+}
+
+/* on the left of the footer, apart from the buttons */
+.dont-ask {
+  margin-right: auto;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-dim);
 }

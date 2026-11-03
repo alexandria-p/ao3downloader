@@ -88,4 +88,4 @@ When a library opens and `works/` has files named for a work number that your in
 2. **Fetch from AO3 now?** Yes looks each work up and indexes it. Tick any **other formats** to download for works that don't have them, and **Replace a copy AO3 has a newer version of** if you want outdated copies replaced (off by default; undated and current copies are never replaced).
 3. Then the usual run window: background (on a hosted copy) and the login.
 
-Imported works show as **Imported from an external source** in the Works tab, unless they turn out to be your bookmarks. While another run is going nothing is renamed or started; the offer comes back once that run has finished. Turn the automatic offer off in User settings, or with the box on its first page.
+Imported works show as **Imported from an external source** in the Works tab, unless they turn out to be your bookmarks. While another run is going nothing is renamed or started; the offer comes back once that run has finished. Tick **Don't ask me again** on its first page to stop it opening by itself (turn it back on in User settings); the Works tab still offers it.

@@ -195,6 +195,19 @@ describe('ImportDialog', () => {
     expect(closed[0]?.renamed).toHaveLength(3);
   });
 
+  it("offers Don't ask me again beside its buttons, and says when it is ticked", async () => {
+    await open();
+    const changed: boolean[] = [];
+    fixture.componentInstance.askAgainChanged.subscribe((x) => changed.push(x));
+    const box = element.querySelector<HTMLInputElement>('footer .dont-ask input')!;
+    expect(box.closest('label')!.textContent).toContain("Don't ask me again");
+    expect(box.checked).toBe(false);
+
+    box.click();
+    await fixture.whenStable();
+    expect(changed).toEqual([false]);
+  });
+
   it('is closed by Not now, having changed nothing', async () => {
     await open();
     await click('Not now');

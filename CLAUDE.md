@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2077 python passed; 881 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2077 python passed; 882 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2134,7 +2134,7 @@ break:
 
 - **Never while a run is going.** `App` opens the import window by itself only with no
   `activeRun`, no run window, the library read and set up - once per library per visit
-  (`offeredFor`), unless `ao3.importOfferOff` (a `PROMPTS` entry). The Works tab's
+  (`offeredFor`), unless `ao3.importOfferOff` (a `PROMPTS` entry, set by *Don't ask me again* in the window's first footer). The Works tab's
   `.unindexed-works` notice offers it by hand, disabled with *Cannot be started while an active
   run is in progress*. The window itself refuses to rename or start while `busy`. A run ending
   changes the index, which checks again, and the offer comes back then. The helper's 409 is
