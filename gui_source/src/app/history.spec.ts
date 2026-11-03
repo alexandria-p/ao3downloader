@@ -73,6 +73,11 @@ describe('History', () => {
     TestBed.configureTestingModule({ providers: [{ provide: Jobs, useValue: jobs }] });
   });
 
+  it('says it lists only the most recent runs', async () => {
+    await show([]);
+    expect(element.querySelector('.history-limit')?.textContent).toContain('100 most recent runs');
+  });
+
   it('says so plainly when nothing has been recorded yet', async () => {
     await show([]);
 

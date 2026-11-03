@@ -99,7 +99,7 @@ export async function answerStorage(
 }
 
 /** how many runs the history page shows */
-const HISTORY_LIMIT = 100;
+export const HISTORY_LIMIT = 100;
 /**
  * How many run records are read at once. In Dropbox every record is a download of its own, up
  * to hundreds of KB with its log, and one after another a long history took the better part of

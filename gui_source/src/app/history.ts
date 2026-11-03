@@ -4,6 +4,7 @@ import { DecimalPipe } from '@angular/common';
 import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
 import { describeGap, issueCount, issuesOf, issuesReport, saveText } from './issues';
 import { Library } from './library';
+import { HISTORY_LIMIT } from './library-store';
 
 
 /**
@@ -24,6 +25,8 @@ export class History {
   private readonly library = inject(Library);
 
   protected readonly runs = signal<RunHistory[]>([]);
+  /** the most runs the tab reads and lists - older ones stay in runs/, just not shown */
+  protected readonly historyLimit = HISTORY_LIMIT;
   protected readonly loading = signal(true);
   /** true when the helper could not be reached at all, which is not the same as no runs */
   protected readonly unavailable = signal(false);

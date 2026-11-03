@@ -3,6 +3,10 @@
     <h2>Run history</h2>
     <button type="button" class="button subtle" (click)="load()">Refresh</button>
   </div>
+  <p class="history-limit">
+    Shows your {{ historyLimit }} most recent runs. Older runs are still kept in your library's
+    <code>runs</code> folder, but are not listed here.
+  </p>
 
   <!--
     the run going now, pinned above everything: while it is going nothing else can start,
