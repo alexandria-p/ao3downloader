@@ -87,6 +87,33 @@ describe('LibraryFreshness', () => {
     expect(freshness.behind()).toBe(true);
   });
 
+  it('is behind only for a run that succeeded or partly succeeded, never one stopped or failed', async () => {
+    await read();
+    records[RUN_B] = 'stopped';
+    records['2026-11-03T100000-cccccccc.json'] = 'failed';
+    await freshness.check();
+    expect(freshness.behind()).toBe(false);
+
+    records['2026-11-03T110000-dddddddd.json'] = 'partial';
+    await freshness.check();
+    expect(freshness.behind()).toBe(true);
+  });
+
+  it('lets a refresh be asked for once each time it is behind', async () => {
+    await read();
+    expect(freshness.claimRefresh()).toBe(false);
+    records[RUN_B] = 'success';
+    await freshness.check();
+    expect(freshness.claimRefresh()).toBe(true);
+    // a refresh that failed took no new read: not started again
+    expect(freshness.claimRefresh()).toBe(false);
+
+    await read();
+    records['2026-11-03T120000-eeeeeeee.json'] = 'success';
+    await freshness.check();
+    expect(freshness.claimRefresh()).toBe(true);
+  });
+
   it('is not behind for a run still going', async () => {
     await read();
     records[RUN_B] = 'running';

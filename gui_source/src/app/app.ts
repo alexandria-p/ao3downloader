@@ -262,6 +262,17 @@ export class App {
     // and asked about again while one is going, so the banner goes when it finishes. only
     // then: with nothing running there is nothing to watch for, and a hosted helper is left
     // to sleep
+    // a run that finished since the library was read, with changes this page did not take
+    // in: the list brings itself up to date - only while it is in view, and never while a run
+    // is going, which may be writing to the library still
+    effect(() => {
+      const view = this.view();
+      if (!this.freshness.behind() || this.activeRun() || this.library.refreshing()) return;
+      if (view !== 'bookmarks' && view !== 'collections') return;
+      untracked(() => {
+        if (this.freshness.claimRefresh()) void this.library.refresh();
+      });
+    });
     // a run the helper stops listing has ended - whatever it changed may not be on screen
     let going = new Set<string>();
     effect(() => {
@@ -320,10 +331,6 @@ export class App {
     if (view === 'bookmarks' || view === 'collections') void this.freshness.check(true);
   }
 
-  /** read the whole library again, keeping the listing and its filters meanwhile */
-  protected refreshLibrary(): void {
-    void this.library.refresh();
-  }
 
   protected async choose(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;

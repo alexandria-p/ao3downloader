@@ -765,11 +765,10 @@ export class Library {
 
     this.data.set({
       source: works.find((w) => w.source)?.source ?? '',
-      // newer files record when they were last checked; older ones a single retrieval
-      retrieved:
-        works.find((w) => w.last_indexed)?.last_indexed ??
-        works.find((w) => w.retrieved)?.retrieved ??
-        '',
+      // the newest time any entry was indexed - so a run whose changes are taken into the list
+      // as it ends moves it on. newer files record when they were last checked; older ones a
+      // single retrieval
+      retrieved: newestIndexed(works) ?? works.find((w) => w.retrieved)?.retrieved ?? '',
       count: bookmarks.length,
       works: bookmarks,
     });
@@ -923,4 +922,19 @@ function readHiddenFile(text: string): Map<string, HiddenWork> {
   } catch {
     return new Map();
   }
+}
+
+/** the latest `last_indexed` among the entries, as written - the first that will not parse is never preferred */
+function newestIndexed(works: Bookmark[]): string | undefined {
+  let newest: string | undefined;
+  let newestAt = -Infinity;
+  for (const work of works) {
+    if (!work.last_indexed) continue;
+    const at = Date.parse(work.last_indexed);
+    if (newest === undefined || (!Number.isNaN(at) && at > newestAt)) {
+      newest = work.last_indexed;
+      newestAt = Number.isNaN(at) ? -Infinity : at;
+    }
+  }
+  return newest;
 }

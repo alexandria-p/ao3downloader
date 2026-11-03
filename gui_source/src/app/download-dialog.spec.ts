@@ -1079,7 +1079,7 @@ describe('DownloadDialog', () => {
 
     const said = element.textContent ?? '';
     expect(said).not.toContain('Point the folder picker');
-    expect(said).not.toContain('works list will offer to refresh');
+    expect(said).not.toContain('brings itself up to date');
     expect(said).not.toContain('brought up to date');
   });
 

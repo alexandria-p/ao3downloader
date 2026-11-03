@@ -7,8 +7,15 @@ import type { LibraryStore } from './library-store';
 export const CHECK_EVERY_MS = 20_000;
 
 /**
- * Whether a run has finished since the library on screen was read, with changes this page
- * did not take in - a background run (the helper writes to Dropbox itself), or a run from
+ * The endings that bring the list up to date on their own: a run that got everything, or
+ * some of it. A stopped, failed or abandoned run is left until the next read - at the user's
+ * request, the list only refreshes itself for a run that did its work.
+ */
+export const REFRESHING_STATUSES = ['success', 'partial'];
+
+/**
+ * Whether a run has finished, as a success or a partial success, since the library on screen
+ * was read, with changes this page did not take in - a background run (the helper writes to Dropbox itself), or a run from
  * another tab or device on the same library.
  *
  * **No clocks are compared.** A hosted helper's clock and the browser's need not agree, and a
@@ -29,6 +36,10 @@ export class LibraryFreshness {
 
   private snapshot: { store: LibraryStore; names: Set<string>; going: Set<string> } | null = null;
   private readonly taken = new Set<string>();
+  /** records already read and found to have ended some other way - not read again */
+  private readonly settled = new Set<string>();
+  /** the refresh for this time behind has been asked for - one per read, so a failed one is not tried for ever */
+  private refreshClaimed = false;
   private checking = false;
   private lastCheck = 0;
 
@@ -59,16 +70,18 @@ export class LibraryFreshness {
       const names = await runNames(snapshot.store);
       const candidates = names
         .filter((name) => !snapshot.names.has(name) || snapshot.going.has(idOf(name)))
-        .filter((name) => !this.taken.has(idOf(name)))
+        .filter((name) => !this.taken.has(idOf(name)) && !this.settled.has(name))
         .sort()
         .reverse();
       for (const name of candidates) {
         if (snapshot !== this.snapshot) return;
         const status = await statusOf(snapshot.store, `runs/${name}`);
-        if (status && status !== 'running') {
+        if (REFRESHING_STATUSES.includes(status)) {
           if (snapshot === this.snapshot) this.behind.set(true);
           return;
         }
+        // ended, but not in a way that refreshes the list: known, and never read again
+        if (status && status !== 'running') this.settled.add(name);
       }
     } catch {
       // a library that will not list says nothing about whether it is behind
@@ -77,8 +90,20 @@ export class LibraryFreshness {
     }
   }
 
+  /**
+   * Whether the caller may refresh now: true once each time the list is behind, so a
+   * refresh that fails (and so takes no new read) is not started again and again.
+   */
+  claimRefresh(): boolean {
+    if (!this.behind() || this.refreshClaimed) return false;
+    this.refreshClaimed = true;
+    return true;
+  }
+
   private async noteRead(store: LibraryStore | null): Promise<void> {
     this.behind.set(false);
+    this.refreshClaimed = false;
+    this.settled.clear();
     this.snapshot = null;
     if (!store) return;
     try {
