@@ -19,7 +19,8 @@ import { Faq } from './faq';
 import { Feedback } from './feedback';
 import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
-import { ActiveRun, JobAction, Jobs } from './jobs';
+import { ActiveRun, JobAction, Jobs, RunHistory } from './jobs';
+import { readRunHistory } from './library-store';
 import { HelperConnection } from './helper-connection';
 import { Library, describeReadProgress } from './library';
 import { LibraryFreshness } from './freshness';
@@ -111,8 +112,19 @@ export class App {
    * whole run window only to be refused at the end of it.
    */
   protected readonly activeRun = computed(() => this.jobs.activeRuns()[0] ?? null);
-  /** set while the run history is checked for interrupted runs, before a window opens */
-  protected readonly checkingRuns = signal(false);
+  /**
+   * What is still being done before a run window opens, all of it at once: the run history
+   * checked for interrupted runs, the helper woken and asked for its config, and - for a quick
+   * scan - the scans it may measure back to. The notice names the first still going
+   */
+  protected readonly preparing = signal<readonly Preparation[]>([]);
+  protected readonly checkingRuns = computed(() => this.preparing().length > 0);
+  protected readonly preparingNote = computed(() => {
+    const left = this.preparing();
+    return PREPARATIONS.find((step) => left.includes(step.id))?.note ?? '';
+  });
+  /** the scans a quick scan may measure back to, read before its window opened */
+  protected readonly floorsAhead = signal<RunHistory[] | null>(null);
   /**
    * Whether the one-off browser note is up.
    *
@@ -139,15 +151,33 @@ export class App {
    */
   protected async openRun(action: JobAction): Promise<void> {
     if (this.checkingRuns() || this.activeRun()) return;
-    this.checkingRuns.set(true);
-    // the run window's first request, asked now so it overlaps the history check: a hosted
-    // helper asleep since its last run (Render's free tier) takes the better part of a minute
-    // to wake, and starting that while the history is read is time not spent twice
-    void this.jobs.loadConfig();
+    const store = this.library.store();
+    const quick = action === 'quick';
+    this.floorsAhead.set(null);
+    this.preparing.set(quick ? ['history', 'helper', 'floors'] : ['history', 'helper']);
+    const finished = (id: Preparation) => () =>
+      this.preparing.update((left) => left.filter((step) => step !== id));
+
+    // all at once. the helper's config is the run window's first request, and a hosted helper
+    // asleep since its last run (Render's free tier) takes most of a minute to wake - so that
+    // starts now rather than after the history. a quick scan's floors need the whole history,
+    // so it is read once and serves the interrupted-run check as well
+    const history = quick && store ? readRunHistory(store).catch(() => null) : null;
+    const settle = (history
+      ? history.then((runs) => this.jobs.settleInterrupted(store, runs ?? undefined))
+      : this.jobs.settleInterrupted(store)
+    ).finally(finished('history'));
+    const config = this.jobs.loadConfig().finally(finished('helper'));
+    const floors = history
+      ? history
+          .then((runs) => this.jobs.loadFloorRuns(store, runs ?? undefined))
+          .finally(finished('floors'))
+      : Promise.resolve(null);
     try {
-      await this.jobs.settleInterrupted(this.library.store());
+      const [, , ahead] = await Promise.all([settle, config, floors]);
+      this.floorsAhead.set(ahead);
     } finally {
-      this.checkingRuns.set(false);
+      this.preparing.set([]);
     }
     this.dialogAction.set(action);
   }
@@ -446,6 +476,14 @@ export class App {
  * A time as the listing shows it: the reader's own time zone, date and time to the minute. A
  * value that will not parse (an old file's free-text retrieval time) is shown as it was written.
  */
+/** what openRun does before a window opens, in the order its notice names them */
+type Preparation = 'history' | 'helper' | 'floors';
+const PREPARATIONS: { id: Preparation; note: string }[] = [
+  { id: 'history', note: 'Checking your run history...' },
+  { id: 'helper', note: 'Connecting to the helper...' },
+  { id: 'floors', note: 'Reading your scan history...' },
+];
+
 export function shownTime(value: string | Date): string {
   const at = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(at.getTime())) return String(value);

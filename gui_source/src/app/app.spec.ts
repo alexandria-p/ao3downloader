@@ -457,34 +457,59 @@ describe('App', () => {
     expect(actionLabels(element)).toContain('Quick Scan');
   });
 
-  it('checks the run history for interrupted runs, with a spinner, before a run window opens',
+  it('gets a quick scan ready all at once, naming whatever is still going, before its window opens',
     async () => {
       const library = TestBed.inject(Library);
       library.data.set(exportOf(1));
       openLibrary();
-      let finish: (settled: number) => void = () => undefined;
-      const settle = vi.spyOn(TestBed.inject(Jobs), 'settleInterrupted').mockImplementation(
-        () => new Promise<number>((resolve) => (finish = resolve)),
+      const jobs = TestBed.inject(Jobs);
+      let settled: (n: number) => void = () => undefined;
+      let connected: (c: null) => void = () => undefined;
+      let floored: (r: []) => void = () => undefined;
+      const settle = vi.spyOn(jobs, 'settleInterrupted').mockImplementation(
+        () => new Promise<number>((resolve) => (settled = resolve)),
       );
+      const config = vi.spyOn(jobs, 'loadConfig').mockImplementation(
+        () => new Promise((resolve) => (connected = resolve)),
+      );
+      const floors = vi.spyOn(jobs, 'loadFloorRuns').mockImplementation(
+        () => new Promise((resolve) => (floored = resolve)),
+      );
+      const tick = async () => {
+        await new Promise((done) => setTimeout(done, 0));
+        fixture.detectChanges();
+      };
+      const notice = () => element.querySelector('.checking-runs')?.textContent ?? null;
 
       const fixture = TestBed.createComponent(App);
       await fixture.whenStable();
       const element = fixture.nativeElement as HTMLElement;
+      // the page asks for the config once as it opens, too
+      const before = config.mock.calls.length;
       Array.from(element.querySelectorAll<HTMLButtonElement>('.actions button'))
         .find((b) => b.textContent?.includes('Quick Scan'))!.click();
-      fixture.detectChanges();
+      await tick();
 
+      // all three started together, the history read once for the check and the floors
       expect(settle).toHaveBeenCalledTimes(1);
-      expect(element.querySelector('.checking-runs')?.textContent).toContain(
-        'Checking your run history',
-      );
+      expect(config.mock.calls.length).toBe(before + 1);
+      expect(floors).toHaveBeenCalledTimes(1);
+      expect(settle.mock.calls[0][1]).toBe(floors.mock.calls[0][1]);
+      expect(notice()).toContain('Checking your run history');
       expect(element.querySelector('app-download-dialog')).toBeNull();
 
-      finish(0);
-      await fixture.whenStable();
-      fixture.detectChanges();
+      settled(0);
+      await tick();
+      expect(notice()).toContain('Connecting to the helper');
 
-      expect(element.querySelector('.checking-runs')).toBeNull();
+      connected(null);
+      await tick();
+      expect(notice()).toContain('Reading your scan history');
+      expect(element.querySelector('app-download-dialog')).toBeNull();
+
+      floored([]);
+      await tick();
+      expect(notice()).toBeNull();
       expect(element.querySelector('app-download-dialog')).toBeTruthy();
     });
 

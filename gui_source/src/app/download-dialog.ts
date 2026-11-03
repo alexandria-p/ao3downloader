@@ -145,6 +145,22 @@ export class DownloadDialog implements OnDestroy {
    * it would have had it been open all along.
    */
   readonly attachTo = input<ActiveRun | null>(null);
+  /**
+   * The scans a quick scan may measure back to, read as its window was being opened (with the
+   * run history, in one read). Used the first time they are wanted; asked for again after
+   */
+  readonly floorsAhead = input<RunHistory[] | null>(null);
+  private floorsAheadUsed = false;
+
+  /** the scans to measure back to: read ahead the first time, asked for fresh after */
+  private floorRunsNow(): Promise<RunHistory[] | null> {
+    const ahead = this.floorsAhead();
+    if (ahead && !this.floorsAheadUsed) {
+      this.floorsAheadUsed = true;
+      return Promise.resolve(ahead);
+    }
+    return this.jobs.loadFloorRuns(this.library.store());
+  }
   readonly closed = output<void>();
 
   protected readonly step = signal<Step>('preparing');
@@ -1282,7 +1298,7 @@ export class DownloadDialog implements OnDestroy {
       // could not download some works still does - but say so, and offer another
       this.step.set('floor-warning');
       this.floorRuns.set(null);
-      void this.jobs.loadFloorRuns(this.library.store()).then((runs) => {
+      void this.floorRunsNow().then((runs) => {
         this.floorRuns.set(runs ?? []);
         if (this.step() === 'floor-warning' && !this.automaticFloor()?.missingDownloads?.length) {
           this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
@@ -1300,9 +1316,7 @@ export class DownloadDialog implements OnDestroy {
     this.step.set('floor');
     // asked for fresh each time: a scan may have finished since the dialog opened
     this.floorRuns.set(null);
-    void this.jobs
-      .loadFloorRuns(this.library.store())
-      .then((runs) => this.floorRuns.set(runs ?? []));
+    void this.floorRunsNow().then((runs) => this.floorRuns.set(runs ?? []));
   }
 
   /** the warning answered: measure back to it anyway */

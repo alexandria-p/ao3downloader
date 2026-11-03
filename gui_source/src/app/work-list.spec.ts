@@ -529,7 +529,7 @@ describe('WorkList, bookmarks of every kind', () => {
 
     const said = element.querySelector('.membership')?.textContent ?? '';
     expect(said).toContain("works have not been indexed yet");
-    expect(said).toContain('Full scan');
+    expect(said).toContain('only bookmarked some');
     expect(said).toContain('Get all works from encountered series');
   });
 

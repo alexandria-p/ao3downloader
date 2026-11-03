@@ -683,10 +683,10 @@
 <ng-template #parts let-ids let-current="current">
   @if (!ids?.length) {
     <p class="not-indexed">
-      This series' works have not been indexed yet. To get them, run a <strong>Full scan</strong>
-      with <em>Get all works from encountered series</em> ticked - or download one of its works
-      by link with that box ticked. A series you bookmarked yourself is read by any full scan,
-      ticked or not.
+      This series' works have not been indexed yet. You may have only bookmarked some of this
+      series' works, not all. In the future, a scan with <em>'Get all works from encountered
+      series'</em> ticked will ensure that this series, and all its works, are downloaded - even
+      if they are not bookmarked.
     </p>
   } @else {
     <ol class="series-list">

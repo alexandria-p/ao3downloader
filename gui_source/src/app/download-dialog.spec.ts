@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DownloadDialog, parseWorkList } from './download-dialog';
 import { Library } from './library';
 import { LibraryStore, StorageRequest } from './library-store';
@@ -621,6 +621,23 @@ describe('DownloadDialog', () => {
     const said = element.querySelector('.dialog .body')?.textContent ?? '';
     expect(said).toContain('since the scan you chose, which started on 2026-03-04');
     expect(said).not.toContain('since the last successful');
+  });
+
+  it('uses the scans read before its window opened, without asking for them again', async () => {
+    const asked = vi.spyOn(jobs, 'loadFloorRuns');
+    fixture = TestBed.createComponent(DownloadDialog);
+    fixture.componentRef.setInput('action', 'quick');
+    fixture.componentRef.setInput('floorsAhead', [
+      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] },
+    ]);
+    await fixture.whenStable();
+    element = fixture.nativeElement as HTMLElement;
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('floor-warning');
+    expect(asked).not.toHaveBeenCalled();
   });
 
   it('warns before measuring back to a scan that could not download some works', async () => {

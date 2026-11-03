@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2047 python passed; 838 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2047 python passed; 841 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1099,9 +1099,14 @@ asked - a hundred records of thousands of lines would be a lot to read to draw a
 every record read anywhere that has ended is noted in memory, per library (`endedRuns`), and
 one `settleInterrupted` marks is noted too (`noteRunEnded`) - an ended run never says
 `running` again - so after the first, opening a run window downloads none or one record
-instead of a hundred, logs and all. `App.openRun` also asks `/api/config` as the check starts,
-so a hosted helper waking from sleep (most of a minute on Render's free tier) wakes while the
-history is read, not after. **Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
+instead of a hundred, logs and all. **`App.openRun` does everything a window needs at once**
+(`preparing`): the interrupted-run check, `/api/config` (a hosted helper asleep on Render's
+free tier takes most of a minute to wake), and for a quick scan the scans it may measure back
+to. A quick scan reads the whole history **once** and hands it to both `settleInterrupted`
+and `loadFloorRuns` (each takes a `history`); the window takes the floors as `floorsAhead`
+and asks again only after using them once. The notice names the first still going
+(`PREPARATIONS`: *Checking your run history*, *Connecting to the helper*, *Reading your scan
+history*). **Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
 history before every run window opens, and in Dropbox each record is a download of its own, so
 one after another a long history held the window for most of a minute. A record that will not
 read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many.
