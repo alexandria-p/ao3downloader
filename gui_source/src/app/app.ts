@@ -19,7 +19,7 @@ import { Faq } from './faq';
 import { Feedback } from './feedback';
 import { History } from './history';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
-import { ActiveRun, JobAction, Jobs } from './jobs';
+import { ActiveRun, JobAction, Jobs, RunHistory } from './jobs';
 import { HelperConnection } from './helper-connection';
 import { Library, describeReadProgress } from './library';
 import { LibraryFreshness } from './freshness';
@@ -113,11 +113,13 @@ export class App {
   protected readonly activeRun = computed(() => this.jobs.activeRuns()[0] ?? null);
   /**
    * What is still being done before a run window opens, all of it at once: the run history
-   * checked for interrupted runs, and the helper woken and asked for its config. The notice
-   * names the first still going
+   * checked for interrupted runs, the helper woken and asked for its config, and - for a quick
+   * scan - the newest scan it would measure back to. The notice names the first still going
    */
   protected readonly preparing = signal<readonly Preparation[]>([]);
   protected readonly checkingRuns = computed(() => this.preparing().length > 0);
+  /** the newest scan a quick scan would measure back to, found before its window opened */
+  protected readonly newestFloor = signal<RunHistory | null | undefined>(undefined);
   protected readonly preparingNote = computed(() => {
     const left = this.preparing();
     return PREPARATIONS.find((step) => left.includes(step.id))?.note ?? '';
@@ -150,18 +152,26 @@ export class App {
   protected async openRun(action: JobAction): Promise<void> {
     if (this.checkingRuns() || this.activeRun()) return;
     const store = this.library.store();
-    this.preparing.set(['history', 'helper']);
+    const quick = action === 'quick';
+    this.newestFloor.set(undefined);
+    this.preparing.set(quick ? ['history', 'helper', 'floor'] : ['history', 'helper']);
     const finished = (id: Preparation) => () =>
       this.preparing.update((left) => left.filter((step) => step !== id));
 
-    // both at once. the helper's config is the run window's first request, and a hosted
+    // all at once. the helper's config is the run window's first request, and a hosted
     // helper asleep since its last run (Render's free tier) takes most of a minute to wake -
-    // so that starts now rather than after the history. the scans a quick scan measures back
-    // to are read in its window, and only as far as its choices need
+    // so that starts now rather than after the history. a quick scan also finds the newest
+    // scan it would measure back to - a handful of records, newest first - so 'since my last
+    // run' needs nothing more once its window is open. the whole list waits for 'choose which
+    // earlier scan', in the window
     const settle = this.jobs.settleInterrupted(store).finally(finished('history'));
     const config = this.jobs.loadConfig().finally(finished('helper'));
+    const floor = quick
+      ? this.jobs.loadNewestFloor(store).finally(finished('floor'))
+      : Promise.resolve(undefined);
     try {
-      await Promise.all([settle, config]);
+      const [, , newest] = await Promise.all([settle, config, floor]);
+      this.newestFloor.set(newest);
     } finally {
       this.preparing.set([]);
     }
@@ -463,10 +473,11 @@ export class App {
  * value that will not parse (an old file's free-text retrieval time) is shown as it was written.
  */
 /** what openRun does before a window opens, in the order its notice names them */
-type Preparation = 'history' | 'helper';
+type Preparation = 'history' | 'helper' | 'floor';
 const PREPARATIONS: { id: Preparation; note: string }[] = [
   { id: 'history', note: 'Checking your run history...' },
   { id: 'helper', note: 'Connecting to the helper...' },
+  { id: 'floor', note: 'Reading your scan history...' },
 ];
 
 export function shownTime(value: string | Date): string {

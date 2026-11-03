@@ -627,6 +627,25 @@ describe('DownloadDialog', () => {
     expect(said).not.toContain('since the last successful');
   });
 
+  it('needs no read at all for "since my last run" when the newest floor was found as it opened', async () => {
+    const newest = vi.spyOn(jobs, 'loadNewestFloor');
+    const all = vi.spyOn(jobs, 'loadFloorRuns');
+    fixture = TestBed.createComponent(DownloadDialog);
+    fixture.componentRef.setInput('action', 'quick');
+    fixture.componentRef.setInput('newestFloorAhead',
+      { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] });
+    await fixture.whenStable();
+    element = fixture.nativeElement as HTMLElement;
+    await advanceTo('options');
+    button('Continue')!.click();
+    await fixture.whenStable();
+
+    expect(currentStep()).toBe('floor-warning');
+    expect(element.querySelector('.floor-warning')?.textContent).toContain('could not');
+    expect(newest).not.toHaveBeenCalled();
+    expect(all).not.toHaveBeenCalled();
+  });
+
   it('reads only the newest floor for "since my last run", and the whole list only when choosing', async () => {
     jobs.floorRunsOnRecord = [
       { ...scanOnRecord('p', '2026-09-02T12:00:00'), status: 'partial', missingDownloads: ['7'] },

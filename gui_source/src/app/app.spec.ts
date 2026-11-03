@@ -457,7 +457,7 @@ describe('App', () => {
     expect(actionLabels(element)).toContain('Quick Scan');
   });
 
-  it('gets a run window ready all at once, naming whatever is still going, before it opens',
+  it('gets a quick scan window ready all at once, naming whatever is still going, before it opens',
     async () => {
       const library = TestBed.inject(Library);
       library.data.set(exportOf(1));
@@ -470,6 +470,10 @@ describe('App', () => {
       );
       const config = vi.spyOn(jobs, 'loadConfig').mockImplementation(
         () => new Promise((resolve) => (connected = resolve)),
+      );
+      let found: (f: null) => void = () => undefined;
+      const newest = vi.spyOn(jobs, 'loadNewestFloor').mockImplementation(
+        () => new Promise((resolve) => (found = resolve)),
       );
       const floors = vi.spyOn(jobs, 'loadFloorRuns');
       const tick = async () => {
@@ -487,9 +491,10 @@ describe('App', () => {
         .find((b) => b.textContent?.includes('Quick Scan'))!.click();
       await tick();
 
-      // both started together; the scans to measure back to wait for the window's own choices
+      // all started together: the newest floor too, but never the whole list of them
       expect(settle).toHaveBeenCalledTimes(1);
       expect(config.mock.calls.length).toBe(before + 1);
+      expect(newest).toHaveBeenCalledTimes(1);
       expect(floors).not.toHaveBeenCalled();
       expect(notice()).toContain('Checking your run history');
       expect(element.querySelector('app-download-dialog')).toBeNull();
@@ -500,6 +505,11 @@ describe('App', () => {
       expect(element.querySelector('app-download-dialog')).toBeNull();
 
       connected(null);
+      await tick();
+      expect(notice()).toContain('Reading your scan history');
+      expect(element.querySelector('app-download-dialog')).toBeNull();
+
+      found(null);
       await tick();
       expect(notice()).toBeNull();
       expect(element.querySelector('app-download-dialog')).toBeTruthy();

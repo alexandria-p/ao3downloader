@@ -150,7 +150,12 @@ export class DownloadDialog implements OnDestroy {
    * when there is none. 'Anything that has changed since my last run' needs only this, so only
    * the newest records are read for it - never the whole history (`Jobs.loadNewestFloor`).
    */
-  private readonly newestFloor = signal<RunHistory | null | undefined>(undefined);
+  private readonly newestFloorRead = signal<RunHistory | null | undefined>(undefined);
+  /** found as the window was opened, alongside the run history check (`App.openRun`) */
+  readonly newestFloorAhead = input<RunHistory | null | undefined>(undefined);
+  private readonly newestFloor = computed(() =>
+    this.newestFloorRead() !== undefined ? this.newestFloorRead() : this.newestFloorAhead(),
+  );
   /** the whole list is being read - asked for once, kept for as long as the window is open */
   private floorsLoading = false;
 
@@ -161,7 +166,7 @@ export class DownloadDialog implements OnDestroy {
     void this.jobs.loadFloorRuns(this.library.store()).then((runs) => {
       this.floorsLoading = false;
       this.floorRuns.set(runs ?? []);
-      this.newestFloor.set(runs?.[0] ?? null);
+      this.newestFloorRead.set(runs?.[0] ?? null);
     });
   }
   readonly closed = output<void>();
@@ -1299,16 +1304,19 @@ export class DownloadDialog implements OnDestroy {
     if (this.action() === 'quick' && this.coverage() === 'all') {
       // the floor the helper will measure back to is the newest scan that qualifies. one that
       // could not download some works still does - but say so, and offer another
-      this.step.set('floor-warning');
       const known = this.newestFloor();
-      const newest: Promise<RunHistory | null> =
-        known !== undefined
-          ? Promise.resolve(known)
-          : this.jobs.loadNewestFloor(this.library.store()).then((floor) => {
-              this.newestFloor.set(floor);
-              return floor;
-            });
-      void newest.then((floor) => {
+      if (known !== undefined) {
+        // found as the window opened: nothing to read, and no warning page unless it needs one
+        this.step.set(
+          known?.missingDownloads?.length
+            ? 'floor-warning'
+            : this.picksFiletypes() ? 'filetypes' : 'credentials',
+        );
+        return;
+      }
+      this.step.set('floor-warning');
+      void this.jobs.loadNewestFloor(this.library.store()).then((floor) => {
+        this.newestFloorRead.set(floor);
         if (this.step() === 'floor-warning' && !floor?.missingDownloads?.length) {
           this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
         }
