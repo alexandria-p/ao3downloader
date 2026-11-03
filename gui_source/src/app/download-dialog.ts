@@ -59,6 +59,8 @@ type Step =
   | 'resume'
   /** how the chosen run is retried, and its original dates and settings acknowledged */
   | 'retry-how'
+  /** whether to run it in the background, and its answers up front - a hosted copy only */
+  | 'background'
   | 'acknowledge'
   | 'credentials'
   | 'running'
@@ -707,7 +709,18 @@ export class DownloadDialog implements OnDestroy {
    * Whether this run still needs a username without a login: the ones that read your own
    * bookmarks or collections, found by your name. The helper's `USERNAME_ACTIONS`.
    */
-  protected readonly needsUsername = computed(() => USERNAME_ACTIONS.includes(this.sentAction()));
+  protected readonly needsUsername = computed(() =>
+    USERNAME_ACTIONS.includes(
+      // a retry is sent as custom when it is not one of the scans, so the run it retries
+      // says whether it reads your own listing - a fic run's retry needs no username
+      this.resuming() ? (this.chosenResume()?.action ?? this.sentAction()) : this.sentAction(),
+    ),
+  );
+  /** what the login page says the username is for: your bookmarks, or your collections */
+  protected readonly listingWord = computed(() => {
+    const action = this.resuming() ? this.chosenResume()?.action : this.action();
+    return action === 'collections' ? 'collections' : 'bookmarks';
+  });
   /** the workflow the start request names - a retry is sent as the run it retries, or custom */
   protected readonly sentAction = computed<JobAction>(() => {
     const resumed = this.resuming() ? this.chosenResume() : null;
@@ -733,12 +746,27 @@ export class DownloadDialog implements OnDestroy {
   });
 
   /**
-   * Whether this run has anything to ask on the options step - always, now: every run can be
-   * told to skip the login. Kept as a computed so the steps that read it need not change
-   * should a run with nothing to choose come back; a step with nothing on it is worse than
-   * none, since it reads as something that failed to load.
+   * Whether this run has anything to ask on the options step.
+   *
+   * A step with nothing on it is worse than no step: it reads as something that failed to
+   * load. When there is nothing to choose the run goes straight past it, in both
+   * directions, rather than showing a page that says so. (Skipping the login is asked on the
+   * login page, so it does not count.)
    */
-  protected readonly hasOptions = computed(() => true);
+  protected readonly hasOptions = computed(
+    () =>
+      this.picksPages() ||
+      // a run that has swapped pages for a date window still has that choice to offer
+      this.picksDates() ||
+      this.picksSeries() ||
+      this.picksImages() ||
+      this.picksReindex() ||
+      this.picksOverwrite() ||
+      this.picksNonBookmarks() ||
+      this.picksCollectionWorks() ||
+      // it can always be pointed at an earlier scan, so it always has a choice to offer
+      this.action() === 'quick',
+  );
 
   /**
    * The options come before the file types, for every run.
@@ -751,7 +779,7 @@ export class DownloadDialog implements OnDestroy {
   protected readonly firstStep = computed<Step>(() => {
     if (this.needsLink()) return 'link';
     if (this.hasOptions()) return 'options';
-    return this.picksFiletypes() ? 'filetypes' : 'credentials';
+    return this.picksFiletypes() ? 'filetypes' : this.loginStep();
   });
 
   /** whether what has been typed is something this run can act on */
@@ -1218,7 +1246,7 @@ export class DownloadDialog implements OnDestroy {
       if (!answer || known) return;
       if (!this.filetypesTouched) this.selected.set(startingFiletypes(answer));
       // the up-front answers are chosen on the login step: until then they are the defaults
-      if (this.step() !== 'credentials') {
+      if (this.step() !== 'credentials' && this.step() !== 'background') {
         this.startFromDefaults({ ...(answer.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
       }
       if (!this.username().trim()) this.username.set(answer.username || '');
@@ -1350,16 +1378,16 @@ export class DownloadDialog implements OnDestroy {
         this.step.set(
           known?.missingDownloads?.length
             ? 'floor-warning'
-            : this.picksFiletypes() ? 'filetypes' : 'credentials',
+            : this.picksFiletypes() ? 'filetypes' : this.loginStep(),
         );
         return;
       }
       // not found yet: on without it - the run page waits for it, and warns there if it must
       if (!this.floorFinding) this.floorFinding = this.jobs.loadNewestFloor(this.library.store());
-      this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+      this.step.set(this.picksFiletypes() ? 'filetypes' : this.loginStep());
       return;
     }
-    this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+    this.step.set(this.picksFiletypes() ? 'filetypes' : this.loginStep());
   }
 
   /** the floor a quick scan measures back to when none is chosen: the newest that qualifies */
@@ -1373,7 +1401,7 @@ export class DownloadDialog implements OnDestroy {
 
   /** the warning answered: measure back to it anyway */
   protected useAutomaticFloor(): void {
-    this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+    this.step.set(this.picksFiletypes() ? 'filetypes' : this.loginStep());
   }
 
   /** the warning answered: pick another scan to measure back to */
@@ -1440,7 +1468,7 @@ export class DownloadDialog implements OnDestroy {
 
   protected afterFloor(): void {
     if (!this.floorRun()) return;
-    this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+    this.step.set(this.picksFiletypes() ? 'filetypes' : this.loginStep());
   }
 
   /**
@@ -1457,6 +1485,7 @@ export class DownloadDialog implements OnDestroy {
     if (this.resuming()) earlier.push('resume', 'retry-how');
     if (this.picksFiletypes()) earlier.push('filetypes');
     if (this.needsAcknowledgement()) earlier.push('acknowledge');
+    if (this.offersBackground()) earlier.push('background');
     earlier.push('credentials');
 
     const at = earlier.indexOf(step);
@@ -1482,9 +1511,17 @@ export class DownloadDialog implements OnDestroy {
     return this.stepBefore(step) !== null;
   }
 
+  /**
+   * The step before the login: running in the background, where a hosted copy offers it, gets a
+   * page of its own after any acknowledgement - its answers up front are a page in themselves.
+   */
+  private loginStep(): Step {
+    return this.offersBackground() ? 'background' : 'credentials';
+  }
+
   protected toCredentials(): void {
     // an update pass has a limitation worth reading before anyone logs in for it
-    this.step.set(this.needsAcknowledgement() ? 'acknowledge' : 'credentials');
+    this.step.set(this.needsAcknowledgement() ? 'acknowledge' : this.loginStep());
   }
 
   /** from the acknowledgement: only on once it has actually been accepted */
@@ -1493,7 +1530,7 @@ export class DownloadDialog implements OnDestroy {
     // written only when they go through with it, so backing out never silences the note
     const shared = this.action() === 'sync' || this.action() === 'quick';
     if (shared && this.dontAskAgain()) safeSet(SYNC_ACK_KEY, 'true');
-    this.step.set('credentials');
+    this.step.set(this.loginStep());
   }
 
   protected setPages(value: string): void {
@@ -1517,7 +1554,7 @@ export class DownloadDialog implements OnDestroy {
       this.step.set('options');
       return;
     }
-    this.step.set(this.picksFiletypes() ? 'filetypes' : 'credentials');
+    this.step.set(this.picksFiletypes() ? 'filetypes' : this.loginStep());
   }
 
   // endregion

@@ -264,7 +264,8 @@
 
 .blurb-corner {
   position: absolute;
-  top: 34px;
+  /* level with the entry's first line, the same as the tick box on the left */
+  top: 12px;
   right: 14px;
   display: flex;
   flex-direction: column;

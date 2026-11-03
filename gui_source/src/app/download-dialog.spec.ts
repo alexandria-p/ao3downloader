@@ -801,17 +801,18 @@ describe('DownloadDialog', () => {
     }
   });
 
-  it('opens every run without a link on its options, since any run can skip the login', async () => {
+  it('gives a run with nothing to choose no options step, asking about the login on the login page', async () => {
     for (const action of ['sync', 'new', 'update'] as const) {
       await open(action);
 
-      expect(currentStep(), action).toBe('options');
+      expect(currentStep(), action).not.toBe('options');
+      await advanceTo('credentials');
       expect(checkbox('Skip AO3 login?'), action).toBeTruthy();
     }
   });
 
   it('steps back from the file types to the options, and out from there', async () => {
-    await open('sync');
+    await open('bookmarks');
     await advanceTo('filetypes');
 
     button('Back')!.click();
@@ -839,8 +840,8 @@ describe('DownloadDialog', () => {
     await open('update');
 
     // no listing to page through, no work page to read anything off, nothing to date - so
-    // its options step offers only skipping the login
-    expect(currentStep()).toBe('options');
+    // it has no options step at all
+    expect(currentStep()).not.toBe('options');
     expect(element.querySelector('input[name="pages"]')).toBeNull();
     expect(checkbox('encountered series')).toBeUndefined();
     expect(checkbox('publication date')).toBeUndefined();
@@ -2545,9 +2546,9 @@ describe('DownloadDialog', () => {
   });
 
   for (const action of ['work', 'works', 'bookmarks', 'quick', 'update', 'collection'] as JobAction[]) {
-    it(`offers skipping the login on ${action}, unticked, warning when ticked`, async () => {
+    it(`offers skipping the login on ${action}, on the login page, unticked, warning when ticked`, async () => {
       await open(action);
-      await advanceTo('options');
+      await advanceTo('credentials');
       const box = checkbox('Skip AO3 login?')!;
       expect(box.checked).toBe(false);
       expect(element.querySelector('.skip-login-warning')).toBeNull();
@@ -2564,14 +2565,18 @@ describe('DownloadDialog', () => {
 
   it('starts without a login when told to skip it, sending no credentials', async () => {
     await open('work');
-    await advanceTo('options');
+    await advanceTo('credentials');
+    expect(element.textContent).toContain('Log in to AO3 so restricted works');
     checkbox('Skip AO3 login?')!.click();
     await fixture.whenStable();
-    await advanceTo('credentials');
+    // a fic run needs no account at all, so neither box nor sentence is left
     expect(element.querySelector('input[name="password"]')).toBeNull();
-    expect(element.querySelector('.not-logging-in')?.textContent).toContain('Not logging in');
+    expect(element.querySelector('input[name="username"]')).toBeNull();
+    expect(element.textContent).not.toContain('Log in to AO3 so restricted works');
+    expect(element.textContent).not.toContain('Enter your username');
 
-    await advanceTo('running');
+    button('Start download')!.click();
+    await fixture.whenStable();
     expect(jobs.started[0].options.skipLogin).toBe(true);
     expect(jobs.started[0].username).toBe('');
     expect(jobs.started[0].password).toBe('');
@@ -2579,12 +2584,13 @@ describe('DownloadDialog', () => {
 
   it('asks a run reading your own bookmarks for a username but no password when skipping the login', async () => {
     await open('bookmarks');
-    await advanceTo('options');
+    await advanceTo('credentials');
+    expect(element.textContent).toContain('your own bookmarks are visible');
     checkbox('Skip AO3 login?')!.click();
     await fixture.whenStable();
-    expect(element.querySelector('.skip-login-warning')?.textContent).toContain('not your password');
-    await advanceTo('credentials');
     expect(element.querySelector('input[name="password"]')).toBeNull();
+    expect(element.textContent).not.toContain('Log in to AO3 so restricted works');
+    expect(element.textContent).toContain('Enter your username to scan your public bookmarks');
     const name = element.querySelector<HTMLInputElement>('input[name="username"]')!;
     expect(name.value).toBe('Someone');
 
@@ -2599,10 +2605,22 @@ describe('DownloadDialog', () => {
     name.value = 'Someone';
     name.dispatchEvent(new Event('input'));
     await fixture.whenStable();
-    await advanceTo('running');
+    button('Start download')!.click();
+    await fixture.whenStable();
     expect(jobs.started[0].options.skipLogin).toBe(true);
     expect(jobs.started[0].username).toBe('Someone');
     expect(jobs.started[0].password).toBe('');
+  });
+
+  it('words the username for a collection run skipping the login as its collections', async () => {
+    await open('collections');
+    await advanceTo('credentials');
+    expect(element.textContent).toContain('your own collections are visible');
+    checkbox('Skip AO3 login?')!.click();
+    await fixture.whenStable();
+    expect(element.textContent).toContain('Enter your username to scan your public collections');
+    expect(element.querySelector('input[name="username"]')).toBeTruthy();
+    expect(element.querySelector('input[name="password"]')).toBeNull();
   });
 
   it('offers skipping the indexing only on a custom run', async () => {
@@ -3537,7 +3555,7 @@ describe('DownloadDialog', () => {
     await advanceTo('credentials');
 
     expect(element.querySelector('input[name="password"]')).toBeNull();
-    expect(element.querySelector('.not-logging-in')?.textContent).toContain('the run you are retrying');
+    expect(checkbox('Skip AO3 login?')!.checked).toBe(true);
     // a quick scan reads your bookmarks, found by the account the earlier run read
     expect(element.querySelector<HTMLInputElement>('input[name="username"]')?.value).toBe('Someone');
 

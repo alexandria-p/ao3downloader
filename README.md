@@ -181,7 +181,7 @@ setup. A bundle built on your own computer has no Feedback tab.
 bundle and the Windows, Mac and Linux apps run their helper on your own computer, which stops
 when you close its window, so they do not offer it at all.
 
-There, every run offers **Run as background task** on its login step, when your library is in
+There, every run offers **Run as background task** on a page of its own just before the login, when your library is in
 Dropbox and you are signed in. The helper then carries on with the page closed: start a run,
 go away, and come back hours later. It is greyed out for a folder on this computer, because
 the helper can only reach that folder through the open page.
@@ -346,7 +346,7 @@ Behind **Advanced options**:
 
 - **Download/update a specific fic** - paste a work link or just the work number. Indexes that one fic and downloads it in the formats you pick. A link to any chapter works.
 - **Download/update several fics** - the same for a list: paste work links or numbers, one per line or separated by commas, spaces or semicolons (up to 500). Each is indexed in turn, then all are downloaded. One AO3 will not show is passed over, and FicHub is offered once at the end for every fic that failed.
-- Every run's options offer **Skip AO3 login?** - unticked by default, and **not recommended**: logged out, AO3 shows a run only what anyone can see, so private bookmarks are not picked up, fics their authors restricted to AO3 users can't be reached, and the run may have to fall back on FicHub for them. Ticked, the run never logs in and no password is asked for. A run that reads your own bookmarks or collections (the full, quick and custom scans, the combined and new-bookmarks runs, your own collections) still asks for your username, since that is how your listing is found.
+- Every run's login page offers **Skip AO3 login?** - unticked by default, and **not recommended**: logged out, AO3 shows a run only what anyone can see, so private bookmarks are not picked up, fics their authors restricted to AO3 users can't be reached, and the run may have to fall back on FicHub for them. Ticked, the run never logs in and no password is asked for. A run that reads your own bookmarks or collections (the full, quick and custom scans, the combined and new-bookmarks runs, your own collections) still asks for your username, since that is how your listing is found.
 - **Custom run** - a full scan with its parts made optional. It covers one of three things, which it asks first: **all bookmarks**, a **slice** of your listing by page number, or a **date range**. On top of that it can skip reading AO3 at all and work from what is already indexed. That last one costs no requests to decide anything, but judges everything against however old your index is. This is the one run that asks its options *before* the file types, because skipping the indexing decides one of them: JSON is the index, so a run that does not index does not write it, and the JSON box is ticked or unticked to match and locked either way.
 
 Behind **Advanced options**, only when the debug tools are on:

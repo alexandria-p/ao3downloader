@@ -34,7 +34,7 @@ the same thing in conversation.
 
 ## Reading AO3
 
-- **Skip AO3 login** [skipLogin, logged out] - any run told not to log in, from its options step. No password is sent; the runs that read your own listing (`USERNAME_ACTIONS`: `bookmarks`, `new`, `sync`, `custom`, `quick`, `collections`) still need the username, every other sends none. Logged out, private bookmarks are not on the listing and restricted works fail. A retry follows the run it retries: one that skipped the login skips it again, asking for no password.
+- **Skip AO3 login** [skipLogin, logged out] - any run told not to log in, from the top of its login page. Ticked, the password box goes; a run that still needs the username asks for it as *Enter your username to scan your public bookmarks* (or *collections*), and any other shows no boxes at all. No password is sent; the runs that read your own listing (`USERNAME_ACTIONS`: `bookmarks`, `new`, `sync`, `custom`, `quick`, `collections`) still need the username, every other sends none. Logged out, private bookmarks are not on the listing and restricted works fail. A retry follows the run it retries: one that skipped the login skips it again, asking for no password.
 - **Run** [job] - one use of a workflow, from pressing Start to its report.
 - **Step** [checklist item] - one stage of a run, shown ticked, skipped, failed, or *done in the earlier run* (a resumed run's step its earlier attempt finished) in the run window.
 - **Option** [checkbox, configuration] - a choice made before a run starts.
@@ -165,7 +165,7 @@ the same thing in conversation.
 
 **Every workflow** also offers, on its login step:
 
-- *Run as background task* - only on the hosted copy (the page's helper not on this computer - not shown at all in the bundle or the Windows, Mac and Linux apps); only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range, and *whether to try FicHub* (default yes) on every workflow but a collection run not taking its works, plus *whether to take an older FicHub copy* (default yes) on those that download, and *whether to replace a newer copy with an older version* (default no) on those that overwrite. A collection run not taking its works asks none; a JSON-only run asks only about FicHub. Its steps are the workflow's own, unchanged.
+- *Run as background task* - only on the hosted copy (the page's helper not on this computer - not shown at all in the bundle or the Windows, Mac and Linux apps); only for a library in Dropbox, signed in; greyed out for a folder on this computer, which the helper can only reach through the page. When ticked, it lists the up-front answers this workflow may need: *undated files* and *older copies* on any workflow that downloads works (not *undated files* when it overwrites every copy anyway), *how far back to go* on a quick scan that is not measuring back to a chosen scan or a date range, and *whether to try FicHub* (default yes) on every workflow but a collection run not taking its works, plus *whether to take an older FicHub copy* (default yes) on those that download, and *whether to replace a newer copy with an older version* (default no) on those that overwrite. A collection run not taking its works asks none; a JSON-only run asks only about FicHub. It is a page of its own in the run window, after any acknowledgement and just before the login. The run's steps are the workflow's own, unchanged.
 
 ## Quick scan
 
@@ -220,7 +220,7 @@ With a date range, steps 2 and 3 read "…in that date range".
   - File types
   - Always replaces the fic's own files; no overwrite checkbox
   - A fic AO3 will not show (deleted, hidden, locked) is a failure of the fic, not of the run: the run goes straight to the FicHub step
-  - *Skip AO3 login?* [`skipLogin`] - off unless ticked; ticking it shows a warning that this is not recommended, that fics restricted to AO3 users are harder to reach, and that the run may have to fall back on FicHub. The run then never logs in: its *Log in to AO3* step is marked skipped, the login page asks for no username or password, and nothing typed is sent. A fic AO3 shows only to a login fails like any other and goes to the FicHub step. A failure never triggers the lapsed-login check, since there is no session.
+  - *Skip AO3 login?* [`skipLogin`] - on the login page; off unless ticked; ticking it shows a warning that this is not recommended, that fics restricted to AO3 users are harder to reach, and that the run may have to fall back on FicHub. The run then never logs in: its *Log in to AO3* step is marked skipped, the login page asks for no username or password, and nothing typed is sent. A fic AO3 shows only to a login fails like any other and goes to the FicHub step. A failure never triggers the lapsed-login check, since there is no session.
 - **Steps:**
   1. Log in to AO3 (skipped with *Skip AO3 login?*)
   2. Index this fic
