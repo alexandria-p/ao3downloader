@@ -140,6 +140,10 @@ export class App {
   protected async openRun(action: JobAction): Promise<void> {
     if (this.checkingRuns() || this.activeRun()) return;
     this.checkingRuns.set(true);
+    // the run window's first request, asked now so it overlaps the history check: a hosted
+    // helper asleep since its last run (Render's free tier) takes the better part of a minute
+    // to wake, and starting that while the history is read is time not spent twice
+    void this.jobs.loadConfig();
     try {
       await this.jobs.settleInterrupted(this.library.store());
     } finally {

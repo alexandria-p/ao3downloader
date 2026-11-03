@@ -2249,14 +2249,14 @@ describe('DownloadDialog', () => {
   // a listing of your bookmarks never shows a work you did not bookmark, so a scan only
   // reads one again when it is asked to
   it.each(['bookmarks', 'quick', 'custom'] as const)(
-    'lets a %s run check non-bookmarks for updates, with a warning',
+    'lets a %s run check non-bookmarks for updates, saying what it checks',
     async (action) => {
       await open(action);
       await advanceTo('options');
 
-      const box = checkbox('Include any changes to non-bookmarks');
+      const box = checkbox('Check all non-bookmarks for updates too');
       expect(element.querySelector('.dialog .body')?.textContent).toContain(
-        'not affected by the date range',
+        'added by URL or id',
       );
       box!.click();
       await fixture.whenStable();
@@ -2272,7 +2272,7 @@ describe('DownloadDialog', () => {
       await open(action);
       await advanceTo('filetypes');
 
-      expect(checkbox('Include any changes to non-bookmarks')).toBeUndefined();
+      expect(checkbox('Check all non-bookmarks for updates too')).toBeUndefined();
     },
   );
 
@@ -2281,11 +2281,11 @@ describe('DownloadDialog', () => {
     await open('custom');
     await advanceTo('options');
 
-    checkbox('Include any changes to non-bookmarks')!.click();
+    checkbox('Check all non-bookmarks for updates too')!.click();
     checkbox('Skip indexing')!.click();
     await fixture.whenStable();
 
-    expect(checkbox('Include any changes to non-bookmarks')).toBeUndefined();
+    expect(checkbox('Check all non-bookmarks for updates too')).toBeUndefined();
     await advanceTo('running');
     expect(jobs.started[0].options.nonBookmarks).toBe(false);
   });

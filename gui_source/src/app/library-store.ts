@@ -108,6 +108,42 @@ const HISTORY_LIMIT = 100;
 const PARALLEL_READS = 6;
 
 /**
+ * The run records this page has already read and found ended, by file name, per library. An
+ * ended run never says 'running' again, so checking for interrupted runs - before every run
+ * window opens - need not download it again: in Dropbox that was up to a hundred downloads,
+ * logs and all, every time. Kept in memory only, so a new page or a new library starts afresh.
+ */
+const endedRuns = new WeakMap<LibraryStore, Set<string>>();
+
+function endedIn(store: LibraryStore): Set<string> {
+  let ended = endedRuns.get(store);
+  if (!ended) endedRuns.set(store, (ended = new Set()));
+  return ended;
+}
+
+/** a record this page has just ended itself - marked interrupted, or force-stopped */
+export function noteRunEnded(store: LibraryStore, file: string): void {
+  endedIn(store).add(file);
+}
+
+/**
+ * The newest HISTORY_LIMIT records not already known to have ended - what checking for
+ * interrupted runs needs. Usually none or one, once the history has been read this visit.
+ */
+export async function readUnsettledRuns(store: LibraryStore): Promise<RunHistory[]> {
+  const ended = endedIn(store);
+  const files = (await store.list('runs', false))
+    .filter((path) => /\.json$/i.test(path))
+    .sort()
+    .reverse()
+    .slice(0, HISTORY_LIMIT)
+    .filter((path) => !ended.has(path.split('/').pop() ?? path));
+  return (await readEach(files, (path) => readRunRecord(store, path))).filter(
+    (record): record is RunHistory => record !== null,
+  );
+}
+
+/**
  * Every run on record in the library, newest first - what the helper's `read_runs` did,
  * done here now that the page holds the library.
  *
@@ -140,10 +176,14 @@ async function readRunRecord(store: LibraryStore, path: string): Promise<RunHist
     // the console log is not shown here, and can run to thousands of lines - only how many,
     // so the history can offer it to download. it is read again, on its own, if asked for
     const { log, ...rest } = record;
+    const file = path.split('/').pop() ?? path;
+    // every read, from History, floors or retries alike, tells the interrupted-run check
+    // which records it need not download again
+    if (typeof rest.status === 'string' && rest.status !== 'running') endedIn(store).add(file);
     return {
       ...rest,
       logLines: Array.isArray(log) ? log.length : 0,
-      file: path.split('/').pop() ?? path,
+      file,
     };
   } catch {
     return null;

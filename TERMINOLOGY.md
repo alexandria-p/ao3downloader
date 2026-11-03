@@ -174,7 +174,7 @@ the same thing in conversation.
   - What it covers: *anything changed since my last run* (default), or *choose which earlier scan to measure back to*
   - *[DEBUG] choose my own date range* (only with debug tools on)
   - *Get all works from encountered series*
-  - *Include any changes to non-bookmarks* - not limited by the floor or date range
+  - *Check all non-bookmarks for updates too* - not limited by the floor or date range
   - File types (JSON always on)
   - An acknowledgement of its limits, shown until turned off
 - **Steps:**
@@ -197,7 +197,7 @@ With a date range, steps 2 and 3 read "…in that date range".
 - **Options:**
   - *Overwrite existing downloads, even if there has been no update*
   - *Get all works from encountered series*
-  - *Include any changes to non-bookmarks*
+  - *Check all non-bookmarks for updates too*
   - File types (JSON always on)
   - An acknowledgement, every time
 - **Steps:**
@@ -260,7 +260,7 @@ With a date range, steps 2 and 3 read "…in that date range".
   - *Overwrite existing downloads, even if there has been no update*
   - *Save embedded images separately*
   - *Get all works from encountered series*
-  - *Include any changes to non-bookmarks* - not limited by the date range; not offered when skipping indexing
+  - *Check all non-bookmarks for updates too* - not limited by the date range; not offered when skipping indexing
   - File types
 - **Steps (all bookmarks, or a slice):**
   1. Log in to AO3
@@ -371,10 +371,10 @@ Used by: every workflow that indexes (including the debug runs).
 - Skips works already indexed this run; updates existing entries keeping their `bookmarked`; new entries get `bookmarked: false`.
 - Writes the series' own entry with its list of works.
 - The works it indexes go on to be downloaded; skipped when nothing was marked.
-- With *Include any changes to non-bookmarks*, the series of every non-bookmark not already indexed this run are marked here too, whether or not the series option is on.
+- With *Check all non-bookmarks for updates too*, the series of every non-bookmark not already indexed this run are marked here too, whether or not the series option is on.
 
 ### Check remaining non-bookmarks for updates
-Used by: full scan, quick scan, custom run - only when *Include any changes to non-bookmarks* is chosen (and, on a custom run, not skipping indexing).
+Used by: full scan, quick scan, custom run - only when *Check all non-bookmarks for updates too* is chosen (and, on a custom run, not skipping indexing).
 - Re-reads, from its own AO3 page, each non-bookmark the series walk did not reach: one request per work.
 - Not limited by a floor or date range: every non-bookmark is checked.
 - Updates the entry (including `bookmarked`, if you have since bookmarked it); a work that will not read is a failure.

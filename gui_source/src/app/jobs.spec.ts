@@ -95,6 +95,39 @@ describe('Jobs.settleInterrupted', () => {
     expect(statusOf(store, 'b.json')).toBe('stopped');
   });
 
+  it('reads a run it already found ended only once, however many windows open', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'success'), 'b.json': run('b', 'running') });
+    const reads: string[] = [];
+    const read = store.read;
+    store.read = async (path: string) => {
+      reads.push(path);
+      return read(path);
+    };
+    helperWorkingOn('b');
+
+    await new Jobs().settleInterrupted(store);
+    await new Jobs().settleInterrupted(store);
+
+    expect(reads.filter((path) => path === 'runs/a.json')).toHaveLength(1);
+    // still going, so it might yet be interrupted: read every time
+    expect(reads.filter((path) => path === 'runs/b.json')).toHaveLength(2);
+  });
+
+  it('does not read again a run it marked interrupted itself', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'running') });
+    helperWorkingOn();
+    await new Jobs().settleInterrupted(store);
+
+    const reads: string[] = [];
+    const read = store.read;
+    store.read = async (path: string) => {
+      reads.push(path);
+      return read(path);
+    };
+    await new Jobs().settleInterrupted(store);
+    expect(reads).toEqual([]);
+  });
+
   it('does nothing without a library', async () => {
     expect(await new Jobs().settleInterrupted(null)).toBe(0);
   });

@@ -554,15 +554,12 @@
               [checked]="nonBookmarks()"
               (change)="nonBookmarks.set($any($event.target).checked)"
             />
-            <span>
-              Include any changes to non-bookmarks (for example, works discovered as part of
-              another work's series)
-            </span>
+            <span>Check all non-bookmarks for updates too</span>
           </label>
           <p class="hint">
-            <strong>Warning:</strong> this is not affected by the date range, and will check
-            all non-bookmarks for updates. Their series are read first, 20 works to a request;
-            any the series do not cover are read one request each.
+            This option will check: any works that were added by URL or id, any works that were
+            imported, and any works that <i>aren't</i> bookmarked but <i>are</i> a part of a
+            series you have indexed previously.
           </p>
         }
 

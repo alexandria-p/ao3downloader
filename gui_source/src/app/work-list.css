@@ -223,7 +223,7 @@
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  margin-right: 90px;
+  margin-right: 120px; /* room for the date, origin icon and FicHub badge at the top right */
 }
 
 .blurb-titles {
@@ -262,14 +262,32 @@
 .complete-yes { background: #7fb069; border-radius: 50%; }
 .complete-no { background: #b05a5a; border-radius: 50%; }
 
-.blurb > .datetime {
+.blurb-corner {
   position: absolute;
   top: 34px;
   right: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.corner-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
+}
+
+.blurb-corner .datetime {
   color: var(--text-dim);
   font-size: 0.78rem;
   letter-spacing: 0.02em;
+}
+
+/* beside the date it needs no gap of its own after it */
+.blurb-corner .origin-icon {
+  margin-right: 0;
 }
 
 .heading {
@@ -483,8 +501,12 @@
 /* endregion */
 
 @media (max-width: 620px) {
-  .blurb > .datetime {
+  .blurb-corner {
     position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
     margin-bottom: 6px;
   }
 
@@ -751,6 +773,10 @@
 }
 
 /* where a work came from, when that is not your own bookmarks, and whether it is hidden */
+.provenance:empty {
+  display: none;
+}
+
 .provenance {
   margin: 0 0 4px;
 }

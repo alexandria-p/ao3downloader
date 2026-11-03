@@ -443,7 +443,7 @@ describe('WorkList, bookmarks of every kind', () => {
     await listing([{ ...series, work_ids: [] } as Bookmark]);
     element.querySelector<HTMLButtonElement>('.series-toggle')!.click();
     await fixture.whenStable();
-    expect(element.querySelector('.series-works')?.textContent).toContain('not been walked for its works yet');
+    expect(element.querySelector('.series-works')?.textContent).toContain('works have not been indexed yet');
   });
 
   it('shows a series its own stats rather than chapters', async () => {
@@ -521,14 +521,15 @@ describe('WorkList, bookmarks of every kind', () => {
     expect(element.querySelectorAll('.membership .series-list')).toHaveLength(1);
   });
 
-  it('says so when a series a work is part of has not been walked yet', async () => {
+  it('says what to run when a series a work is part of has not had its works indexed', async () => {
     withSeries();
     await listing([member]);
     element.querySelector<HTMLButtonElement>('.membership .series-toggle')!.click();
     await fixture.whenStable();
 
     const said = element.querySelector('.membership')?.textContent ?? '';
-    expect(said).toContain('not been walked for its works yet');
+    expect(said).toContain("works have not been indexed yet");
+    expect(said).toContain('Full scan');
     expect(said).toContain('Get all works from encountered series');
   });
 

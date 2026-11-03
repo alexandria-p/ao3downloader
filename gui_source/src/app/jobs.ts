@@ -1,5 +1,12 @@
 import { Injectable, signal } from '@angular/core';
-import { LibraryStore, StorageRequest, answerStorage, readRunHistory } from './library-store';
+import {
+  LibraryStore,
+  StorageRequest,
+  answerStorage,
+  noteRunEnded,
+  readRunHistory,
+  readUnsettledRuns,
+} from './library-store';
 import { HelperConnection } from './helper-connection';
 import { DropboxHandover } from './dropbox';
 import type { AppStatus } from './updates';
@@ -659,7 +666,8 @@ export class Jobs {
     if (!store) return 0;
     let settled = 0;
     try {
-      const running = (await readRunHistory(store)).filter(
+      // only the records not already known to have ended - see readUnsettledRuns
+      const running = (await readUnsettledRuns(store)).filter(
         (run) => run.status === 'running' && this.isThisHelpers(run),
       );
       if (!running.length) return 0;
@@ -674,6 +682,7 @@ export class Jobs {
           if (record['status'] !== 'running') continue;
           record['status'] = 'interrupted';
           await store.write(path, new Response(JSON.stringify(record, null, 2)));
+          noteRunEnded(store, run.file);
           settled++;
         } catch {
           continue;

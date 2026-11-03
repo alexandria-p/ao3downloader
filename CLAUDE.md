@@ -1095,7 +1095,13 @@ and fic lists as of its last save, rather than the empty lists it had when only
 the end, with `logTrimmed` counting what went. The page's `readRunHistory` drops `log` from the
 listing and keeps `logLines`, and History's **Download log** reads the one file again when
 asked - a hundred records of thousands of lines would be a lot to read to draw a list.
-**Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
+**The interrupted-run check reads only what might still be running** (`readUnsettledRuns`):
+every record read anywhere that has ended is noted in memory, per library (`endedRuns`), and
+one `settleInterrupted` marks is noted too (`noteRunEnded`) - an ended run never says
+`running` again - so after the first, opening a run window downloads none or one record
+instead of a hundred, logs and all. `App.openRun` also asks `/api/config` as the check starts,
+so a hosted helper waking from sleep (most of a minute on Render's free tier) wakes while the
+history is read, not after. **Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
 history before every run window opens, and in Dropbox each record is a download of its own, so
 one after another a long history held the window for most of a minute. A record that will not
 read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many.
@@ -2426,6 +2432,9 @@ collection made in the page. What not to break:
   work from its own ⋯ menu. A menu add never touches the ticks (`addFromBar` decides whether a
   finished add clears them). The add panel is a modal, so it is in view from a menu far down
   the page.
+- **The top right corner of an entry** (`.blurb-corner`) holds the date, then the origin icon
+to its right, and the *From FicHub* badge beneath them at the far right; `.blurb-head` keeps
+120px clear for it.
 - **Every entry with a number has the eye and a ⋯ menu** (`.entry-actions`) - works, external
   works, series and placeholders alike - **on a row of their own at the end of the entry, in
   the flow**. They were pinned to the bottom corner, where the *Bookmarked by* box (`.user`:
