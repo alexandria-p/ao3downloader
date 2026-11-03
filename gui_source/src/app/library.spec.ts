@@ -213,6 +213,10 @@ describe('Library', () => {
     expect(library.data()?.works.length).toBe(1);
     expect(library.lastRead()).not.toBe(first);
     expect(library.refreshing()).toBe(false);
+    expect(library.listedAt()).not.toBeNull();
+
+    await library.forget();
+    expect(library.listedAt()).toBeNull();
   });
 
   it('clears everything when the folder is forgotten', async () => {

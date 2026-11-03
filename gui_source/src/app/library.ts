@@ -251,6 +251,11 @@ export class Library {
    * not count as a read: they bring in that run alone.
    */
   readonly lastRead = signal<{ store: LibraryStore; at: number } | null>(null);
+  /**
+   * When the list on screen was last brought up to date from the library - a full read, a
+   * refresh, or a run's changes taken in as it ended (`refreshAfterRun`). Shown above the list.
+   */
+  readonly listedAt = signal<Date | null>(null);
   /** a full read again, with the listing kept on screen meanwhile (`refresh`) */
   readonly refreshing = signal(false);
 
@@ -417,6 +422,7 @@ export class Library {
   /** What is on screen, without touching which local folder is remembered. */
   private clearLibrary(): void {
     this.data.set(null);
+    this.listedAt.set(null);
     this.collections.set([]);
     this.sourceName.set('');
     this.copies.set(emptyCopies());
@@ -732,6 +738,7 @@ export class Library {
   /** Show `works` and `collections` as the library, with `copies` as its downloaded files. */
   private publish(works: Bookmark[], collections: Collection[], copies: Copies): void {
     this.entries = works;
+    this.listedAt.set(new Date());
     // no listing order is kept: the works list sorts by when each was bookmarked
     collections.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
     this.collections.set(collections);

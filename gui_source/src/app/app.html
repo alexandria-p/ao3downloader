@@ -404,7 +404,7 @@
       [works]="works()"
       [owner]="owner()"
       label="Bookmarks"
-      [note]="retrieved() ? 'Last indexed ' + retrieved() + '.' : ''"
+      [note]="listingNote()"
       [selectable]="true"
     />
   } @else if ((!isEmpty() || mode() === 'dropbox') && !loading()) {

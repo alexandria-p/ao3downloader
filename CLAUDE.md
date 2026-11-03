@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2008 python passed; 819 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2008 python passed; 820 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2329,7 +2329,7 @@ until the new read replaces them, with a notice while it reads. A run from anoth
 that was already going at the read is not known to have been going, so its ending is not
 seen until a later run's record appears. **The listing's *Last indexed* is the newest
 `last_indexed` of any entry** (`newestIndexed`), so `refreshAfterRun` taking in a run's
-entries moves it on; it used to be whichever entry came first.
+entries moves it on; it used to be whichever entry came first. Beside it, *List refreshed* is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`).
 
 ### Every downloaded format has a button beside the title
 

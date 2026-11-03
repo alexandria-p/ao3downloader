@@ -309,6 +309,20 @@ export class App {
   /** shown above the listing: when the index was last brought up to date */
   protected readonly retrieved = computed(() => this.data()?.retrieved ?? '');
 
+  /**
+   * Above the listing: when the index was last written, and when this list was last brought
+   * up to date from the library - a read, a refresh, or a run's changes taken in
+   */
+  protected readonly listingNote = computed(() => {
+    const parts: string[] = [];
+    if (this.retrieved()) parts.push(`Last indexed ${this.retrieved()}.`);
+    const listed = this.library.listedAt();
+    if (listed) {
+      parts.push(`List refreshed ${listed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`);
+    }
+    return parts.join(' ');
+  });
+
   /** a folder with nothing in it at all is what the getting-started panel is for */
   protected readonly isEmpty = computed(
     () => !this.data() && this.collections().length === 0 && !this.loading(),

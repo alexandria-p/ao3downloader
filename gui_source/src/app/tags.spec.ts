@@ -312,6 +312,17 @@ describe('the listing after a run', () => {
     expect(library.data()!.retrieved).not.toBe(before);
   });
 
+  it('notes the list as refreshed when a run\'s changes are taken in', async () => {
+    const before = library.listedAt();
+    expect(before).not.toBeNull();
+    await new Promise((done) => setTimeout(done, 5));
+    store.files.set('indexing/2 New.json', JSON.stringify(ZUKO));
+
+    await library.refreshAfterRun(['indexing/2 New.json']);
+
+    expect(library.listedAt()!.getTime()).toBeGreaterThan(before!.getTime());
+  });
+
   it('leaves the listing alone for a run in a library no longer shown', async () => {
     store.files.set('indexing/2 New.json', JSON.stringify(ZUKO));
     await library.refreshAfterRun(['indexing/2 New.json'], new MemoryStore());
