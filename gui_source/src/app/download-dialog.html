@@ -1009,7 +1009,8 @@
       <form class="body" (submit)="submit($event)">
         @if (!logsIn()) {
           <p class="not-logging-in">
-            <strong>Not logging in to AO3</strong>, as you chose. Private bookmarks will not be
+            <strong>Not logging in to AO3</strong>,
+            {{ resuming() ? 'as the run you are retrying did' : 'as you chose' }}. Private bookmarks will not be
             picked up, fics only logged-in users can see will fail, and the run will offer to try
             FicHub for them at the end.
           </p>

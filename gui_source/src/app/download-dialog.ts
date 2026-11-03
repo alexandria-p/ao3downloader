@@ -1362,6 +1362,12 @@ export class DownloadDialog implements OnDestroy {
     this.overwrite.set(!!options['overwrite']);
     this.nonBookmarks.set(!!options['nonBookmarks']);
     this.reindex.set(options['reindex'] !== false);
+    // a retry logs in as the run it retries did: one that went without asks for no password,
+    // and one reading your own listing is found by the account it read
+    this.skipLogin.set(!!options['skipLogin']);
+    if (this.skipLogin() && chosen.username && !this.username().trim()) {
+      this.username.set(chosen.username);
+    }
     this.step.set('filetypes');
   }
 

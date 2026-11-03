@@ -3473,6 +3473,27 @@ describe('DownloadDialog', () => {
       expect(failed.closest('label')!.title).toContain('Every work it set out to get arrived');
     });
 
+  it('retries a run that went without logging in without asking for a password', async () => {
+    jobs.retryableOnRecord = [ended({ options: { skipLogin: true }, username: 'Someone' })];
+    await toRetryPage();
+    await pick();
+    element.querySelector<HTMLInputElement>('input[name="retryMode"][value="top"]')!.click();
+    await fixture.whenStable();
+    await acknowledge();
+    button('Continue')!.click();
+    await fixture.whenStable();
+    await advanceTo('credentials');
+
+    expect(element.querySelector('input[name="password"]')).toBeNull();
+    expect(element.querySelector('.not-logging-in')?.textContent).toContain('the run you are retrying');
+    // a quick scan reads your bookmarks, found by the account the earlier run read
+    expect(element.querySelector<HTMLInputElement>('input[name="username"]')?.value).toBe('Someone');
+
+    await advanceTo('running');
+    expect(jobs.started[0].options.skipLogin).toBe(true);
+    expect(jobs.started[0].password).toBe('');
+  });
+
   it('starts the retry as the run it retries, with the way of retrying chosen', async () => {
     jobs.retryableOnRecord = [ended()];
     await toRetryPage();

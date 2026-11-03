@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2056 python passed; 845 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2056 python passed; 846 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2097,7 +2097,7 @@ is why every run now has one, `hasOptions`). With it the password is neither req
 kept; the runs that read your own listing (`USERNAME_ACTIONS`) still need the username,
 since the url is built from it, and `do_POST` answers 400 without one - every other run's
 username is emptied. Logged out, ao3 shows only what anyone may see, so private bookmarks are
-missed. A retry keeps **this** attempt's choice (`prepare_resume`), not the earlier run's.
+missed. A retry goes in as the run it retries did: `afterResume` sets `skipLogin` from that run's options (and the username it read, if none is typed), so a logged-out run's retry asks for no password; the helper takes what the retry request says (`prepare_resume`).
 `FIC_ACTIONS` (`work`, `works`) is now only what `from_link` is written for. Then `run_job` skips the login step
 (marked `skipped`, no `authenticated` event) and sets `repo.logged_in = False`, and
 `Ao3.check_session` returns early on that - a logged-out run would otherwise take its first

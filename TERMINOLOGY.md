@@ -34,7 +34,7 @@ the same thing in conversation.
 
 ## Reading AO3
 
-- **Skip AO3 login** [skipLogin, logged out] - any run told not to log in, from its options step. No password is sent; the runs that read your own listing (`USERNAME_ACTIONS`: `bookmarks`, `new`, `sync`, `custom`, `quick`, `collections`) still need the username, every other sends none. Logged out, private bookmarks are not on the listing and restricted works fail. A retry's choice is its own, not the earlier run's.
+- **Skip AO3 login** [skipLogin, logged out] - any run told not to log in, from its options step. No password is sent; the runs that read your own listing (`USERNAME_ACTIONS`: `bookmarks`, `new`, `sync`, `custom`, `quick`, `collections`) still need the username, every other sends none. Logged out, private bookmarks are not on the listing and restricted works fail. A retry follows the run it retries: one that skipped the login skips it again, asking for no password.
 - **Run** [job] - one use of a workflow, from pressing Start to its report.
 - **Step** [checklist item] - one stage of a run, shown ticked, skipped, failed, or *done in the earlier run* (a resumed run's step its earlier attempt finished) in the run window.
 - **Option** [checkbox, configuration] - a choice made before a run starts.
