@@ -3002,10 +3002,9 @@ def chosen_floor_at(fileops: FileOps, run_id: str) -> str:
     run that can be one."""
 
     if not run_id: return ''
-    for record in floor_runs(fileops):
-        if str(record.get('id') or '') == run_id:
-            return runs.baseline_of(record)
-    return ''
+    # that one run's record, by its file name, and the same rule `floor_runs` applies
+    record = runs.find_run(fileops, run_id)
+    return runs.baseline_of(record) if record and floors_among([record]) else ''
 
 
 def covered_the_whole_listing(record: dict) -> bool:

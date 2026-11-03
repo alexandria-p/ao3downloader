@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Jobs } from './jobs';
+import { Jobs, RunHistory } from './jobs';
 import { LibraryStore } from './library-store';
 
 /** a library that is only its runs folder, in memory */
@@ -126,6 +126,27 @@ describe('Jobs.settleInterrupted', () => {
     };
     await new Jobs().settleInterrupted(store);
     expect(reads).toEqual([]);
+  });
+
+  it('marks a history already read in place, reading only the run it settles', async () => {
+    const store = runsFolder({ 'a.json': run('a', 'running'), 'b.json': run('b', 'success') });
+    helperWorkingOn();
+    const history = [
+      { ...run('a', 'running'), file: 'a.json' },
+      { ...run('b', 'success'), file: 'b.json' },
+    ] as unknown as RunHistory[];
+    const reads: string[] = [];
+    const read = store.read;
+    store.read = async (path: string) => {
+      reads.push(path);
+      return read(path);
+    };
+
+    expect(await new Jobs().settleInterrupted(store, history)).toBe(1);
+
+    expect(history[0].status).toBe('interrupted');
+    expect(statusOf(store, 'a.json')).toBe('interrupted');
+    expect(reads).toEqual(['runs/a.json']);
   });
 
   it('does nothing without a library', async () => {

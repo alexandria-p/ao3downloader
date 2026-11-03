@@ -340,7 +340,18 @@ class RunRecord:
 
 
 def read_runs(fileops, limit: int = 100, with_log: bool = False) -> list[dict]:
-    """Every run on record, newest first.
+    """Every run on record, newest first - `iter_runs`, read to the end."""
+
+    return list(iter_runs(fileops, limit, with_log))
+
+
+def iter_runs(fileops, limit: int = 100, with_log: bool = False, names=None):
+    """The runs on record, newest first, read one at a time as they are asked for.
+
+    A caller that stops early - `last_successful` at the first floor, usually the newest
+    record - reads only that far. In Dropbox every record is a download through the page, so
+    reading all `limit` of them first cost a quick scan most of a minute before it began.
+    `names` narrows it to those file names (`find_run`).
 
     A file that cannot be read is skipped rather than ending the listing - one damaged
     record should not hide the history around it.
@@ -352,26 +363,27 @@ def read_runs(fileops, limit: int = 100, with_log: bool = False) -> list[dict]:
     """
 
     folder = fileops.runsfolder
-    try:
-        names = fileops.list_files(folder)
-    except Exception:
-        return []
+    if names is None:
+        try:
+            names = fileops.list_files(folder)
+        except Exception:
+            return
 
-    found: list[dict] = []
+    found = 0
     for name in sorted(names, reverse=True):
         if not name.lower().endswith('.json'): continue
         try:
             record = json.loads(fileops.read_text(os.path.join(folder, name)))
-            if isinstance(record, dict):
-                record['file'] = name
-                if not with_log:
-                    record['logLines'] = len(record.get('log') or [])
-                    record.pop('log', None)
-                found.append(record)
         except Exception:
             continue
-        if len(found) >= limit: break
-    return found
+        if not isinstance(record, dict): continue
+        record['file'] = name
+        if not with_log:
+            record['logLines'] = len(record.get('log') or [])
+            record.pop('log', None)
+        yield record
+        found += 1
+        if found >= limit: break
 
 
 def baseline_of(record: dict) -> str:
@@ -385,8 +397,18 @@ def find_run(fileops, run_id: str) -> dict | None:
     """One run's record by its id, with the name of the file it is in."""
 
     if not run_id: return None
-    for record in read_runs(fileops, limit=100000):
-        if str(record.get('id') or '') == run_id: return record
+    # every run file's name ends with the first 8 of its id, so only those are read - not the
+    # whole folder, which in Dropbox is a download per record. a name that does not follow it
+    # (none has, but a hand-renamed file might) is still found by reading the rest
+    try:
+        names = fileops.list_files(fileops.runsfolder)
+    except Exception:
+        return None
+    suffix = f'-{run_id[:8]}.json'.lower()
+    named = [name for name in names if name.lower().endswith(suffix)]
+    for candidates in (named, [name for name in names if name not in named]):
+        for record in iter_runs(fileops, limit=100000, names=candidates):
+            if str(record.get('id') or '') == run_id: return record
     return None
 
 
@@ -420,7 +442,8 @@ def last_successful(fileops, match=None, statuses=(STATUS_SUCCESS,)) -> dict | N
     `match` holds.
     """
 
-    for record in read_runs(fileops):
+    # read newest first, stopping at the first that qualifies - usually the newest record
+    for record in iter_runs(fileops):
         if record.get('status') not in statuses: continue
         if match is not None and not match(record): continue
         return record

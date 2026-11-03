@@ -383,6 +383,53 @@ def test_no_history_yet_is_not_an_error(tmp_path):
     assert runs.read_runs(fake_fileops(tmp_path)) == []
 
 
+def records_on_disk(tmp_path, names_and_records):
+    folder = tmp_path / 'runs'
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, record in names_and_records:
+        (folder / name).write_text(json.dumps(record), encoding='utf-8')
+    fileops = fake_fileops(tmp_path)
+    return fileops
+
+
+def read_names(fileops) -> list[str]:
+    return [os.path.basename(call.args[0]) for call in fileops.read_text.call_args_list]
+
+
+def test_the_last_successful_run_reads_only_as_far_as_the_first_that_qualifies(tmp_path):
+    fileops = records_on_disk(tmp_path, [
+        (f'202601{day:02}T000000Z-{day:08}.json', {'id': str(day), 'status': runs.STATUS_SUCCESS})
+        for day in range(1, 21)])
+
+    assert runs.last_successful(fileops)['id'] == '20'
+    assert read_names(fileops) == ['20260120T000000Z-00000020.json']
+
+
+def test_a_run_is_found_by_its_file_name_without_reading_the_rest(tmp_path):
+    fileops = records_on_disk(tmp_path, [
+        ('20260101T000000Z-aaaaaaaa.json', {'id': 'aaaaaaaa-1111', 'status': runs.STATUS_SUCCESS}),
+        ('20260102T000000Z-bbbbbbbb.json', {'id': 'bbbbbbbb-2222', 'status': runs.STATUS_STOPPED}),
+        ('20260103T000000Z-cccccccc.json', {'id': 'cccccccc-3333', 'status': runs.STATUS_SUCCESS}),
+    ])
+
+    assert runs.find_run(fileops, 'aaaaaaaa-1111')['file'] == '20260101T000000Z-aaaaaaaa.json'
+    assert read_names(fileops) == ['20260101T000000Z-aaaaaaaa.json']
+
+
+def test_a_run_in_a_file_named_otherwise_is_still_found(tmp_path):
+    fileops = records_on_disk(tmp_path, [
+        ('renamed by hand.json', {'id': 'dddddddd-4444', 'status': runs.STATUS_SUCCESS})])
+    assert runs.find_run(fileops, 'dddddddd-4444')['file'] == 'renamed by hand.json'
+
+
+def test_newer_names_sort_after_every_older_style_of_name():
+    # runs are listed newest first by name: the compact UTC names written now must come after
+    # the dashed local-time and +0000 names earlier versions wrote, whatever the date in them
+    older = ['2026-12-31T235959-aaaaaaaa.json', '2026-12-31T235959+0000-bbbbbbbb.json']
+    newer = '20260101T000000Z-cccccccc.json'
+    assert sorted([*older, newer], reverse=True)[0] == newer
+
+
 def test_the_last_successful_run_ignores_the_ones_that_did_not_finish(tmp_path):
     # a stopped run may have stopped before reaching fics updated before it started, so
     # trusting it as a floor would leave exactly those unseen

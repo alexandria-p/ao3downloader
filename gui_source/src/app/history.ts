@@ -110,12 +110,12 @@ export class History {
     // what is going now, for the pinned panel - not waited on: the history is read out of
     // the library, and is worth showing whether or not the helper answers
     void this.jobs.refreshActiveRuns();
-    let found = await this.jobs.loadRuns(this.library.store());
+    const found = await this.jobs.loadRuns(this.library.store());
     // a run the history calls 'running' that the helper is not working on was interrupted:
-    // marked so, and read again. only asked when there is one, which is seldom
-    if (found?.some((run) => run.status === 'running') &&
-        (await this.jobs.settleInterrupted(this.library.store()))) {
-      found = await this.jobs.loadRuns(this.library.store());
+    // marked so in the file and in the list already read - never the whole history again.
+    // only asked when there is one, which is seldom
+    if (found?.some((run) => run.status === 'running')) {
+      await this.jobs.settleInterrupted(this.library.store(), found);
     }
     this.unavailable.set(found === null);
     this.runs.set(found ?? []);
