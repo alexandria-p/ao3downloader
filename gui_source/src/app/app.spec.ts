@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { App } from './app';
+import { App, shownTime } from './app';
 import { Jobs } from './jobs';
 import { Library } from './library';
 import { UpdateCheck } from './updates';
@@ -229,6 +229,42 @@ describe('App', () => {
     id: 'job-7', action: 'quick' as const, actionName: 'Quick Scan', background: true,
     started: '2026-09-28T10:00:00', paused: false, step: '',
   };
+
+  it('will not let the library be changed while a run is going, and says why on hover', async () => {
+    TestBed.inject(Jobs).activeRuns.set([going]);
+    const element = await withFolder();
+
+    // jsdom has no folder picker, so this is the file-input button (and no Forget)
+    const locked = ['This computer', 'Dropbox', 'Choose downloads folder', 'Refresh'].map((text) =>
+      Array.from(element.querySelectorAll<HTMLButtonElement>('.topbar button')).find(
+        (b) => b.textContent?.trim() === text,
+      ),
+    );
+    for (const button of locked) {
+      expect(button?.disabled).toBe(true);
+      expect(button?.getAttribute('title')).toBe('Cannot be changed while an active run is in progress');
+    }
+  });
+
+  it('shows times above the listing in the reader\'s own time zone, and an unreadable one as written', () => {
+    const iso = '2026-09-10T12:34:56+00:00';
+    expect(shownTime(iso)).toBe(new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }));
+    expect(shownTime('sometime last week')).toBe('sometime last week');
+  });
+
+  it('offers Refresh beside the library, which reads it again', async () => {
+    const element = await withFolder();
+    const library = TestBed.inject(Library);
+    const refresh = vi.spyOn(library, 'refresh').mockResolvedValue();
+
+    const button = Array.from(element.querySelectorAll<HTMLButtonElement>('.topbar button')).find(
+      (b) => b.textContent?.trim() === 'Refresh',
+    )!;
+    expect(button.disabled).toBe(false);
+    button.click();
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
 
   it('says at the top when a run is already in progress, and that a new one must wait', async () => {
     TestBed.inject(Jobs).activeRuns.set([going]);

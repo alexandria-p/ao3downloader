@@ -315,11 +315,9 @@ export class App {
    */
   protected readonly listingNote = computed(() => {
     const parts: string[] = [];
-    if (this.retrieved()) parts.push(`Last indexed ${this.retrieved()}.`);
+    if (this.retrieved()) parts.push(`Last indexed ${shownTime(this.retrieved())}.`);
     const listed = this.library.listedAt();
-    if (listed) {
-      parts.push(`List refreshed ${listed.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.`);
-    }
+    if (listed) parts.push(`List refreshed ${shownTime(listed)}.`);
     return parts.join(' ');
   });
 
@@ -362,6 +360,7 @@ export class App {
    * straight to the picker.
    */
   protected askBeforePicking(): void {
+    if (this.libraryLocked()) return;
     if (folderWarningDismissed()) {
       this.openPicker();
       return;
@@ -388,16 +387,34 @@ export class App {
     this.folderInput()?.nativeElement.click();
   }
 
+  /**
+   * A run reads and writes through the library open now, so while one is going the library
+   * cannot be changed - not switched between this computer and Dropbox, not signed out of,
+   * not pointed at another folder. Checked here as well as on the buttons.
+   */
+  protected readonly libraryLocked = computed(() => !!this.activeRun());
+  protected readonly lockedTitle = 'Cannot be changed while an active run is in progress';
+  protected readonly store = this.library.store;
+
   protected setMode(mode: StorageMode): void {
+    if (this.libraryLocked()) return;
     this.storage.set(mode);
   }
 
   protected signInToDropbox(): void {
+    if (this.libraryLocked()) return;
     void this.dropbox.signIn();
   }
 
   protected async signOutOfDropbox(): Promise<void> {
+    if (this.libraryLocked()) return;
     await this.dropbox.signOut();
+  }
+
+  /** read the library again now, as the list does by itself after a run finished elsewhere */
+  protected refreshLibrary(): void {
+    if (this.libraryLocked() || this.refreshing()) return;
+    void this.library.refresh();
   }
 
   protected async reconnect(): Promise<void> {
@@ -405,6 +422,17 @@ export class App {
   }
 
   protected async forget(): Promise<void> {
+    if (this.libraryLocked()) return;
     await this.library.forget();
   }
+}
+
+/**
+ * A time as the listing shows it: the reader's own time zone, date and time to the minute. A
+ * value that will not parse (an old file's free-text retrieval time) is shown as it was written.
+ */
+export function shownTime(value: string | Date): string {
+  const at = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(at.getTime())) return String(value);
+  return at.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }

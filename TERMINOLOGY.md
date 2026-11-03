@@ -97,7 +97,8 @@ the same thing in conversation.
 - **Index** - the `indexing` folder: one JSON file per work, plus `series/` and `external/` subfolders.
 - **Run history** [run record, history file] - one JSON file per run in `runs/`, saying what it did - including the AO3 account it logged in as (`username`, never the password), which History shows as *AO3 account*.
 
-- **Library behind** [stale listing, needs refresh] - the works or collections list noticed a run finished since the library was read whose changes this page did not take in (a background run, or one from another tab or device): only for a run that ended `success` or `partial` (`REFRESHING_STATUSES`), it reads the library again by itself while that list is in view and no run is going (`LibraryFreshness.behind`, `claimRefresh`, `Library.refresh`, which keeps the list on screen). An ordinary run's changes are taken in as it ends, unannounced. *Last indexed* is the newest `last_indexed` of any entry.
+- **Library behind** [stale listing, needs refresh] - the works or collections list noticed a run finished since the library was read whose changes this page did not take in (a background run, or one from another tab or device): only for a run that ended `success` or `partial` (`REFRESHING_STATUSES`), it reads the library again by itself while that list is in view and no run is going (`LibraryFreshness.behind`, `claimRefresh`, `Library.refresh`, which keeps the list on screen). An ordinary run's changes are taken in as it ends, unannounced. *Last indexed* is the newest `last_indexed` of any entry; *List refreshed* is when the list was last brought up to date (`Library.listedAt`). **Refresh** (top bar) does the same read on demand.
+- **Library locked** [can't change library mid-run] - while a run is going, the storage switch, Change folder, Forget, Dropbox sign in/out and Refresh are disabled, titled *Cannot be changed while an active run is in progress* (`App.libraryLocked`).
 
 ## The app
 
