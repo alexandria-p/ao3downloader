@@ -114,7 +114,7 @@
                     }
                   </ul>
                   @if (choiceOf(group) === 'recent' && !newestIn(group)) {
-                    <span class="undecided-note">Can't tell which is newest - nothing will be deleted, and this is asked again next time</span>
+                    <span class="undecided-note">Can't tell which is newest - you will be asked what to do when the duplicates are removed</span>
                   }
                 </td>
                 <td>
@@ -174,8 +174,15 @@
           <strong>Work {{ group.id }}, {{ group.format.toUpperCase() }}:</strong> choose the file to
           keep. The others are deleted.
         </p>
+        @if (!newestIn(group)) {
+          <p class="sift-unsure" role="note">
+            We don't know for sure which of these is the most up-to-date version: the dates in
+            their names, and when each file was last changed, do not settle it. Check before you
+            choose.
+          </p>
+        }
         <ul class="choose-list" role="radiogroup" [attr.aria-label]="'Keep for work ' + group.id">
-          @for (file of byRecency(group); track file.path) {
+          @for (file of byRecency(group); track file.path; let first = $first) {
             <li>
               <label class="check">
                 <input type="radio" [attr.name]="'keep-' + group.key" [attr.aria-label]="'Keep ' + file.name"
@@ -183,10 +190,9 @@
                        (change)="setPicked(group, file)" />
                 <span>
                   <span class="file-name">{{ file.name }}</span>
-                  <span class="hint">
-                    {{ dateIn(file) ? 'dated ' + dateIn(file) : 'no date in its name' }}
-                    @if (newestIn(group) === file) { - the most recent }
-                  </span>
+                  @for (line of fileNotes(file, first); track $index) {
+                    <span class="hint file-note" [class.likely]="$last && first && dateIn(file)">{{ line }}</span>
+                  }
                 </span>
               </label>
             </li>
@@ -245,13 +251,90 @@
     <section class="body">
       @if (removing()) {
         <p class="removing-progress" role="status">
-          Removing duplicates... {{ removeProgress().done | number }} of {{ removeProgress().total | number }}
+          @if (asking()) {
+            Paused at {{ removeProgress().done | number }} of {{ removeProgress().total | number }} - waiting for your answer below.
+          } @else {
+            Removing duplicates... {{ removeProgress().done | number }} of {{ removeProgress().total | number }}
+          }
         </p>
       }
       <div class="bar" role="progressbar" [attr.aria-valuenow]="removeProgress().done"
            [attr.aria-valuemax]="removeProgress().total">
         <span [style.width.%]="removeProgress().total ? (removeProgress().done / removeProgress().total) * 100 : 0"></span>
       </div>
+      @if (asking(); as group) {
+        <div class="undecided-ask" [attr.data-group]="group.key">
+          <p>
+            <strong>Work {{ group.id }}, {{ group.format.toUpperCase() }}</strong> was marked
+            <em>Keep most recent</em>, but we can't tell which of its {{ group.files.length }}
+            files is the most recent. What should we do?
+          </p>
+          @if (standing() !== 'choose') {
+            <div class="ask-how" role="radiogroup" aria-label="What to do with this set">
+              <label class="check">
+                <input type="radio" name="askHow" aria-label="Choose individually"
+                       [checked]="askHow() === 'choose'" (change)="askHow.set('choose')" />
+                <span>Choose individually</span>
+              </label>
+              <label class="check">
+                <input type="radio" name="askHow" aria-label="Make a best guess"
+                       [checked]="askHow() === 'guess'" (change)="askHow.set('guess')" />
+                <span>
+                  Make a best guess
+                  <span class="hint">Keeps {{ guessFor(group).name }} - by the date in each name, then the file updated most recently, then by name.</span>
+                </span>
+              </label>
+              <label class="check">
+                <input type="radio" name="askHow" aria-label="Keep all of them"
+                       [checked]="askHow() === 'keep'" (change)="askHow.set('keep')" />
+                <span>
+                  Keep all of them
+                  <span class="hint">Nothing is deleted, and this set is asked about again next time.</span>
+                </span>
+              </label>
+            </div>
+          }
+          @if (askHow() === 'choose') {
+            <ul class="choose-list ask-files" role="radiogroup" [attr.aria-label]="'Keep for work ' + group.id">
+              @for (file of byRecency(group); track file.path; let first = $first) {
+                <li>
+                  <label class="check">
+                    <input type="radio" name="askPick" [attr.aria-label]="'Keep ' + file.name"
+                           [checked]="askPick() === file.path" (change)="askPick.set(file.path)" />
+                    <span>
+                      <span class="file-name">{{ file.name }}</span>
+                      @for (line of fileNotes(file, first); track $index) {
+                        <span class="hint file-note" [class.likely]="$last && first && dateIn(file)">{{ line }}</span>
+                      }
+                    </span>
+                  </label>
+                </li>
+              }
+            </ul>
+          }
+          @if (standing() === null && askMore()) {
+            <div class="ask-others" role="radiogroup" aria-label="Do this for the others">
+              <p>Do this for any others like this? ({{ askMore() | number }} more)</p>
+              <label class="check">
+                <input type="radio" name="askOthers" aria-label="Yes, for the others too"
+                       [checked]="askForOthers() === true" (change)="askForOthers.set(true)" />
+                <span>Yes</span>
+              </label>
+              <label class="check">
+                <input type="radio" name="askOthers" aria-label="No, ask me each time"
+                       [checked]="askForOthers() === false" (change)="askForOthers.set(false)" />
+                <span>No</span>
+              </label>
+            </div>
+          }
+          <p class="hint ask-timeout">
+            With no answer in {{ waitMinutes() }} {{ waitMinutes() === 1 ? 'minute' : 'minutes' }}, every file of this set is kept.
+          </p>
+          <button type="button" class="button primary answer-ask" [disabled]="!askReady()" (click)="answerAsked()">
+            Continue removing
+          </button>
+        </div>
+      }
       @if (!removing() && removed(); as r) {
         <p class="removed-said">
           Removed {{ r.removed.length | number }} {{ r.removed.length === 1 ? 'file' : 'files' }}.
@@ -273,10 +356,25 @@
             <summary>
               {{ undecided().length | number }} {{ undecided().length === 1 ? 'work' : 'works' }}: could not tell which file is most recent
             </summary>
-            <p class="hint">Nothing was deleted for these. They are offered again next time, to sort by hand.</p>
+            <p class="hint">Every file of these was kept. They are offered again next time.</p>
             <ul>
               @for (group of undecided(); track group.key) {
-                <li>Work {{ group.id }} - {{ group.format.toUpperCase() }}: {{ group.files.length }} files</li>
+                <li>
+                  Work {{ group.id }} - {{ group.format.toUpperCase() }}: {{ group.files.length }} files
+                  @if (timedOut().has(group.key)) { (no answer in time) }
+                </li>
+              }
+            </ul>
+          </details>
+        }
+        @if (guessed().length) {
+          <details class="dating-failures guessed">
+            <summary>
+              {{ guessed().length | number }} {{ guessed().length === 1 ? 'work' : 'works' }}: kept our best guess
+            </summary>
+            <ul>
+              @for (g of guessed(); track g.group.key) {
+                <li>Work {{ g.group.id }} - {{ g.group.format.toUpperCase() }}: kept <span class="file-name">{{ g.kept.name }}</span></li>
               }
             </ul>
           </details>

@@ -550,3 +550,45 @@ footer.with-bulk {
   padding-top: 6px;
   border-top: 1px solid var(--border);
 }
+
+/* what is known of each file, a line each under its name */
+.file-note {
+  display: block;
+}
+
+.file-note.likely {
+  color: #8fc58a;
+}
+
+.sift-unsure {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid #8a6d2f;
+  border-radius: 3px;
+  background: #2d2616;
+}
+
+/* the removing page stopped on a set it cannot tell */
+.undecided-ask {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #8a6d2f;
+  border-radius: 3px;
+  background: #2d2616;
+}
+
+.undecided-ask .ask-how,
+.undecided-ask .ask-others {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.undecided-ask .ask-others p {
+  margin: 4px 0;
+}
+
+.undecided-ask .ask-timeout {
+  margin: 8px 0;
+}

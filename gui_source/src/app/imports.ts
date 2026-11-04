@@ -195,16 +195,73 @@ export function duplicateGroups(paths: Iterable<string>): DuplicateGroup[] {
     .sort((a, b) => a.id.length - b.id.length || a.id.localeCompare(b.id) || a.format.localeCompare(b.format));
 }
 
+/** when each file was last changed, by path, in ms - as far as the library could say */
+export type ModifiedTimes = Readonly<Record<string, number>>;
+
 /**
- * The newest file of a group, by the date each name carries (read as *Infer date* reads one) -
- * or null when that cannot be told: a file with no date, or two sharing the newest. Nothing is
- * deleted on a guess.
+ * The newest file of a group, by the date each name carries (read as *Infer date* reads one).
+ * Two sharing the newest date are told apart by when the file itself was last changed (its
+ * "updated at"), the later one winning. Null when that cannot be told: a file with no date in
+ * its name, or the newest date shared with no later change time to choose between them. Nothing
+ * is deleted on a guess unless the person asks for one (`bestGuessOf`).
  */
-export function newestOf(group: DuplicateGroup): FoundFile | null {
+export function newestOf(group: DuplicateGroup, modified: ModifiedTimes = {}): FoundFile | null {
   const dated = group.files.map((file) => ({ file, date: inferDate(file.name) }));
   if (dated.some((x) => !x.date)) return null;
-  const newest = dated.reduce((a, b) => (b.date > a.date ? b : a));
-  return dated.filter((x) => x.date === newest.date).length === 1 ? newest.file : null;
+  const top = dated.reduce((a, b) => (b.date > a.date ? b : a)).date;
+  const tied = dated.filter((x) => x.date === top).map((x) => x.file);
+  if (tied.length === 1) return tied[0];
+  if (tied.some((f) => modified[f.path] === undefined)) return null;
+  const latest = Math.max(...tied.map((f) => modified[f.path]));
+  const winners = tied.filter((f) => modified[f.path] === latest);
+  return winners.length === 1 ? winners[0] : null;
+}
+
+/**
+ * A group's files, the likeliest most recent first: by the date in each name (undated last),
+ * then by when each file was last changed (unknown last), then by name. The top one is the
+ * hand-sifting page's first radio, and the removing page's best guess.
+ */
+export function byRecency(group: DuplicateGroup, modified: ModifiedTimes = {}): FoundFile[] {
+  return [...group.files].sort((a, b) => {
+    const da = inferDate(a.name);
+    const db = inferDate(b.name);
+    if (da && db && da !== db) return da > db ? -1 : 1;
+    if (!!da !== !!db) return da ? -1 : 1;
+    const ma = modified[a.path];
+    const mb = modified[b.path];
+    if (ma !== undefined && mb !== undefined && ma !== mb) return mb - ma;
+    if ((ma === undefined) !== (mb === undefined)) return ma === undefined ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/** the removing page's best guess, when asked for one: the top of `byRecency` */
+export function bestGuessOf(group: DuplicateGroup, modified: ModifiedTimes = {}): FoundFile {
+  return byRecency(group, modified)[0];
+}
+
+/**
+ * When each of these files was last changed, as far as the library can say - read a few at a
+ * time, so a Dropbox library is not asked about hundreds at once. A file it cannot say for is
+ * left out, and counts as unknown.
+ */
+export async function modifiedTimes(store: LibraryStore, paths: readonly string[]): Promise<Record<string, number>> {
+  const times: Record<string, number> = {};
+  if (!store.modified) return times;
+  const queue = [...paths];
+  const worker = async () => {
+    for (let path = queue.shift(); path !== undefined; path = queue.shift()) {
+      try {
+        const at = await store.modified!(path);
+        if (at) times[path] = at;
+      } catch {
+        // unknown, which only means it cannot break a tie
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, queue.length) }, worker));
+  return times;
 }
 
 /** what removing duplicates did: what went, and what would not */

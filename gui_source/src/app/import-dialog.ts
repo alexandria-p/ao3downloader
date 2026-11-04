@@ -1,9 +1,13 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import {
   DatingResult,
   DuplicateGroup,
+  ModifiedTimes,
   RemovingResult,
+  bestGuessOf,
+  byRecency,
+  modifiedTimes,
   newestOf,
   removeFiles,
   FoundFile,
@@ -23,6 +27,7 @@ import {
 import { Jobs } from './jobs';
 import { Library } from './library';
 import { LibraryStore } from './library-store';
+import { inAo3Zone } from './preferences';
 
 type Step = 'overview' | 'duplicates' | 'choose' | 'removing' | 'dates' | 'dating' | 'index' | 'formats';
 
@@ -35,10 +40,19 @@ export type SiftOutcome = { kind: 'pick'; path: string } | { kind: 'skip'; remem
 export type DuplicateChoice = 'skip' | 'recent' | 'choose';
 
 /** how many groups a page of the duplicates list holds */
-export const DUPLICATES_PAGE_SIZE = 25;
+export const DUPLICATES_PAGE_SIZE = 7;
 
 /** how many rows a page of the dates list holds */
-export const DATES_PAGE_SIZE = 25;
+export const DATES_PAGE_SIZE = 7;
+
+/** what to do with a set marked Keep most recent whose most recent cannot be told */
+export type UndecidedHow = 'choose' | 'guess' | 'keep';
+
+/** how long the removing page waits on that question before keeping every file of the set */
+export const UNDECIDED_WAIT_MS = 5 * 60_000;
+
+/** one set of duplicates as the removing page works through it */
+type RemovalStep = { group: DuplicateGroup; remove: string[] } | { group: DuplicateGroup; undecided: true };
 
 /**
  * Resolving what reading a library found: works with files but no index entry, and files with
@@ -100,6 +114,8 @@ export class ImportDialog {
   readonly sandboxNoted = output<string>();
   /** a run is going: nothing may be renamed or started */
   readonly busy = input(false);
+  /** how long the removing page waits for an answer about a set it cannot tell, before keeping it all */
+  readonly answerWaitMs = input(UNDECIDED_WAIT_MS);
 
   /** closed without starting anything; `dated` is what was renamed, if anything */
   readonly closed = output<DatingResult | null>();
@@ -153,8 +169,28 @@ export class ImportDialog {
     this.dupPage.set(Math.min(this.dupPage(), this.dupPages() - 1));
   }
 
+  /**
+   * When each duplicate file was last changed, by path - asked of the library once the window
+   * has the duplicates, to tell apart two sharing the newest date. Unknown until it answers.
+   */
+  protected readonly modifiedAt = signal<ModifiedTimes>({});
+
+  private readonly loadModified = effect(() => {
+    const store = this.store();
+    const paths = this.duplicates().flatMap((g) => g.files.map((f) => f.path));
+    const known = untracked(this.modifiedAt);
+    const wanted = paths.filter((p) => known[p] === undefined);
+    if (!store || !wanted.length) return;
+    void modifiedTimes(store, wanted).then((times) => {
+      if (Object.keys(times).length) this.modifiedAt.update((m) => ({ ...m, ...times }));
+    });
+  });
+
   /** the newest file of a group, worked out once per group */
-  protected readonly newest = computed(() => new Map(this.duplicates().map((g) => [g.key, newestOf(g)])));
+  protected readonly newest = computed(() => {
+    const modified = this.modifiedAt();
+    return new Map(this.duplicates().map((g) => [g.key, newestOf(g, modified)]));
+  });
 
   protected newestIn(group: DuplicateGroup): FoundFile | null {
     return this.newest().get(group.key) ?? null;
@@ -196,15 +232,26 @@ export class ImportDialog {
     this.sandboxNoted.emit(said);
   }
 
-  /** a group's files to choose from: the most recent first, by the date in each name; undated last */
+  /**
+   * A group's files to choose from, the likeliest most recent first: by the date in each name
+   * (undated last), then by when each file was last changed, then by name.
+   */
   protected byRecency(group: DuplicateGroup): FoundFile[] {
-    return [...group.files].sort((a, b) => {
-      const da = inferDate(a.name);
-      const db = inferDate(b.name);
-      if (da && db && da !== db) return da > db ? -1 : 1;
-      if (!!da !== !!db) return da ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+    return byRecency(group, this.modifiedAt());
+  }
+
+  /** what is known of one file, under its radio: the date in its name, and when it last changed */
+  protected fileNotes(file: FoundFile, top: boolean): string[] {
+    const date = this.dateIn(file);
+    const at = this.modifiedAt()[file.path];
+    const notes = [
+      date ? `Filename dated ${date}` : 'No date included in the filename',
+      at
+        ? `File metadata updated at ${new Date(at).toLocaleString([], inAo3Zone({ dateStyle: 'medium', timeStyle: 'short' }))}`
+        : 'File metadata updated at: unknown',
+    ];
+    if (top && date) notes.push('We think this is the most recent');
+    return notes;
   }
 
   protected outcomeOf(group: DuplicateGroup): SiftOutcome | undefined {
@@ -312,49 +359,81 @@ export class ImportDialog {
   protected readonly removeProgress = signal<{ done: number; total: number }>({ done: 0, total: 0 });
   protected readonly removing = signal(false);
   protected readonly removed = signal<RemovingResult | null>(null);
-  /** groups told to keep the most recent whose newest could not be told: left, offered again */
+  /**
+   * Sets marked Keep most recent whose most recent could not be told, and kept whole - by the
+   * answer, or because none came in time (`timedOut`). Offered again next time.
+   */
   protected readonly undecided = signal<DuplicateGroup[]>([]);
+  protected readonly timedOut = signal<ReadonlySet<string>>(new Set());
+  /** sets settled by a best guess, and the file kept for each */
+  protected readonly guessed = signal<{ group: DuplicateGroup; kept: FoundFile }[]>([]);
   private stopRemoving = false;
 
+  // the question the removing page stops on, for a set it cannot tell
+  protected readonly asking = signal<DuplicateGroup | null>(null);
+  protected readonly askHow = signal<UndecidedHow | null>(null);
+  protected readonly askPick = signal('');
+  protected readonly askForOthers = signal<boolean | null>(null);
+  /** how many more such sets come after this one */
+  protected readonly askMore = signal(0);
+  /** the answer given for all the others like it - asked once, then followed */
+  protected readonly standing = signal<UndecidedHow | null>(null);
+  private answered: ((how: UndecidedHow, path?: string) => void) | null = null;
+  private answerTimer: ReturnType<typeof setTimeout> | null = null;
+  protected readonly waitMinutes = computed(() => Math.max(1, Math.round(this.answerWaitMs() / 60_000)));
+  protected readonly askReady = computed(() => {
+    const how = this.askHow();
+    if (!how) return false;
+    if (how === 'choose' && !this.askPick()) return false;
+    return this.standing() !== null || !this.askMore() || this.askForOthers() !== null;
+  });
+
+  /** what the best guess would keep for the set being asked about */
+  protected guessFor(group: DuplicateGroup): FoundFile {
+    return bestGuessOf(group, this.modifiedAt());
+  }
+
   /**
-   * What the choices come to: files to delete - never every file of a group - groups kept as
-   * they are (skipped, on the duplicates list only when told not to ask again), and groups
-   * whose newest could not be told (left, and offered again next time).
+   * What the choices come to, set by set in the list's order: the files to delete - never every
+   * file of a set - or a set to ask about, one marked Keep most recent whose newest cannot be
+   * told; and the sets kept as they are that go on the duplicates list (skipped, and told not
+   * to ask again). Nothing is deleted before the removing page - sifting only decides.
    */
-  private duplicatePlan(): {
-    remove: string[];
-    keep: { group: DuplicateGroup; kept: FoundFile[] }[];
-    undecided: DuplicateGroup[];
-  } {
-    const remove: string[] = [];
+  private duplicatePlan(): { steps: RemovalStep[]; keep: { group: DuplicateGroup; kept: FoundFile[] }[] } {
+    const steps: RemovalStep[] = [];
     const keep: { group: DuplicateGroup; kept: FoundFile[] }[] = [];
-    const undecided: DuplicateGroup[] = [];
+    const keepNewest = (group: DuplicateGroup) => {
+      const newest = this.newestIn(group);
+      steps.push(
+        newest
+          ? { group, remove: group.files.filter((f) => f !== newest).map((f) => f.path) }
+          : { group, undecided: true },
+      );
+    };
     for (const group of this.duplicates()) {
       const choice = this.choiceOf(group);
       if (choice === 'skip') {
         if (this.rememberSkipped()) keep.push({ group, kept: group.files });
       } else if (choice === 'recent') {
-        const newest = this.newestIn(group);
-        if (!newest) undecided.push(group);
-        else remove.push(...group.files.filter((f) => f !== newest).map((f) => f.path));
+        keepNewest(group);
       } else if (choice === 'choose') {
         const outcome = this.outcomeOf(group);
-        if (outcome?.kind === 'recent') {
-          const newest = this.newestIn(group);
-          if (!newest) undecided.push(group);
-          else remove.push(...group.files.filter((f) => f !== newest).map((f) => f.path));
-        } else if (outcome?.kind === 'pick' && group.files.some((f) => f.path === outcome.path)) {
-          remove.push(...group.files.filter((f) => f.path !== outcome.path).map((f) => f.path));
+        if (outcome?.kind === 'recent') keepNewest(group);
+        else if (outcome?.kind === 'pick' && group.files.some((f) => f.path === outcome.path)) {
+          steps.push({ group, remove: group.files.filter((f) => f.path !== outcome.path).map((f) => f.path) });
         }
         // skipped while sorting by hand: kept, and on the duplicates list only when told so there
         else if (outcome?.kind === 'skip' && outcome.remember) keep.push({ group, kept: group.files });
         // never sorted: left as it is
       }
     }
-    return { remove, keep, undecided };
+    return { steps, keep };
   }
 
-  /** remove what was chosen, on a page of its own; nothing to remove or report goes straight on */
+  /**
+   * Remove what was chosen, on a page of its own, set by set; nothing to remove or ask about
+   * goes straight on. A set it cannot tell stops the bar and asks (`askAbout`).
+   */
   protected async applyDuplicates(): Promise<void> {
     const store = this.store();
     if (this.busy()) return;
@@ -367,25 +446,55 @@ export class ImportDialog {
         // not written: they are offered again next time, which loses nothing
       }
     }
-    this.undecided.set(plan.undecided);
-    if (!store || (!plan.remove.length && !plan.undecided.length)) {
+    if (!store || !plan.steps.length) {
       this.step.set(this.afterDuplicatesStep());
       return;
     }
     this.step.set('removing');
     const result: RemovingResult = { removed: [], failed: [] };
     this.removed.set(result);
-    if (!plan.remove.length) return;
+    this.undecided.set([]);
+    this.guessed.set([]);
+    this.timedOut.set(new Set());
+    this.standing.set(null);
     this.removing.set(true);
     this.stopRemoving = false;
-    this.removeProgress.set({ done: 0, total: plan.remove.length });
-    await removeFiles(
-      store,
-      plan.remove,
-      (done, total) => this.removeProgress.set({ done, total }),
-      () => this.stopRemoving,
-      result,
-    );
+    // a set still to ask about counts as all but one of its files, until the answer says
+    let total = plan.steps.reduce((n, x) => n + ('remove' in x ? x.remove.length : x.group.files.length - 1), 0);
+    let done = 0;
+    this.removeProgress.set({ done, total });
+    for (const [index, item] of plan.steps.entries()) {
+      if (this.stopRemoving) break;
+      let paths: string[];
+      if ('remove' in item) {
+        paths = item.remove;
+      } else {
+        const more = plan.steps.slice(index + 1).filter((x) => !('remove' in x)).length;
+        const answer = await this.askAbout(item.group, more);
+        if (this.stopRemoving) break;
+        if (answer.how === 'keep') {
+          this.undecided.update((u) => [...u, item.group]);
+          total -= item.group.files.length - 1;
+          this.removeProgress.set({ done, total });
+          continue;
+        }
+        const kept =
+          answer.how === 'guess'
+            ? this.guessFor(item.group)
+            : (item.group.files.find((f) => f.path === answer.path) ?? this.guessFor(item.group));
+        if (answer.how === 'guess') this.guessed.update((g) => [...g, { group: item.group, kept }]);
+        paths = item.group.files.filter((f) => f !== kept).map((f) => f.path);
+      }
+      const before = done;
+      await removeFiles(
+        store,
+        paths,
+        (d) => this.removeProgress.set({ done: before + d, total }),
+        () => this.stopRemoving,
+        result,
+      );
+      done = before + paths.length;
+    }
     this.removedPaths.set(new Set(result.removed));
     this.removed.set({ ...result });
     this.removing.set(false);
@@ -398,6 +507,43 @@ export class ImportDialog {
       }
       void this.imports.check();
     }
+  }
+
+  /**
+   * Stop on a set whose most recent cannot be told and ask what to do: choose the file here, a
+   * best guess (`bestGuessOf`), or keep them all - and, with more like it to come, whether to
+   * do the same for those. An answer given for the others is followed without asking (a
+   * remembered *choose* still shows the files). No answer within `answerWaitMs` keeps every
+   * file of this set, which deletes nothing, and the next is asked again.
+   */
+  private askAbout(group: DuplicateGroup, more: number): Promise<{ how: UndecidedHow; path?: string }> {
+    const standing = this.standing();
+    if (standing === 'keep' || standing === 'guess') return Promise.resolve({ how: standing });
+    return new Promise((resolve) => {
+      this.asking.set(group);
+      this.askHow.set(standing === 'choose' ? 'choose' : null);
+      this.askPick.set('');
+      this.askForOthers.set(null);
+      this.askMore.set(more);
+      this.answered = (how, path) => {
+        if (this.answerTimer) clearTimeout(this.answerTimer);
+        this.answerTimer = null;
+        this.answered = null;
+        this.asking.set(null);
+        resolve({ how, path });
+      };
+      this.answerTimer = setTimeout(() => {
+        this.timedOut.update((t) => new Set([...t, group.key]));
+        this.answered?.('keep');
+      }, this.answerWaitMs());
+    });
+  }
+
+  protected answerAsked(): void {
+    const how = this.askHow();
+    if (!this.askReady() || !how || !this.answered) return;
+    if (this.standing() === null && this.askForOthers()) this.standing.set(how);
+    this.answered(how, how === 'choose' ? this.askPick() : undefined);
   }
 
   /** after the duplicates: the dates, when anything is undated, then the index question */
@@ -765,6 +911,8 @@ export class ImportDialog {
   protected close(): void {
     this.stopDating = true;
     this.stopRemoving = true;
+    // a question waiting on the removing page is answered as the one that deletes nothing
+    this.answered?.('keep');
     this.closed.emit(this.dated());
   }
 

@@ -36,6 +36,8 @@ export interface LibraryStore {
   /** put a file in place, making the folders above it; answers the size now stored */
   write(path: string, body: Response): Promise<number>;
   size(path: string): Promise<number | null>;
+  /** when a file was last changed, in ms, or null when there is no such file or it cannot say */
+  modified?(path: string): Promise<number | null>;
   /** remove a file. One already gone is not an error */
   delete(path: string): Promise<void>;
   /** rename a file; refuses, with an error, to write over one already at the new name */
@@ -302,6 +304,11 @@ export class LocalLibraryStore implements LibraryStore {
     return file ? (await file.getFile()).size : null;
   }
 
+  async modified(path: string): Promise<number | null> {
+    const file = await this.file(path);
+    return file ? (await file.getFile()).lastModified || null : null;
+  }
+
   async delete(path: string): Promise<void> {
     const { folders, name } = split(path);
     const folder = await this.existing(folders);
@@ -367,6 +374,10 @@ export class DropboxLibraryStore implements LibraryStore {
 
   async size(path: string): Promise<number | null> {
     return this.dropbox.fileSize(remote(path));
+  }
+
+  async modified(path: string): Promise<number | null> {
+    return this.dropbox.fileModified(remote(path));
   }
 
   async delete(path: string): Promise<void> {

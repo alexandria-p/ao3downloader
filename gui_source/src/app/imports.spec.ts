@@ -4,6 +4,9 @@ import {
   IMPORT_EXCLUDED_FILE,
   duplicateGroups,
   newestOf,
+  byRecency,
+  bestGuessOf,
+  modifiedTimes,
   removeFiles,
   LibraryImports,
   dateFiles,
@@ -223,6 +226,31 @@ describe('duplicates', () => {
     expect(newestOf(group)?.name).toBe('1 b 14 Dec 2024.html');
     expect(newestOf(duplicateGroups(['works/1 a 2024-01-01.html', 'works/1 b.html'])[0])).toBeNull();
     expect(newestOf(duplicateGroups(['works/1 a 2024-01-01.html', 'works/1 b 2024-01-01.html'])[0])).toBeNull();
+  });
+
+  it('breaks a shared newest date by the later change time, and only when every tied file has one', () => {
+    const [group] = duplicateGroups(['works/1 a 2024-01-01.html', 'works/1 b 2024-01-01.html', 'works/1 c 2023-01-01.html']);
+    const a = 'works/1 a 2024-01-01.html';
+    const b = 'works/1 b 2024-01-01.html';
+    expect(newestOf(group, { [a]: 1, [b]: 2 })?.name).toBe('1 b 2024-01-01.html');
+    expect(newestOf(group, { [a]: 2, [b]: 2 })).toBeNull();
+    expect(newestOf(group, { [a]: 1 })).toBeNull();
+  });
+
+  it('orders a set by the date in each name, then by when each file changed, then by name', () => {
+    const [group] = duplicateGroups(['works/1 z.html', 'works/1 a.html', 'works/1 m 2020-01-01.html', 'works/1 y.html']);
+    const order = byRecency(group, { 'works/1 y.html': 5, 'works/1 z.html': 9 }).map((f) => f.name);
+    expect(order).toEqual(['1 m 2020-01-01.html', '1 z.html', '1 y.html', '1 a.html']);
+    expect(bestGuessOf(group, {}).name).toBe('1 m 2020-01-01.html');
+  });
+
+  it('asks the library when each file last changed, leaving out what it cannot say', async () => {
+    const store = new MemoryStore(['works/1 a.html', 'works/1 b.html']);
+    const changed: Record<string, number> = { 'works/1 a.html': 42 };
+    (store as LibraryStore).modified = async (path: string) => (store.files.has(path) ? (changed[path] ?? null) : null);
+    expect(await modifiedTimes(store, ['works/1 a.html', 'works/1 b.html', 'works/1 gone.html'])).toEqual({
+      'works/1 a.html': 42,
+    });
   });
 
   it('removes each file, carrying on past one that will not go', async () => {

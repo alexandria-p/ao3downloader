@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2088 python passed; 980 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2089 python passed; 992 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -962,7 +962,7 @@ alone, from User settings' *Debug mode*) is not `EnableDebugTools` (settings.ini
 window's panel): it shows `.debug-banner` above everything, the reminder included, and a
 **DEBUG** tab (`view` `debug`), and changes nothing else. The tab's **Mock Resolve issues**
 builds made-up files for the issues ticked, as many as asked (`mockPaths`: index issues from
-7000001, dating from 7100001, duplicates from 7200001 cycling the cases the page tells apart),
+7000001, dating from 7100001, duplicates from 7200001 cycling the five cases the page tells apart - one newest, three copies, an undated copy, a shared date told apart by change time (`MemoryStore.changed`), and one that cannot be told),
 works them out with the real `unindexedWorks` / `undatedIndexedFiles` / `duplicateGroups`, and
 opens the real `ImportDialog` on them. **Nothing real is touched**: the files are a
 `MemoryStore`; `ImportDialog.sandbox` notes every exclusion-list write (`sandboxNoted`) instead
@@ -2188,7 +2188,8 @@ window finishes after dating (`afterDating`). What not to break:
   **Once indexed, each work's files are named from its entry** (`name_files_from_index`, the
   import's alone): a file not named the way its entry names it is renamed, keeping the date its
   own name ends in - the version the file holds, which may be older than AO3's - never over
-  another file. Only an entry the import **makes** is marked `from_import`; a work already
+  another file - and a file with no date in its name gets **none**, never the entry's
+  `date_updated` (a file left undated at dating may hold an older version). Only an entry the import **makes** is marked `from_import`; a work already
   indexed (one whose undated files brought it into the import) keeps its origin.
 - **Duplicates come first** (`duplicates`, `choose`, `removing` steps, only with some):
   `duplicateGroups` is every work number and format (`.htm` is html) with more than one file
@@ -2199,10 +2200,14 @@ window finishes after dating (`afterDating`). What not to break:
   *Mark all as Skip* / *Keep most recent* / *I'll choose myself* set every row, and the primary
   reads *Skip this step* with every row skipped (`allSkipped`), *Choose which to keep* with any
   to choose, else *Continue*.
-  **Most recent is never a guess** (`newestOf`): every file in the group needs a date in its
-  name (read as *Infer date* reads one) and one must be strictly newest, or the group is
-  `undecided` - nothing deleted, said on the removing page, asked again next time. *I'll
-  choose* sifts those groups one at a time. **What sifting decides is kept apart from the
+  **Most recent is never a guess unasked** (`newestOf`): every file in the group needs a date in
+  its name (read as *Infer date* reads one), and the newest date wins; files sharing it are told
+  apart by **when each file was last changed** (`modifiedAt`, from the optional
+  `LibraryStore.modified`: a local file's `lastModified`, Dropbox's `client_modified` else
+  `server_modified` - read for the duplicate files only, `modifiedTimes`, six at a time, once the
+  window has them), the later winning; unknown or equal times leave it untold. *I'll
+  choose* sifts those groups one at a time. **Sifting deletes nothing** - it only records an
+  outcome per set; every deletion is on the removing page. **What sifting decides is kept apart from the
   list's choice** (`siftOutcome`: a file picked, skipped - `remember` when not to be asked again - or most recent), and **the order is
   every group ever marked I'll choose, never shortened** (`siftOrder`; `siftList` is it filtered
   to those marked now): a group changed away on the list leaves the sift, keeps its decision,
@@ -2217,12 +2222,27 @@ window finishes after dating (`afterDating`). What not to break:
   (`bulkChoice`) and **Apply to the rest** (`applyToRest`: decides every undecided one and goes no
   further). The footer is only *Back* (to the list) and *Continue*, held until all are sorted
   (`siftDone`: *You are done - no more to sort*, the entry buttons and the bulk section gone). The list never shows what sifting
-  decided. `removeFiles` deletes on a page with a bar - **never every
-  file of a group** - then the dialog filters what it removed out of every later page
-  (`removedPaths`) and `refreshAfterRun` + `check` bring the listing and reminder up to date.
+  decided. Each radio says `Filename dated X` or `No date included in the filename`, and `File
+  metadata updated at X` (or `: unknown`); the top one adds *We think this is the most recent*
+  when its name has a date (`fileNotes`), and a set whose most recent cannot be told carries
+  `.sift-unsure` (*We don't know for sure...*). **The removing page works set by set**
+  (`duplicatePlan` -> `RemovalStep`s in the list's order): `removeFiles` deletes with a bar -
+  **never every file of a group** - and a set marked Keep most recent (on the list or in bulk,
+  which marks sets rather than picking files) whose newest cannot be told **pauses the bar and
+  asks** (`askAbout`, `.undecided-ask`): *Choose individually* (the files as radios, as when
+  sifting), *Make a best guess* (`bestGuessOf`, the top of `byRecency`), or *Keep all of them*;
+  then, with more such sets to come, *Do this for any others like this?* - Yes is `standing`,
+  followed without asking (a standing *choose* still shows the files). No answer within
+  `answerWaitMs` (`UNDECIDED_WAIT_MS`, 5 minutes) keeps that set whole and asks about the next;
+  closing the window answers keep. Kept sets (`undecided`, `timedOut` marked *no answer in
+  time*) are offered again next time; guesses are listed (`guessed`). Then the dialog filters
+  what it removed out of every later page (`removedPaths` -> `works`, `undatedElsewhere`, and so
+  every count, the dating rows and the index question) and `refreshAfterRun` + `check` bring the
+  listing and reminder up to date. Lists in the window page **7** at a time
+  (`DUPLICATES_PAGE_SIZE`, `DATES_PAGE_SIZE`).
   The *No, do not ask me again for these files* choice includes the duplicates' files. The
   sifting radios are **most recent first** (`byRecency`: by the date in each name, undated
-  last). The list page never says what sifting decided for a row.
+  last, then by when each file last changed, unknown last, then by name). The list page never says what sifting decided for a row.
 - **Four exclusion lists, in one file** (`import-excluded.json` at the library's top,
   `IMPORT_EXCLUDED_FILE`, read once per library; only the page reads it). The **files** list
   (`kind: 'files'`, by name) is dropped before anything is counted - such a file never offers

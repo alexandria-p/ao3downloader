@@ -342,6 +342,18 @@ def test_an_import_renames_its_works_files_to_match_their_new_entries_keeping_th
     assert 'renamed to match its index entry' in capsys.readouterr().out
 
 
+def test_an_undated_file_left_undated_by_dating_is_named_from_its_new_entry_without_the_entrys_date(
+        library):
+    # dating was skipped for it, then its work was looked up: the entry it now has knows when
+    # AO3 last updated the work, but the file may hold an older version, so that date is no
+    # part of its name
+    a_copy(library, '1 old fic name.html')
+    entry = {**ENTRY, 'date_updated': '2025-09-30'}
+
+    assert server.name_files_from_index(library, [entry]) == 1
+    assert os.listdir(os.path.join(library.downloadfolder, strings.WORKS_FOLDER_NAME)) == ['1 The Fic - Writer.html']
+
+
 def test_a_file_an_import_renames_keeps_its_place_on_every_exclusion_list(library, capsys):
     import json
     a_copy(library, '1 old fic name.html')

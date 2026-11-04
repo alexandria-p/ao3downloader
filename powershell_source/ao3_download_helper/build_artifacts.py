@@ -522,7 +522,9 @@ all are downloaded; FicHub is offered once, at the end, for every fic that faile
 named for a work number your index has no entry for, the page offers to import them (the
 **Resolve issues found with import** reminder above the tabs offers it too, and its first
 page can put it off, leave these files out for good, or turn it off altogether; and undated files of indexed works are offered for dating). It asks first which to keep of any work with more than one
-file in the same format (the rest are deleted), then offers to date the undated ones - each, all at once, or
+file in the same format (the rest are deleted on the next page, which asks about any set
+whose most recent it cannot tell - by the date in each name, then when each file was last
+changed), then offers to date the undated ones - each, all at once, or
 skipped, and skipped ones can be left out of dating for good - then, if any have no index entry, whether to index them from AO3 now (or never ask
 about them again until a new file for one turns up, listed in `import-excluded.json`), which works to update, which other
 formats to download for them, and whether to replace a copy AO3 has a newer version of (off:

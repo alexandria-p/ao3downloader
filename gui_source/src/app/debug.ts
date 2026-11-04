@@ -33,9 +33,12 @@ export class DebugMode {
 export class MemoryStore implements LibraryStore {
   readonly label = 'mock library (in memory)';
   readonly files = new Map<string, string>();
+  /** when each file was last changed, by path; a file not here cannot say */
+  readonly changed = new Map<string, number>();
 
-  constructor(paths: Iterable<string> = []) {
+  constructor(paths: Iterable<string> = [], changed: Record<string, number> = {}) {
     for (const path of paths) this.files.set(path, '');
+    for (const [path, at] of Object.entries(changed)) this.changed.set(path, at);
   }
 
   async check(): Promise<void> {}
@@ -59,8 +62,13 @@ export class MemoryStore implements LibraryStore {
     return this.files.has(path) ? (this.files.get(path) ?? '').length : null;
   }
 
+  async modified(path: string): Promise<number | null> {
+    return this.files.has(path) ? (this.changed.get(path) ?? null) : null;
+  }
+
   async delete(path: string): Promise<void> {
     this.files.delete(path);
+    this.changed.delete(path);
   }
 
   async rename(from: string, to: string): Promise<void> {
@@ -68,6 +76,9 @@ export class MemoryStore implements LibraryStore {
     if (!this.files.has(from)) throw new Error(`${from} is not there`);
     this.files.set(to, this.files.get(from) ?? '');
     this.files.delete(from);
+    const at = this.changed.get(from);
+    this.changed.delete(from);
+    if (at !== undefined) this.changed.set(to, at);
   }
 
   async mkdir(): Promise<void> {}
@@ -85,7 +96,7 @@ export interface MockSetup {
 
 export const DEFAULT_MOCK: MockSetup = {
   duplicates: true,
-  duplicateCount: 4,
+  duplicateCount: 5,
   index: true,
   indexCount: 5,
   dates: true,
@@ -111,11 +122,13 @@ function title(n: number): string {
  * The files of a mock library. Works with index issues are numbered from 7000001, works with
  * date issues from 7100001 and duplicates from 7200001; only the last two are treated as
  * indexed. Duplicate groups cycle through the cases the page tells apart: dated with one
- * newest, three copies, an undated copy, and two sharing a date.
+ * newest, three copies, an undated copy, two sharing a date told apart by when each file was
+ * last changed, and two sharing a date with nothing to tell them apart.
  */
-export function mockPaths(setup: MockSetup): { paths: string[]; indexed: Set<string> } {
+export function mockPaths(setup: MockSetup): { paths: string[]; indexed: Set<string>; changed: Record<string, number> } {
   const paths: string[] = [];
   const indexed = new Set<string>();
+  const changed: Record<string, number> = {};
   if (setup.index) {
     for (let i = 0; i < setup.indexCount; i++) {
       const id = String(7000001 + i);
@@ -137,7 +150,7 @@ export function mockPaths(setup: MockSetup): { paths: string[]; indexed: Set<str
       const id = String(7200001 + i);
       indexed.add(id);
       const base = `works/${id} ${title(i)}`;
-      switch (i % 4) {
+      switch (i % 5) {
         case 0:
           paths.push(`${base} 2025-03-01.html`, `${base} (old copy) 2024-11-02.htm`);
           break;
@@ -147,18 +160,24 @@ export function mockPaths(setup: MockSetup): { paths: string[]; indexed: Set<str
         case 2:
           paths.push(`${base} 2019-08-14.pdf`, `${base}.pdf`);
           break;
-        default:
+        case 3:
           paths.push(`${base} 2023-03-03.mobi`, `${base} copy 2023-03-03.mobi`);
+          changed[`${base} 2023-03-03.mobi`] = Date.UTC(2023, 2, 4, 9, 30);
+          changed[`${base} copy 2023-03-03.mobi`] = Date.UTC(2023, 5, 1, 18, 5);
+          break;
+        default:
+          // the same date in both names, and no change time for either: cannot be told
+          paths.push(`${base} 2022-02-02.azw3`, `${base} (2) 2022-02-02.azw3`);
       }
     }
   }
-  return { paths, indexed };
+  return { paths, indexed, changed };
 }
 
 export function mockLibrary(setup: MockSetup): MockLibrary {
-  const { paths, indexed } = mockPaths(setup);
+  const { paths, indexed, changed } = mockPaths(setup);
   return {
-    store: new MemoryStore(paths),
+    store: new MemoryStore(paths, changed),
     works: unindexedWorks(paths, indexed),
     undatedElsewhere: undatedIndexedFiles(paths, indexed),
     duplicates: duplicateGroups(paths),
