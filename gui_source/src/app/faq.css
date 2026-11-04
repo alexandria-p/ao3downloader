@@ -82,7 +82,7 @@
 }
 
 .mock-link {
-  color: #9fc4dc;
+  color: var(--accent-text);
   text-decoration: underline;
 }
 
@@ -153,16 +153,16 @@
 }
 
 .faq a {
-  color: #9fc4dc;
+  color: var(--accent-text);
 }
 
 /* pinned at the top: advice, so it wears the calm blue the rest of the app uses for it */
 .download-app {
   margin: 0 0 18px;
   padding: 10px 12px;
-  border: 1px solid #5a7f9a;
+  border: 1px solid var(--accent-line);
   border-radius: 3px;
-  background: #22303a;
+  background: var(--accent-bg);
 }
 
 .download-app p {

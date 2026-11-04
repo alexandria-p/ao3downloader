@@ -129,7 +129,7 @@
 }
 
 .badge.challenge {
-  border-color: #5a7f9a;
+  border-color: var(--accent-line);
   color: var(--accent);
 }
 
@@ -308,7 +308,7 @@
 }
 
 .pagination button:hover:not(:disabled):not(.current) {
-  background: #3a3a3a;
+  background: var(--surface-hover);
   color: #fff;
 }
 
@@ -388,14 +388,14 @@
 }
 
 .button:hover {
-  background: #3a3a3a;
+  background: var(--surface-hover);
 }
 
 .button.primary {
-  border-color: #5a7f9a;
-  background: #33566b;
+  border-color: var(--accent-line);
+  background: var(--accent-fill);
 }
 
 .button.primary:hover {
-  background: #3d6580;
+  background: var(--accent-fill-hover);
 }

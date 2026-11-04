@@ -85,16 +85,16 @@ footer {
 }
 
 .button:hover {
-  background: #3a3a3a;
+  background: var(--surface-hover);
 }
 
 .button.primary {
-  border-color: #5a7f9a;
-  background: #33566b;
+  border-color: var(--accent-line);
+  background: var(--accent-fill);
 }
 
 .button.primary:hover {
-  background: #3d6580;
+  background: var(--accent-fill-hover);
 }
 
 .button.subtle {
@@ -170,7 +170,7 @@ legend {
 
 .field input:focus,
 .field textarea:focus {
-  outline: 2px solid #5a7f9a;
+  outline: 2px solid var(--accent-line);
   outline-offset: -1px;
 }
 
@@ -429,9 +429,9 @@ legend {
 .current .format {
   flex: none;
   padding: 1px 8px;
-  border: 1px solid #5a7f9a;
+  border: 1px solid var(--accent-line);
   border-radius: 10px;
-  color: #9fc4dc;
+  color: var(--accent-text);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
 }
@@ -504,8 +504,8 @@ legend {
 
 /* a pause the user chose, told apart from ao3's by colour as well as by wording */
 .warning.held {
-  border-color: #5a7f9a;
-  background: #22303a;
+  border-color: var(--accent-line);
+  background: var(--accent-bg);
 }
 
 .warning.held strong {
@@ -773,9 +773,9 @@ fieldset.bare:disabled {
 .info {
   margin: 0 0 12px;
   padding: 9px 11px;
-  border: 1px solid #5a7f9a;
+  border: 1px solid var(--accent-line);
   border-radius: 3px;
-  background: #22303a;
+  background: var(--accent-bg);
   font-size: 0.86rem;
 }
 
@@ -790,9 +790,9 @@ fieldset.bare:disabled {
 .background-running {
   margin: 0 0 12px;
   padding: 9px 11px;
-  border: 1px solid #5a7f9a;
+  border: 1px solid var(--accent-line);
   border-radius: 3px;
-  background: #22303a;
+  background: var(--accent-bg);
   font-size: 0.86rem;
 }
 
@@ -843,9 +843,9 @@ fieldset.bare:disabled {
 .retry-terms {
   margin: 12px 0 0;
   padding: 10px 12px;
-  border: 1px solid #5a7f9a;
+  border: 1px solid var(--accent-line);
   border-radius: 5px;
-  background: #22323d;
+  background: var(--accent-bg);
 }
 
 .retry-terms p {

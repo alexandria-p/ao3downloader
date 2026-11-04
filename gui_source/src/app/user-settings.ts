@@ -27,6 +27,7 @@ import { UpdateCheck } from './updates';
 import { LibraryImports } from './imports';
 import { Library } from './library';
 import { DebugMode } from './debug';
+import { Appearance, CUSTOM_FONT, DEFAULT_FONT, DEFAULT_PALETTE, FONTS, PALETTES, fontById, fontStack, paletteById } from './appearance';
 
 export type Asking = 'ask' | 'skip';
 
@@ -49,7 +50,7 @@ interface IniFile {
 
 /** one value Reset to defaults would change, as its window lists it */
 export interface ResetChange {
-  group: 'Prompts' | 'Download formats' | 'AO3 time zone' | 'Questions' | 'settings.ini';
+  group: 'Appearance' | 'Prompts' | 'Download formats' | 'AO3 time zone' | 'Questions' | 'settings.ini';
   name: string;
   current: string;
   default: string;
@@ -92,6 +93,40 @@ export class UserSettings implements OnDestroy {
   private readonly imports = inject(LibraryImports);
   private readonly library = inject(Library);
   protected readonly debugMode = inject(DebugMode);
+
+  protected readonly appearance = inject(Appearance);
+  protected readonly palettes = PALETTES;
+  protected readonly fonts = FONTS;
+  protected readonly customFontId = CUSTOM_FONT;
+  /** what a font choice looks like, for its preview line */
+  protected readonly fontPreview = computed(() => fontStack(this.appearance.font(), this.appearance.customFont()));
+
+  protected setPalette(id: string): void {
+    this.appearance.setPalette(id);
+    this.say(`Saved: the ${paletteById(id).name} palette`);
+  }
+
+  protected setFont(id: string): void {
+    this.appearance.setFont(id);
+    if (id === CUSTOM_FONT && !this.appearance.customFont()) {
+      this.say('Type the name of a font on this computer to use it');
+      return;
+    }
+    this.say(`Saved: the font is ${this.fontName()}`);
+  }
+
+  /** sent on change, like a settings.ini box, so the page does not jump about mid-word */
+  protected setCustomFont(name: string): void {
+    this.appearance.setFont(CUSTOM_FONT, name);
+    this.say(this.appearance.customFont()
+      ? `Saved: the font is ${this.appearance.customFont()} - if this computer does not have it, the default is used`
+      : 'Saved: no font named - the default is used');
+  }
+
+  private fontName(): string {
+    const font = this.appearance.font();
+    return font === CUSTOM_FONT ? this.appearance.customFont() || 'the default' : fontById(font).name;
+  }
 
   protected setDebugMode(on: boolean): void {
     this.debugMode.set(on);
@@ -175,6 +210,13 @@ export class UserSettings implements OnDestroy {
    */
   protected readonly resetChanges = computed<ResetChange[]>(() => {
     const changes: ResetChange[] = [];
+    if (this.appearance.palette() !== DEFAULT_PALETTE) {
+      changes.push({ group: 'Appearance', name: 'Palette', current: paletteById(this.appearance.palette()).name,
+                     default: paletteById(DEFAULT_PALETTE).name });
+    }
+    if (this.appearance.font() !== DEFAULT_FONT) {
+      changes.push({ group: 'Appearance', name: 'Font', current: this.fontName(), default: fontById(DEFAULT_FONT).name });
+    }
     const askingNow = this.asking();
     for (const prompt of PROMPTS) {
       if (askingNow[prompt.key] === 'skip') {
@@ -332,6 +374,7 @@ export class UserSettings implements OnDestroy {
    */
   protected async resetAll(): Promise<void> {
     this.confirmingReset.set(false);
+    this.appearance.reset();
     for (const prompt of PROMPTS) setPromptAsks(prompt, true);
     this.asking.set(Object.fromEntries(PROMPTS.map((p) => [p.key, 'ask' as Asking])));
     this.updates.dismissed.set(false);
@@ -347,8 +390,8 @@ export class UserSettings implements OnDestroy {
 
     if (!this.ini()?.editable) {
       this.say(this.local
-        ? 'Reset: every prompt asks always, and runs start with the app\'s default formats'
-        : 'Reset: every prompt asks always, runs start with the app\'s default formats, and questions take the app\'s default answers');
+        ? 'Reset: the page looks as it came, every prompt asks always, and runs start with the app\'s default formats'
+        : 'Reset: the page looks as it came, every prompt asks always, runs start with the app\'s default formats, and questions take the app\'s default answers');
       return;
     }
     try {
@@ -361,7 +404,7 @@ export class UserSettings implements OnDestroy {
       if (!response.ok) throw new Error(body.error || `the helper answered ${response.status}`);
       this.ini.set(body as IniFile);
       void this.jobs.loadConfig();
-      this.say('Reset: every prompt asks always, runs start with the app\'s default formats, and settings.ini holds its defaults');
+      this.say('Reset: the page looks as it came, every prompt asks always, runs start with the app\'s default formats, and settings.ini holds its defaults');
     } catch (e) {
       this.say(
         `Prompts and formats were reset, but settings.ini was not: ${e instanceof Error ? e.message : String(e)}`,

@@ -78,16 +78,16 @@ footer {
 }
 
 .button:hover {
-  background: #3a3a3a;
+  background: var(--surface-hover);
 }
 
 .button.primary {
-  border-color: #5a7f9a;
-  background: #33566b;
+  border-color: var(--accent-line);
+  background: var(--accent-fill);
 }
 
 .button.primary:hover {
-  background: #3d6580;
+  background: var(--accent-fill-hover);
 }
 
 .field {
@@ -114,7 +114,7 @@ footer {
 }
 
 .field input:focus {
-  outline: 2px solid #5a7f9a;
+  outline: 2px solid var(--accent-line);
   outline-offset: -1px;
 }
 

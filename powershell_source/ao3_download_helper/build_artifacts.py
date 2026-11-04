@@ -395,7 +395,7 @@ def build(root: Path, skip_web: bool = False) -> dict:
             'left_behind': left_behind}
 
 
-README = """# ao3downloader - deployable bundle
+README = """# FicFairy (Local Ao3 downloader) - deployable bundle
 
 This folder was produced by `generate_build_artifacts.ps1` in the project root. Everything
 needed to run the site is here; nothing outside this folder is required.

@@ -606,8 +606,8 @@ export class Library {
       if (works.length === 0 && collections.length === 0) {
         if (!strict) return;
         this.error.set(
-          `Found ${jsonFiles.length} json file(s) in there, but none of them look like an ` +
-            'ao3downloader export.',
+          `Found ${jsonFiles.length} json file(s) in there, but none of them look like a ` +
+            'FicFairy library.',
         );
         return;
       }

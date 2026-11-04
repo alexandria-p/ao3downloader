@@ -4,8 +4,8 @@
     <button type="button" class="button reset-all" (click)="openReset()">Reset to defaults</button>
   </div>
   <p class="browser-note" role="note">
-    'Do not ask again' options and any changes to your default file formats are saved to this
-    browser. Changing browsers on your device will use a different set of settings that are saved
+    The palette and font, 'Do not ask again' options and any changes to your default file formats
+    are saved to this browser. Changing browsers on your device will use a different set of settings that are saved
     to <strong>that</strong> browser.
   </p>
   <p class="hint">Every change is saved as you make it.</p>
@@ -51,6 +51,47 @@
       </div>
     </div>
   }
+
+  <section class="group appearance">
+    <h3>Appearance</h3>
+    <p class="hint">How this page looks. Saved to this browser.</p>
+    <fieldset class="palettes">
+      <legend>Palette</legend>
+      @for (palette of palettes; track palette.id) {
+        <label class="palette" [attr.data-palette]="palette.id" [class.chosen]="palette.id === appearance.palette()"
+               [style.background]="palette.tokens.bg" [style.border-color]="palette.id === appearance.palette() ? palette.tokens['accent-line'] : palette.tokens['border']">
+          <input type="radio" name="palette" [value]="palette.id" [checked]="palette.id === appearance.palette()"
+                 (change)="setPalette(palette.id)" />
+          <span class="swatches" aria-hidden="true">
+            <span [style.background]="palette.tokens.surface"></span>
+            <span [style.background]="palette.tokens['accent-fill']"></span>
+            <span [style.background]="palette.tokens.accent"></span>
+            <span [style.background]="palette.tokens.text"></span>
+          </span>
+          <span class="palette-name" [style.color]="palette.tokens['text-strong']">{{ palette.name }}</span>
+        </label>
+      }
+    </fieldset>
+    <div class="font-choice">
+      <label class="field">
+        <span>Font</span>
+        <select name="font" aria-label="Font" (change)="setFont($any($event.target).value)">
+          @for (font of fonts; track font.id) {
+            <option [value]="font.id" [selected]="font.id === appearance.font()">{{ font.name }}</option>
+          }
+        </select>
+      </label>
+      @if (appearance.font() === customFontId) {
+        <label class="field">
+          <span>Font name</span>
+          <input type="text" name="customFont" placeholder="for example Comic Sans MS" [value]="appearance.customFont()"
+                 (change)="setCustomFont($any($event.target).value)" />
+        </label>
+        <p class="hint">Any font installed on this computer, by its name. One it does not have shows as the default.</p>
+      }
+      <p class="font-preview" [style.font-family]="fontPreview()">The quick brown fox bookmarks the lazy dog's fic.</p>
+    </div>
+  </section>
 
   <section class="group prompts">
     <h3>Prompts</h3>
