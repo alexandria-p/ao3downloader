@@ -1184,4 +1184,139 @@ describe('App', () => {
   });
 
   // endregion
+
+  // region works with files and no index entry
+
+  /** a library with these files in works/, as a run would list it */
+  function libraryWithFiles(paths: string[]): void {
+    openLibrary();
+    const library = TestBed.inject(Library);
+    const store = library.store()!;
+    library.store.set({ ...store, list: async () => paths });
+  }
+
+  async function settled(fixture: ComponentFixture<App>): Promise<void> {
+    // the listing is asked for, then the offer decided on
+    for (let i = 0; i < 3; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await fixture.whenStable();
+    }
+  }
+
+  it('offers to import works whose files have no index entry, once, when the library opens', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/1 Work 1 - Writer.html', 'works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    const offered = element.querySelector('app-import-dialog');
+    expect(offered?.textContent).toContain('1 work');
+    expect(element.querySelector('.import-issues')?.textContent).toContain('Resolve issues found with import');
+    expect(element.querySelector('.import-issues')?.textContent).toContain('1 work has files but no index entry');
+
+    offered!.querySelector<HTMLInputElement>('input[name="firstChoice"][value="later"]')!.click();
+    await settled(fixture);
+    Array.from(offered!.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Remind me later')!.click();
+    await settled(fixture);
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    // the index changing again does not bring it back by itself on this visit
+    TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
+    await settled(fixture);
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    // the reminder above the tabs still offers it
+    element.querySelector<HTMLButtonElement>('.import-issues button')!.click();
+    await settled(fixture);
+    expect(element.querySelector('app-import-dialog')).not.toBeNull();
+  });
+
+  it('does not offer an import while a run is going, and offers it once the run has ended', async () => {
+    localStorage.clear();
+    TestBed.inject(Jobs).activeRuns.set([going]);
+    libraryWithFiles(['works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    const notice = element.querySelector<HTMLButtonElement>('.import-issues button')!;
+    expect(notice.disabled).toBe(true);
+    expect(notice.title).toContain('active run is in progress');
+
+    TestBed.inject(Jobs).activeRuns.set([]);
+    await settled(fixture);
+    expect(element.querySelector('app-import-dialog')).not.toBeNull();
+  });
+
+  it('offers undated files of works the index has, on the Works tab and by itself', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/1 Work 1 - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('.import-issues')?.textContent).toContain('1 file has no date in its name');
+    expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 file imported from your library has no date in its name');
+  });
+
+  it('puts the reminder above the tabs, on every tab, until dismissed', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    const issues = element.querySelector('.import-issues')!;
+    const tabs = element.querySelector('nav.views')!;
+    expect(issues.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const name of ['Collections', 'History', 'FAQ', 'User settings']) {
+      tab(element, name)!.click();
+      await fixture.whenStable();
+      expect(element.querySelector('.import-issues')).not.toBeNull();
+    }
+
+    element.querySelector<HTMLButtonElement>('.import-issues-close')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('.import-issues')).toBeNull();
+  });
+
+  it('neither opens the window nor shows the reminder once told never to ask again', async () => {
+    localStorage.clear();
+    localStorage.setItem('ao3.importOfferOff', 'off');
+    libraryWithFiles(['works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    expect(element.querySelector('.import-issues')).toBeNull();
+  });
+
+  it('turns the window and the reminder off for good from its first page', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    const offered = element.querySelector('app-import-dialog')!;
+    offered.querySelector<HTMLInputElement>('input[name="firstChoice"][value="never"]')!.click();
+    await settled(fixture);
+    Array.from(offered.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Done')!.click();
+    await settled(fixture);
+
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    expect(element.querySelector('.import-issues')).toBeNull();
+    expect(localStorage.getItem('ao3.importOfferOff')).toBe('off');
+  });
+
+  // endregion
 });

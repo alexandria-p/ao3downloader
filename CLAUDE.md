@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2056 python passed; 853 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2088 python passed; 950 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2124,6 +2124,94 @@ console `Repository` keeps the old behaviour. The page's checkbox is unticked by
 shows a warning when ticked; its credentials step then asks for the username alone where one
 is needed (`needsUsername`, from `sentAction`), and a hosted page seals an empty password.
 
+### Works already in the library can be imported
+
+`imports.ts`, `import-dialog.ts` and `run_import`. A file in `works/` named for a work number
+(`workIdFromFilename`) with no index entry is **unindexed** (`unindexedWorks`, from one
+`store.list('works')` against `Library.worksById`; `LibraryImports.check` reruns it whenever
+`worksById` changes, so a read, a refresh and a run's changes taken in all count). Undated
+files of works the index *does* have are issues too (`undatedIndexedFiles`, `undatedIndexed`,
+the window's `undatedElsewhere`): offered on the dates page, and with nothing unindexed the
+window finishes after dating (`afterDating`). What not to break:
+
+- **Never while a run is going.** `App` opens the import window by itself only with no
+  `activeRun`, no run window, the library read and set up - once per library per visit
+  (`offeredFor`), unless `ao3.importOfferOff` (a `PROMPTS` entry, set by *No, never ask me
+  again* on the window's first page). The `.import-issues` reminder - **Resolve issues found
+  with import**, **above the tabs**, on every tab, while `LibraryImports.hasIssues`
+  (`App.importReminder`) - offers it by hand, disabled with *Cannot be started while an active
+  run is in progress*; its × hides it until the library is opened again
+  (`reminderDismissedFor`), and `ao3.importOfferOff` hides it for good. **The first page asks
+  what to do** (`firstChoice`, Continue held until chosen): *Repair now (recommended)*; *Not
+  now, remind me again next time I open my library* (*Remind me later*, closes); *No, do not ask
+  me again for these files* (*Done*: `LibraryImports.excludeFiles` puts every file found on the
+  **files** list); *No, never
+  ask me again* (*Done*: `ao3.importOfferOff`). The window itself refuses to rename or start while `busy`. A run ending
+  changes the index, which checks again, and the offer comes back then. The helper's 409 is
+  the last guard against a run started elsewhere in the meantime.
+- **One question per page, each passed over when it has nothing to ask**: overview (counts
+  only), dates, dating (progress), index, formats (`Step`). **Dating is the page's**, before
+  any run: `renamesFor` asks the helper (`Jobs.fileNames`, `POST /api/file-names`,
+  `file_names_for`) for each file's name - from its work's index entry where it has one
+  (`indexed_file_name`, the same pattern, truncation and invalid characters a download uses,
+  with the date given), otherwise `dated_file_name` - and falls back to `datedName` when the
+  helper does not answer. **Don't build names in the page**: the helper's rules would drift.
+  `dateFiles` renames through `LibraryStore.rename` (never over a file), says each failure and
+  carries on, and stops when the window is closed (`stopped`). `takeInDating` hands the renames
+  to `refreshAfterRun`. A date has to be a real day (`isFileDate`); a file with none is simply
+  not dated. **Infer date** (`inferDate`, `DATE_PATTERNS`) reads a date out of a name in any of
+  several forms and never from the leading work number; the rows it dated are reordered and
+  marked (`order`, `inferred`) as the user asked, and a hand edit clears the mark only.
+- **The run is the several-fics run with three differences** (`run_fic_list(importing=True)`):
+  entries are marked `from_import` (`Ao3.origin_field`; `rescue_one` too) - an identity field,
+  in `IDENTITY_FIELDS` - unless the work turns out to be your bookmark; it **never overwrites**
+  (`overwrite` false), and with `replaceOutdated` off `keep_existing_copies` moves every held
+  format into `plan['keep']` (said as `AO3_INFO_KEEPING_YOURS`, through `Ao3.keep_message`), so
+  only missing formats are fetched; and `settle_undated` asks nothing on an import
+  (`AO3_INFO_IMPORT_UNDATED_KEPT`) - the page offered to date them, so one left undated was left
+  so on purpose. No series walk. `replaceOutdated` is clamped off for every other action.
+  **Once indexed, each work's files are named from its entry** (`name_files_from_index`, the
+  import's alone): a file not named the way its entry names it is renamed, keeping the date its
+  own name ends in - the version the file holds, which may be older than AO3's - never over
+  another file. Only an entry the import **makes** is marked `from_import`; a work already
+  indexed (one whose undated files brought it into the import) keeps its origin.
+- **Three exclusion lists, in one file** (`import-excluded.json` at the library's top,
+  `IMPORT_EXCLUDED_FILE`, read once per library; only the page reads it). The **files** list
+  (`kind: 'files'`, by name) is dropped before anything is counted - such a file never offers
+  the window, the reminder, a date or an index lookup. The **index** list (`kind: 'index'`,
+  from the index page's *No, and do not ask again for these works*,
+  `LibraryImports.excludeFromIndex`) keeps each work's number **and the files that brought it
+  there**: the work is passed over by the index question only while every file it has now was
+  recorded (`indexExcluded`) - a file added since asks again, and the work is recorded afresh.
+  Its undated files are still offered for dating (`FoundFile.unindexed`, never in an update's
+  `dateIssues`). The **dates** list (`kind: 'dates'`, the dates page's *Don't ask this again
+  for skipped files*, `LibraryImports.excludeDating`: every row ticked Skip) keeps files out of
+  dating only (`FoundFile.noDating`) - each still counts for its work's index question. **A
+  rename follows into every list**: dating's (`LibraryImports.renamed`, called by the dialog
+  the moment its renames finish, not on close - so a window closed by leaving the page
+  cannot lose it) and an import's naming files from their entries (the helper's
+  `follow_renames_in_exclusions`, the one place the helper touches the file) - or the renamed
+  file would read as a new one and be asked about again. The page reads the file again
+  whenever `Library.listedAt` moves, so a run's renames are seen. **The index page is only there with
+  unindexed works.** **The formats
+  page starts with which works to update** (`updateScope`: all, date issues, indexing issues,
+  skip); skipped hides the formats and replacing and does neither. A work left unindexed is
+  never updated. Works looked up and not updated go as `indexOnly` (indexed, nothing fetched).
+  **The run window is reached only for a lookup, or an update with something to download or
+  replace** - otherwise the window ends with *Done*. Replacing covers every format a work has
+  (`Ao3.held_only`: a format not ticked is fetched only to replace a copy).
+- **The run window has no link, options or file types step for it** (`importing` input: links,
+  count, file types, `replaceOutdated`, `indexOnly`, `lookups`, `scope`), only the background
+  step and the login, titled *Resolve issues found in your library*, with what it will do as
+  bullets (`importPlan`) on whichever comes first, **Start repair**, and no *Remember my
+  username*. Its background questions leave out
+  `undated`. **It asks for the AO3 login** like any run, worded for it (`.login-reason`: some of
+  the works may be restricted to AO3 users), unless *Skip AO3 login?* is ticked - then it needs no
+  username (`USERNAME_ACTIONS` leaves it out). At most
+  `MAX_IMPORT_LINKS` (5,000) works; the page imports the first that many and offers the rest
+  after. Retried as fic runs are (`FIC_ACTIONS`, `LIST_ACTIONS`): a retry of its failures stays
+  an import.
+
 ### Stop and pause land mid-request; force stop ends a run that will not
 
 `Repository.abandonable` runs each request (`fetch`: the request and `read_body`) on a thread
@@ -2267,11 +2355,11 @@ or found through a collection was on disk and in the index but nowhere in the pa
 `isListedEntry` now lists every entry but two, both still shown elsewhere: a work only a
 bookmarked series brought in (in that series' card - `from_series`, **or** a bookmarked series'
 `work_ids` listing it, since an entry can lack `from_series`), and a series you did not
-bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `link`
+bookmark. `originOf` sorts what is listed into `bookmarks` / `collection` / `external` (`from_import`) / `link`
 (`from_link`) / `other` (unknown), in that order, for the badge, the **Came from** filter, and the `.origin-icon` every entry carries (an inline svg per origin, named by `originLabel` from `ORIGINS`, so the icon and the filter cannot word it differently).
-**`external` (*Imported (upcoming)*) is an upcoming feature**: in `ORIGINS` with
-`upcoming`, shown disabled, and `originOf` never returns it yet. A fic FicHub supplied is not
-it - FicHub is a fallback, and the fic is wherever its run put it. **`from_link` is written by the fic runs alone**
+**`external` (*Imported from an external source*) is `from_import`**, written by the import
+run alone (see **Works already in the library can be imported**), checked before `from_link`.
+A fic FicHub supplied is not it - FicHub is a fallback, and the fic is wherever its run put it. **`from_link` is written by the fic runs alone**
 (`index_one_work`, and `rescue_one` on a fic run), only when the work is not your bookmark
 (`ao3.was_bookmark`; an entry with no `bookmarked` counts as one), and is an **identity**
 field, so a later reading by any other run keeps it. The Filter panel also narrows to
@@ -2351,6 +2439,11 @@ not to break:
   The update banner reads its flag once, so choosing it sets `UpdateCheck.dismissed` too.
 - **The tab says first that "do not ask again" choices and default formats are this browser's**
   (`.browser-note`) - kept short at the user's request.
+- **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)
+  writes an empty `import-excluded.json` - all three lists - and checks the library again, so
+  everything passed over is offered again. It needs a library open (`Library.store`), is not
+  part of Reset to defaults (the lists are the library's, not this browser's), and touches no
+  file but the list.
 - **Reset to defaults opens a window listing every value it would change** (`resetChanges`:
   only those that differ, as current -> **default**, grouped Prompts / Download formats /
   settings.ini; nothing to change disables the button), then sets every prompt to *Ask

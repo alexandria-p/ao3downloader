@@ -80,9 +80,9 @@ export function isBookmarkEntry(record: Bookmark): boolean {
  * - `bookmarks` - your own ao3 bookmarks (or an entry from before that was recorded, which
  *   came off them)
  * - `collection` - not bookmarked, but in a collection that was indexed
- * - `external` - imported from an external source: an **upcoming feature**, so nothing is
- *   sorted here yet. Listed in the filter, disabled, so the choice is there when it comes.
- *   A fic FicHub supplied is *not* this - it is wherever its run put it (a fic run: `link`)
+ * - `external` - imported from an external source: a file found in the library with no index
+ *   entry, which an import run then indexed (`from_import`). A fic FicHub supplied is *not*
+ *   this - it is wherever its run put it (a fic run: `link`)
  * - `link` - neither, and indexed by the fic runs from its link or work number (`from_link`,
  *   written by the helper only when the work was not a bookmark of yours)
  * - `other` - none of those: unknown, such as an index brought in from elsewhere
@@ -92,7 +92,7 @@ export type Origin = 'bookmarks' | 'collection' | 'external' | 'link' | 'other';
 export const ORIGINS: { origin: Origin; label: string; upcoming?: boolean }[] = [
   { origin: 'bookmarks', label: 'Your AO3 bookmarks' },
   { origin: 'collection', label: 'An AO3 collection' },
-  { origin: 'external', label: 'Imported (upcoming)', upcoming: true },
+  { origin: 'external', label: 'Imported from an external source' },
   { origin: 'link', label: 'Downloaded by ID or URL' },
   { origin: 'other', label: 'Unknown' },
 ];
@@ -100,6 +100,7 @@ export const ORIGINS: { origin: Origin; label: string; upcoming?: boolean }[] = 
 export function originOf(record: Bookmark): Origin {
   if (isBookmarkEntry(record)) return 'bookmarks';
   if ((record.from_collections ?? []).length) return 'collection';
+  if (record.from_import) return 'external';
   if (record.from_link) return 'link';
   return 'other';
 }
@@ -161,6 +162,8 @@ export interface Bookmark {
   retrieved_from?: { site: string; downloaded?: string[] };
   /** indexed by a fic run from its link or work number, when it was not your bookmark */
   from_link?: boolean;
+  /** first indexed by an import, from a file already in the library - not your bookmark */
+  from_import?: boolean;
   /** on a work: the series it is part of, and where in each */
   series?: SeriesMembership[];
   /** on a series: how many works it holds, whether it is finished, and which works */

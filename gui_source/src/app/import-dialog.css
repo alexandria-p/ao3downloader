@@ -1,0 +1,389 @@
+:host {
+  position: fixed;
+  inset: 0;
+  /* the run window's level: the run window replaces this one, never sits above it */
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* never taller than the window: the body scrolls, so the buttons stay in view */
+.dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(680px, 100%);
+  max-height: min(85vh, 760px);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.icon {
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.body {
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.body > p {
+  margin: 0 0 12px;
+}
+
+footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.button {
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: #3a3a3a;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button.primary {
+  border-color: #5a7f9a;
+  background: #33566b;
+}
+
+.button.subtle {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+fieldset {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+legend {
+  padding: 0 6px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+.check .hint {
+  display: block;
+  margin: 2px 0 0;
+}
+
+.hint,
+.dim {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.hint {
+  margin: 0 0 12px;
+}
+
+.warning {
+  margin: 0 0 12px;
+  padding: 9px 11px;
+  border: 1px solid #5a5230;
+  border-radius: 3px;
+  background: #2b2820;
+  font-size: 0.86rem;
+}
+
+.warning-text {
+  color: #e0c97a;
+}
+
+code {
+  font-size: 0.85em;
+}
+
+.found-list {
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0 0 12px;
+  padding: 8px 10px 8px 26px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+
+.found-list li {
+  margin: 0 0 4px;
+}
+
+.work-id {
+  margin-right: 8px;
+  color: var(--text-strong);
+}
+
+.file-name {
+  overflow-wrap: anywhere;
+}
+
+.found-list .file-name {
+  display: block;
+  color: var(--text-dim);
+}
+
+.found-list .file-name.undated {
+  color: #e0c97a;
+}
+
+.bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.bulk label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+input[type='date'] {
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+  color-scheme: dark;
+}
+
+.dating {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.dating th {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-weight: 500;
+  text-align: left;
+}
+
+.dating td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+/* fixed columns, so a long name is cut short with an ellipsis rather than widening the table -
+   its whole name is the cell's title */
+.dating {
+  table-layout: fixed;
+}
+
+.dating th:nth-child(2),
+.dating td:nth-child(2) {
+  width: 150px;
+}
+
+.dating th:nth-child(3),
+.dating td:nth-child(3) {
+  width: 48px;
+  text-align: center;
+}
+
+.dating td.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* skipped: greyed, its date greyed and disabled - never struck through */
+.dating tr.skipped td.file-name {
+  color: var(--text-dim);
+}
+
+.dating tr.skipped input[type='date'] {
+  opacity: 0.45;
+}
+
+/* dated by Infer date, and not changed by hand since */
+.dating tr.inferred {
+  background: #4a3f12;
+}
+
+.dating tr.inferred td.file-name {
+  color: #f0d77a;
+}
+
+/* inferred, but skipped: the same yellow, faded */
+.dating tr.inferred.skipped {
+  background: #2e2a18;
+}
+
+.dating tr.inferred.skipped td.file-name {
+  color: #a8995c;
+}
+
+/* the bulk row's last button sits on the right */
+.bulk .infer {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--text-dim);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.infer-said {
+  margin: -4px 0 10px;
+  color: #e0c97a;
+  font-size: 0.86rem;
+}
+
+.view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.toggle {
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.toggle.on {
+  background: #33566b;
+  border-color: #5a7f9a;
+  color: var(--text-strong);
+}
+
+.dating-wrap.scrolling {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 8px 0 0;
+}
+
+.bar {
+  height: 8px;
+  margin: 8px 0 12px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+  background: #5a8fb0;
+  transition: width 0.2s;
+}
+
+.dating-failures summary {
+  cursor: pointer;
+  color: var(--danger);
+}
+
+.dating-failures ul {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding: 6px 10px 6px 24px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 0.84rem;
+}
+
+
+.remember-skips {
+  margin: 12px 0 0;
+}

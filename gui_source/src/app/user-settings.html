@@ -127,6 +127,21 @@
     </select>
   </section>
 
+  <section class="group import-exclusions">
+    <h3>Exclusion lists for imports</h3>
+    <p class="hint">
+      When your library is read, files with no date in their name or no index entry are offered
+      in Resolve issues found in your library, except any you said not to ask about again - those
+      are kept on exclusion lists in <code>import-excluded.json</code> at the top of the library.
+    </p>
+    <button type="button" class="button reset-exclusions"
+            [disabled]="!canResetExclusions() || resettingExclusions()"
+            [title]="canResetExclusions() ? '' : 'Open a library you can write to first'"
+            (click)="resetExclusions()">
+      Reset exclusion lists for imports
+    </button>
+  </section>
+
   @if (!local) {
     <section class="group questions">
       <h3>Questions a run may ask</h3>

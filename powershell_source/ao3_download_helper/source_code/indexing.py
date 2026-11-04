@@ -30,7 +30,7 @@ BOOKKEEPING_FIELDS = (INDEXES, LAST_INDEXED, LAST_INDEXED_BY)
 # these identify the file rather than describing the work, so they live at the root and
 # are not versioned.
 IDENTITY_FIELDS = ('id', 'link', 'source', 'bookmark_type', 'from_series', 'from_collections',
-                   'from_link')
+                   'from_link', 'from_import')
 
 # the bookmarked series a work was found through. added to, never replaced: a work in two
 # bookmarked series was found through both, whichever was read last

@@ -67,6 +67,10 @@ ACTION_SYNC = 'sync'
 ACTION_WORK = 'work'
 # several fics, pasted as links or work numbers - the single-fic run over a list
 ACTION_WORKS = 'works'
+# works whose files were found in your library with no index entry: the several-fics run over
+# them, marking each `from_import`, fetching only what is missing unless told to replace what
+# is outdated, and never overwriting a copy that is current
+ACTION_IMPORT = 'import'
 # the full scan with its parts made optional
 ACTION_CUSTOM = 'custom'
 # a full scan's shape, but stopping at the works ao3 has not touched since the last run
@@ -207,14 +211,15 @@ def configured_answer(name: str, builtin: dict, chosen: str | None = None) -> di
 BACKGROUND_KEPT_MESSAGES = 1000
 
 ACTIONS = (ACTION_BOOKMARKS, ACTION_UPDATE, ACTION_COLLECTIONS, ACTION_COLLECTION,
-           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_WORKS, ACTION_CUSTOM, ACTION_QUICK)
+           ACTION_NEW, ACTION_SYNC, ACTION_WORK, ACTION_WORKS, ACTION_CUSTOM, ACTION_QUICK,
+           ACTION_IMPORT)
 
 # actions that need a link from the caller rather than working it out from the username
-ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK, ACTION_WORKS)
+ACTIONS_NEEDING_URL = (ACTION_COLLECTION, ACTION_WORK, ACTION_WORKS, ACTION_IMPORT)
 
 # the runs pointed at fics by hand. a fic they index that is not your bookmark is marked
 # as having come in by its link (`from_link`)
-FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS, ACTION_IMPORT)
 
 # every run may be told not to log in (`skipLogin`). these still need a username without
 # one, because they read your own bookmarks or collections listing, found by your name -
@@ -226,6 +231,11 @@ USERNAME_ACTIONS = (ACTION_BOOKMARKS, ACTION_NEW, ACTION_SYNC, ACTION_CUSTOM, AC
 
 # the most fics one 'several fics' run takes. a paste of a whole library belongs to a scan
 MAX_WORK_LINKS = 500
+# an import names every unindexed work found in a library, which can be a great many more:
+# one request each, so a few thousand is still a run, if a long one
+MAX_IMPORT_LINKS = 5000
+# the fic runs that look up a list of fics and can carry on fic by fic
+LIST_ACTIONS = (ACTION_WORKS, ACTION_IMPORT)
 
 # the two collection runs. On their own they write only the collections' files; asked to
 # (`collectionWorks`) they index every work they meet as well, and download those
@@ -272,7 +282,7 @@ RETRY_FAILED = 'failed'
 RETRY_MODES = (RETRY_TOP, RETRY_REINDEX, RETRY_INDEX, RETRY_REDOWNLOAD, RETRY_DOWNLOADS,
                RETRY_FAILED)
 # the fic runs: retried by the fics they name, not by a listing
-FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS)
+FIC_ACTIONS = (ACTION_WORK, ACTION_WORKS, ACTION_IMPORT)
 
 # json is always produced, so the ui shows it ticked and locked. it is what the web page
 # reads, and it costs nothing extra: the metadata comes off the listing page that has to be
@@ -347,6 +357,12 @@ def resolve_options(requested) -> dict:
         # answer to a damaged or truncated file, which no version check can see: the name
         # and the date are both right and only the bytes are wrong.
         'overwrite': bool(given.get('overwrite')),
+        # an import: replace a copy you have when ao3 has a newer version. off, an import
+        # fetches only the formats you do not have and leaves every copy you have alone
+        'replaceOutdated': bool(given.get('replaceOutdated')),
+        # an import: the works among its links to index only, with no format fetched - looked
+        # up for their missing index entry, and not among the works chosen to update
+        'indexOnly': work_numbers(given.get('indexOnly')),
         # check every non-bookmark in the index for updates too. a listing of your bookmarks
         # never shows them, so without this they are only read again when something else
         # brings the run to them. not narrowed by a date range or a floor: see
@@ -379,6 +395,55 @@ def resolve_options(requested) -> dict:
         'retryMode': str(given.get('retryMode') or '').strip()
         if str(given.get('retryMode') or '').strip() in RETRY_MODES else '',
     }
+
+
+# the formats a downloaded work is saved in, by extension - a file named for a work in one of
+# these is that work's copy
+WORK_FILE_EXTENSIONS = ('.html', '.htm', '.epub', '.pdf', '.mobi', '.azw3')
+
+
+def indexed_file_name(record: dict, date: str, extension: str, maximum: int) -> str:
+    """The name a work's file has when it is named from its index entry, as a download names
+    it - `{worknum} {title} - {author}`, cut to `maximum` - but carrying `date` rather than the
+    entry's own `date_updated`. That date is the version the file holds, which is not
+    necessarily the one AO3 has now."""
+
+    parts = parse_soup.apply_name_pattern(
+        parse_soup.get_name_metadata_from_blurb(record), strings.FILE_NAME_PATTERN)
+    stem = parse_text.get_valid_filename(parts, maximum, parse_text.get_date_suffix(date))
+    return (stem or str(record.get('id') or '')) + extension
+
+
+def dated_file_name(name: str, date: str, maximum: int) -> str:
+    """A file with no index entry, given a date: the date on the end of the name it has, cut
+    to leave room as a download's name would be (the same rule as `stamp_undated_works`)."""
+
+    base, extension = os.path.splitext(name)
+    suffix = ' ' + date
+    room = max(1, maximum - len(suffix)) if maximum > 0 else 0
+    trimmed = base[:room].strip() if room else base.strip()
+    return trimmed + suffix + extension
+
+
+def file_names_for(files, maximum: int) -> list[str]:
+    """What the page's dating should rename each file to (`POST /api/file-names`): from its
+    index entry where it has one, or by adding the date to the name it has. A request that does
+    not make sense answers '' for that file, and the page leaves the file alone."""
+
+    names = []
+    for item in files if isinstance(files, list) else []:
+        item = item if isinstance(item, dict) else {}
+        name = str(item.get('name') or '').replace('\\', '/').split('/')[-1]
+        date = parse_text.get_date_stamp(item.get('date') or '')
+        record = item.get('record')
+        extension = os.path.splitext(name)[1]
+        if not name or not date or extension.lower() not in WORK_FILE_EXTENSIONS:
+            names.append('')
+        elif isinstance(record, dict) and record.get('id'):
+            names.append(indexed_file_name(record, date, extension, maximum))
+        else:
+            names.append(dated_file_name(name, date, maximum))
+    return names
 
 
 def example_file_name(maximum: int) -> str:
@@ -831,6 +896,7 @@ def action_name(action: str) -> str:
         ACTION_SYNC: strings.ACTION_NAME_SYNC,
         ACTION_WORK: strings.ACTION_NAME_WORK,
         ACTION_WORKS: strings.ACTION_NAME_WORKS,
+        ACTION_IMPORT: strings.ACTION_NAME_IMPORT,
         ACTION_CUSTOM: strings.ACTION_NAME_CUSTOM,
         ACTION_QUICK: strings.ACTION_NAME_QUICK,
     }.get(action, action)
@@ -876,6 +942,13 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
         if works and downloads:
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD))
+    elif job.action == ACTION_IMPORT:
+        # no series walk: an import is about the files you already have
+        plan.append(('index', strings.STEP_INDEX_IMPORT))
+        # replacing outdated copies downloads with no format added: those a work already has
+        if downloads or job.options.get('replaceOutdated'):
+            plan.append(('check', strings.STEP_CHECK_FILES))
+            plan.append(('download', strings.STEP_DOWNLOAD_IMPORT))
     elif job.action in (ACTION_WORK, ACTION_WORKS):
         one = job.action == ACTION_WORK
         plan.append(('index', strings.STEP_INDEX_ONE if one else strings.STEP_INDEX_MANY))
@@ -1198,7 +1271,9 @@ def prepare_resume(job: Job, fileops: FileOps) -> None:
         links = [str(x.get('link') or '') for x in earlier.get('failures') or []
                  if isinstance(x, dict) and x.get('link')]
         job.url = '\n'.join(links)
-        job.action = ACTION_WORKS if len(links) > 1 else ACTION_WORK
+        # an import stays an import, so the works it gets are still marked as imported
+        if job.action != ACTION_IMPORT:
+            job.action = ACTION_WORKS if len(links) > 1 else ACTION_WORK
     if mode:
         failed = len(failed_work_ids(earlier))
         print(strings.AO3_INFO_RETRYING.format(
@@ -1378,13 +1453,13 @@ def retry_problem(record: dict | None, mode: str, active: set[str]) -> str:
     if action == ACTION_COLLECTION and not record.get('url'): return strings.RESUME_NO_LINK
     if action in FIC_ACTIONS and not record.get('url'): return strings.RETRY_NO_FIC_LINKS
     if mode == RETRY_TOP: return ''
-    if mode in (RETRY_INDEX, RETRY_DOWNLOADS) and action != ACTION_WORKS and \
+    if mode in (RETRY_INDEX, RETRY_DOWNLOADS) and action not in LIST_ACTIONS and \
             record.get('status') == runs.STATUS_PARTIAL:
         # it reached the end: there is nothing to carry on from, only what it missed
         return strings.RETRY_PARTIAL_DONE
     if mode in (RETRY_INDEX, RETRY_DOWNLOADS) and finished_both(record):
         return strings.RETRY_ALL_DONE
-    if action == ACTION_WORKS and mode == RETRY_DOWNLOADS:
+    if action in LIST_ACTIONS and mode == RETRY_DOWNLOADS:
         # several fics carry on fic by fic: what the earlier attempt saved is passed over
         return '' if progress_so_far is not None else strings.RESUME_TOO_OLD
     if mode == RETRY_REINDEX:
@@ -1445,7 +1520,7 @@ def retry_choices(record: dict, active: set[str]) -> dict:
         # a fic run has no listing to carry on with: it is the fics, or the failed ones - and,
         # for several fics, carrying on from where it stopped
         kept = (RETRY_TOP, RETRY_DOWNLOADS, RETRY_FAILED) \
-            if record.get('action') == ACTION_WORKS else (RETRY_TOP, RETRY_FAILED)
+            if record.get('action') in LIST_ACTIONS else (RETRY_TOP, RETRY_FAILED)
         modes = [m for m in modes if m['mode'] in kept]
     available = {m['mode'] for m in modes if m['available']}
     return {'modes': modes, 'default': retry_default(record, available) if available else '',
@@ -2273,7 +2348,7 @@ def index_new_bookmarks(job: Job, fileops: FileOps, ao3: Ao3, report) -> list[di
 
 def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
                      downloadtypes: list[str], report,
-                     overwrite: list[str] | None = None) -> None:
+                     overwrite: list[str] | None = None, keep_existing: bool = False) -> None:
     """Settle anything undated among these works, then download them.
 
     The same rule a full run downloads by, applied to whichever slice of the index the
@@ -2292,8 +2367,20 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
     job.steps.start('check')
     save_scope(job, records)
     plan = plan_refresh(job, fileops, records, downloadtypes, report, overwrite)
+    if keep_existing:
+        keep_existing_copies(records, plan, downloadtypes)
+        ao3.keep_message = strings.AO3_INFO_KEEPING_YOURS
     # an out-of-date copy is not 'already downloaded', so it must not be skipped
     visited = shared.already_downloaded(plan['existing'], downloadtypes, records, plan['stale'])
+    if ao3.held_only:
+        # a format fetched only to replace a copy is not missing from a work without one
+        behind = {parse_text.get_work_number(x) for x in plan['stale']}
+        for record in records:
+            work = str(record.get('id') or '')
+            have = {str(x).upper() for x in (plan['existing'].get(work) or {})}
+            if work not in behind and record.get('link') and all(
+                    x.upper() in have or x.upper() in ao3.held_only for x in downloadtypes):
+                visited.append(record['link'])
     ao3.superseded = plan['superseded']
     ao3.keep_formats = plan.get('keep') or {}
     job.steps.done('check')
@@ -2593,19 +2680,59 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     the rest of a series it goes on to walk is fetched where it is missing or behind.
     """
 
+    run_fic_list(job, fileops, repo, report, importing=False)
+
+
+def work_numbers(given) -> list[str]:
+    """A list of work numbers from a request: anything that is not one is dropped."""
+
+    if not isinstance(given, list): return []
+    return [str(x) for x in given if str(x).isdigit()]
+
+
+def run_import(job: Job, fileops: FileOps, repo: Repository, report) -> None:
+    """Index the works whose files were found in your library with no index entry, and fetch
+    the formats asked for.
+
+    The several-fics run over the works the page found, with three differences, all because
+    these are files you already have rather than fics asked for by hand:
+
+    - each entry it makes is marked `from_import` (unless the work turns out to be your
+      bookmark), so the Works tab lists it as *Imported*;
+    - it **never overwrites**. A copy is replaced only when ao3 has a newer version than the
+      date in its name, and only when the import was told to (`replaceOutdated`); otherwise
+      only the formats you do not have are fetched;
+    - undated files are left alone without asking: the page has just offered to date them, and
+      a file left undated there was left that way on purpose.
+
+    No series walk: an import is about what is in the folder.
+    """
+
+    run_fic_list(job, fileops, repo, report, importing=True)
+
+
+def run_fic_list(job: Job, fileops: FileOps, repo: Repository, report, importing: bool) -> None:
+    """Look up a list of fics, then download them - several fics, or an import."""
+
     downloadtypes = [x for x in job.filetypes if x != strings.AO3_DOWNLOAD_TYPE_METADATA]
     links = [x for x in job.url.split('\n') if x.strip()]
     if not links:
-        raise exceptions.InvalidLinkException(strings.ERROR_NO_WORK_LINKS)
+        raise exceptions.InvalidLinkException(
+            strings.ERROR_NO_IMPORT_WORKS if importing else strings.ERROR_NO_WORK_LINKS)
 
-    job.options['overwrite'] = True
+    # a list asked for by hand replaces what it names; an import never does
+    job.options['overwrite'] = not importing
+    if importing:
+        job.options['series'] = False
     ao3 = Ao3(repo, fileops, downloadtypes, None, job.options['series'], job.options['images'],
               progress=report, cancelled=job.cancel.is_set)
+    if importing: ao3.origin_field = strings.FROM_IMPORT_FIELD
     job.ao3 = ao3
 
     job.steps.start('index')
     progress.report(report, progress.PHASE, name=progress.INDEXING)
-    print(strings.AO3_INFO_MANY_WORKS.format(len(links)))
+    print((strings.AO3_INFO_IMPORT_WORKS if importing
+           else strings.AO3_INFO_MANY_WORKS).format(len(links)))
 
     # carrying on: a fic the earlier attempt saved in every format is done - not looked up,
     # not fetched. one partway through is looked up and only its missing formats fetched
@@ -2653,8 +2780,27 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     if any(gap.get('kind') == 'work' for gap in ao3.index_failures): job.steps.fail('index')
     else: job.steps.done('index')
 
-    records = merge_by_work(records, index_marked_series(job, ao3, report))
-    download_planned(job, fileops, ao3, records, downloadtypes, report, overwrite=asked)
+    if importing:
+        name_files_from_index(fileops, records)
+        replace = bool(job.options.get('replaceOutdated'))
+        index_only = set(job.options.get('indexOnly') or [])
+        updating = [r for r in records if str(r.get('id') or '') not in index_only]
+        if index_only and len(updating) < len(records):
+            print(strings.AO3_INFO_IMPORT_INDEX_ONLY.format(len(records) - len(updating)))
+        if replace:
+            # replacing outdated copies covers every format a work has, not only those asked
+            # for: the others are fetched only where a copy is there to be replaced
+            asked_for = {x.upper() for x in downloadtypes}
+            ao3.held_only = {x for x in strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES if x not in asked_for}
+            downloadtypes = downloadtypes + [x for x in strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES
+                                             if x in ao3.held_only]
+            ao3.filetypes = downloadtypes
+        elif downloadtypes: print(strings.AO3_INFO_IMPORT_KEEPING)
+        download_planned(job, fileops, ao3, updating, downloadtypes, report,
+                         keep_existing=not replace)
+    else:
+        records = merge_by_work(records, index_marked_series(job, ao3, report))
+        download_planned(job, fileops, ao3, records, downloadtypes, report, overwrite=asked)
     finish_run(job, fileops, ao3, report)
 
 
@@ -3166,6 +3312,11 @@ def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: di
 
     print(strings.AO3_INFO_UNDATED.format(len(undated), files))
     print(strings.AO3_INFO_UNDATED_WORKS.format(', '.join(ids)))
+    if job.action == ACTION_IMPORT:
+        # the page offered to date these before the import started; one left undated there
+        # was left so on purpose, and is kept as it is
+        print(strings.AO3_INFO_IMPORT_UNDATED_KEPT)
+        return False, 0
     print(strings.AO3_INFO_UNDATED_WAITING)
 
     answer = job.ask(
@@ -3303,7 +3454,7 @@ def cleanup(job: Job, fileops: FileOps, ao3) -> None:
 # the runs whose cleanup notes which collections hold the works they covered: every
 # workflow but the debug ones (the combined run, new bookmarks only, update incomplete)
 LINKING_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM, ACTION_WORK, ACTION_WORKS,
-                   ACTION_COLLECTIONS, ACTION_COLLECTION)
+                   ACTION_COLLECTIONS, ACTION_COLLECTION, ACTION_IMPORT)
 
 
 def covered_works(job: Job, ao3) -> set[str]:
@@ -3664,7 +3815,8 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         record = fichub.entry_from(answer, link, entry)
         # a fic run asked for this one by its link: say so, unless it is your bookmark
         if job is not None and job.action in FIC_ACTIONS and not was_bookmark(entry):
-            record[strings.FROM_LINK_FIELD] = True
+            record[strings.FROM_IMPORT_FIELD if job.action == ACTION_IMPORT
+                   else strings.FROM_LINK_FIELD] = True
         title = record.get('title') or title
         print(strings.AO3_INFO_FICHUB_FOUND.format(failure['id'], title))
 
@@ -4330,6 +4482,108 @@ def keep_newer_copies(job: 'Job', records: list[dict], existing: dict, plan: dic
             if not missing and link in plan['stale']: plan['stale'].remove(link)
 
 
+def name_files_from_index(fileops: FileOps, records: list[dict]) -> int:
+    """An import's works, once indexed: each file of theirs in works/ that is not named the way
+    its index entry names it is renamed so it is - **keeping the date its own name ends in**,
+    which is the version the file holds and may well be older than AO3's. A file with no date
+    keeps none. Never over another file; one that will not rename is said and left. Answers how
+    many were renamed.
+
+    Only an import does this: its files came from elsewhere, named however they were, and an
+    entry has just been made for them. Every other run's files were named by a run already.
+    """
+
+    if not records: return 0
+    by_work = {str(r.get('id') or ''): r for r in records if r.get('id')}
+    maximum = fileops.get_ini_value_integer(strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+    folder = fileops.worksfolder
+    try:
+        paths = fileops.storage.files_under(folder) if fileops.storage else \
+            [os.path.join(folder, x) for x in os.listdir(folder)]
+    except Exception as e:
+        print(strings.AO3_INFO_IMPORT_NAMES_UNREADABLE.format(e))
+        return 0
+
+    renamed = 0
+    names: dict[str, str] = {}
+    for path in paths:
+        name = path.replace('\\', '/').rsplit('/', 1)[-1]
+        extension = os.path.splitext(name)[1]
+        record = by_work.get(parse_text.get_work_number_from_filename(name) or '')
+        if record is None or extension.lower() not in WORK_FILE_EXTENSIONS: continue
+        wanted = indexed_file_name(record, parse_text.get_date_from_filename(name) or '',
+                                   extension, maximum)
+        if wanted == name: continue
+        new = os.path.join(os.path.dirname(path), wanted)
+        if fileops.exists(new) or not fileops.rename_file(path, new):
+            print(strings.AO3_INFO_IMPORT_NAME_KEPT.format(name, wanted))
+            continue
+        print(strings.AO3_INFO_IMPORT_RENAMED.format(name, wanted))
+        names[name] = wanted
+        renamed += 1
+    follow_renames_in_exclusions(fileops, names)
+    return renamed
+
+
+def follow_renames_in_exclusions(fileops: FileOps, names: dict[str, str]) -> int:
+    """A file the import renamed keeps its place on the page's exclusion lists: every entry
+    naming its old name is given the new one, or the next look at the library would take the
+    renamed file for a new one and ask about it again. Answers how many names changed; a list
+    that will not read or save is said and left."""
+
+    if not names: return 0
+    try:
+        document = fileops.load_json(strings.IMPORT_EXCLUDED_FILE_NAME)
+    except Exception:
+        document = None
+    entries = document.get('excluded') if isinstance(document, dict) else None
+    if not isinstance(entries, list): return 0
+    changed = 0
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get('files'), list): continue
+        files = []
+        for x in entry['files']:
+            files.append(names.get(x, x) if isinstance(x, str) else x)
+            if isinstance(x, str) and x in names: changed += 1
+        entry['files'] = files
+    if not changed: return 0
+    try:
+        fileops.save_json(strings.IMPORT_EXCLUDED_FILE_NAME, document)
+    except Exception as e:
+        print(strings.AO3_INFO_IMPORT_EXCLUDED_UNSAVED.format(e))
+        return 0
+    print(strings.AO3_INFO_IMPORT_EXCLUDED_RENAMED.format(changed,
+                                                          'file' if changed == 1 else 'files'))
+    return changed
+
+
+def keep_existing_copies(records: list[dict], plan: dict, filetypes: list[str]) -> None:
+    """Keep every copy already in the folder, current or not - an import told not to replace
+    outdated copies.
+
+    Each format a work has a copy of leaves `superseded` for `plan['keep']`, which the
+    downloader passes over, and a work with no format missing leaves `stale`, so it is not
+    fetched at all. Formats with no copy are still fetched: that is what the import was asked
+    to do.
+    """
+
+    keep: dict[str, set[str]] = plan.setdefault('keep', {})
+    existing = plan.get('existing') or {}
+    for record in records:
+        link = record.get('link') or ''
+        have = existing.get(str(record.get('id') or '')) or {}
+        held = {x.upper() for x in filetypes if have.get(x.upper())}
+        if not held: continue
+        keep.setdefault(link, set()).update(held)
+        replacing = plan['superseded'].get(link)
+        if replacing is not None:
+            for filetype in list(replacing):
+                if filetype.upper() in held: replacing.pop(filetype, None)
+            if not replacing: plan['superseded'].pop(link, None)
+        missing = any(not have.get(x.upper()) for x in filetypes)
+        if not missing and link in plan['stale']: plan['stale'].remove(link)
+
+
 def say_what_each_format_needs(record: dict, existing: dict, filetypes: list[str],
                                plan: dict) -> list[str]:
     """Say what is going to happen to each requested format, and return the ones to fetch.
@@ -4517,6 +4771,7 @@ def runners() -> dict:
         ACTION_SYNC: run_sync,
         ACTION_WORK: run_work,
         ACTION_WORKS: run_works,
+        ACTION_IMPORT: run_import,
         ACTION_CUSTOM: run_custom,
         ACTION_QUICK: run_quick,
     }
@@ -4741,6 +4996,19 @@ class Handler(BaseHTTPRequestHandler):
                 for record in floors_among(records if isinstance(records, list) else [])]})
             return
 
+        if self.path == '/api/file-names':
+            # the page dates files in the library itself, and names them the way a download
+            # would - from the work's index entry where it has one
+            try:
+                files = self.read_json().get('files')
+            except Exception:
+                self.send_json(400, {'error': 'invalid json'})
+                return
+            maximum = FileOps().get_ini_value_integer(strings.INI_NAME_LENGTH,
+                                                      strings.INI_DEFAULT_NAME_LENGTH)
+            self.send_json(200, {'names': file_names_for(files, maximum)})
+            return
+
         if self.path == '/api/runs/retryable':
             # the same arrangement: the page reads the history, the rule for how a run can
             # be retried is the helper's
@@ -4826,6 +5094,10 @@ class Handler(BaseHTTPRequestHandler):
         # into what a run may actually do - a stray flag must not make a routine run
         # re-fetch a whole library
         if action not in OVERWRITE_ACTIONS: options['overwrite'] = False
+        # the import's alone: every other run replaces what is outdated as a matter of course
+        if action != ACTION_IMPORT:
+            options['replaceOutdated'] = False
+            options['indexOnly'] = []
         # the scans alone can be resumed; the run itself checks the one named can be
         if action not in RESUME_ACTIONS: options['resume'] = options['retryMode'] = ''
         # the same for checking non-bookmarks, which costs a request per work outside a series
@@ -4865,12 +5137,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             # normalised now, so the run is handed a link rather than whatever was pasted
             url = link
-        elif action == ACTION_WORKS:
+        elif action in LIST_ACTIONS:
             links, unknown = work_links(url)
+            most = MAX_IMPORT_LINKS if action == ACTION_IMPORT else MAX_WORK_LINKS
+            too_many = (strings.ERROR_TOO_MANY_IMPORT_WORKS if action == ACTION_IMPORT
+                        else strings.ERROR_TOO_MANY_WORK_LINKS)
             problem = (strings.ERROR_NOT_WORK_LINKS.format(', '.join(unknown[:10]))
-                       if unknown else strings.ERROR_NO_WORK_LINKS if not links
-                       else strings.ERROR_TOO_MANY_WORK_LINKS.format(len(links), MAX_WORK_LINKS)
-                       if len(links) > MAX_WORK_LINKS else '')
+                       if unknown else (strings.ERROR_NO_IMPORT_WORKS if action == ACTION_IMPORT
+                                        else strings.ERROR_NO_WORK_LINKS) if not links
+                       else too_many.format(len(links), most) if len(links) > most else '')
             if problem:
                 self.send_json(400, {'error': problem})
                 return

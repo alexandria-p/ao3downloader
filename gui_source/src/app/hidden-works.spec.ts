@@ -45,6 +45,7 @@ const BY_LINK = work('3', { bookmarked: false });
 const IN_COLLECTION = work('4', { bookmarked: false, from_collections: ['yuletide2024'] });
 const ONLY_IN_SERIES = work('5', { bookmarked: false, from_series: ['77'] });
 const FETCHED = work('6', { bookmarked: false, from_link: true });
+const IMPORTED = work('10', { bookmarked: false, from_import: true });
 const FROM_FICHUB = work('7', { bookmarked: false, from_link: true,
                                 retrieved_from: { site: 'fichub', downloaded: ['EPUB'] } });
 const NOTED = work('8', { bookmarked: true, bookmark_notes: 'loved the ending' });
@@ -194,14 +195,19 @@ describe('the listing, with works from elsewhere and works hidden', () => {
   });
 
   it('offers the five places a work can come from, and filters by each new one', async () => {
-    await listing([MINE, BY_LINK, FETCHED]);
+    await listing([MINE, BY_LINK, FETCHED, IMPORTED]);
     const select = element.querySelector<HTMLSelectElement>('select[name="originFilter"]')!;
     expect(Array.from(select.options).map((o) => o.textContent?.trim())).toEqual([
       'Anywhere', 'Your AO3 bookmarks', 'An AO3 collection',
-      'Imported (upcoming)', 'Downloaded by ID or URL', 'Unknown',
+      'Imported from an external source', 'Downloaded by ID or URL', 'Unknown',
     ]);
-    // an upcoming feature: there, but not yet choosable
-    expect(Array.from(select.options).find((o) => o.value === 'external')?.disabled).toBe(true);
+    expect(Array.from(select.options).find((o) => o.value === 'external')?.disabled).toBe(false);
+
+    select.value = 'external';
+    select.dispatchEvent(new Event('change'));
+    await settle();
+    expect(titles()).toEqual(['Work 10']);
+    expect(blurb('Work 10').querySelector('.badge.origin')?.textContent).toContain('Imported from an external source');
 
     select.value = 'link';
     select.dispatchEvent(new Event('change'));

@@ -255,6 +255,27 @@ describe('Running in the background', () => {
     expect(button('Start in the background')).toBeTruthy();
   });
 
+  it('is offered on an import too, before its login, asking nothing about undated files', async () => {
+    inDropbox();
+    fixture = TestBed.createComponent(DownloadDialog);
+    fixture.componentRef.setInput('action', 'import');
+    fixture.componentRef.setInput('importing', {
+      links: 'https://archiveofourown.org/works/1', count: 1, filetypes: ['JSON', 'HTML'],
+      replaceOutdated: false, indexOnly: [], lookups: 1, scope: 'all',
+    });
+    await fixture.whenStable();
+    element = fixture.nativeElement as HTMLElement;
+
+    expect(currentStep()).toBe('background');
+    await tickBackground();
+    // the import window offered to date them; the run leaves undated files alone
+    expect(questionsOffered()).not.toContain('undated');
+    expect(questionsOffered()).toContain('fichub');
+    await startIt('Start repair in the background');
+    expect(jobs.started[0].action).toBe('import');
+    expect(jobs.started[0].background).toBe(true);
+  });
+
   // endregion
 
   // region asked up front

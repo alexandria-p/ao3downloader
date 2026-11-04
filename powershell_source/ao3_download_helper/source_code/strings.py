@@ -259,6 +259,9 @@ SERIES_MEMBERSHIP_FIELD = 'series'
 # bookmarks. identity, so a later reading from any other run keeps it; the page sorts it into
 # 'Downloaded by ID or URL', after your bookmarks and collections
 FROM_LINK_FIELD = 'from_link'
+# a work first indexed because its file was found in your library with no index entry, and
+# imported (`ACTION_IMPORT`) - not your bookmark. an identity field, like `from_link`
+FROM_IMPORT_FIELD = 'from_import'
 BOOKMARK_OWN_FIELDS = ('date_bookmarked', 'bookmark_notes', 'bookmark_tags',
                        'bookmark_collections', 'bookmark_private', 'bookmark_rec',
                        BOOKMARKED_FIELD)
@@ -380,6 +383,7 @@ ACTION_NAME_NEW = 'Just download newly added bookmarks'
 ACTION_NAME_SYNC = 'Download new bookmarks and update incomplete fics'
 ACTION_NAME_WORK = 'Download/update a specific fic'
 ACTION_NAME_WORKS = 'Download/update several fics'
+ACTION_NAME_IMPORT = 'Import works found in your library'
 ACTION_NAME_CUSTOM = 'Custom run'
 ACTION_NAME_QUICK = 'Quick Scan'
 
@@ -394,6 +398,7 @@ STEP_INDEX_BOOKMARKED_WINDOW = 'Index bookmarks added in that date range'
 STEP_INDEX_UPDATED_WINDOW = 'Index works AO3 updated in that date range'
 STEP_INDEX_ONE = 'Index this fic'
 STEP_INDEX_MANY = 'Index these fics'
+STEP_INDEX_IMPORT = 'Index the works found in your library'
 STEP_INDEX_COLLECTIONS = 'Index your collections'
 STEP_INDEX_COLLECTION = 'Index this collection'
 # the same crawl, told to index each work it meets as well - see Ao3.collect_work_ids
@@ -407,6 +412,7 @@ STEP_DOWNLOAD = 'Download or update works as necessary'
 # the single-fic run always replaces what you have, so nothing about it is conditional
 STEP_DOWNLOAD_ONE = 'Download this fic'
 STEP_DOWNLOAD_MANY = 'Download these fics'
+STEP_DOWNLOAD_IMPORT = 'Download the formats asked for'
 # the runs that only ever fetch bookmarks added since last time say so, because on those
 # 'the works' would read as the whole library
 STEP_DOWNLOAD_NEW = 'Download newly added works'
@@ -460,6 +466,22 @@ AO3_INFO_FICHUB_INDEX_KEPT = '  index for work {} left as it was: it is newer th
 AO3_INFO_OLDER_THAN_COPY = ('  the version about to be downloaded of work {} ({}) is older than '
                             'your {} ({}) - waiting for you to choose whether to replace it...')
 AO3_INFO_KEEPING_NEWER = '  {}: keeping your newer copy'
+# an import told not to replace outdated copies keeps every copy you have, current or not
+AO3_INFO_KEEPING_YOURS = '  {}: keeping the copy you have (not replacing outdated copies)'
+AO3_INFO_IMPORT_WORKS = '{} works found in your library to look up'
+AO3_INFO_IMPORT_RENAMED = 'renamed to match its index entry: {} -> {}'
+AO3_INFO_IMPORT_NAME_KEPT = 'could not rename {} to match its index entry ({} is taken, or the rename was refused) - left as it is'
+AO3_INFO_IMPORT_NAMES_UNREADABLE = 'could not list your works folder to name the imported files from their index entries: {}'
+# the page's list of files and works never to offer again in Resolve issues found in your
+# library, at the library's top. the page reads it; an import renaming a file keeps it current
+IMPORT_EXCLUDED_FILE_NAME = 'import-excluded.json'
+AO3_INFO_IMPORT_EXCLUDED_RENAMED = 'exclusion list updated for {} renamed {}'
+AO3_INFO_IMPORT_EXCLUDED_UNSAVED = 'could not update the exclusion list for the renamed files: {}'
+AO3_INFO_IMPORT_UNDATED_KEPT = 'left undated before the import started, so kept as they are'
+AO3_INFO_IMPORT_KEEPING = 'not replacing outdated copies: only formats you do not have are fetched'
+AO3_INFO_IMPORT_INDEX_ONLY = '{} of these works are only indexed: no format is fetched for them'
+ERROR_NO_IMPORT_WORKS = 'There are no works to import.'
+ERROR_TOO_MANY_IMPORT_WORKS = '{} works is more than one import takes ({} at most) - import them in parts.'
 AO3_INFO_REPLACING_NEWER = '  replacing your newer {} of work {} with the older version, as asked'
 ERROR_FICHUB_OUTDATED = 'FicHub only has an older version (updated {}; your index says {})'
 ERROR_FICHUB_LOOKUP = 'FicHub could not find it ({})'

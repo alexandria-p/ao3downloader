@@ -438,3 +438,36 @@
   align-items: center;
   gap: 8px 12px;
 }
+
+/* the Works tab's first line while the library has works or files to sort out */
+.import-issues {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid #8a6d3b;
+  border-radius: 5px;
+  background: #33291a;
+}
+
+.import-issues-said {
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+/* the far right of the reminder */
+.import-issues-close {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.import-issues-close:hover {
+  color: var(--text-strong);
+}

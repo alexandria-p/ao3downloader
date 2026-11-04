@@ -26,6 +26,9 @@ settings come from its deployment, so the tab does not offer them there.
   window says so), saved as UTC, and compared as dates in this zone again. Every time the page
   shows - the run window's log, History, *List refreshed* - is in this zone. Reset to defaults
   puts it back to this browser's.
+- **Exclusion lists for imports** - **Reset exclusion lists for imports** empties every list in
+  the open library's `import-excluded.json` (files, index and dates), so everything Resolve
+  issues found in your library passed over is offered again. Your files are not touched.
 - **settings.ini** - the settings below, on a copy whose helper runs on your computer. The
   hosting settings (`HelperUrl`, `RequirePasscode`, `PageOrigin`) are left to the file itself.
 

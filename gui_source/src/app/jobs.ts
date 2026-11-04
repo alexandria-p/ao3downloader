@@ -33,6 +33,8 @@ export type JobAction =
   | 'work'
   /** several fics, pasted as links or work numbers */
   | 'works'
+  /** works whose files are in the library with no index entry, found by the page */
+  | 'import'
   /** the full scan with its parts made optional */
   | 'custom'
   /** a full scan that stops at the works ao3 has not touched since the last run */
@@ -114,6 +116,13 @@ export interface JobOptions {
    * see, because the name and the date are both right and only the bytes are wrong.
    */
   overwrite: boolean;
+  /**
+   * An import: replace a copy you have when AO3 has a newer version than the date in its
+   * name. Off, an import fetches only the formats you do not have. The import's alone.
+   */
+  replaceOutdated?: boolean;
+  /** an import: the works among its links only looked up for their index entry */
+  indexOnly?: string[];
   /**
    * Check every non-bookmark in the index for updates too - the works it holds only because
    * something else led a run to them, such as another work's series. Not narrowed by a date
@@ -781,6 +790,28 @@ export class Jobs {
       if (!response.ok) throw new Error(String(response.status));
       const runs = ((await response.json()) as { runs: RetryableRun[] }).runs ?? [];
       return runs.find((run) => run.id === runId) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The names dating gives files (`POST /api/file-names`): from each work's index entry where it
+   * has one, as a download would name it, with the date given. Null when the helper does not
+   * answer - the page then adds the date to the name each file has.
+   */
+  async fileNames(files: readonly { file: { name: string }; date: string; record?: object }[]): Promise<string[] | null> {
+    try {
+      const response = await this.helper.call(`/api/file-names`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          files: files.map((x) => ({ name: x.file.name, date: x.date, record: x.record })),
+        }),
+      });
+      if (!response.ok) return null;
+      const names = ((await response.json()) as { names?: unknown }).names;
+      return Array.isArray(names) && names.length === files.length ? names.map((x) => String(x ?? '')) : null;
     } catch {
       return null;
     }

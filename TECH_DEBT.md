@@ -171,3 +171,13 @@ known-works set to the run's own username.
   Intel Mac app gets no cryptography fixes after 48.x. When that matters, either build it on
   the Intel runner with OpenSSL linked statically (`OPENSSL_STATIC=1`, `OPENSSL_DIR` at
   Homebrew's `openssl@3`), or drop the Intel build.
+
+## TODO: an undated file whose work is indexed could be offered the entry's date
+
+The import window's dates page leaves a file with no date in its name for the user to date (by
+hand, or **Infer date** from the name). When the file's work is already indexed, its entry has
+a `date_updated` that could be offered as the date. It is deliberately not offered yet: a file
+with no date in its name was most likely not written by this app, so it may well hold an older
+version than the one the entry describes - and dating it with the entry's date would make an
+outdated copy read as current for ever after. If it is ever added, it should be a separate,
+clearly worded choice, never filled in by **Infer date**.

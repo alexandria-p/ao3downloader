@@ -17,6 +17,8 @@ export const BROWSER_NOTICE_KEY = 'ao3.browserNoticeSeen';
 export const FOLDER_WARNING_KEY = 'ao3.folderWarningDismissed';
 export const HIDE_WARNING_KEY = 'ao3.hideWarningOff';
 export const SYNC_ACK_KEY = 'ao3.syncAcknowledged';
+/** 'off': the import window no longer opens by itself when a library has unindexed works */
+export const IMPORT_OFFER_KEY = 'ao3.importOfferOff';
 export const UPDATE_BANNER_KEY = 'ao3.updateCheckDismissed';
 export const DEFAULT_FILETYPES_KEY = 'ao3.defaultFiletypes';
 export const ANSWER_DEFAULTS_KEY = 'ao3.answerDefaults';
@@ -66,6 +68,16 @@ export const PROMPTS: Prompt[] = [
     area: 'Your library',
     name: 'Before hiding a work',
     description: 'What hiding does, and how to bring a hidden work back.',
+    dismissed: 'off',
+  },
+  {
+    key: IMPORT_OFFER_KEY,
+    area: 'Your library',
+    name: 'Offer to resolve issues found in your library',
+    description:
+      'When a library opens with downloaded works the index has no entry for, or files with ' +
+      'no date in their name: the window offering to date and import them, and the reminder ' +
+      'above the tabs. Turned off by No, never ask me again.',
     dismissed: 'off',
   },
   {

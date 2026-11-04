@@ -1,3 +1,4 @@
+import { ImportRequest } from './imports';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DownloadDialog, parseWorkList } from './download-dialog';
@@ -230,7 +231,7 @@ async function advanceTo(target: 'options' | 'filetypes' | 'credentials' | 'runn
         password.dispatchEvent(new Event('input'));
         await fixture.whenStable();
       }
-      button('Start download')!.click();
+      (button('Start download') ?? button('Start repair'))!.click();
       await fixture.whenStable();
       continue;
     }
@@ -2535,6 +2536,109 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
     expect(button('Continue')?.disabled).toBe(true);
     expect(element.querySelector('.error')?.textContent).toContain('not-a-fic');
+  });
+
+  describe('an import', () => {
+    const IMPORT: ImportRequest = {
+      links: 'https://archiveofourown.org/works/1\nhttps://archiveofourown.org/works/2',
+      count: 2,
+      filetypes: ['JSON', 'EPUB'],
+      replaceOutdated: true,
+      indexOnly: ['2'],
+      lookups: 2,
+      scope: 'dates',
+    };
+
+    async function openImport(request: ImportRequest = IMPORT) {
+      fixture = TestBed.createComponent(DownloadDialog);
+      fixture.componentRef.setInput('action', 'import');
+      fixture.componentRef.setInput('importing', request);
+      await fixture.whenStable();
+      element = fixture.nativeElement as HTMLElement;
+    }
+
+    it('opens straight on the login, its works and formats chosen in the import window', async () => {
+      await openImport();
+      expect(currentStep()).toBe('credentials');
+      expect(element.querySelector('h2')?.textContent).toContain('Resolve issues found in your library');
+      const lines = [...element.querySelectorAll('.import-summary li')].map((li) => li.textContent?.trim());
+      expect(lines).toEqual([
+        'Lookup 2 works with missing index',
+        'Download EPUB for any fics found to have date issues in this import',
+        'Will replace any outdated files with newer ones, if they exist',
+      ]);
+      expect(button('Start repair')).toBeTruthy();
+      // nothing about remembering a username on a repair
+      expect(element.textContent).not.toContain('Remember my username');
+      expect(element.textContent).not.toContain('Only the username is saved');
+      // the run needs no username of its own
+      checkbox('Skip AO3 login?')!.click();
+      await fixture.whenStable();
+      expect(element.querySelector('input[name="username"]')).toBeNull();
+    });
+
+    it('asks for a login, in case some of the works are restricted to AO3 users', async () => {
+      await openImport();
+      expect(checkbox('Skip AO3 login?')!.checked).toBe(false);
+      expect(element.querySelector('.login-reason')?.textContent).toContain('restricted to AO3 users');
+      expect(element.querySelector('input[name="username"]')).toBeTruthy();
+      const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
+      expect(password).toBeTruthy();
+
+      // not started without the password
+      password.value = '';
+      password.dispatchEvent(new Event('input'));
+      await fixture.whenStable();
+      button('Start repair')!.click();
+      await fixture.whenStable();
+      expect(jobs.started).toHaveLength(0);
+
+      await advanceTo('running');
+      expect(jobs.started[0].options.skipLogin).toBe(false);
+      expect(jobs.started[0].username).toBe('Someone');
+      expect(jobs.started[0].password).toBe('a-password');
+    });
+
+    it('goes without the login only when told to skip it', async () => {
+      await openImport();
+      checkbox('Skip AO3 login?')!.click();
+      await fixture.whenStable();
+      expect(element.querySelector('.login-reason')).toBeNull();
+      expect(element.querySelector('input[name="password"]')).toBeNull();
+      // the same warning every run shows
+      expect(element.querySelector('.skip-login-warning')?.textContent).toContain('not recommended');
+      button('Start repair')!.click();
+      await fixture.whenStable();
+      expect(jobs.started[0].options.skipLogin).toBe(true);
+      expect(jobs.started[0].password).toBe('');
+    });
+
+    it('sends the works, the formats and whether to replace outdated copies', async () => {
+      await openImport();
+      await advanceTo('running');
+      const sent = jobs.started[0];
+      expect(sent.action).toBe('import');
+      expect(sent.url).toBe(IMPORT.links);
+      expect(sent.filetypes).toEqual(['JSON', 'EPUB']);
+      expect(sent.options.replaceOutdated).toBe(true);
+      expect(sent.options.indexOnly).toEqual(['2']);
+      expect(sent.options.overwrite).toBe(false);
+    });
+
+    it('keeps every copy you have unless told to replace outdated ones', async () => {
+      await openImport({ ...IMPORT, filetypes: ['JSON'], replaceOutdated: false, scope: 'skip' });
+      const lines = [...element.querySelectorAll('.import-summary li')].map((li) => li.textContent?.trim());
+      expect(lines).toEqual(['Lookup 2 works with missing index']);
+      await advanceTo('running');
+      expect(jobs.started[0].options.replaceOutdated).toBe(false);
+    });
+
+    it('is the only run that sends whether to replace outdated copies', async () => {
+      await open('works');
+      await advanceTo('running');
+      expect('replaceOutdated' in jobs.started[0].options).toBe(false);
+      expect('indexOnly' in jobs.started[0].options).toBe(false);
+    });
   });
 
   it('starts several fics with the paste as it was typed', async () => {

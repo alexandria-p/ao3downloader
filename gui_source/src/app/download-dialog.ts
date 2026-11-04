@@ -38,6 +38,7 @@ import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, attemptIssues, issueCount, issuesReport } from './issues';
+import { ImportRequest } from './imports';
 import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
 
 type Step =
@@ -135,6 +136,13 @@ const METADATA = 'JSON';
 
 const USERNAME_KEY = 'ao3.username';
 const REMEMBER_KEY = 'ao3.remember';
+
+/** which works a repair's downloads are for, as its summary says it */
+const IMPORT_SCOPE_WORDS: Record<string, string> = {
+  all: 'all fics found to have issues in this import',
+  dates: 'any fics found to have date issues in this import',
+  index: 'any fics found to have index issues in this import',
+};
 const MAX_LOG = 200;
 
 @Component({
@@ -160,6 +168,12 @@ export class DownloadDialog implements OnDestroy {
    * it would have had it been open all along.
    */
   readonly attachTo = input<ActiveRun | null>(null);
+  /**
+   * An import's works and what to do with them, chosen in the import window before this one
+   * opens (`ImportDialog`) - so an import has no link, options or file types step here, only
+   * the background choice (a hosted copy) and the login.
+   */
+  readonly importing = input<ImportRequest | null>(null);
   /**
    * The newest scan a quick scan would measure back to, once read: undefined until then, null
    * when there is none. 'Anything that has changed since my last run' needs only this, so only
@@ -547,6 +561,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Download/update a specific fic';
       case 'works':
         return 'Download/update several fics';
+      case 'import':
+        return 'Resolve issues found in your library';
       case 'custom':
         return 'Custom run';
       case 'quick':
@@ -572,6 +588,8 @@ export class DownloadDialog implements OnDestroy {
         return 'Indexes one fic and downloads it, in whichever formats you pick. Use it for a single work you want now, or to repair one copy.';
       case 'works':
         return 'The same as downloading a specific fic, for a whole list at once: paste their links or work numbers, and each is indexed, then all are downloaded.';
+      case 'import':
+        return this.importBlurb();
       case 'custom':
         return 'A full scan with its parts made optional - choose the pages to cover, or skip reading AO3 entirely and work from what is already indexed.';
       case 'quick':
@@ -582,6 +600,31 @@ export class DownloadDialog implements OnDestroy {
   });
 
   /** JSON is metadata rather than a work, so the update run cannot produce it */
+  /** what an import will do, in a sentence, from what the import window chose */
+  private importBlurb(): string {
+    return this.importPlan().join('. ') + '.';
+  }
+
+  /** what a repair will do, a line each, from what the import window chose */
+  protected readonly importPlan = computed(() => {
+    const importing = this.importing();
+    if (!importing) return [];
+    const lines: string[] = [];
+    const lookups = importing.lookups ?? 0;
+    if (lookups) lines.push(`Lookup ${lookups.toLocaleString()} ${lookups === 1 ? 'work' : 'works'} with missing index`);
+    const formats = (importing.filetypes ?? []).filter((x) => x !== METADATA);
+    if (importing.scope !== 'skip' && formats.length) {
+      const named = formats.length > 1
+        ? `${formats.slice(0, -1).join(', ')} and ${formats[formats.length - 1]}`
+        : formats[0];
+      lines.push(`Download ${named} for ${IMPORT_SCOPE_WORDS[importing.scope] ?? IMPORT_SCOPE_WORDS['all']}`);
+    }
+    if (importing.scope !== 'skip' && importing.replaceOutdated) {
+      lines.push('Will replace any outdated files with newer ones, if they exist');
+    }
+    return lines;
+  });
+
   protected readonly metadataNotApplicable = computed(() => this.action() === 'update');
 
   /**
@@ -690,7 +733,8 @@ export class DownloadDialog implements OnDestroy {
    * pick - unless the run was asked to download the works in them too.
    */
   protected readonly picksFiletypes = computed(
-    () => !this.picksCollectionWorks() || this.collectionWorks(),
+    // an import's formats were chosen in the import window
+    () => this.action() !== 'import' && (!this.picksCollectionWorks() || this.collectionWorks()),
   );
   protected readonly needsLink = computed(
     () => this.action() === 'collection' || this.action() === 'work' || this.action() === 'works',
@@ -1089,13 +1133,15 @@ export class DownloadDialog implements OnDestroy {
     }
     // `downloads` already says no for a collections run not downloading their works
     if (this.downloads()) {
-      if (!this.overwrites()) asked.push('undated');
+      // an import leaves undated files alone without asking: the import window offered to date them
+      if (!this.overwrites() && this.action() !== 'import') asked.push('undated');
       asked.push('duplicates');
     }
     // a collections run that reads no works fetches none, so none can fail
-    if (this.picksFiletypes()) asked.push('fichub');
+    const readsWorks = this.picksFiletypes() || this.action() === 'import';
+    if (readsWorks) asked.push('fichub');
     // only comes up for a run that downloads, when FicHub's copy is older than the index
-    if (this.picksFiletypes() && this.downloads()) asked.push('fichub-outdated');
+    if (readsWorks && this.downloads()) asked.push('fichub-outdated');
     // only a run that replaces what you have can be about to replace it with something older
     if (this.downloads() && this.overwrites()) asked.push('overwrite-older');
     return asked;
@@ -1343,6 +1389,8 @@ export class DownloadDialog implements OnDestroy {
     // a window opened onto a run already going shows what the run said it was saving
     if (this.attachedTo()) return this.announcedFiletypes();
     if (this.resuming()) return this.chosenResume()?.filetypes ?? [];
+    const importing = this.importing();
+    if (this.action() === 'import' && importing) return importing.filetypes;
     // collections on their own are only ever indexed
     if (!this.picksFiletypes()) return [METADATA];
     if (!this.picksReindex()) return this.selected();
@@ -1825,12 +1873,18 @@ export class DownloadDialog implements OnDestroy {
         resume: resumed ? resumed.id : '',
         retryMode: resumed ? this.retryMode() || undefined : undefined,
         skipLogin: !this.logsIn(),
+        // an import's alone: whether a copy you have is replaced when AO3 has a newer version
+        ...(this.action() === 'import'
+          ? { replaceOutdated: !!this.importing()?.replaceOutdated, indexOnly: this.importing()?.indexOnly ?? [] }
+          : {}),
       } satisfies JobOptions,
       // nothing is sent for a run that will not log in, whatever is in the boxes - but a
       // run reading your own listing is found by your username, login or not
       username: this.logsIn() || this.needsUsername() ? this.username().trim() : '',
       password: this.logsIn() ? this.password() : '',
-      url: this.needsLink() ? this.collectionUrl().trim() : undefined,
+      url: this.needsLink()
+        ? this.collectionUrl().trim()
+        : this.action() === 'import' ? this.importing()?.links : undefined,
     };
   }
 
