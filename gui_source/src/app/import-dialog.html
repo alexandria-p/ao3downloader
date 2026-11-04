@@ -174,13 +174,6 @@
           <strong>Work {{ group.id }}, {{ group.format.toUpperCase() }}:</strong> choose the file to
           keep. The others are deleted.
         </p>
-        @if (!newestIn(group)) {
-          <p class="sift-unsure" role="note">
-            We don't know for sure which of these is the most up-to-date version: the dates in
-            their names, and when each file was last changed, do not settle it. Check before you
-            choose.
-          </p>
-        }
         <ul class="choose-list" role="radiogroup" [attr.aria-label]="'Keep for work ' + group.id">
           @for (file of byRecency(group); track file.path; let first = $first) {
             <li>
@@ -189,10 +182,9 @@
                        [checked]="pickedIn(group) === file.path"
                        (change)="setPicked(group, file)" />
                 <span>
+                  @if (first) { <span class="top-label" [class.guess]="!newestIn(group)">{{ topLabel(group) }}</span> }
                   <span class="file-name">{{ file.name }}</span>
-                  @for (line of fileNotes(file, first); track $index) {
-                    <span class="hint file-note" [class.likely]="$last && first && dateIn(file)">{{ line }}</span>
-                  }
+                  @for (line of fileNotes(file); track $index) { <span class="hint file-note">{{ line }}</span> }
                 </span>
               </label>
             </li>
@@ -302,10 +294,9 @@
                     <input type="radio" name="askPick" [attr.aria-label]="'Keep ' + file.name"
                            [checked]="askPick() === file.path" (change)="askPick.set(file.path)" />
                     <span>
+                      @if (first) { <span class="top-label" [class.guess]="!newestIn(group)">{{ topLabel(group) }}</span> }
                       <span class="file-name">{{ file.name }}</span>
-                      @for (line of fileNotes(file, first); track $index) {
-                        <span class="hint file-note" [class.likely]="$last && first && dateIn(file)">{{ line }}</span>
-                      }
+                      @for (line of fileNotes(file); track $index) { <span class="hint file-note">{{ line }}</span> }
                     </span>
                   </label>
                 </li>

@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2089 python passed; 994 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2089 python passed; 995 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2223,9 +2223,10 @@ window finishes after dating (`afterDating`). What not to break:
   further). The footer is only *Back* (to the list) and *Continue*, held until all are sorted
   (`siftDone`: *You are done - no more to sort*, the entry buttons and the bulk section gone). The list never shows what sifting
   decided. Each radio says `Filename dated X` or `No date included in the filename`, and `File
-  metadata updated at X` (or `: unknown`); the top one adds *We think this is the most recent*
-  when its name has a date (`fileNotes`), and a set whose most recent cannot be told carries
-  `.sift-unsure` (*We don't know for sure...*). **The removing page works set by set**
+  metadata updated at X` (or `: unknown`, `fileNotes`); above the top one's name
+  (`.top-label`, `topLabel`) is *Most recent* when `newestOf` settles it, else *This is our best
+  guess for 'most recent'* - no warning panel. The removing page's files to choose from show the
+  same, in a pane that scrolls (`.ask-files`). **The removing page works set by set**
   (`duplicatePlan` -> `RemovalStep`s in the list's order): `removeFiles` deletes with a bar -
   **never every file of a group** - and a set marked Keep most recent (on the list or in bulk,
   which marks sets rather than picking files) whose newest cannot be told **pauses the bar and

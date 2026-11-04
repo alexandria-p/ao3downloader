@@ -241,8 +241,16 @@ export class ImportDialog {
     return byRecency(group, this.modifiedAt());
   }
 
+  /**
+   * Said above the top radio: *Most recent* when the dates (and change times) settle it,
+   * otherwise that the top one is only our best guess.
+   */
+  protected topLabel(group: DuplicateGroup): string {
+    return this.newestIn(group) ? 'Most recent' : "This is our best guess for 'most recent'";
+  }
+
   /** what is known of one file, under its radio: the date in its name, and when it last changed */
-  protected fileNotes(file: FoundFile, top: boolean): string[] {
+  protected fileNotes(file: FoundFile): string[] {
     const date = this.dateIn(file);
     const at = this.modifiedAt()[file.path];
     const notes = [
@@ -251,7 +259,6 @@ export class ImportDialog {
         ? `File metadata updated at ${new Date(at).toLocaleString([], inAo3Zone({ dateStyle: 'medium', timeStyle: 'short' }))}`
         : 'File metadata updated at: unknown',
     ];
-    if (top && date) notes.push('We think this is the most recent');
     return notes;
   }
 

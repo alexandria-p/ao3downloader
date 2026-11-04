@@ -556,16 +556,22 @@ footer.with-bulk {
   display: block;
 }
 
-.file-note.likely {
+/* above the top radio's file: the most recent, or only our best guess at it */
+.top-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
   color: #8fc58a;
 }
 
-.sift-unsure {
-  margin: 8px 0;
-  padding: 10px 12px;
-  border: 1px solid #8a6d2f;
-  border-radius: 3px;
-  background: #2d2616;
+.top-label.guess {
+  color: #d9b45c;
+}
+
+/* the files to choose from while the removing page is paused: scrolls, however many there are */
+.undecided-ask .ask-files {
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 /* the removing page stopped on a set it cannot tell */

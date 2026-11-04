@@ -692,29 +692,33 @@ describe('ImportDialog', () => {
       'Keep 5 Tie - W 2023-03-03.mobi',
     ]);
     expect(radios()[0].checked).toBe(true);
-    expect(element.querySelector('.sift-unsure')).toBeNull();
+    expect(element.querySelector('.top-label')?.textContent?.trim()).toBe('Most recent');
   });
 
-  it('says under each file what its name dates it and when it last changed, and which we think is newest', async () => {
+  it('says above the top file that it is the most recent, and under each its name date and change time', async () => {
     await openTied(TIED_TIMES);
     await click('Continue');
     await click("Mark all as I'll choose myself");
     await click('Choose which to keep');
-    const notes = [...element.querySelectorAll('.choose-list li:not(.skip-this)')].map((li) =>
-      [...li.querySelectorAll('.file-note')].map((n) => n.textContent?.trim()),
-    );
+    const items = [...element.querySelectorAll('.choose-list li:not(.skip-this)')];
+    // the label comes before the file's name
+    const top = items[0].querySelector('.top-label')!;
+    expect(top.textContent?.trim()).toBe('Most recent');
+    expect(top.compareDocumentPosition(items[0].querySelector('.file-name')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(items[1].querySelector('.top-label')).toBeNull();
+    const notes = items.map((li) => [...li.querySelectorAll('.file-note')].map((n) => n.textContent?.trim()));
     expect(notes[0][0]).toBe('Filename dated 2023-03-03');
     expect(notes[0][1]).toMatch(/^File metadata updated at \S/);
-    expect(notes[0][2]).toBe('We think this is the most recent');
-    expect(notes[1]).toHaveLength(2);
+    expect(notes[0]).toHaveLength(2);
   });
 
-  it('warns when sifting a set whose most recent cannot be told, and never says it of an undated top file', async () => {
+  it('calls the top file only our best guess when the most recent cannot be told, with no warning panel', async () => {
     await openTied({});
     await click('Continue');
     await click("Mark all as I'll choose myself");
     await click('Choose which to keep');
-    expect(element.querySelector('.sift-unsure')?.textContent).toContain("We don't know for sure");
+    expect(element.querySelector('.sift-unsure')).toBeNull();
+    expect(element.querySelector('.top-label')?.textContent?.trim()).toBe("This is our best guess for 'most recent'");
     expect(element.textContent).toContain('File metadata updated at: unknown');
 
     const undated = duplicateGroups(['works/6 A.html', 'works/6 B.html']);
@@ -722,9 +726,23 @@ describe('ImportDialog', () => {
     await click('Continue');
     await click("Mark all as I'll choose myself");
     await click('Choose which to keep');
-    expect(element.querySelector('.sift-unsure')).toBeTruthy();
+    expect(element.querySelector('.top-label')?.textContent?.trim()).toBe("This is our best guess for 'most recent'");
     expect(element.textContent).toContain('No date included in the filename');
-    expect(element.textContent).not.toContain('We think this is the most recent');
+    expect(element.textContent).not.toContain('Most recent\n');
+  });
+
+  it('puts the files in a pane of their own to scroll through when choosing on the removing page', async () => {
+    const many = duplicateGroups(Array.from({ length: 12 }, (_, i) => `works/4 Copy ${i}.html`));
+    await open([], false, [], many);
+    await click('Continue');
+    await click('Mark all as Keep most recent');
+    await click('Continue');
+    await settle();
+    element.querySelector<HTMLInputElement>('input[name="askHow"][aria-label="Choose individually"]')!.click();
+    await fixture.whenStable();
+    const pane = element.querySelector('.undecided-ask .ask-files')!;
+    expect(pane.querySelectorAll('input[name="askPick"]')).toHaveLength(12);
+    expect(getComputedStyle(pane).overflowY).toBe('auto');
   });
 
   it('decides nothing while sifting: every file is still there until the removing page', async () => {
