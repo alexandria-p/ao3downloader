@@ -472,6 +472,11 @@ AO3_INFO_IMPORT_WORKS = '{} works found in your library to look up'
 AO3_INFO_IMPORT_RENAMED = 'renamed to match its index entry: {} -> {}'
 AO3_INFO_IMPORT_NAME_KEPT = 'could not rename {} to match its index entry ({} is taken, or the rename was refused) - left as it is'
 AO3_INFO_IMPORT_NAMES_UNREADABLE = 'could not list your works folder to name the imported files from their index entries: {}'
+# the page's list of files and works never to offer again in Resolve issues found in your
+# library, at the library's top. the page reads it; an import renaming a file keeps it current
+IMPORT_EXCLUDED_FILE_NAME = 'import-excluded.json'
+AO3_INFO_IMPORT_EXCLUDED_RENAMED = 'exclusion list updated for {} renamed {}'
+AO3_INFO_IMPORT_EXCLUDED_UNSAVED = 'could not update the exclusion list for the renamed files: {}'
 AO3_INFO_IMPORT_UNDATED_KEPT = 'left undated before the import started, so kept as they are'
 AO3_INFO_IMPORT_KEEPING = 'not replacing outdated copies: only formats you do not have are fetched'
 AO3_INFO_IMPORT_INDEX_ONLY = '{} of these works are only indexed: no format is fetched for them'

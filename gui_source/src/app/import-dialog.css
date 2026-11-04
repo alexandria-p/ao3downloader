@@ -383,3 +383,7 @@ input[type='date'] {
   font-size: 0.84rem;
 }
 
+
+.remember-skips {
+  margin: 12px 0 0;
+}

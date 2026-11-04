@@ -35,6 +35,8 @@ export interface FoundFile {
    * work was excluded from it - so it is offered for dating only, never looked up
    */
   unindexed?: boolean;
+  /** on the dates list: never offered for dating, though its work may still be asked about */
+  noDating?: boolean;
 }
 
 /** a work in the library with no index entry, and its files */
@@ -95,7 +97,7 @@ function byWork(files: FoundFile[]): FoundWork[] {
 
 /** the files among these works with no date in their name */
 export function undatedFiles(works: FoundWork[]): FoundFile[] {
-  return works.flatMap((w) => w.files.filter((f) => !f.date));
+  return works.flatMap((w) => w.files.filter((f) => !f.date && !f.noDating));
 }
 
 /** whether a typed date is one a file can be named with: a real `YYYY-MM-DD` */
@@ -281,14 +283,19 @@ export interface ImportRequest {
 
 /**
  * What never to offer again, at the top of the library, so a library in Dropbox leaves the
- * same out on every device. Like `hidden-works.json`, only the page reads it. Two lists:
+ * same out on every device. The page reads and writes it; the helper only renames names in it. Three lists:
  *
  * - **files** (`kind: 'files'`, *No, do not ask me again for these files*): left out of
  *   everything - never counted, never listed, never a reason to offer the window;
  * - **index** (`kind: 'index'`, *No, and do not ask again for these works*): a work with no
  *   index entry, and the files it had then. It is not asked about again **while its files are
  *   still exactly those**; a file added since asks again. Its undated files are still offered
- *   for dating, and renaming one renames it here too (`LibraryImports.renamed`).
+ *   for dating, and renaming one renames it here too (`LibraryImports.renamed`);
+ * - **dates** (`kind: 'dates'`, *Don't ask this again for skipped files*): undated files never
+ *   offered for dating again, by name. Each still counts for its work's index question.
+ *
+ * A file renamed - by dating here, or by an import naming files from their new entries (the
+ * helper's `follow_renames_in_exclusions`) - is renamed on every list it is on.
  */
 export const IMPORT_EXCLUDED_FILE = 'import-excluded.json';
 
@@ -297,12 +304,14 @@ export interface Excluded {
   files: Set<string>;
   /** by work number: the file names it had when it was left out of the index question */
   index: Map<string, Set<string>>;
+  /** file names never offered for dating */
+  dates: Set<string>;
 }
 
 /** one line of the excluded file */
 interface ExcludedEntry {
   id: string;
-  kind?: 'files' | 'index';
+  kind?: 'files' | 'index' | 'dates';
   files?: string[];
   excluded_on?: string;
 }
@@ -319,10 +328,11 @@ function excludedEntries(text: string | null): ExcludedEntry[] {
 }
 
 function excludedOf(entries: ExcludedEntry[]): Excluded {
-  const excluded: Excluded = { files: new Set(), index: new Map() };
+  const excluded: Excluded = { files: new Set(), index: new Map(), dates: new Set() };
   for (const entry of entries) {
     const names = (entry.files ?? []).map(String);
     if (entry.kind === 'files') for (const name of names) excluded.files.add(name);
+    else if (entry.kind === 'dates') for (const name of names) excluded.dates.add(name);
     else {
       const id = String(entry.id);
       excluded.index.set(id, new Set([...(excluded.index.get(id) ?? []), ...names]));
@@ -359,26 +369,30 @@ export class LibraryImports {
   readonly hasIssues = computed(() => this.found().length > 0 || this.undatedIndexed().length > 0);
   /** the store the last check was of, so a check of a library since closed is dropped */
   readonly checkedStore = signal<LibraryStore | null>(null);
-  /** the excluded file's lines, as each library has them - read once, then kept */
-  private readonly entriesBy = new WeakMap<LibraryStore, ExcludedEntry[]>();
+  /**
+   * the excluded file's lines, as each library has them - read once per listing, so a run that
+   * renamed files (and so changed the file) is read again once the page takes its changes in
+   */
+  private readonly entriesBy = new WeakMap<LibraryStore, { entries: ExcludedEntry[]; listedAt: Date | null }>();
   private generation = 0;
 
   private async entries(store: LibraryStore): Promise<ExcludedEntry[]> {
-    let entries = this.entriesBy.get(store);
-    if (!entries) {
-      try {
-        entries = excludedEntries(await store.read(IMPORT_EXCLUDED_FILE));
-      } catch {
-        entries = [];
-      }
-      this.entriesBy.set(store, entries);
+    const listedAt = this.library.listedAt();
+    const cached = this.entriesBy.get(store);
+    if (cached && cached.listedAt === listedAt) return cached.entries;
+    let entries: ExcludedEntry[];
+    try {
+      entries = excludedEntries(await store.read(IMPORT_EXCLUDED_FILE));
+    } catch {
+      entries = cached?.entries ?? [];
     }
+    this.entriesBy.set(store, { entries, listedAt });
     return entries;
   }
 
   private async save(store: LibraryStore, entries: ExcludedEntry[]): Promise<void> {
     await store.write(IMPORT_EXCLUDED_FILE, new Response(JSON.stringify({ excluded: entries }, null, 2) + '\n'));
-    this.entriesBy.set(store, entries);
+    this.entriesBy.set(store, { entries, listedAt: this.library.listedAt() });
   }
 
   /**
@@ -386,17 +400,29 @@ export class LibraryImports {
    * files themselves are left as they are.
    */
   async excludeFiles(files: FoundFile[]): Promise<void> {
+    await this.addFiles('files', files);
+  }
+
+  /**
+   * Never offer these undated files for dating again (*Don't ask this again for skipped
+   * files*). Their works are still asked about; the files are left as they are.
+   */
+  async excludeDating(files: FoundFile[]): Promise<void> {
+    await this.addFiles('dates', files);
+  }
+
+  private async addFiles(kind: 'files' | 'dates', files: FoundFile[]): Promise<void> {
     const store = this.library.store();
     if (!store || !files.length) return;
     const entries = await this.entries(store);
-    const before = excludedOf(entries).files;
+    const before = excludedOf(entries)[kind];
     const today = new Date().toISOString().slice(0, 10);
     const byWork = new Map<string, string[]>();
     for (const file of files) {
       if (before.has(file.name)) continue;
       byWork.set(file.id, [...(byWork.get(file.id) ?? []), file.name]);
     }
-    const added: ExcludedEntry[] = [...byWork].map(([id, names]) => ({ id, kind: 'files', files: names, excluded_on: today }));
+    const added: ExcludedEntry[] = [...byWork].map(([id, names]) => ({ id, kind, files: names, excluded_on: today }));
     if (added.length) await this.save(store, [...entries, ...added]);
     await this.check();
   }
@@ -456,14 +482,20 @@ export class LibraryImports {
       if (generation !== this.generation || store !== this.library.store()) return;
       // files left out of everything are gone before anything is counted
       const paths = listed.filter((p) => !excluded.files.has(baseName(p)));
-      const unindexed = unindexedWorks(paths, indexed);
+      // files on the dates list are never offered for dating, but still count for their work
+      const unindexed = unindexedWorks(paths, indexed).map((w) => ({
+        ...w,
+        files: w.files.map((f) => (excluded.dates.has(f.name) ? { ...f, noDating: true } : f)),
+      }));
       const asked = unindexed.filter((w) => !indexExcluded(w, excluded));
       // a work left out of the index question still has its undated files to date
       const notAsked = unindexed
         .filter((w) => indexExcluded(w, excluded))
         .flatMap((w) => w.files.filter((f) => !f.date).map((f) => ({ ...f, unindexed: true })));
       this.found.set(asked);
-      this.undatedIndexed.set([...undatedIndexedFiles(paths, indexed), ...notAsked]);
+      this.undatedIndexed.set(
+        [...undatedIndexedFiles(paths, indexed), ...notAsked].filter((f) => !excluded.dates.has(f.name)),
+      );
       this.checkedStore.set(store);
     } catch {
       // the library could not be listed: whatever was found before is kept until it can

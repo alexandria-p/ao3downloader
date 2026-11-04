@@ -140,6 +140,18 @@
           <button type="button" class="button subtle" [disabled]="page() >= pages() - 1" (click)="page.set(page() + 1)">Next</button>
         </div>
       }
+      <label class="check remember-skips">
+        <input type="checkbox" name="rememberSkips" [checked]="rememberSkips()"
+               (change)="rememberSkips.set($any($event.target).checked)" />
+        <span>
+          Don't ask this again for skipped files
+          <span class="hint">
+            Every file you ticked Skip on is added to <code>import-excluded.json</code> at the top
+            of your library and never offered for dating again. Its work is still checked for a
+            missing index entry, and the files stay as they are.
+          </span>
+        </span>
+      </label>
     </section>
     <footer>
       <button type="button" class="button subtle" (click)="backFrom('dates')">Back</button>

@@ -203,7 +203,7 @@ export class App {
   /** what the Works tab's button has found, in a few words */
   protected readonly importIssuesSaid = computed(() => {
     const works = this.imports.found().length;
-    const undated = this.imports.found().reduce((n, w) => n + w.files.filter((f) => !f.date).length, 0) +
+    const undated = this.imports.found().reduce((n, w) => n + w.files.filter((f) => !f.date && !f.noDating).length, 0) +
       this.imports.undatedIndexed().length;
     const parts = [];
     if (works) parts.push(`${works.toLocaleString()} ${works === 1 ? 'work has' : 'works have'} files but no index entry`);

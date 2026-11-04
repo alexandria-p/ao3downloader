@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2086 python passed; 942 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2088 python passed; 947 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2175,7 +2175,7 @@ window finishes after dating (`afterDating`). What not to break:
   own name ends in - the version the file holds, which may be older than AO3's - never over
   another file. Only an entry the import **makes** is marked `from_import`; a work already
   indexed (one whose undated files brought it into the import) keeps its origin.
-- **Two exclusion lists, in one file** (`import-excluded.json` at the library's top,
+- **Three exclusion lists, in one file** (`import-excluded.json` at the library's top,
   `IMPORT_EXCLUDED_FILE`, read once per library; only the page reads it). The **files** list
   (`kind: 'files'`, by name) is dropped before anything is counted - such a file never offers
   the window, the reminder, a date or an index lookup. The **index** list (`kind: 'index'`,
@@ -2184,8 +2184,14 @@ window finishes after dating (`afterDating`). What not to break:
   there**: the work is passed over by the index question only while every file it has now was
   recorded (`indexExcluded`) - a file added since asks again, and the work is recorded afresh.
   Its undated files are still offered for dating (`FoundFile.unindexed`, never in an update's
-  `dateIssues`), and a rename by dating follows into the list (`LibraryImports.renamed`, from
-  `App.takeInDating`), or dating it would ask again. **The index page is only there with
+  `dateIssues`). The **dates** list (`kind: 'dates'`, the dates page's *Don't ask this again
+  for skipped files*, `LibraryImports.excludeDating`: every row ticked Skip) keeps files out of
+  dating only (`FoundFile.noDating`) - each still counts for its work's index question. **A
+  rename follows into every list**: dating's (`LibraryImports.renamed`, from
+  `App.takeInDating`) and an import's naming files from their entries (the helper's
+  `follow_renames_in_exclusions`, the one place the helper touches the file) - or the renamed
+  file would read as a new one and be asked about again. The page reads the file again
+  whenever `Library.listedAt` moves, so a run's renames are seen. **The index page is only there with
   unindexed works.** **The formats
   page starts with which works to update** (`updateScope`: all, date issues, indexing issues,
   skip); skipped hides the formats and replacing and does neither. A work left unindexed is

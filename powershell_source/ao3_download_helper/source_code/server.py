@@ -4505,6 +4505,7 @@ def name_files_from_index(fileops: FileOps, records: list[dict]) -> int:
         return 0
 
     renamed = 0
+    names: dict[str, str] = {}
     for path in paths:
         name = path.replace('\\', '/').rsplit('/', 1)[-1]
         extension = os.path.splitext(name)[1]
@@ -4518,8 +4519,42 @@ def name_files_from_index(fileops: FileOps, records: list[dict]) -> int:
             print(strings.AO3_INFO_IMPORT_NAME_KEPT.format(name, wanted))
             continue
         print(strings.AO3_INFO_IMPORT_RENAMED.format(name, wanted))
+        names[name] = wanted
         renamed += 1
+    follow_renames_in_exclusions(fileops, names)
     return renamed
+
+
+def follow_renames_in_exclusions(fileops: FileOps, names: dict[str, str]) -> int:
+    """A file the import renamed keeps its place on the page's exclusion lists: every entry
+    naming its old name is given the new one, or the next look at the library would take the
+    renamed file for a new one and ask about it again. Answers how many names changed; a list
+    that will not read or save is said and left."""
+
+    if not names: return 0
+    try:
+        document = fileops.load_json(strings.IMPORT_EXCLUDED_FILE_NAME)
+    except Exception:
+        document = None
+    entries = document.get('excluded') if isinstance(document, dict) else None
+    if not isinstance(entries, list): return 0
+    changed = 0
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get('files'), list): continue
+        files = []
+        for x in entry['files']:
+            files.append(names.get(x, x) if isinstance(x, str) else x)
+            if isinstance(x, str) and x in names: changed += 1
+        entry['files'] = files
+    if not changed: return 0
+    try:
+        fileops.save_json(strings.IMPORT_EXCLUDED_FILE_NAME, document)
+    except Exception as e:
+        print(strings.AO3_INFO_IMPORT_EXCLUDED_UNSAVED.format(e))
+        return 0
+    print(strings.AO3_INFO_IMPORT_EXCLUDED_RENAMED.format(changed,
+                                                          'file' if changed == 1 else 'files'))
+    return changed
 
 
 def keep_existing_copies(records: list[dict], plan: dict, filetypes: list[str]) -> None:

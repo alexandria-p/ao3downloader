@@ -342,6 +342,36 @@ def test_an_import_renames_its_works_files_to_match_their_new_entries_keeping_th
     assert 'renamed to match its index entry' in capsys.readouterr().out
 
 
+def test_a_file_an_import_renames_keeps_its_place_on_every_exclusion_list(library, capsys):
+    import json
+    a_copy(library, '1 old fic name.html')
+    a_copy(library, '1 old fic name 2024-05-06.pdf')
+    excluded = {'excluded': [
+        {'id': '1', 'kind': 'dates', 'files': ['1 old fic name.html']},
+        {'id': '1', 'kind': 'files', 'files': ['1 old fic name 2024-05-06.pdf', '1 gone.epub']},
+        {'id': '9', 'kind': 'index', 'files': ['9 other.html']},
+    ]}
+    with open(os.path.join(library.downloadfolder, strings.IMPORT_EXCLUDED_FILE_NAME), 'w') as f:
+        json.dump(excluded, f)
+
+    server.name_files_from_index(library, [ENTRY])
+
+    with open(os.path.join(library.downloadfolder, strings.IMPORT_EXCLUDED_FILE_NAME)) as f:
+        after = json.load(f)['excluded']
+    assert [e['files'] for e in after] == [
+        ['1 The Fic - Writer.html'],
+        ['1 The Fic - Writer 2024-05-06.pdf', '1 gone.epub'],
+        ['9 other.html'],
+    ]
+    assert strings.AO3_INFO_IMPORT_EXCLUDED_RENAMED.format(2, 'files') in capsys.readouterr().out
+
+
+def test_an_import_with_no_exclusion_list_writes_none(library):
+    a_copy(library, '1 old fic name.html')
+    server.name_files_from_index(library, [ENTRY])
+    assert not os.path.exists(os.path.join(library.downloadfolder, strings.IMPORT_EXCLUDED_FILE_NAME))
+
+
 def test_an_import_never_renames_a_file_over_another(library, capsys):
     a_copy(library, '1 old.html')
     a_copy(library, '1 The Fic - Writer.html')

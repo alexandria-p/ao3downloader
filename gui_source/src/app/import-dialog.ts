@@ -90,6 +90,8 @@ export class ImportDialog {
   /** the rows' order, by path - by name, until `Infer date` moves what it dated to the top */
   protected readonly order = signal<string[] | null>(null);
   protected readonly bulkDate = signal('');
+  /** the skipped files go on the dates list, never to be offered for dating again */
+  protected readonly rememberSkips = signal(false);
   protected readonly inferring = signal(false);
   /** what the last `Infer date` found: how many it dated, or null before it has run */
   protected readonly inferredCount = signal<number | null>(null);
@@ -317,6 +319,14 @@ export class ImportDialog {
   protected async fromDates(): Promise<void> {
     const store = this.store();
     const chosen = this.toDate();
+    const skipped = this.undated().filter((f) => this.skipped()[f.path]);
+    if (this.rememberSkips() && skipped.length && !this.busy()) {
+      try {
+        await this.imports.excludeDating(skipped);
+      } catch {
+        // not written: they are offered for dating again next time, which loses nothing
+      }
+    }
     if (!chosen.length || !store || this.busy()) {
       this.step.set(this.afterDatesStep());
       return;

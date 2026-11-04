@@ -272,6 +272,43 @@ describe('LibraryImports', () => {
     expect(imports.undatedIndexed().map((f) => [f.name, f.unindexed])).toEqual([['123 no-index.pdf', true]]);
   });
 
+  it('never offers a file on the dates list for dating, but still asks about its work', async () => {
+    const imports = await checked(
+      ['works/1 A - B.html', 'works/1 A - B.pdf', 'works/7 G - H.epub'],
+      [{ id: '1', kind: 'dates', files: ['1 A - B.html'] }, { id: '7', kind: 'dates', files: ['7 G - H.epub'] }],
+      ['7'],
+    );
+    expect(imports.found().map((w) => w.id)).toEqual(['1']);
+    expect(undatedFiles(imports.found()).map((f) => f.name)).toEqual(['1 A - B.pdf']);
+    expect(imports.undatedIndexed()).toEqual([]);
+  });
+
+  it('offers nothing when the only issue left is files on the dates list', async () => {
+    const imports = await checked(
+      ['works/7 G - H.epub'],
+      [{ id: '7', kind: 'dates', files: ['7 G - H.epub'] }],
+      ['7'],
+    );
+    expect(imports.hasIssues()).toBe(false);
+  });
+
+  it('reads the list again once the library is listed again, so a run renaming files is seen', async () => {
+    const library = TestBed.inject(Library);
+    const store = new MemoryStore(['works/7 New Name - H.epub']);
+    store.texts.set(IMPORT_EXCLUDED_FILE, JSON.stringify({ excluded: [{ id: '7', kind: 'dates', files: ['7 old.epub'] }] }));
+    library.store.set(store);
+    library.worksById.set(new Map([['7', { id: '7' } as Bookmark]]));
+    const imports = TestBed.inject(LibraryImports);
+    await imports.check();
+    expect(imports.undatedIndexed()).toHaveLength(1);
+
+    // the helper renamed the file, and its entry in the list with it
+    store.texts.set(IMPORT_EXCLUDED_FILE, JSON.stringify({ excluded: [{ id: '7', kind: 'dates', files: ['7 New Name - H.epub'] }] }));
+    library.listedAt.set(new Date());
+    await imports.check();
+    expect(imports.undatedIndexed()).toEqual([]);
+  });
+
   it('records the files each list was given, and follows a file that dating renames', async () => {
     const library = TestBed.inject(Library);
     const store = new MemoryStore(['works/123 no-index.pdf', 'works/123 no-index.epub', 'works/5 X.html']);

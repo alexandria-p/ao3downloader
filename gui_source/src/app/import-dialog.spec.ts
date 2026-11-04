@@ -272,6 +272,39 @@ describe('ImportDialog', () => {
     expect(primary().textContent?.trim()).toBe('Date 1 file and continue');
   });
 
+  it('puts only the skipped files on the dates list when told not to ask again', async () => {
+    await open();
+    TestBed.inject(Library).store.set(store);
+    await click('Continue');
+    const box = element.querySelector<HTMLInputElement>('input[name="rememberSkips"]')!;
+    expect(box.closest('label')!.textContent).toContain("Don't ask this again for skipped files");
+    expect(box.closest('label')!.textContent).toContain('import-excluded.json');
+    expect(element.querySelector('.remember-skips')!.compareDocumentPosition(element.querySelector('table.dating')!) &
+      Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+
+    row('works/2 C - D.pdf').querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+    row('works/3 E - F.epub').querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+    box.click();
+    await fixture.whenStable();
+    await click('Skip this step');
+
+    const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
+    expect(written.excluded.map((x: { id: string; kind: string; files: string[] }) => [x.id, x.kind, x.files])).toEqual([
+      ['2', 'dates', ['2 C - D.pdf']],
+      ['3', 'dates', ['3 E - F.epub']],
+    ]);
+  });
+
+  it('writes nothing for skipped files unless told not to ask again', async () => {
+    await open();
+    TestBed.inject(Library).store.set(store);
+    await click('Continue');
+    row('works/2 C - D.pdf').querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+    await fixture.whenStable();
+    await click('Skip this step');
+    expect(store.written.size).toBe(0);
+  });
+
   it('greys a skipped row and its date, without striking it through', async () => {
     await open();
     await click('Continue');
