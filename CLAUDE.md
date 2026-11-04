@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2089 python passed; 997 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2099 python passed; 997 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2094,6 +2094,14 @@ holds that - and is skipped when nothing failed. What not to break:
 - **Rescued works leave `ao3.failures`** for `ao3.rescued` (a `rescued` event, and
   `rescued` in the run record, listed in History). A work FicHub could not give (or not every
   format of) stays a failure, `error` becoming `AO3: ... | FicHub: ...`.
+- **An import's FicHub step keeps to the import's rules** (`fichub_formats_for`): a work it
+  only looks up (`indexOnly`) is indexed from FicHub and nothing fetched
+  (`AO3_INFO_FICHUB_INDEX_ONLY`); without `replaceOutdated` a format you hold any copy of is
+  never fetched (`AO3_INFO_KEEPING_YOURS`), only the missing ones; and once FicHub's entries are
+  written, `name_files_from_index` names the works' files from them as it did for AO3's -
+  keeping each file's own date, or none, never FicHub's. Every other run is unchanged.
+  `test_fichub.py`'s *FicHub in each workflow* region runs the step for a single fic, several
+  fics, a quick scan, a full scan and an import.
 - **The single-fic run survives its own page failing**: `run_work` records the failure and
   goes straight to `finish_run`, so FicHub can index and fetch a fic ao3 has taken down.
 - **`conftest.py` stubs the step out** (`fichub_left_alone`) for every test not marked

@@ -39,7 +39,7 @@ the same thing in conversation.
 - **Step** [checklist item] - one stage of a run, shown ticked, skipped, failed, or *done in the earlier run* (a resumed run's step its earlier attempt finished) in the run window.
 - **Option** [checkbox, configuration] - a choice made before a run starts.
 - **Question** - something a run stops to ask part-way through (undated files, older copies, how far back to go, whether to try FicHub, whether to take an older FicHub copy, whether an overwriting run should replace a newer copy with an older version). Unanswered, each takes its default after 30 minutes - the one that changes nothing, except the two FicHub questions, which are *yes*. *Replace a newer copy with an older version* defaults to *no*.
-- **FicHub** [the mirror, fichub.net] - a site keeping copies of AO3 works, including some AO3 no longer serves. A run asks it, at the end, for the works AO3 would not give it (`source_code/fichub.py`).
+- **FicHub** [the mirror, fichub.net] - a site keeping copies of AO3 works, including some AO3 no longer serves. A run asks it, at the end, for the works AO3 would not give it (`source_code/fichub.py`). On an import it follows the import's rules: index-only works get only an entry, held copies are kept unless `replaceOutdated`, and the files are renamed from the new entries (`fichub_formats_for`).
 - **Scan** - can be used either to describe a scan workflow (full or quick), or to describe reading the library's existing files (the check step).
 - **Cleanup** - the step that removes older copies you chose to remove.
 - **Report** - the end-of-run lists of what failed, was skipped, or needs checking.
