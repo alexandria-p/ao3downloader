@@ -387,3 +387,215 @@ input[type='date'] {
 .remember-skips {
   margin: 12px 0 0;
 }
+
+/* duplicates: each group's files under its title, the choice on the right */
+.duplicates-table th:nth-child(2),
+.duplicates-table td:nth-child(2) {
+  width: 170px;
+}
+
+.duplicates-table td.group-files ul {
+  margin: 4px 0 0;
+  padding: 0 0 0 18px;
+}
+
+.duplicates-table td.group-files li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.group-title {
+  color: var(--text-strong);
+}
+
+/* keep most recent: the one kept in green, the ones that go struck through */
+.duplicates-table li.newest {
+  color: #9fd49a;
+}
+
+.duplicates-table li.goes {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.duplicates-table tr.skipped .group-title {
+  color: var(--text-dim);
+}
+
+.undecided-note {
+  display: block;
+  margin: 4px 0 0;
+  color: #e0c97a;
+  font-size: 0.82rem;
+}
+
+select {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.choose-list {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  list-style: none;
+}
+
+.choose-progress {
+  margin: 0 0 6px;
+}
+
+.undecided summary {
+  color: #e0c97a;
+}
+
+.remember-keep-all {
+  margin: 12px 0 0;
+}
+
+.this-one {
+  margin: 0 0 8px;
+}
+
+.this-one .button.on {
+  border-color: #5a7f9a;
+}
+
+.sift-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+
+.sift-done {
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid #4f7a4c;
+  border-radius: 3px;
+  background: #1f2d1e;
+}
+
+.sifted,
+.sifted-note {
+  font-size: 0.82rem;
+}
+
+.this-one .sifted {
+  align-self: center;
+}
+
+.sifted-note {
+  display: block;
+  margin: 4px 0 0;
+  color: #9fd49a;
+}
+
+.overview-heading {
+  margin: 0 0 4px;
+}
+
+.overview-issues {
+  margin: 0 0 14px;
+  padding: 0 0 0 22px;
+}
+
+.overview-issues li {
+  margin: 2px 0;
+}
+
+/* every footer button the same size */
+/* the rest sorted at once, in the footer above its buttons, out of the way until opened */
+footer.with-bulk {
+  flex-wrap: wrap;
+}
+
+.sort-rest {
+  flex: 1 0 100%;
+  margin: 0 0 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.sort-rest summary {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.sort-rest p {
+  margin: 10px 0 6px;
+}
+
+.sort-rest-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+/* the skip, set apart below the files */
+.choose-list .skip-this {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* what is known of each file, a line each under its name */
+.file-note {
+  display: block;
+}
+
+/* above the top radio's file: the most recent, or only our best guess at it */
+.top-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #8fc58a;
+}
+
+.top-label.guess {
+  color: #d9b45c;
+}
+
+/* the files to choose from while the removing page is paused: scrolls, however many there are */
+.undecided-ask .ask-files {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* the removing page stopped on a set it cannot tell */
+.undecided-ask {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #8a6d2f;
+  border-radius: 3px;
+  background: #2d2616;
+}
+
+.undecided-ask .ask-how,
+.undecided-ask .ask-others {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.undecided-ask .ask-others p {
+  margin: 4px 0;
+}
+
+.undecided-ask .ask-timeout {
+  margin: 8px 0;
+}
+

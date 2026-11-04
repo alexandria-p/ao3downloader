@@ -290,7 +290,7 @@ def write_config(config_dir: Path, python_home: Path) -> tuple[list[str], list[s
 
 # the feedback form's two public settings, from the GitHub variables of the same names. Not in
 # settings.ini: that file is the user's, and only ever added to, so a value kept there would go
-# stale in every install - the build is what knows where its feedback goes. FEEDBACK.md is the setup
+# stale in every install - the build is what knows where its feedback goes.
 ENV_FEEDBACK_URL = 'FEEDBACK_URL'
 ENV_TURNSTILE_SITE_KEY = 'TURNSTILE_SITE_KEY'
 
@@ -442,7 +442,7 @@ A deployment gives everything it builds one version, and that page checks GitHub
 release each time it opens. A bundle built here has no version, so its page never checks.
 
 The hosted page and the apps also have a **Feedback** tab, which opens a public GitHub issue
-through a small Cloudflare Worker (FEEDBACK.md in the project root). A bundle built here has
+through a small Cloudflare Worker. A bundle built here has
 no Feedback tab, because it has no address for that Worker.
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/). Node is *not*
@@ -521,7 +521,10 @@ all are downloaded; FicHub is offered once, at the end, for every fic that faile
 **Importing works already in your library.** When a library opens with files in `works/`
 named for a work number your index has no entry for, the page offers to import them (the
 **Resolve issues found with import** reminder above the tabs offers it too, and its first
-page can put it off, leave these files out for good, or turn it off altogether; and undated files of indexed works are offered for dating). It offers to date the undated ones first - each, all at once, or
+page can put it off, leave these files out for good, or turn it off altogether; and undated files of indexed works are offered for dating). It asks first which to keep of any work with more than one
+file in the same format (the rest are deleted on the next page, which asks about any set
+whose most recent it cannot tell - by the date in each name, then when each file was last
+changed), then offers to date the undated ones - each, all at once, or
 skipped, and skipped ones can be left out of dating for good - then, if any have no index entry, whether to index them from AO3 now (or never ask
 about them again until a new file for one turns up, listed in `import-excluded.json`), which works to update, which other
 formats to download for them, and whether to replace a copy AO3 has a newer version of (off:
@@ -1077,7 +1080,7 @@ visitors a bookmark browser whose buttons fail.
 
 A copy on the web for **one person** is supported, and is set up differently: the page on
 GitHub Pages and the helper on Render, behind a passcode (`RequirePasscode`), with the ao3
-login encrypted on its way to the helper. `HOSTING.md` in the project root explains it. It is
+login encrypted on its way to the helper. It is
 not a way to share the app - anyone else should run it on their own computer, as this bundle
 does.
 """

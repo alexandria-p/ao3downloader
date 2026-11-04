@@ -450,6 +450,7 @@ AO3_INFO_FICHUB_WORK = 'FicHub {} of {}: asking FicHub about work {} ({})...'
 AO3_INFO_FICHUB_FOUND = '  FicHub has work {}: {}'
 AO3_INFO_FICHUB_FETCHING = '  fetching {} of work {} from FicHub...'
 AO3_INFO_FICHUB_INDEXING = '  writing the index entry for work {} from what FicHub says...'
+AO3_INFO_FICHUB_INDEX_ONLY = '  work {}: only looked up for its index entry - nothing downloaded from FicHub'
 AO3_INFO_FICHUB_NOT_INDEXED = '  index not updated for work {}'
 AO3_INFO_FICHUB_INDEXED = '  index updated for work {} from FicHub'
 AO3_INFO_FICHUB_RESCUED = '{} works AO3 would not give us came from FicHub instead'
@@ -788,7 +789,7 @@ FAILED_LOGIN_NO_TOKEN_VALUE = 'authenticity token field was empty'
 # endregion
 
 
-# region resuming an earlier run - see RESUMING.md
+# region resuming an earlier run - see helper_files/RESUMING.md
 
 AO3_INFO_RESUMING = 'resuming the {} that started {} - it stopped at: {}'
 AO3_INFO_RESUME_NO_STEP = 'before its first step'

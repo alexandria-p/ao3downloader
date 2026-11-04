@@ -1,4 +1,4 @@
-"""Retrying each scan from each place it can be retried from - see RESUMING.md.
+"""Retrying each scan from each place it can be retried from - see helper_files/RESUMING.md.
 
 The full scan, the quick scan (with and without a date range) and the custom run (over all
 your bookmarks, and over a date range), each retried:

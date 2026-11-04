@@ -26,6 +26,10 @@ settings come from its deployment, so the tab does not offer them there.
   window says so), saved as UTC, and compared as dates in this zone again. Every time the page
   shows - the run window's log, History, *List refreshed* - is in this zone. Reset to defaults
   puts it back to this browser's.
+- **Debug mode** - shows a banner at the top and a **DEBUG** tab, for trying the app out. Its
+  **Mock Resolve issues** opens the Resolve issues window on made-up files - choose duplicates,
+  index issues and/or dating issues, and how many - that live only in memory: nothing in your
+  library is renamed, deleted or written, and no run starts. This browser only.
 - **Exclusion lists for imports** - **Reset exclusion lists for imports** empties every list in
   the open library's `import-excluded.json` (files, index and dates), so everything Resolve
   issues found in your library passed over is offered again. Your files are not touched.
@@ -69,7 +73,7 @@ message at the bottom says so. Prompts and formats are kept in this browser only
 | `RetryMaxWaitSeconds` | `30` | The longest wait before retrying a failed request (the wait doubles each time). |
 | `LibraryTimeoutMinutes` | `15` | How long a run waits for the page to read or write a library file. |
 | `PageGoneSeconds` | `30` | How long a run waits for a closed or dropped page to come back before giving up. |
-| `HelperUrl` | `http://127.0.0.1:4400` | Where the page finds the helper. Only changes for a [[hosted copy|Hosting your own copy]]. |
+| `HelperUrl` | `http://127.0.0.1:4400` | Where the page finds the helper. Only changes for a hosted copy. |
 | `RequirePasscode` | `false` | Makes the helper refuse every request without the passcode. For a hosted copy. |
 | `PageOrigin` | *(empty)* | The page allowed to use a hosted helper, e.g. `https://you.github.io`. |
 | `SavePassword` | `false` | Left over from the console app. The web page never stores a password. |
@@ -84,4 +88,4 @@ When a new version adds a setting, it's appended to your file with its explanati
 
 ## Hosted copies and the apps
 
-The deploy workflow writes every setting from a GitHub variable named after it in upper snake case: `ExtraWaitTime` from `EXTRA_WAIT_TIME`. The Windows, Mac and Linux apps use the same variables, but always point at their own helper, with no passcode. See [[Hosting your own copy]].
+The deploy workflow writes every setting from a GitHub variable named after it in upper snake case: `ExtraWaitTime` from `EXTRA_WAIT_TIME`. The Windows, Mac and Linux apps use the same variables, but always point at their own helper, with no passcode.

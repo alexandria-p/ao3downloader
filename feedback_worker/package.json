@@ -2,7 +2,7 @@
   "name": "ao3downloader-feedback",
   "private": true,
   "type": "module",
-  "description": "The app's feedback form, turned into a GitHub issue. See FEEDBACK.md.",
+  "description": "The app's feedback form, turned into a GitHub issue.",
   "scripts": {
     "test": "node --test"
   }

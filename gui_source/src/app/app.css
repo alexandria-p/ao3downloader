@@ -471,3 +471,18 @@
 .import-issues-close:hover {
   color: var(--text-strong);
 }
+
+/* debug mode, above everything else */
+.debug-banner {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border: 1px solid #a04646;
+  border-radius: 5px;
+  background: #3a1e1e;
+  color: #f0c0c0;
+  font-size: 0.9rem;
+}
+
+.views .debug-tab-button {
+  color: #f08a8a;
+}

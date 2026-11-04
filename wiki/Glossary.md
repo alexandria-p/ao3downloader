@@ -1,4 +1,4 @@
-The words this project uses. `TERMINOLOGY.md` in the repository has the full list, every workflow's steps included.
+The words this project uses. `helper_files/TERMINOLOGY.md` in the repository has the full list, every workflow's steps included.
 
 | Term | Means |
 | --- | --- |

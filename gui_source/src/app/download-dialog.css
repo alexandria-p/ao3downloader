@@ -912,3 +912,12 @@ fieldset.bare:disabled {
 .import-summary li {
   margin: 2px 0;
 }
+
+/* a long import: leave the window open (a background run need not) */
+.long-run-note {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid #8a6d2f;
+  border-radius: 3px;
+  background: #2d2616;
+}

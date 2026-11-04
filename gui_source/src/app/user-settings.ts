@@ -26,6 +26,7 @@ import {
 import { UpdateCheck } from './updates';
 import { LibraryImports } from './imports';
 import { Library } from './library';
+import { DebugMode } from './debug';
 
 export type Asking = 'ask' | 'skip';
 
@@ -90,6 +91,12 @@ export class UserSettings implements OnDestroy {
   private readonly updates = inject(UpdateCheck);
   private readonly imports = inject(LibraryImports);
   private readonly library = inject(Library);
+  protected readonly debugMode = inject(DebugMode);
+
+  protected setDebugMode(on: boolean): void {
+    this.debugMode.set(on);
+    this.say(on ? 'Saved: debug mode is on - the DEBUG tab is beside User settings' : 'Saved: debug mode is off');
+  }
 
   /** a library open that can be written to: the exclusion lists live in it */
   protected readonly canResetExclusions = computed(() => !!this.library.store());

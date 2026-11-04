@@ -1,0 +1,79 @@
+<section class="debug-tab">
+  <h2>Debug</h2>
+  <p class="hint">
+    Tools for trying the app out. Nothing here touches your library: a mock is a library held in
+    memory, and closing it throws it away.
+  </p>
+
+  <section class="group mock-resolve">
+    <h3>Mock Resolve issues</h3>
+    <p class="hint">
+      Opens the Resolve issues found in your library window on made-up files. Renames and
+      deletions happen in memory only, exclusion lists are noted below instead of written, and
+      where it would start the import run it shows the request instead.
+    </p>
+    <div class="mock-options">
+      <label class="check">
+        <input type="checkbox" name="mockDuplicates" [checked]="setup().duplicates"
+               (change)="set('duplicates', $any($event.target).checked)" />
+        <span>Duplicates</span>
+      </label>
+      <label class="count">
+        <span>Works</span>
+        <input type="number" min="1" max="60" name="mockDuplicateCount" [value]="setup().duplicateCount"
+               [disabled]="!setup().duplicates" (change)="set('duplicateCount', count($any($event.target).value))" />
+      </label>
+
+      <label class="check">
+        <input type="checkbox" name="mockIndex" [checked]="setup().index"
+               (change)="set('index', $any($event.target).checked)" />
+        <span>Index issues (works with no index entry)</span>
+      </label>
+      <label class="count">
+        <span>Works</span>
+        <input type="number" min="1" max="60" name="mockIndexCount" [value]="setup().indexCount"
+               [disabled]="!setup().index" (change)="set('indexCount', count($any($event.target).value))" />
+      </label>
+
+      <label class="check">
+        <input type="checkbox" name="mockDates" [checked]="setup().dates"
+               (change)="set('dates', $any($event.target).checked)" />
+        <span>Dating issues (files with no date in their name)</span>
+      </label>
+      <label class="count">
+        <span>Files</span>
+        <input type="number" min="1" max="60" name="mockDatesCount" [value]="setup().datesCount"
+               [disabled]="!setup().dates" (change)="set('datesCount', count($any($event.target).value))" />
+      </label>
+    </div>
+    <button type="button" class="button primary open-mock" [disabled]="nothingChosen()" (click)="open()">
+      Open mock Resolve issues
+    </button>
+
+    @if (ended()) {
+      <div class="mock-result">
+        <p><strong>{{ ended() }}</strong></p>
+        @if (notes().length) {
+          <h4>Would have written to the exclusion lists</h4>
+          <ul>
+            @for (note of notes(); track $index) { <li>{{ note }}</li> }
+          </ul>
+        }
+        @if (request(); as r) {
+          <h4>The request</h4>
+          <pre>{{ r | json }}</pre>
+        }
+        <h4>The mock library's files afterwards ({{ filesAfter().length | number }})</h4>
+        <ul class="files-after">
+          @for (path of filesAfter(); track path) { <li>{{ path }}</li> }
+        </ul>
+      </div>
+    }
+  </section>
+</section>
+
+@if (mock(); as m) {
+  <app-import-dialog [works]="m.works" [undatedElsewhere]="m.undatedElsewhere" [duplicates]="m.duplicates"
+                     [store]="m.store" [formats]="formats()" [sandbox]="true"
+                     (sandboxNoted)="noted($event)" (closed)="closed($event)" (start)="started($event)" />
+}

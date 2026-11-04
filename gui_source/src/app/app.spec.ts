@@ -1,3 +1,4 @@
+import { DebugMode } from './debug';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, shownTime } from './app';
@@ -1213,7 +1214,7 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     const offered = element.querySelector('app-import-dialog');
-    expect(offered?.textContent).toContain('1 work');
+    expect(offered?.textContent).toContain('1 file belongs to a work that has no index');
     expect(element.querySelector('.import-issues')?.textContent).toContain('Resolve issues found with import');
     expect(element.querySelector('.import-issues')?.textContent).toContain('1 work has files but no index entry');
 
@@ -1261,7 +1262,7 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.import-issues')?.textContent).toContain('1 file has no date in its name');
-    expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 file imported from your library has no date in its name');
+    expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 file has no date');
   });
 
   it('puts the reminder above the tabs, on every tab, until dismissed', async () => {
@@ -1284,6 +1285,26 @@ describe('App', () => {
     element.querySelector<HTMLButtonElement>('.import-issues-close')!.click();
     await fixture.whenStable();
     expect(element.querySelector('.import-issues')).toBeNull();
+  });
+
+  it('shows debug mode above everything, with a DEBUG tab, only once turned on', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.debug-banner')).toBeNull();
+    expect(tab(element, 'DEBUG')).toBeUndefined();
+
+    TestBed.inject(DebugMode).set(true);
+    await settled(fixture);
+    const banner = element.querySelector('.debug-banner')!;
+    expect(banner.textContent).toContain('Debug mode is on');
+    expect(banner.compareDocumentPosition(element.querySelector('.import-issues')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    tab(element, 'DEBUG')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('app-debug-tab')).toBeTruthy();
   });
 
   it('neither opens the window nor shows the reminder once told never to ask again', async () => {

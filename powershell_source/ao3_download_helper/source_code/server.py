@@ -254,13 +254,13 @@ OVERWRITE_ACTIONS = (ACTION_BOOKMARKS, ACTION_CUSTOM)
 # a custom run told to skip indexing has ruled out.
 NON_BOOKMARK_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
 
-# The runs that can be picked up where an earlier attempt left off - see RESUMING.md. The
+# The runs that can be picked up where an earlier attempt left off - see helper_files/RESUMING.md. The
 # three scans and the two collection runs; the rest are short enough that starting again is
 # the resume.
 RESUME_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM,
                   ACTION_COLLECTIONS, ACTION_COLLECTION)
 
-# how an earlier run can be retried - see RESUMING.md:
+# how an earlier run can be retried - see helper_files/RESUMING.md:
 # - TOP: the same run again from its first step, answering its questions afresh - a quick scan
 #   over the same window it had (its floor, up to when it first started)
 # - REINDEX: its indexing again from the first page of every listing - nothing taken from the
@@ -3729,17 +3729,50 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
         strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
     overwrite = bool(job.options.get('overwrite'))
 
+    # an import keeps to what it was asked: a work only looked up is indexed and nothing
+    # fetched for it, and without `replaceOutdated` a format you hold a copy of is never
+    # fetched again - the same rules its ao3 side follows (`indexOnly`, `keep_existing_copies`)
+    importing = job.action == ACTION_IMPORT
+    index_only = {str(x) for x in job.options.get('indexOnly') or []} if importing else set()
+    keep_held = importing and not job.options.get('replaceOutdated')
+
     for done, failure in enumerate(candidates, start=1):
         if job.cancel.is_set(): break
         if job.skipping():
             print(strings.AO3_INFO_STEP_SKIPPED)
             job.steps.skip('fichub')
             return
-        rescue_one(ao3, failure, entries.get(str(failure['id'])), existing, filetypes,
+        work = str(failure['id'])
+        types = fichub_formats_for(work, filetypes, existing, index_only, keep_held)
+        rescue_one(ao3, failure, entries.get(work), existing, types,
                    indexes, maximum, overwrite, done, len(candidates), job=job)
+
+    # an import names each work's files from its entry once it has one - FicHub's entries
+    # too, the same way its ao3 ones were (`name_files_from_index`: keeping each file's own
+    # date, or none)
+    if importing and indexes:
+        named = [x for x in candidates if str(x['id']) in ao3.reindexed]
+        if named:
+            fresh = indexed_entries(ao3, fileops, {str(x['id']) for x in named})
+            name_files_from_index(fileops, list(fresh.values()))
 
     if job.cancel.is_set(): return
     job.steps.done('fichub')
+
+
+def fichub_formats_for(work: str, filetypes: list[str], existing: dict, index_only: set[str],
+                       keep_held: bool) -> list[str]:
+    """The formats to ask FicHub for, for one work of a run: none for a work an import only
+    looks up, and - for an import keeping your copies - only the formats with no copy on disk."""
+
+    if work in index_only:
+        if filetypes: print(strings.AO3_INFO_FICHUB_INDEX_ONLY.format(work))
+        return []
+    if not keep_held: return filetypes
+    have = existing.get(work) or {}
+    held = [x for x in filetypes if have.get(x.upper())]
+    if held: print(strings.AO3_INFO_KEEPING_YOURS.format(', '.join(held)))
+    return [x for x in filetypes if not have.get(x.upper())]
 
 
 def existing_entry(ao3, fileops: FileOps, work: str):

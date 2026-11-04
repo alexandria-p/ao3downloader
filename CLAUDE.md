@@ -16,9 +16,8 @@ Upstream ao3downloader is a console program. This fork adds:
    cannot do the work itself.
 4. **Collection indexing** - one json file per collection, recording what it contains.
 5. **A bundler** (`generate_build_artifacts.ps1`) producing a self-contained `build/`.
-6. **A hosted copy for one person** (`HOSTING.md`) - the page on GitHub Pages, the helper
-   on Render, behind a passcode and taking the ao3 login only encrypted.
-7. **A feedback tab** (`FEEDBACK.md`) - a form on every deployed copy that opens a GitHub
+6. **A hosted copy for one person** - the page on GitHub Pages, the helper on Render.
+7. **A feedback tab** - a form on every deployed copy that opens a GitHub
    issue through a Cloudflare Worker (`feedback_worker/`), never through the helper.
 
 ## Layout
@@ -45,8 +44,9 @@ powershell_source/
 .github/workflows/build-windows.yml   builds, tries and publishes the Windows app
 .github/workflows/build-mac.yml       builds, tries and publishes the Mac app
 .github/workflows/build-linux.yml     builds, tries and publishes the Linux app
-HOSTING.md                        how to set the hosted copy up
-FEEDBACK.md                       the feedback tab, and its Cloudflare setup
+helper_files/                     the project's longer documents (only README.md and CLAUDE.md stay at the root):
+  RESUMING.md, TECH_DEBT.md, TERMINOLOGY.md
+  README_OBSOLETE.md              the old full README, still marker-checked
 feedback_worker/                  the Cloudflare Worker that opens feedback issues; node --test
 wiki/                             the GitHub wiki's source; publish-wiki.yml copies it there
 build/                            generated; config/settings.ini is NOT overwritten
@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2088 python passed; 950 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2100 python passed; 997 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -168,78 +168,40 @@ and restarting the app would fail for no reason. Probing separates "a helper is 
 
 ### A hosted copy is one person's
 
-`HOSTING.md` is the setup; this is what not to break. The page goes on GitHub Pages under
-`/app/`, the helper on Render from a Docker image, both built by
-`.github/workflows/deploy-hosted.yml`. It is for the owner alone - everyone else runs the app
-on their own computer - and it is locked two ways.
-
-**The passcode.** `RequirePasscode` in settings.ini turns it on; the value is the
-`AO3DOWNLOADER_PASSCODE` environment variable, **never settings.ini**, because settings.ini
-is baked into a public image and copied into every bundle. `Handler.admitted` runs first in
-`do_GET` and `do_POST` (never on `OPTIONS` - a browser sends no Authorization header on a
-preflight, so gating it would block every request that carries one). A request without the
-passcode gets **401 when its Origin is the page** (`page_may_call`: loopback, or exactly
-`PageOrigin`), so the page can ask for it, and **404 - byte for byte what an unknown path
-answers - from anywhere else**. Origin can be forged outside a browser; all that buys is the
-word 401. `access.passcode_matches` compares in constant time and an empty passcode matches
-nothing.
-
-**The sealed login.** The page encrypts `{username, password, sent, nonce}` with RSA-OAEP
-over SHA-256 using a public key **built into the page** (`app-config.json`), not fetched from
-the helper: a helper at the wrong address must not be able to hand the page its own key and
-be sent the login. `access.open_login` refuses anything older than `LOGIN_MAX_AGE_SECONDS`
-or with a nonce already seen, so one lifted from a log cannot be replayed. With a private key
-configured, `access.login_from` **refuses a plain login** rather than quietly accepting one
-from a page built without the key. This is encryption, not salting - the helper has to type
-the real password into ao3.
-
-**Startup fails closed** (`server.startup_problem`): passcode required and not set; a
-non-loopback address without the passcode, or without the private key; a key that will not
-load. `AO3DOWNLOADER_HOST`/`PORT` pick the address, defaulting to `127.0.0.1:4400` so a
-local helper is exactly what it was. `already_listening` probes `127.0.0.1` when bound to
-`0.0.0.0`.
+The page goes on GitHub Pages under `/app/`, the helper on Render from a Docker image, both
+built by `.github/workflows/deploy-hosted.yml`. It is for the owner alone - everyone else runs
+the app on their own computer. `AO3DOWNLOADER_HOST`/`PORT` pick the helper's address,
+defaulting to `127.0.0.1:4400` so a local helper is exactly what it was; `already_listening`
+probes `127.0.0.1` when bound to `0.0.0.0`.
 
 **The page learns where its helper is from `app-config.json`**, loaded by
 `provideAppInitializer` before anything talks to the helper. `HelperConnection` is the only
-thing that calls the helper: it prefixes `helperUrl`, attaches `Authorization: Bearer`, and
-turns any 401 into `passcodeWanted`, which puts `PasscodeGate` up. That covers a passcode
-changed on the helper after a browser saved the old one. The passcode is checked by the
-helper (`GET /api/auth`) and saved in `localStorage` only once accepted - the page is public,
-so it holds nothing to check against. `Jobs` takes it as a constructor parameter with a
-default, so the specs' `new Jobs()` still works. A missing or unreadable config file (a dev
+thing that calls the helper: it prefixes `helperUrl`. `Jobs` takes it as a constructor
+parameter with a default, so the specs' `new Jobs()` still works. A missing or unreadable config file (a dev
 server answers it with `index.html`) leaves the local defaults.
 
 **The event stream is read with `fetch`, not `EventSource`**, because `EventSource` cannot
-send a header and a passcode in the url would land in every log the request passes.
-`drainEvents` does the splitting; `stream` calls its close callback once, and never after
+send a header. `drainEvents` does the splitting; `stream` calls its close callback once, and never after
 the caller closed it.
-
-**`crypto.subtle` only exists on a secure page** (https, or localhost). A copy served over
-plain http from any other host cannot seal a login, and `sealLogin` says so rather than
-failing on an undefined. This was hit in testing, not guessed.
 
 **One settings.ini feeds both halves, and every key in it comes from a deployment
 variable.** `deploy_config.py settings` sets each key in the template from the GitHub variable
 named after it in upper snake case (`variable_for`: `ExtraWaitTime` from `EXTRA_WAIT_TIME`),
 keeping the comments. The names are **derived from the template, not listed**, and the
-workflow passes every variable at once as `DEPLOY_VARIABLES` (`toJSON(vars)`, which never
-holds secrets) - so a key added to settings.ini is settable from a variable with no change to
+workflow passes every variable at once as `DEPLOY_VARIABLES` (`toJSON(vars)`) - so a key added to settings.ini is settable from a variable with no change to
 either file, and a test adds one to prove it. Unset variables keep the template default, except
-`HOSTED_DEFAULTS` (`RequirePasscode` on) and `PageOrigin` (the workflow's
+`HOSTED_DEFAULTS` and `PageOrigin` (the workflow's
 `DEFAULT_PAGE_ORIGIN`). Values are checked against the kind of the template's default -
 `true`/`false` or a whole number - so a typo fails the deploy, not the helper. `SavePassword`
 is left out through the bundler's own `strip_setting`, for the bundler's reason. The log
-prints every key with where its value came from; nothing in settings.ini is secret. Then `page-config` reads that same file back into `app-config.json`, deriving
-the public key from the private-key secret - so the page and the helper cannot disagree, and
-a hand-typed public key cannot drift from its private half. Both refuse, at build time, a
-setup that could not work: a plain-http hosted helper (an https page may not call it), no
-passcode, no `PageOrigin`, no key.
+prints every key with where its value came from. Then `page-config` reads that same file back
+into `app-config.json`, so the page and the helper cannot disagree. Both refuse, at build time,
+a setup that could not work: a plain-http hosted helper (an https page may not call it), or no
+`PageOrigin`.
 
 The workflow deploys the helper **before** the page, so a new page never goes out ahead of
 the helper it expects - the same stale-helper trap as above, from the other side. It sets
 Render's variables one key at a time, because the bulk endpoint replaces the whole list.
-The secret check comes **after** the image is pushed, since Render can only be pointed at an
-image that exists: the first run publishes it and stops, saying what is left to do.
 
 **Render must run exactly one instance.** Jobs live in `Handler.jobs`, in memory; a second
 instance would receive half a run's requests and know nothing about the run.
@@ -249,8 +211,7 @@ instance would receive half a run's requests and know nothing about the run.
 `[run <id>] ...` alongside sending it to the page. Both write through `to_console`, which uses
 `sys.__stdout__` rather than `print`: a run's `redirect_stdout` is process-wide, so a plain
 print from a request thread mid-run would land in that run's messages to the page. Only the
-method, path and status are printed - never headers (the passcode) or bodies (the sealed
-login). `EnableDebugLogging` is something else: it only adds entries to the log file, which on
+method, path and status are printed. `EnableDebugLogging` is something else: it only adds entries to the log file, which on
 a hosted helper nobody can read.
 
 The request log (`logs/log.jsonl`) is **written and never read** - the one reader,
@@ -293,8 +254,7 @@ What not to break:
 - **Its settings.ini comes from the deployment's variables, pointed at its own helper.**
   `deploy_config.py local-settings` (`write_local_settings`) sets every key from the same
   GitHub variables the hosted copy uses, except the three hosting keys, which are pinned by
-  `LOCAL_APP`: `HelperUrl=http://127.0.0.1:4400`, `RequirePasscode=false` (a local helper has
-  no passcode to check, and would refuse to start asking for one), `PageOrigin` empty - and
+  `LOCAL_APP`: `HelperUrl=http://127.0.0.1:4400`, `RequirePasscode=false`, `PageOrigin` empty - and
   `EnableConsoleLogging=true`, because the window is the only place anyone sees what the app
   is doing. `LOCAL_APP` is **the** place the app deviates from the deployment; add a key there
   rather than a second variable when it should always differ.
@@ -465,19 +425,11 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
 
 ### Feedback goes to Cloudflare, never to the helper
 
-`FEEDBACK.md` is the setup and the full account; this is what not to break.
-
 - **It is not the helper.** A submission goes from the page (`feedback.ts`) to the feedback
-  Worker (`feedback_worker/worker.js`), which opens the issue with a fine-grained GitHub token
-  (Issues read and write, this repository only) held as a Worker secret. The Render helper
-  holds an ao3 login and answers its owner alone. Asking it to file feedback for anyone would
+  Worker (`feedback_worker/worker.js`), which opens the issue. The Render helper answers its
+  owner alone. Asking it to file feedback for anyone would
   break **A hosted copy is one person's**, and it was asked for explicitly ("i dont want
   people hitting my render helper").
-- **Turnstile is the gate; the origin is not.** The Worker refuses an origin outside
-  `ALLOWED_ORIGINS`, but anything outside a browser can fake one. So no issue is opened
-  without a Turnstile token that Cloudflare confirms with the secret. A token works once, so
-  the page resets the widget after any failed send. The widget's hostnames include
-  `localhost`, because the apps serve the page on `localhost:4200`.
 - **The tab shows only with both `feedbackUrl` and `turnstileSiteKey`** in `app-config.json`.
   `build_artifacts.feedback_config` writes them from `FEEDBACK_URL` / `TURNSTILE_SITE_KEY`:
   both or neither, https only, and a build fails otherwise. `page-config` reads them through
@@ -494,11 +446,9 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   backstop; it cannot know the username. **See exactly what will be sent** shows the redacted
   text, and the same text is what is sent. The form's foot says so (`.hint.privacy`): an attached
   log has the AO3 username and password-shaped text stripped out; the message is sent as written.
-- **The deploy makes the labels** (`gh label create --force` with `GITHUB_TOKEN`). The
-  Worker's token only writes issues, and GitHub drops an unknown label rather than creating
-  it. The Worker is deployed by the `feedback` job, which needs only `tests`, and skips with
-  a notice until its four secrets exist. Its two secrets go through stdin to
-  `wrangler secret put`, never into a file.
+- **The deploy makes the labels** (`gh label create --force`): GitHub drops an unknown label
+  rather than creating it. The Worker is deployed by the `feedback` job, which needs only
+  `tests`, and skips with a notice until it is configured.
 - **A failed send never loses what was written.** Every failure shows the same panel, *Uh
   oh - we couldn't submit your feedback* (`failed`). That covers a refusal from the Worker,
   Cloudflare or GitHub, no network, `navigator.onLine` false (checked before trying),
@@ -506,14 +456,12 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   wrote** (`downloadAttempt`, through `issues.saveText`) and GitHub's new-issue page in a new
   tab, pre-filled with the title and message (`newIssueFilled`). The message is capped and the
   log left out, because the address carries it.
-- **The tab is z-index 1000 and its window 1001**, far above a run window (50) and the passcode
-  gate and setup overlay (100), so it can be clicked mid-run or while the gate is up, and a layer
+- **The tab is z-index 1000 and its window 1001**, far above a run window (50) and the setup
+  overlay (100), so it can be clicked mid-run, and a layer
   added later cannot slip over it unnoticed. `app-feedback` is also the last element in
   `app.html`. **The Report a bug page has a Send feedback button** (`App.openFeedback`, through
   `viewChild(Feedback)` and its public `show()`), shown only when the tab is: it opens the same
   window, never a second form.
-- **Turnstile is behind an injectable seam** (`Turnstile`), like `FolderStore`, because there
-  is no Cloudflare in jsdom.
 
 ### Every deployment is one version, and every copy of the page checks for a newer one
 
@@ -590,7 +538,7 @@ just before the login) starts a run the helper finishes with the page closed. Th
   refresh token and app key, nothing else) and `dropbox_library.DropboxChannel` answers the
   storage requests the page would have, **in the page's exact shapes** (`answerStorage`). So
   `PageStorage` sits in front of it unchanged - its caches, and every rule about what may be
-  written or deleted, are the same code for both. The sign-in travels inside the sealed login
+  written or deleted, are the same code for both. The sign-in travels with the login
   (`access.credentials_from`) and lives in the job's memory for the one run; it is never
   written, logged or put in the history. `do_POST` refuses a background run without one, and
   an ordinary run never gets one even if sent it. The page sends **no** background fields at
@@ -625,8 +573,8 @@ just before the login) starts a run the helper finishes with the page closed. Th
   window without stopping anything. No unload guard for a background run.
 - **A free Render service sleeps after ~15 minutes with no request from outside**, which is
   exactly a background run's situation. While one is going **and not paused**,
-  `watch_background` requests the helper's own `RENDER_EXTERNAL_URL` every 10 minutes (it
-  answers 404 without the passcode; arriving is the point). Nothing else keeps it awake.
+  `watch_background` requests the helper's own `RENDER_EXTERNAL_URL` every 10 minutes (arriving
+  is the point). Nothing else keeps it awake.
 - **A background run left paused is abandoned** after `PausedRunTimeoutMinutes` (default 10,
   0 for never; `PAUSED_RUN_TIMEOUT_MINUTES` on a hosted copy). A paused run is waiting for
   someone, so it is not worth keeping a host awake or holding the helper for. `hold_job`
@@ -955,6 +903,21 @@ offers are deliberately different in kind:
   run is touched; it fills both end-of-run lists with one entry of every kind so their
   layout can be checked without waiting for a long run and hoping something goes wrong.
 
+### Debug mode is the page's, and its mock touches nothing real
+
+`debug.ts`, `debug-tab.ts`. **Debug mode** (`DebugMode`, `ao3.debugMode`, this browser's
+alone, from User settings' *Debug mode*) is not `EnableDebugTools` (settings.ini, the run
+window's panel): it shows `.debug-banner` above everything, the reminder included, and a
+**DEBUG** tab (`view` `debug`), and changes nothing else. The tab's **Mock Resolve issues**
+builds made-up files for the issues ticked, as many as asked (`mockPaths`: index issues from
+7000001, dating from 7100001, duplicates from 7200001 cycling the five cases the page tells apart - one newest, three copies, an undated copy, a shared date told apart by change time (`MemoryStore.changed`), and one that cannot be told),
+works them out with the real `unindexedWorks` / `undatedIndexedFiles` / `duplicateGroups`, and
+opens the real `ImportDialog` on them. **Nothing real is touched**: the files are a
+`MemoryStore`; `ImportDialog.sandbox` notes every exclusion-list write (`sandboxNoted`) instead
+of making it and refreshes no listing; *never ask me again* is not bound; and starting hands the
+request back to the tab, which shows it and starts nothing. Only `POST /api/file-names` reaches
+the helper, which writes nothing. Keep any new write the window learns behind `sandbox()`.
+
 ### A login that lapses mid-run ends the run
 
 A lapsed ao3 session does not announce itself: ao3 serves the logged-out view, so a
@@ -1158,7 +1121,7 @@ which is exactly the date-range quick scan.
 
 ### A run can be retried, and says how far it got [EXPERIMENTAL]
 
-`RESUMING.md` (project root) is the full account; this is what not to break. **Retry** replaced
+`helper_files/RESUMING.md` is the full account; this is what not to break. **Retry** replaced
 the old Resume button; **Resume** now means only un-pausing a run still going.
 
 - **Any ended run can be retried, and a retry is a new run** (its own id and history file,
@@ -1646,7 +1609,7 @@ The rules, and why:
 
 **`from_collections` is set in one place: the cleanup step**, for every workflow but the
 debug ones (`LINKING_ACTIONS`: full, quick and custom scans, the single fic, both collection
-runs). No crawl or walk writes it - don't add a second writer; `TECH_DEBT.md` says why it was
+runs). No crawl or walk writes it - don't add a second writer; `helper_files/TECH_DEBT.md` says why it was
 brittle when there were four. `collection_links` reads every saved collection file and
 returns `(path, list)` for each index entry missing a collection that holds it;
 `write_collection_links` sets the identity field straight onto the file (no new reading).
@@ -1690,7 +1653,7 @@ across much of ao3, not the loop guard. The checkpoint for a finished collection
 `family`, and `finished_before` queues it, so a resume that skips a collection still follows
 what it links to.
 
-**Collection runs can be resumed** (`RESUME_ACTIONS`; `RESUMING.md` has the detail).
+**Collection runs can be resumed** (`RESUME_ACTIONS`; `helper_files/RESUMING.md` has the detail).
 `watch_collections` checkpoints `collections.<name>` after every page of each listing
 (`Ao3.on_collection_page`: page, ids so far, done) and when a collection is saved
 (`on_collection_done`: done, every work number). A resumed run hands `Ao3.collections_before`
@@ -2079,6 +2042,14 @@ holds that - and is skipped when nothing failed. What not to break:
 - **Rescued works leave `ao3.failures`** for `ao3.rescued` (a `rescued` event, and
   `rescued` in the run record, listed in History). A work FicHub could not give (or not every
   format of) stays a failure, `error` becoming `AO3: ... | FicHub: ...`.
+- **An import's FicHub step keeps to the import's rules** (`fichub_formats_for`): a work it
+  only looks up (`indexOnly`) is indexed from FicHub and nothing fetched
+  (`AO3_INFO_FICHUB_INDEX_ONLY`); without `replaceOutdated` a format you hold any copy of is
+  never fetched (`AO3_INFO_KEEPING_YOURS`), only the missing ones; and once FicHub's entries are
+  written, `name_files_from_index` names the works' files from them as it did for AO3's -
+  keeping each file's own date, or none, never FicHub's. Every other run is unchanged.
+  `test_fichub.py`'s *FicHub in each workflow* region runs the step for a single fic, several
+  fics, a quick scan, a full scan and an import.
 - **The single-fic run survives its own page failing**: `run_work` records the failure and
   goes straight to `finish_run`, so FicHub can index and fetch a fic ao3 has taken down.
 - **`conftest.py` stubs the step out** (`fichub_left_alone`) for every test not marked
@@ -2106,7 +2077,7 @@ minutes), said before and after (`AO3_INFO_INDEX_CHECK`, then `_FOUND` with the 
 failure that never reads the library and goes to FicHub at the end. No other workflow uses
 `index_one_work`.
 
-**Every run may skip the login** (`skipLogin`, at the top of the login page itself - so a run
+**Every run may skip the login** (`skipLogin`, on the login page itself, below the username and password - so a run
 with nothing else to choose still has no options step, `hasOptions`). Ticked, the sentence
 above the boxes changes: a run that still needs the username says *Enter your username to
 scan your public bookmarks* (or *collections*, `listingWord`) and shows only that box; one
@@ -2173,9 +2144,68 @@ window finishes after dating (`afterDating`). What not to break:
   **Once indexed, each work's files are named from its entry** (`name_files_from_index`, the
   import's alone): a file not named the way its entry names it is renamed, keeping the date its
   own name ends in - the version the file holds, which may be older than AO3's - never over
-  another file. Only an entry the import **makes** is marked `from_import`; a work already
+  another file - and a file with no date in its name gets **none**, never the entry's
+  `date_updated` (a file left undated at dating may hold an older version). Only an entry the import **makes** is marked `from_import`; a work already
   indexed (one whose undated files brought it into the import) keeps its origin.
-- **Three exclusion lists, in one file** (`import-excluded.json` at the library's top,
+- **Duplicates come first** (`duplicates`, `choose`, `removing` steps, only with some):
+  `duplicateGroups` is every work number and format (`.htm` is html) with more than one file
+  in `works/`, however named. Each row is *Skip* (default: every file kept, asked again - on
+  the **duplicates** list only when *Don't ask this again for skipped files* is ticked,
+  `rememberSkipped` - the list's skips only; sifting asks per group), *Keep most recent* or *I'll
+  choose*; *Keep all* was folded into Skip at the user's request, being the same thing. Buttons
+  *Mark all as Skip* / *Keep most recent* / *I'll choose myself* set every row, and the primary
+  reads *Skip this step* with every row skipped (`allSkipped`), *Choose which to keep* with any
+  to choose, else *Continue*.
+  **Most recent is never a guess unasked** (`newestOf`): every file in the group needs a date in
+  its name (read as *Infer date* reads one), and the newest date wins; files sharing it are told
+  apart by **when each file was last changed** (`modifiedAt`, from the optional
+  `LibraryStore.modified`: a local file's `lastModified`, Dropbox's `client_modified` else
+  `server_modified` - read for the duplicate files only, `modifiedTimes`, six at a time, once the
+  window has them), the later winning; unknown or equal times leave it untold. *I'll
+  choose* sifts those groups one at a time. **Sifting deletes nothing** - it only records an
+  outcome per set; every deletion is on the removing page. **What sifting decides is kept apart from the
+  list's choice** (`siftOutcome`: a file picked, skipped - `remember` when not to be asked again - or most recent), and **the order is
+  every group ever marked I'll choose, never shortened** (`siftOrder`; `siftList` is it filtered
+  to those marked now): a group changed away on the list leaves the sift, keeps its decision,
+  and comes back to its own place if marked again; a newly marked one joins the end. Coming
+  forward from the list opens on the first undecided. **The top radio - the most recent - is
+  picked to begin with, but nothing counts as sorted until acted on**: a radio picked - the
+  last two, *Skip for now* and *Skip, and don't ask me again for this file* (the duplicates list),
+  keep every file - or *Next entry*, which keeps the picked file (from
+  the last entry it goes to the next still to sort, or the done note). *Previous entry* / *Next
+  entry* sit below the radios. **Sort any remaining in bulk** (`details.sort-rest`, closed to
+  begin with) is in the footer (`footer.with-bulk`), under its line and above its buttons: radios *Skip for now* / *Skip, don't ask again* / *Keep most recent*
+  (`bulkChoice`) and **Apply to the rest** (`applyToRest`: decides every undecided one and goes no
+  further). The footer is only *Back* (to the list) and *Continue*, held until all are sorted
+  (`siftDone`: *You are done - no more to sort*, the entry buttons and the bulk section gone). The list never shows what sifting
+  decided. Each radio says `Filename dated X` or `No date included in the filename`, and `File
+  metadata updated at X` (or `: unknown`, `fileNotes`); above the top one's name
+  (`.top-label`, `topLabel`) is *Most recent* when `newestOf` settles it, else *This is our best
+  guess for 'most recent'* - no warning panel. The removing page's files to choose from show the
+  same, in a pane that scrolls (`.ask-files`). **The removing page works set by set**
+  (`duplicatePlan` -> `RemovalStep`s in the list's order): `removeFiles` deletes with a bar -
+  **never every file of a group** - and a set marked Keep most recent (on the list or in bulk,
+  which marks sets rather than picking files) whose newest cannot be told **pauses the bar and
+  asks** (`askAbout`, `.undecided-ask`): *Make a best guess* (picked to begin with;
+  `bestGuessOf`, the top of `byRecency`), *Choose individually* (the files as radios, as when
+  sifting), or *Keep all of them*, answered with **Apply and carry on**;
+  then, with more such sets to come, *Do this for any others like this?* - Yes is `standing`,
+  followed without asking (a standing *choose* still shows the files). No answer within
+  `answerWaitMs` (`UNDECIDED_WAIT_MS`, 5 minutes) keeps that set whole and asks about the next;
+  closing the window answers keep. Kept sets (`undecided`, `timedOut` marked *no answer in
+  time*) are offered again next time; guesses are listed (`guessed`). Then the dialog filters
+  what it removed out of every later page (`removedPaths` -> `works`, `undatedElsewhere`, and so
+  every count, the dating rows and the index question) and `refreshAfterRun` + `check` bring the
+  listing and reminder up to date. Lists in the window page **7** at a time
+  (`DUPLICATES_PAGE_SIZE`, `DATES_PAGE_SIZE`). **The run window alone warns of a long import**
+  (`.long-run-note`, above its bullets, not on a background run): over `LONG_IMPORT_REQUESTS`
+  (20) by `importRequests` - lookups, plus other formats times works updated, plus the files it
+  holds (`ImportRequest.files`) when replacing - *This may take a long time, with ~X requests to
+  work through*. A rough count on purpose; the window's own pages say nothing about it.
+  The *No, do not ask me again for these files* choice includes the duplicates' files. The
+  sifting radios are **most recent first** (`byRecency`: by the date in each name, undated
+  last, then by when each file last changed, unknown last, then by name). The list page never says what sifting decided for a row.
+- **Four exclusion lists, in one file** (`import-excluded.json` at the library's top,
   `IMPORT_EXCLUDED_FILE`, read once per library; only the page reads it). The **files** list
   (`kind: 'files'`, by name) is dropped before anything is counted - such a file never offers
   the window, the reminder, a date or an index lookup. The **index** list (`kind: 'index'`,
@@ -2186,7 +2216,10 @@ window finishes after dating (`afterDating`). What not to break:
   Its undated files are still offered for dating (`FoundFile.unindexed`, never in an update's
   `dateIssues`). The **dates** list (`kind: 'dates'`, the dates page's *Don't ask this again
   for skipped files*, `LibraryImports.excludeDating`: every row ticked Skip) keeps files out of
-  dating only (`FoundFile.noDating`) - each still counts for its work's index question. **A
+  dating only (`FoundFile.noDating`) - each still counts for its work's index question. The
+  **duplicates** list (`kind: 'duplicates'`, with `format`, `LibraryImports.excludeDuplicates`)
+  keeps a group's number, format and files, passed over while those are all its files
+  (`duplicatesExcluded`). **A
   rename follows into every list**: dating's (`LibraryImports.renamed`, called by the dialog
   the moment its renames finish, not on close - so a window closed by leaving the page
   cannot lose it) and an import's naming files from their entries (the helper's
@@ -2462,10 +2495,10 @@ not to break:
   `defaults` stay in force (nothing stored; **Use the app's defaults** removes the key).
 - **settings.ini is only edited on a helper on this computer.** The page asks only when
   `HelperConnection.isLocal()`, and the helper answers `editable` only when it is bound to
-  loopback and asks for no passcode (`server.settings_file_editable`, `Handler.host` from
+  loopback (`server.settings_file_editable`, `Handler.host` from
   `serve`); a POST otherwise is 403. A hosted helper's file comes from its deployment and is
   replaced on every restart. `SavePassword` and the three hosting keys
-  (`settings_file.NOT_EDITABLE`) are never offered - a wrong `RequirePasscode` or `HelperUrl`
+  (`settings_file.NOT_EDITABLE`) are never offered - a wrong hosting key
   can stop the helper answering the page at all.
 - **An edit changes only the value after `=`** (`settings_file.set_values`): comments, order,
   spacing and line endings stay as written, so this is the user editing their own file, not
@@ -2641,7 +2674,7 @@ Three rules worth keeping:
   `self.inifile` breaks the moment a config folder is set.
 - **Angular's test runner rejects `vi.mock` on relative imports.** Injectable seams
   (`FolderStore`) are how the tests stand in for browser APIs, which don't exist in jsdom.
-- **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `README.md` tie hardcoded strings
+- **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `helper_files/README_OBSOLETE.md` (the old full README) tie hardcoded strings
   to `strings.py` constants, and must not contain `{}`. `dev/readme.py` checks every one (a constant that is gone, or a
   value it no longer contains), and `test_readme_markers.py` runs it in the ordinary suite, so
   CI checks it on every pull request and before every deploy. Upstream's `validate readme` workflow, which called it from the
@@ -2655,33 +2688,27 @@ Three rules worth keeping:
 - Tests are named as sentences describing behaviour
   (`test_a_stop_during_a_rate_limit_break_unwinds_instead_of_asking_again`), and grouped
   with `# region` / `# endregion`.
-- Both READMEs must stay in step: the root `README.md` and the one generated into
-  `build/README.md` by the `README` string in `build_artifacts.py`. File naming, the
-  matching rule, and the collections format are documented in both by requirement.
+- **The root `README.md` is a short front page, at the user's request**: download links for each
+  system, a few lines on what the app does, and mocked screenshots (`docs/screenshots/`, a
+  made-up safe-for-work library - never a real account or username). Keep it that short; detail
+  goes in the wiki. The old full README is `helper_files/README_OBSOLETE.md`, kept for reference and still
+  marker-checked. The bundle's own `build/README.md` (the `README` string in
+  `build_artifacts.py`) is the full guide that ships in a build: file naming, the matching rule
+  and the collections format are documented there by requirement.
+- **No real AO3 username in the repository**, fixtures included - test pages use
+  `Example_Reader`.
 - Verify claims before reporting them. Several conclusions in this project's history were
   wrong until checked against real fixtures or a live run.
-- **`TECH_DEBT.md` (project root) lists the known weak spots** - `from_collections` among
+- **`helper_files/TECH_DEBT.md` lists the known weak spots** - `from_collections` among
   them, and index writes that find an entry by the name it would have now. Read it before
   working near either, and add to it when you leave something fragile behind.
 - **`wiki/` is the GitHub wiki, short.** `publish-wiki.yml` replaces the wiki with it on every
   push to `main`, so edit it there, never on the wiki. It is the brief version for people
   using the app; the root documents stay the full record. When a change alters what a user
   sees or does - a run, an option, a setting, a file name - update the page it belongs on.
-- **Keep `TERMINOLOGY.md` (project root) up to date with every change to the codebase.** It
+- **Keep `helper_files/TERMINOLOGY.md` up to date with every change to the codebase.** It
   lists the project's terms (with the synonyms used in chat), each workflow's programmatic
   name, options and steps, and how every step works. Whenever a change adds, renames or
   removes a term, workflow, option or step - or changes what a step does - update that file
   in the same change. Take its facts from the code (`step_plan`, the `STEP_*` strings, the
   dialog's `picks*` computeds), not from memory.
-
-## Data hygiene
-
-`powershell_source/data.json` can contain the user's **ao3 password in plaintext** when
-`SavePassword=true`. It is gitignored. Do not paste it, print it, or ship it - the bundler
-deliberately does not seed `build/config/data.json`. The web UI never stores a password:
-only the username, in `localStorage`, and only when "remember me" is ticked.
-
-A hosted copy has two more secrets - the passcode and the RSA private key. They live in
-GitHub secrets and Render environment variables and **nowhere else**: not settings.ini, not
-`app-config.json`, not the image. The page does keep the passcode in `localStorage` once the
-helper accepts it; that is the one password-like thing it stores, by the user's choice.

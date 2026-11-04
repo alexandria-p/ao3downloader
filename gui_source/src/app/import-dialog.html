@@ -10,19 +10,25 @@
   <!-- 1: what was found, in a sentence each - the lists come on the pages after -->
   @if (step() === 'overview') {
     <section class="body overview">
-      @if (undated().length) {
-        <p class="overview-undated">
-          {{ undated().length | number }}
-          {{ undated().length === 1 ? 'file imported from your library has' : 'files imported from your library have' }}
-          no date in {{ undated().length === 1 ? 'its name' : 'their names' }}. You can give
-          {{ undated().length === 1 ? 'it' : 'them' }} a date next.
-        </p>
-      }
-      @if (works().length) {
-        <p class="overview-unindexed">
-          Your library has {{ works().length | number }}
-          {{ works().length === 1 ? 'work that was' : 'works that were' }} imported with no index entry.
-        </p>
+      @if (duplicates().length || undated().length || works().length) {
+        <p class="overview-heading"><strong>Issues found in import:</strong></p>
+        <ul class="overview-issues">
+          @if (duplicates().length) {
+            <li class="overview-duplicates">
+              {{ duplicateFiles() | number }} {{ duplicateFiles() === 1 ? 'file is a duplicate' : 'files are duplicates' }}
+            </li>
+          }
+          @if (undated().length) {
+            <li class="overview-undated">
+              {{ undated().length | number }} {{ undated().length === 1 ? 'file has' : 'files have' }} no date
+            </li>
+          }
+          @if (works().length) {
+            <li class="overview-unindexed">
+              {{ unindexedFiles() | number }} {{ unindexedFiles() === 1 ? 'file belongs to a work that has' : 'files belong to works that have' }} no index
+            </li>
+          }
+        </ul>
       }
       <fieldset class="first-choice">
         <legend>What would you like to do?</legend>
@@ -61,6 +67,314 @@
               [disabled]="!firstChoice() || (firstChoice() === 'repair' && busy())"
               (click)="fromOverview()">
         {{ firstChoice() === 'later' ? 'Remind me later' : firstChoice() === 'exclude' || firstChoice() === 'never' ? 'Done' : 'Continue' }}
+      </button>
+    </footer>
+  }
+
+  <!-- 1a: duplicates - more than one file of a work in one format -->
+  @if (step() === 'duplicates') {
+    <section class="body duplicates">
+      <p>
+        <strong>These works have more than one file in the same format.</strong> Choose which to
+        keep for each - the rest are deleted from your library on the next page.
+      </p>
+      <p class="hint">
+        <em>Skip</em> keeps every file, and asks again next time unless you tick the box under the
+        list. <em>Keep most recent</em> keeps the file whose name carries the latest date - when
+        that cannot be told, nothing is deleted and it is asked again. <em>I'll choose</em> shows
+        each one in turn.
+      </p>
+      <div class="bulk">
+        <button type="button" class="button" (click)="chooseForAll('skip')">Mark all as Skip</button>
+        <button type="button" class="button" (click)="chooseForAll('recent')">Mark all as Keep most recent</button>
+        <button type="button" class="button" (click)="chooseForAll('choose')">Mark all as I'll choose myself</button>
+      </div>
+      <div class="view-toggle" role="group" aria-label="How to show the duplicates">
+        <button type="button" class="toggle" [class.on]="dupPaged()" (click)="setDupPaged(true)">Pages</button>
+        <button type="button" class="toggle" [class.on]="!dupPaged()" (click)="setDupPaged(false)">One scrolling list</button>
+        <span class="dim">{{ duplicates().length | number }} {{ duplicates().length === 1 ? 'work' : 'works' }}</span>
+      </div>
+      <div class="dating-wrap" [class.scrolling]="!dupPaged()">
+        <table class="dating duplicates-table">
+          <thead>
+            <tr><th>Work and files</th><th>Keep</th></tr>
+          </thead>
+          <tbody>
+            @for (group of shownGroups(); track group.key) {
+              <tr [attr.data-group]="group.key" [class.skipped]="choiceOf(group) === 'skip'">
+                <td class="group-files">
+                  <span class="group-title">Work {{ group.id }} - {{ group.format.toUpperCase() }}, {{ group.files.length }} files</span>
+                  <ul>
+                    @for (file of group.files; track file.path) {
+                      <li [title]="file.name"
+                          [class.newest]="choiceOf(group) === 'recent' && newestIn(group) === file"
+                          [class.goes]="choiceOf(group) === 'recent' && newestIn(group) && newestIn(group) !== file">
+                        <span class="file-name">{{ file.name }}</span>
+                      </li>
+                    }
+                  </ul>
+                  @if (choiceOf(group) === 'recent' && !newestIn(group)) {
+                    <span class="undecided-note">Can't tell which is newest - you will be asked what to do when the duplicates are removed</span>
+                  }
+                </td>
+                <td>
+                  <select [attr.aria-label]="'Keep for work ' + group.id + ' ' + group.format"
+                          [value]="choiceOf(group)" (change)="setChoice(group, $any($event.target).value)">
+                    <option value="skip" [selected]="choiceOf(group) === 'skip'">Skip</option>
+                    <option value="recent" [selected]="choiceOf(group) === 'recent'">Keep most recent</option>
+                    <option value="choose" [selected]="choiceOf(group) === 'choose'">I'll choose</option>
+                  </select>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <label class="check remember-skips remember-skipped-duplicates">
+        <input type="checkbox" name="rememberSkipped" [checked]="rememberSkipped()"
+               (change)="rememberSkipped.set($any($event.target).checked)" />
+        <span>
+          Don't ask this again for skipped files
+          <span class="hint">
+            Every work and format marked Skip here is added to
+            <code>import-excluded.json</code> at the top of your library with all its files kept,
+            and is not offered as a duplicate again unless another file for it turns up.
+          </span>
+        </span>
+      </label>
+      @if (dupPaged() && dupPages() > 1) {
+        <div class="pager">
+          <button type="button" class="button subtle" [disabled]="dupPage() === 0" (click)="dupPage.set(dupPage() - 1)">Previous</button>
+          <span class="dim">Page {{ dupPage() + 1 }} of {{ dupPages() }}</span>
+          <button type="button" class="button subtle" [disabled]="dupPage() >= dupPages() - 1" (click)="dupPage.set(dupPage() + 1)">Next</button>
+        </div>
+      }
+    </section>
+    <footer>
+      <button type="button" class="button subtle" (click)="step.set('overview')">Back</button>
+      <button type="button" class="button primary" [disabled]="busy()" (click)="fromDuplicates()">
+        {{ toChoose().length ? 'Choose which to keep' : allSkipped() ? 'Skip this step' : 'Continue' }}
+      </button>
+    </footer>
+  }
+
+  <!-- 1b: the groups marked I'll choose, one work and format at a time -->
+  @if (step() === 'choose') {
+    <section class="body choose" [attr.data-group]="siftDone() ? null : choosing()?.key">
+      @if (siftDone()) {
+        <p class="sift-done" role="status">
+          <strong>You are done - no more to sort.</strong> Continue onto the next step.
+        </p>
+      } @else if (choosing(); as group) {
+        <p class="choose-progress dim">
+          {{ chooseAt() + 1 }} of {{ siftList().length }}
+          ({{ undecidedCount() | number }} still to sort)
+        </p>
+        <p>
+          <strong>Work {{ group.id }}, {{ group.format.toUpperCase() }}:</strong> choose the file to
+          keep. The others are deleted.
+        </p>
+        <ul class="choose-list" role="radiogroup" [attr.aria-label]="'Keep for work ' + group.id">
+          @for (file of byRecency(group); track file.path; let first = $first) {
+            <li>
+              <label class="check">
+                <input type="radio" [attr.name]="'keep-' + group.key" [attr.aria-label]="'Keep ' + file.name"
+                       [checked]="pickedIn(group) === file.path"
+                       (change)="setPicked(group, file)" />
+                <span>
+                  @if (first) { <span class="top-label" [class.guess]="!newestIn(group)">{{ topLabel(group) }}</span> }
+                  <span class="file-name">{{ file.name }}</span>
+                  @for (line of fileNotes(file); track $index) { <span class="hint file-note">{{ line }}</span> }
+                </span>
+              </label>
+            </li>
+          }
+          <li class="skip-this">
+            <label class="check">
+              <input type="radio" [attr.name]="'keep-' + group.key" aria-label="Skip for now"
+                     [checked]="outcomeOf(group)?.kind === 'skip' && !skipRemembered(group)"
+                     (change)="skipThis(group, false)" />
+              <span>Skip for now</span>
+            </label>
+          </li>
+          <li class="skip-this remember">
+            <label class="check">
+              <input type="radio" [attr.name]="'keep-' + group.key" aria-label="Skip, and don't ask me again for this file"
+                     [checked]="skipRemembered(group)"
+                     (change)="skipThis(group, true)" />
+              <span>Skip, and don't ask me again for this file</span>
+            </label>
+          </li>
+        </ul>
+        <div class="sift-nav">
+          <button type="button" class="button subtle" [disabled]="chooseAt() === 0" (click)="previousEntry()">Previous entry</button>
+          <button type="button" class="button subtle" (click)="nextEntry()">Next entry</button>
+        </div>
+      }
+    </section>
+    <footer class="with-bulk">
+      @if (!siftDone()) {
+        <details class="sort-rest">
+          <summary>Sort any remaining in bulk</summary>
+          <p>For the rest still to sort ({{ undecidedCount() | number }}):</p>
+          <div class="sort-rest-choices" role="radiogroup" aria-label="For the rest still to sort">
+            @for (option of bulkOptions; track option.value) {
+              <label class="check">
+                <input type="radio" name="sortRest" [attr.aria-label]="option.label"
+                       [checked]="bulkChoice() === option.value" (change)="bulkChoice.set(option.value)" />
+                <span>{{ option.label }}</span>
+              </label>
+            }
+          </div>
+          <button type="button" class="button" [disabled]="!bulkChoice() || busy()" (click)="applyToRest()">
+            Apply to the rest
+          </button>
+        </details>
+      }
+      <button type="button" class="button subtle" (click)="step.set('duplicates')">Back</button>
+      <button type="button" class="button primary" [disabled]="!siftDone() || busy()" (click)="continueFromChoosing()">
+        Continue
+      </button>
+    </footer>
+  }
+
+  <!-- 1c: deleting the duplicates not kept. no going back; the cross stops after the file in hand -->
+  @if (step() === 'removing') {
+    <section class="body">
+      @if (removing()) {
+        <p class="removing-progress" role="status">
+          @if (asking()) {
+            Paused at {{ removeProgress().done | number }} of {{ removeProgress().total | number }} - waiting for your answer below.
+          } @else {
+            Removing duplicates... {{ removeProgress().done | number }} of {{ removeProgress().total | number }}
+          }
+        </p>
+      }
+      <div class="bar" role="progressbar" [attr.aria-valuenow]="removeProgress().done"
+           [attr.aria-valuemax]="removeProgress().total">
+        <span [style.width.%]="removeProgress().total ? (removeProgress().done / removeProgress().total) * 100 : 0"></span>
+      </div>
+      @if (asking(); as group) {
+        <div class="undecided-ask" [attr.data-group]="group.key">
+          <p>
+            <strong>Work {{ group.id }}, {{ group.format.toUpperCase() }}</strong> was marked
+            <em>Keep most recent</em>, but we can't tell which of its {{ group.files.length }}
+            files is the most recent. What should we do?
+          </p>
+          @if (standing() !== 'choose') {
+            <div class="ask-how" role="radiogroup" aria-label="What to do with this set">
+              <label class="check">
+                <input type="radio" name="askHow" aria-label="Make a best guess"
+                       [checked]="askHow() === 'guess'" (change)="askHow.set('guess')" />
+                <span>
+                  Make a best guess
+                  <span class="hint">Keeps {{ guessFor(group).name }} - by the date in each name, then the file updated most recently, then by name.</span>
+                </span>
+              </label>
+              <label class="check">
+                <input type="radio" name="askHow" aria-label="Choose individually"
+                       [checked]="askHow() === 'choose'" (change)="askHow.set('choose')" />
+                <span>Choose individually</span>
+              </label>
+              <label class="check">
+                <input type="radio" name="askHow" aria-label="Keep all of them"
+                       [checked]="askHow() === 'keep'" (change)="askHow.set('keep')" />
+                <span>
+                  Keep all of them
+                  <span class="hint">Nothing is deleted, and this set is asked about again next time.</span>
+                </span>
+              </label>
+            </div>
+          }
+          @if (askHow() === 'choose') {
+            <ul class="choose-list ask-files" role="radiogroup" [attr.aria-label]="'Keep for work ' + group.id">
+              @for (file of byRecency(group); track file.path; let first = $first) {
+                <li>
+                  <label class="check">
+                    <input type="radio" name="askPick" [attr.aria-label]="'Keep ' + file.name"
+                           [checked]="askPick() === file.path" (change)="askPick.set(file.path)" />
+                    <span>
+                      @if (first) { <span class="top-label" [class.guess]="!newestIn(group)">{{ topLabel(group) }}</span> }
+                      <span class="file-name">{{ file.name }}</span>
+                      @for (line of fileNotes(file); track $index) { <span class="hint file-note">{{ line }}</span> }
+                    </span>
+                  </label>
+                </li>
+              }
+            </ul>
+          }
+          @if (standing() === null && askMore()) {
+            <div class="ask-others" role="radiogroup" aria-label="Do this for the others">
+              <p>Do this for any others like this? ({{ askMore() | number }} more)</p>
+              <label class="check">
+                <input type="radio" name="askOthers" aria-label="Yes, for the others too"
+                       [checked]="askForOthers() === true" (change)="askForOthers.set(true)" />
+                <span>Yes</span>
+              </label>
+              <label class="check">
+                <input type="radio" name="askOthers" aria-label="No, ask me each time"
+                       [checked]="askForOthers() === false" (change)="askForOthers.set(false)" />
+                <span>No</span>
+              </label>
+            </div>
+          }
+          <p class="hint ask-timeout">
+            With no answer in {{ waitMinutes() }} {{ waitMinutes() === 1 ? 'minute' : 'minutes' }}, every file of this set is kept.
+          </p>
+          <button type="button" class="button primary answer-ask" [disabled]="!askReady()" (click)="answerAsked()">
+            Apply and carry on
+          </button>
+        </div>
+      }
+      @if (!removing() && removed(); as r) {
+        <p class="removed-said">
+          Removed {{ r.removed.length | number }} {{ r.removed.length === 1 ? 'file' : 'files' }}.
+        </p>
+        @if (r.failed.length) {
+          <details class="dating-failures removing-failures">
+            <summary>
+              {{ r.failed.length | number }} {{ r.failed.length === 1 ? 'file' : 'files' }} could not be removed
+            </summary>
+            <ul>
+              @for (failure of r.failed; track failure.path) {
+                <li><span class="file-name" [title]="failure.path">{{ failure.path }}</span> - {{ failure.error }}</li>
+              }
+            </ul>
+          </details>
+        }
+        @if (undecided().length) {
+          <details class="dating-failures undecided">
+            <summary>
+              {{ undecided().length | number }} {{ undecided().length === 1 ? 'work' : 'works' }}: could not tell which file is most recent
+            </summary>
+            <p class="hint">Every file of these was kept. They are offered again next time.</p>
+            <ul>
+              @for (group of undecided(); track group.key) {
+                <li>
+                  Work {{ group.id }} - {{ group.format.toUpperCase() }}: {{ group.files.length }} files
+                  @if (timedOut().has(group.key)) { (no answer in time) }
+                </li>
+              }
+            </ul>
+          </details>
+        }
+        @if (guessed().length) {
+          <details class="dating-failures guessed">
+            <summary>
+              {{ guessed().length | number }} {{ guessed().length === 1 ? 'work' : 'works' }}: kept our best guess
+            </summary>
+            <ul>
+              @for (g of guessed(); track g.group.key) {
+                <li>Work {{ g.group.id }} - {{ g.group.format.toUpperCase() }}: kept <span class="file-name">{{ g.kept.name }}</span></li>
+              }
+            </ul>
+          </details>
+        }
+      }
+    </section>
+    <footer>
+      <button type="button" class="button primary" [disabled]="removing()" (click)="fromRemoving()">
+        Continue
       </button>
     </footer>
   }

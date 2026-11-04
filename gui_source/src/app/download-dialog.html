@@ -676,7 +676,7 @@
       <section class="body retry">
         <p class="warning">
           <strong>[EXPERIMENTAL]</strong> Runs an earlier run again, as that run, with its
-          settings - from the top, or carrying on from where it stopped. See RESUMING.md.
+          settings - from the top, or carrying on from where it stopped. See helper_files/RESUMING.md.
         </p>
 
         @if (retryableRuns() === null) {
@@ -1040,6 +1040,12 @@
       <section class="body">
           <!-- an import has no other page to say what it will do -->
           @if (action() === 'import') {
+            @if (importRequestCount() > longImport && !background()) {
+              <p class="long-run-note" role="note">
+                This may take a long time, with ~{{ importRequestCount() | number }} requests to work through.
+                Please leave this window open until it finishes.
+              </p>
+            }
             <ul class="import-summary">
               @for (line of importPlan(); track line) { <li>{{ line }}</li> }
             </ul>
@@ -1239,32 +1245,16 @@
     @if (step() === 'credentials') {
       <form class="body" (submit)="submit($event)">
         @if (action() === 'import' && !offersBackground()) {
+          @if (importRequestCount() > longImport && !background()) {
+            <p class="long-run-note" role="note">
+              This may take a long time, with ~{{ importRequestCount() | number }} requests to work through.
+              Please leave this window open until it finishes.
+            </p>
+          }
           <ul class="import-summary">
             @for (line of importPlan(); track line) { <li>{{ line }}</li> }
           </ul>
         }
-        <div class="login-choice">
-          <label class="check">
-            <input
-              type="checkbox"
-              name="skipLogin"
-              [checked]="skipLogin()"
-              (change)="skipLogin.set($any($event.target).checked)"
-            />
-            <span>Skip AO3 login?</span>
-          </label>
-          @if (skipLogin()) {
-            <div class="warning skip-login-warning">
-              <p><strong>This is not recommended.</strong></p>
-              <p>
-                Without logging in, AO3 shows this run only what anyone can see. Private
-                bookmarks will not be picked up, and fics their authors have restricted to AO3
-                users will fail - the run may have to fall back on fetching those from FicHub
-                instead.
-              </p>
-            </div>
-          }
-        </div>
 
         @if (logsIn()) {
         @if (action() === 'import') {
@@ -1340,6 +1330,29 @@
             <span>Remember my username</span>
           </label>
         }
+
+        <div class="login-choice">
+          <label class="check">
+            <input
+              type="checkbox"
+              name="skipLogin"
+              [checked]="skipLogin()"
+              (change)="skipLogin.set($any($event.target).checked)"
+            />
+            <span>Skip AO3 login?</span>
+          </label>
+          @if (skipLogin()) {
+            <div class="warning skip-login-warning">
+              <p><strong>This is not recommended.</strong></p>
+              <p>
+                Without logging in, AO3 shows this run only what anyone can see. Private
+                bookmarks will not be picked up, and fics their authors have restricted to AO3
+                users will fail - the run may have to fall back on fetching those from FicHub
+                instead.
+              </p>
+            </div>
+          }
+        </div>
       </form>
       <footer>
         <!-- indexing your own collections has no earlier step, so this reads Cancel there -->

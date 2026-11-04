@@ -3,7 +3,7 @@ import { ImportDialog } from './import-dialog';
 import { DatingResult, FoundFile, FoundWork, ImportRequest, unindexedWorks } from './imports';
 import { Jobs } from './jobs';
 import { Library } from './library';
-import { IMPORT_EXCLUDED_FILE, LibraryImports } from './imports';
+import { DuplicateGroup, IMPORT_EXCLUDED_FILE, LibraryImports, duplicateGroups } from './imports';
 import { Bookmark } from './bookmarks';
 import { LibraryStore } from './library-store';
 
@@ -30,7 +30,16 @@ class MemoryStore implements LibraryStore {
   async size() {
     return null;
   }
-  async delete() {}
+  /** when each file last changed, by path; one not here cannot say */
+  readonly changed = new Map<string, number>();
+  async modified(path: string) {
+    return this.changed.get(path) ?? null;
+  }
+  readonly deleted: string[] = [];
+  async delete(path: string) {
+    if (this.refuse.has(path)) throw new Error('refused');
+    this.deleted.push(path);
+  }
   async rename(from: string, to: string) {
     if (this.hold) await this.hold;
     if (this.refuse.has(from)) throw new Error(`${to} is already there`);
@@ -73,11 +82,17 @@ beforeEach(() => {
   TestBed.configureTestingModule({ providers: [{ provide: Jobs, useValue: jobs }] });
 });
 
-async function open(works: FoundWork[] = SOME, busy = false, elsewhere: FoundFile[] = []) {
+async function open(
+  works: FoundWork[] = SOME,
+  busy = false,
+  elsewhere: FoundFile[] = [],
+  duplicates: DuplicateGroup[] = [],
+) {
   fixture = TestBed.createComponent(ImportDialog);
   store = new MemoryStore();
   fixture.componentRef.setInput('works', works);
   fixture.componentRef.setInput('undatedElsewhere', elsewhere);
+  fixture.componentRef.setInput('duplicates', duplicates);
   fixture.componentRef.setInput('store', store);
   fixture.componentRef.setInput('busy', busy);
   closed = [];
@@ -147,11 +162,14 @@ describe('ImportDialog', () => {
   it('opens on an overview that says what was found, and lists nothing yet', async () => {
     await open();
     expect(step()).toBe('overview');
+    // work 2's two undated files and work 3's one
+    expect(element.querySelector('.overview-undated')?.textContent?.trim()).toBe('3 files have no date');
+    expect(element.querySelector('.overview-heading')?.textContent).toContain('Issues found in import:');
     expect(element.querySelector('.overview-undated')?.textContent).toContain(
-      '3 files imported from your library have no date in their names. You can give them a date next.',
+      'no date',
     );
     expect(element.querySelector('.overview-unindexed')?.textContent).toContain(
-      'Your library has 3 works that were imported with no index entry.',
+      '4 files belong to works that have no index',
     );
     expect(element.querySelector('tr[data-file]')).toBeNull();
     expect(element.textContent).not.toContain('1 A - B');
@@ -160,7 +178,7 @@ describe('ImportDialog', () => {
   it('says only what applies', async () => {
     await open(ALL_DATED);
     expect(element.querySelector('.overview-undated')).toBeNull();
-    expect(element.querySelector('.overview-unindexed')?.textContent).toContain('1 work that was imported');
+    expect(element.querySelector('.overview-unindexed')?.textContent?.trim()).toBe('1 file belongs to a work that has no index');
   });
 
   it('goes straight to the index question when no file needs a date', async () => {
@@ -259,7 +277,594 @@ describe('ImportDialog', () => {
 
   // endregion
 
-  // region the dates
+  // region duplicates
+
+  const DUPES = duplicateGroups([
+    'works/7 Fic - W 2024-01-01.html',
+    'works/7 fic old copy 2023-05-05.htm',
+    'works/7 Fic - W 2024-01-01.pdf',
+    'works/7 Fic - W.pdf',
+    'works/8 One 2022-02-02.epub',
+    'works/8 Two 2022-03-03.epub',
+    'works/8 Three 2021-01-01.epub',
+  ]);
+
+  function groupRow(key: string): HTMLTableRowElement {
+    return element.querySelector<HTMLTableRowElement>(`tr[data-group="${key}"]`)!;
+  }
+
+  async function answerUndecided(how: string, opts: { keep?: string; others?: boolean } = {}) {
+    const ask = element.querySelector('.undecided-ask')!;
+    ask.querySelector<HTMLInputElement>(`input[name="askHow"][aria-label="${how}"]`)?.click();
+    await fixture.whenStable();
+    if (opts.keep) {
+      ask.querySelector<HTMLInputElement>(`input[name="askPick"][aria-label="Keep ${opts.keep}"]`)!.click();
+      await fixture.whenStable();
+    }
+    if (opts.others !== undefined) {
+      const label = opts.others ? 'Yes, for the others too' : 'No, ask me each time';
+      ask.querySelector<HTMLInputElement>(`input[name="askOthers"][aria-label="${label}"]`)!.click();
+      await fixture.whenStable();
+    }
+    await click('Apply and carry on');
+  }
+
+  async function chooseIn(key: string, choice: string) {
+    const select = groupRow(key).querySelector('select')!;
+    select.value = choice;
+    select.dispatchEvent(new Event('change'));
+    await fixture.whenStable();
+  }
+
+  it('lists the issues as bullets under one heading: duplicates, then dates, then index', async () => {
+    await open(SOME, false, [], DUPES);
+    expect(element.querySelector('.overview-heading')?.textContent?.trim()).toBe('Issues found in import:');
+    expect([...element.querySelectorAll('.overview-issues li')].map((li) => li.textContent?.trim())).toEqual([
+      '7 files are duplicates',
+      '3 files have no date',
+      '4 files belong to works that have no index',
+    ]);
+  });
+
+  it('lists each work and format with more than one file, every file under it, skipped to begin with', async () => {
+    await open([], false, [], DUPES);
+    expect(element.querySelector('.overview-duplicates')?.textContent?.trim()).toBe('7 files are duplicates');
+    await click('Continue');
+    expect(step()).toBe('duplicates');
+    expect([...element.querySelectorAll('tr[data-group]')].map((r) => r.getAttribute('data-group'))).toEqual([
+      '7:html', '7:pdf', '8:epub',
+    ]);
+    expect(groupRow('8:epub').querySelectorAll('li')).toHaveLength(3);
+    for (const key of ['7:html', '7:pdf', '8:epub']) {
+      expect(groupRow(key).querySelector('select')!.value).toBe('skip');
+    }
+  });
+
+  it('never shows the duplicates page when there are none', async () => {
+    await open();
+    await click('Continue');
+    expect(step()).toBe('dates');
+  });
+
+  it('sets every row at once from the buttons at the top, each still changeable', async () => {
+    await open([], false, [], DUPES);
+    await click('Continue');
+    expect(element.querySelector('select option[value="all"]')).toBeNull();
+    for (const [label, value] of [['Mark all as Keep most recent', 'recent'],
+                                  ["Mark all as I'll choose myself", 'choose'], ['Mark all as Skip', 'skip']]) {
+      await click(label);
+      expect([...element.querySelectorAll('tr[data-group] select')].map((x) => (x as HTMLSelectElement).value))
+        .toEqual([value, value, value]);
+    }
+    await chooseIn('8:epub', 'recent');
+    expect(groupRow('7:html').querySelector('select')!.value).toBe('skip');
+  });
+
+  it('keeps the most recent by the date in each name, removing the rest on a page with a bar', async () => {
+    await open([], false, [], DUPES);
+    await click('Continue');
+    await chooseIn('7:html', 'recent');
+    await chooseIn('8:epub', 'recent');
+    expect(groupRow('7:html').querySelector('li.newest')?.textContent).toContain('7 Fic - W 2024-01-01.html');
+    await click('Continue');
+    await settle();
+
+    expect(step()).toBe('removing');
+    expect(store.deleted.sort()).toEqual([
+      'works/7 fic old copy 2023-05-05.htm',
+      'works/8 One 2022-02-02.epub',
+      'works/8 Three 2021-01-01.epub',
+    ]);
+    expect(element.querySelector('.removed-said')?.textContent).toContain('Removed 3 files');
+    expect(element.querySelector('[role="progressbar"]')).toBeTruthy();
+  });
+
+  it('deletes nothing for a group whose newest cannot be told, and says so', async () => {
+    await open([], false, [], DUPES);
+    await click('Continue');
+    await chooseIn('7:pdf', 'recent');
+    expect(groupRow('7:pdf').querySelector('.undecided-note')?.textContent).toContain("Can't tell which is newest");
+    await click('Continue');
+    await settle();
+    // the removing page stops and asks; keeping all deletes nothing
+    expect(element.querySelector('.undecided-ask')?.getAttribute('data-group')).toBe('7:pdf');
+    await answerUndecided('Keep all of them');
+    expect(store.deleted).toEqual([]);
+    expect(element.querySelector('details.undecided summary')?.textContent).toContain('could not tell which file is most recent');
+  });
+
+  it('says Skip this step with every row skipped, Choose which to keep with one to choose, else Continue', async () => {
+    await open([], false, [], DUPES);
+    await click('Continue');
+    expect(primary().textContent?.trim()).toBe('Skip this step');
+    await chooseIn('8:epub', 'recent');
+    expect(primary().textContent?.trim()).toBe('Continue');
+    await chooseIn('7:html', 'choose');
+    expect(primary().textContent?.trim()).toBe('Choose which to keep');
+  });
+
+  it('keeps every skipped file, and asks again next time unless told not to', async () => {
+    await open([], false, [], DUPES);
+    TestBed.inject(Library).store.set(store);
+    await click('Continue');
+    const box = element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!;
+    expect(box.closest('label')!.textContent).toContain("Don't ask this again for skipped files");
+    expect(box.closest('label')!.textContent).toContain('import-excluded.json');
+    await click('Skip this step');
+    await settle();
+    expect(store.deleted).toEqual([]);
+    expect(store.written.has(IMPORT_EXCLUDED_FILE)).toBe(false);
+  });
+
+  it("puts the list's skipped groups on the duplicates list when the box is ticked, and a sifted one told not to ask again", async () => {
+    await open([], false, [], DUPES);
+    TestBed.inject(Library).store.set(store);
+    await click('Continue');
+    await chooseIn('7:html', 'recent');
+    await chooseIn('8:epub', 'choose');
+    element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!.click();
+    await fixture.whenStable();
+    await click('Choose which to keep');
+    await skipThisOne(true);
+    await click('Continue');
+    await settle();
+    const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
+    expect(written.excluded.map((x: { id: string; kind: string; format: string }) => [x.id, x.kind, x.format])).toEqual([
+      ['7', 'duplicates', 'pdf'],
+      ['8', 'duplicates', 'epub'],
+    ]);
+    expect(written.excluded[1].files).toEqual(['8 One 2022-02-02.epub', '8 Three 2021-01-01.epub', '8 Two 2022-03-03.epub']);
+    // the html's most recent kept, the older copy removed
+    expect(store.deleted).toEqual(['works/7 fic old copy 2023-05-05.htm']);
+  });
+
+  const groupShown = () => element.querySelector('.choose')!.getAttribute('data-group');
+  const radios = () => [...element.querySelectorAll<HTMLInputElement>('.choose-list li:not(.skip-this) input[type="radio"]')];
+  async function skipThisOne(remember = false) {
+    element.querySelector<HTMLInputElement>(remember ? '.skip-this.remember input' : '.skip-this:not(.remember) input')!.click();
+    await fixture.whenStable();
+    // the last one to sort shows the done note at once, with no entries left to move to
+    if (button('Next entry')) await click('Next entry');
+  }
+
+  async function sortRest(choice: string) {
+    element.querySelector<HTMLDetailsElement>('details.sort-rest')!.open = true;
+    element.querySelector<HTMLInputElement>(`details.sort-rest input[aria-label="${choice}"]`)!.click();
+    await fixture.whenStable();
+    await click('Apply to the rest');
+  }
+
+  async function toSifting() {
+    await open([], false, [], DUPES);
+    await click('Continue');
+    await click("Mark all as I'll choose myself");
+    await click('Choose which to keep');
+  }
+
+  it('sifts one at a time, the top file picked to begin with, Continue held until every one is sorted', async () => {
+    await toSifting();
+    expect(step()).toBe('choose');
+    expect(groupShown()).toBe('7:html');
+    expect(element.textContent).toContain('1 of 3');
+    // the most recent, at the top, is picked - but nothing counts as sorted yet
+    expect(radios().map((r) => r.checked)).toEqual([true, false]);
+    expect(element.textContent).toContain('3 still to sort');
+    expect(primary().disabled).toBe(true);
+    expect(button('Keep most recent for this one')).toBeUndefined();
+    // the two skips are the last radios, below every file; previous and next entry are below that
+    const items = [...element.querySelectorAll('.choose-list li')];
+    expect(items.slice(-2).map((li) => li.textContent?.trim())).toEqual([
+      'Skip for now', "Skip, and don't ask me again for this file",
+    ]);
+    expect(element.textContent).not.toContain('Or, skip this one');
+    expect(button('Skip this one')).toBeUndefined();
+    const nav = element.querySelector('.sift-nav')!;
+    expect([...nav.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual([
+      'Previous entry', 'Next entry',
+    ]);
+    expect(element.querySelector('.choose-list')!.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const footer = element.querySelector('footer')!;
+    expect([...footer.querySelectorAll(':scope > button')].map((b) => b.textContent?.trim())).toEqual(['Back', 'Continue']);
+    // the rest sorted at once from the footer, above its buttons, closed to begin with
+    const bulk = footer.querySelector<HTMLDetailsElement>(':scope > details.sort-rest')!;
+    expect(footer.firstElementChild).toBe(bulk);
+    expect(bulk.open).toBe(false);
+    expect(bulk.querySelector('summary')!.textContent?.trim()).toBe('Sort any remaining in bulk');
+    expect([...bulk.querySelectorAll('input[type="radio"]')].map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Skip for now', "Skip, don't ask again", 'Keep most recent',
+    ]);
+    expect(nav.compareDocumentPosition(bulk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(button('Apply to the rest')!.disabled).toBe(true);
+  });
+
+  it('lists the files to choose from most recent first, undated last', async () => {
+    await toSifting();
+    await click('Next entry');
+    await click('Next entry');
+    expect(groupShown()).toBe('8:epub');
+    expect(radios().map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Keep 8 Two 2022-03-03.epub',
+      'Keep 8 One 2022-02-02.epub',
+      'Keep 8 Three 2021-01-01.epub',
+    ]);
+    await click('Previous entry');
+    expect(radios().map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Keep 7 Fic - W 2024-01-01.pdf',
+      'Keep 7 Fic - W.pdf',
+    ]);
+  });
+
+  it('writes to no exclusion list and refreshes nothing as a sandbox, saying what it would have', async () => {
+    await open(ALL_DATED, false, [], DUPES);
+    fixture.componentRef.setInput('sandbox', true);
+    TestBed.inject(Library).store.set(store);
+    const noted: string[] = [];
+    fixture.componentInstance.sandboxNoted.subscribe((x) => noted.push(x));
+    await click('Continue');
+    element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!.click();
+    await fixture.whenStable();
+    await click('Skip this step');
+    await settle();
+    expect(store.written.size).toBe(0);
+    expect(noted).toEqual(['duplicates list: 7:html, 7:pdf, 8:epub']);
+  });
+
+  it('takes the picked file on Next entry, and finishes with a done note once the last is sorted', async () => {
+    await toSifting();
+    radios()[1].click();
+    await fixture.whenStable();
+    await click('Next entry');
+    expect(groupShown()).toBe('7:pdf');
+    await skipThisOne();
+    expect(groupShown()).toBe('8:epub');
+    await click('Previous entry');
+    expect(groupShown()).toBe('7:pdf');
+    await click('Next entry');
+    // the last one: Next entry keeps the top file, and there is nothing left to sort
+    await click('Next entry');
+
+    expect(element.querySelector('.sift-done')?.textContent).toContain('You are done - no more to sort');
+    expect(element.querySelector('.sift-nav')).toBeNull();
+    expect(element.querySelector('details.sort-rest')).toBeNull();
+    expect(primary().disabled).toBe(false);
+    await click('Continue');
+    await settle();
+    expect(store.deleted.sort()).toEqual([
+      'works/7 Fic - W 2024-01-01.html',
+      'works/8 One 2022-02-02.epub',
+      'works/8 Three 2021-01-01.epub',
+    ]);
+  });
+
+  it('goes back to the list, and coming forward opens on the first still to sort, new ones at the end', async () => {
+    const more = duplicateGroups([...DUPES.flatMap((g) => g.files.map((f) => f.path)), 'works/9 a 2020-01-01.mobi', 'works/9 b 2021-01-01.mobi']);
+    await open([], false, [], more);
+    await click('Continue');
+    await chooseIn('7:html', 'choose');
+    await chooseIn('7:pdf', 'choose');
+    await chooseIn('8:epub', 'choose');
+    await click('Choose which to keep');
+    await skipThisOne();
+    expect(groupShown()).toBe('7:pdf');
+
+    await click('Back');
+    expect(step()).toBe('duplicates');
+    // the list keeps to its own choices: nothing about what sifting decided
+    expect(groupRow('7:html').textContent).not.toContain('Sorted:');
+    await chooseIn('9:mobi', 'choose');
+    await click('Choose which to keep');
+    expect(groupShown()).toBe('7:pdf');
+    expect(element.textContent).toContain('2 of 4');
+    await click('Next entry');
+    await click('Next entry');
+    expect(groupShown()).toBe('9:mobi');
+  });
+
+  it('keeps what was decided for a group taken off and put back, in its own place', async () => {
+    await toSifting();
+    radios()[1].click();
+    await fixture.whenStable();
+    await click('Back');
+    // decided, then changed to Skip on the list: out of the sift
+    await chooseIn('7:html', 'skip');
+    await click('Choose which to keep');
+    expect(groupShown()).toBe('7:pdf');
+    expect(element.textContent).toContain('1 of 2');
+
+    // changed back: in its first place again, still decided as before
+    await click('Back');
+    await chooseIn('7:html', 'choose');
+    await click('Choose which to keep');
+    expect(groupShown()).toBe('7:pdf');
+    expect(element.textContent).toContain('2 of 3');
+    await click('Previous entry');
+    expect(groupShown()).toBe('7:html');
+    expect(radios().map((r) => r.checked)).toEqual([false, true]);
+  });
+
+  it('leaves the rest as they are on Skip for now in bulk, keeping what was sorted, and goes on only on Continue', async () => {
+    await toSifting();
+    TestBed.inject(Library).store.set(store);
+    await click('Next entry');
+    await sortRest('Skip for now');
+    expect(step()).toBe('choose');
+    expect(element.querySelector('.sift-done')).toBeTruthy();
+    await click('Continue');
+    await settle();
+    expect(store.deleted).toEqual(['works/7 fic old copy 2023-05-05.htm']);
+    expect(store.written.has(IMPORT_EXCLUDED_FILE)).toBe(false);
+  });
+
+  it("puts the rest on the duplicates list on Skip, don't ask again in bulk", async () => {
+    await toSifting();
+    TestBed.inject(Library).store.set(store);
+    await click('Next entry');
+    await sortRest("Skip, don't ask again");
+    await click('Continue');
+    await settle();
+    const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
+    expect(written.excluded.map((x: { id: string; format: string }) => `${x.id}:${x.format}`)).toEqual(['7:pdf', '8:epub']);
+  });
+
+  it('gives the rest their most recent on Keep most recent in bulk', async () => {
+    await toSifting();
+    await sortRest('Keep most recent');
+    await click('Continue');
+    await settle();
+    await answerUndecided('Keep all of them');
+    expect(store.deleted.sort()).toEqual([
+      'works/7 fic old copy 2023-05-05.htm',
+      'works/8 One 2022-02-02.epub',
+      'works/8 Three 2021-01-01.epub',
+    ]);
+    // 7:pdf cannot be told, so it is left and said
+    expect(element.querySelector('details.undecided')).toBeTruthy();
+  });
+
+  it('never offers a removed file for dating afterwards', async () => {
+    const undated = duplicateGroups(['works/9 Copy - W.html', 'works/9 Copy - W 2020-01-01.html', 'works/9 Old - W 2019-01-01.html']);
+    const works = [{ id: '9', files: undated[0].files }];
+    await open(works, false, [], undated);
+    await click('Continue');
+    await click("Mark all as I'll choose myself");
+    await click('Choose which to keep');
+    // the most recent dated copy is at the top and picked; Next entry keeps it, and that is all
+    const keep = element.querySelector<HTMLInputElement>('input[aria-label="Keep 9 Copy - W 2020-01-01.html"]')!;
+    expect(keep.checked).toBe(true);
+    await click('Next entry');
+    await click('Continue');
+    await settle();
+    expect(store.deleted.sort()).toEqual(['works/9 Copy - W.html', 'works/9 Old - W 2019-01-01.html']);
+    await click('Continue');
+    expect(step()).toBe('index');
+  });
+
+
+  // the same date in both names, told apart - or not - by when each file last changed
+  const TIED = duplicateGroups(['works/5 Tie - W 2023-03-03.mobi', 'works/5 Tie copy - W 2023-03-03.mobi']);
+  const TIED_TIMES = {
+    'works/5 Tie - W 2023-03-03.mobi': Date.UTC(2023, 2, 4),
+    'works/5 Tie copy - W 2023-03-03.mobi': Date.UTC(2023, 5, 1),
+  };
+
+  async function openTied(times: Record<string, number>) {
+    await open([], false, [], TIED);
+    for (const [path, at] of Object.entries(times)) store.changed.set(path, at);
+    // the times are asked of the library the window was given
+    fixture.componentRef.setInput('store', null);
+    await settle();
+    fixture.componentRef.setInput('store', store);
+    await settle();
+  }
+
+  it('breaks a shared newest date by when each file was last changed, the later one the most recent', async () => {
+    await openTied(TIED_TIMES);
+    await click('Continue');
+    await chooseIn('5:mobi', 'recent');
+    expect(groupRow('5:mobi').querySelector('.undecided-note')).toBeNull();
+    expect(groupRow('5:mobi').querySelector('li.newest')?.textContent).toContain('5 Tie copy - W 2023-03-03.mobi');
+
+    await chooseIn('5:mobi', 'choose');
+    await click('Choose which to keep');
+    // the later-changed file is the top radio, and nothing warns
+    expect(radios().map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Keep 5 Tie copy - W 2023-03-03.mobi',
+      'Keep 5 Tie - W 2023-03-03.mobi',
+    ]);
+    expect(radios()[0].checked).toBe(true);
+    expect(element.querySelector('.top-label')?.textContent?.trim()).toBe('Most recent');
+  });
+
+  it('says above the top file that it is the most recent, and under each its name date and change time', async () => {
+    await openTied(TIED_TIMES);
+    await click('Continue');
+    await click("Mark all as I'll choose myself");
+    await click('Choose which to keep');
+    const items = [...element.querySelectorAll('.choose-list li:not(.skip-this)')];
+    // the label comes before the file's name
+    const top = items[0].querySelector('.top-label')!;
+    expect(top.textContent?.trim()).toBe('Most recent');
+    expect(top.compareDocumentPosition(items[0].querySelector('.file-name')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(items[1].querySelector('.top-label')).toBeNull();
+    const notes = items.map((li) => [...li.querySelectorAll('.file-note')].map((n) => n.textContent?.trim()));
+    expect(notes[0][0]).toBe('Filename dated 2023-03-03');
+    expect(notes[0][1]).toMatch(/^File metadata updated at \S/);
+    expect(notes[0]).toHaveLength(2);
+  });
+
+  it('calls the top file only our best guess when the most recent cannot be told, with no warning panel', async () => {
+    await openTied({});
+    await click('Continue');
+    await click("Mark all as I'll choose myself");
+    await click('Choose which to keep');
+    expect(element.querySelector('.sift-unsure')).toBeNull();
+    expect(element.querySelector('.top-label')?.textContent?.trim()).toBe("This is our best guess for 'most recent'");
+    expect(element.textContent).toContain('File metadata updated at: unknown');
+
+    const undated = duplicateGroups(['works/6 A.html', 'works/6 B.html']);
+    await open([], false, [], undated);
+    await click('Continue');
+    await click("Mark all as I'll choose myself");
+    await click('Choose which to keep');
+    expect(element.querySelector('.top-label')?.textContent?.trim()).toBe("This is our best guess for 'most recent'");
+    expect(element.textContent).toContain('No date included in the filename');
+    expect(element.textContent).not.toContain('Most recent\n');
+  });
+
+  it('puts the files in a pane of their own to scroll through when choosing on the removing page', async () => {
+    const many = duplicateGroups(Array.from({ length: 12 }, (_, i) => `works/4 Copy ${i}.html`));
+    await open([], false, [], many);
+    await click('Continue');
+    await click('Mark all as Keep most recent');
+    await click('Continue');
+    await settle();
+    element.querySelector<HTMLInputElement>('input[name="askHow"][aria-label="Choose individually"]')!.click();
+    await fixture.whenStable();
+    const pane = element.querySelector('.undecided-ask .ask-files')!;
+    expect(pane.querySelectorAll('input[name="askPick"]')).toHaveLength(12);
+    expect(getComputedStyle(pane).overflowY).toBe('auto');
+  });
+
+  it('decides nothing while sifting: every file is still there until the removing page', async () => {
+    await toSifting();
+    radios()[1].click();
+    await fixture.whenStable();
+    await click('Next entry');
+    await click('Back');
+    expect(store.deleted).toEqual([]);
+  });
+
+  // three sets marked Keep most recent, none of which can be told
+  const UNSURE = duplicateGroups([
+    'works/1 A.html', 'works/1 A copy.html',
+    'works/2 B.html', 'works/2 B copy.html',
+    'works/3 C.html', 'works/3 C copy.html',
+  ]);
+
+  async function toUnsureRemoving(wait?: number) {
+    await open([], false, [], UNSURE);
+    if (wait !== undefined) fixture.componentRef.setInput('answerWaitMs', wait);
+    await click('Continue');
+    await click('Mark all as Keep most recent');
+    await click('Continue');
+    await settle();
+  }
+
+  it('pauses the removing bar on a set it cannot tell and asks: choose, best guess or keep all', async () => {
+    await toUnsureRemoving();
+    expect(step()).toBe('removing');
+    expect(element.querySelector('.removing-progress')?.textContent).toContain('waiting for your answer');
+    const ask = element.querySelector('.undecided-ask')!;
+    expect(ask.getAttribute('data-group')).toBe('1:html');
+    expect([...ask.querySelectorAll('input[name="askHow"]')].map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Make a best guess', 'Choose individually', 'Keep all of them',
+    ]);
+    // a best guess is picked to begin with
+    expect(ask.querySelector<HTMLInputElement>('input[aria-label="Make a best guess"]')!.checked).toBe(true);
+    expect(ask.textContent).toContain('Do this for any others like this? (2 more)');
+    expect(ask.textContent).toContain('every file of this set is kept');
+    // still waiting on whether to do the same for the others
+    expect(button('Apply and carry on')!.disabled).toBe(true);
+
+    // choosing shows the files as the sifting page does
+    await answerUndecided('Choose individually', { keep: '1 A copy.html', others: false });
+    expect(store.deleted).toEqual(['works/1 A.html']);
+    // asked again for the next
+    expect(element.querySelector('.undecided-ask')?.getAttribute('data-group')).toBe('2:html');
+    await answerUndecided('Make a best guess', { others: false });
+    // best guess: no dates, no times - by name
+    expect(store.deleted).toContain('works/2 B.html');
+    expect(element.querySelector('.undecided-ask')?.getAttribute('data-group')).toBe('3:html');
+    // the last one: nothing more to apply it to, so no question about the others
+    expect(element.querySelector('.ask-others')).toBeNull();
+    await answerUndecided('Keep all of them');
+    await settle();
+    expect(store.deleted.sort()).toEqual(['works/1 A.html', 'works/2 B.html']);
+    expect(element.querySelector('details.guessed')?.textContent).toContain('2 B copy.html');
+    expect(element.querySelector('details.undecided')?.textContent).toContain('Work 3');
+  });
+
+  it('follows an answer given for the others without asking again', async () => {
+    await toUnsureRemoving();
+    await answerUndecided('Make a best guess', { others: true });
+    await settle();
+    expect(element.querySelector('.undecided-ask')).toBeNull();
+    expect(store.deleted.sort()).toEqual(['works/1 A.html', 'works/2 B.html', 'works/3 C.html']);
+  });
+
+  it('keeps choosing by hand for the others when told to, showing only the files', async () => {
+    await toUnsureRemoving();
+    await answerUndecided('Choose individually', { keep: '1 A.html', others: true });
+    const ask = element.querySelector('.undecided-ask')!;
+    expect(ask.getAttribute('data-group')).toBe('2:html');
+    expect(ask.querySelector('input[name="askHow"]')).toBeNull();
+    expect(ask.querySelector('.ask-others')).toBeNull();
+    await answerUndecided('', { keep: '2 B.html' });
+    await answerUndecided('', { keep: '3 C copy.html' });
+    await settle();
+    expect(store.deleted.sort()).toEqual(['works/1 A copy.html', 'works/2 B copy.html', 'works/3 C.html']);
+  });
+
+  it('keeps every file of a set when no answer comes in time, then asks about the next', async () => {
+    await toUnsureRemoving(40);
+    expect(element.querySelector('.undecided-ask')?.getAttribute('data-group')).toBe('1:html');
+    // each set waits its own time, and each is kept whole when it runs out
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await settle();
+    expect(element.querySelector('.undecided-ask')).toBeNull();
+    expect(store.deleted).toEqual([]);
+    const kept = element.querySelector('details.undecided')!.textContent!;
+    expect(kept.match(/\(no answer in time\)/g)).toHaveLength(3);
+  });
+
+  it('counts only what is left for dating after duplicates are removed', async () => {
+    const files = ['works/9 Copy - W.html', 'works/9 Copy - W 2020-01-01.html', 'works/9 Other - W.pdf'];
+    const found = unindexedWorks(files, new Set());
+    await open(found, false, [], duplicateGroups(files));
+    await click('Continue');
+    await chooseIn('9:html', 'choose');
+    await click('Choose which to keep');
+    await click('Next entry');
+    await click('Continue');
+    await settle();
+    expect(store.deleted).toEqual(['works/9 Copy - W.html']);
+    await click('Continue');
+    // the undated html went; only the pdf is left to date
+    expect(rowOrder()).toEqual(['works/9 Other - W.pdf']);
+  });
+
+  it('says nothing about how long an import takes on its own pages - the run window does', async () => {
+    const files = Array.from({ length: 30 }, (_, i) => `works/${800 + i} Fic ${i} - W 2024-01-01.html`);
+    await open(unindexedWorks(files, new Set()));
+    await click('Continue');
+    expect(step()).toBe('index');
+    expect(element.querySelector('.long-run-note')).toBeNull();
+    element.querySelector<HTMLInputElement>('input[name="lookup"][value="yes"]')!.click();
+    await fixture.whenStable();
+    await click('Continue');
+    expect(step()).toBe('formats');
+    expect(element.querySelector('.long-run-note')).toBeNull();
+  });
 
   it('lists the undated files by name, and offers to skip the step while none has a date', async () => {
     await open();
@@ -367,17 +972,18 @@ describe('ImportDialog', () => {
     );
     await open(many);
     await click('Continue');
-    expect(rowOrder()).toHaveLength(25);
+    expect(rowOrder()).toHaveLength(7);
     await type(dateBox('works/100 Fic 00 - W.html'), '2024-02-02');
     await click('Next');
-    expect(rowOrder()).toHaveLength(5);
+    expect(rowOrder()).toHaveLength(7);
+    expect(element.textContent).toContain('Page 2 of 5');
 
     await click('One scrolling list');
     expect(rowOrder()).toHaveLength(30);
     expect(dateBox('works/100 Fic 00 - W.html').value).toBe('2024-02-02');
     // back to pages, on the page it was on
     await click('Pages');
-    expect(rowOrder()).toHaveLength(5);
+    expect(element.textContent).toContain('Page 2 of 5');
     await click('Previous');
     expect(dateBox('works/100 Fic 00 - W.html').value).toBe('2024-02-02');
   });
@@ -562,6 +1168,7 @@ describe('ImportDialog', () => {
       indexOnly: [],
       lookups: 1,
       scope: 'all',
+      files: 1,
     });
   });
 

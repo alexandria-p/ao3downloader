@@ -1,4 +1,4 @@
-"""Resuming a stopped, failed or interrupted run - see RESUMING.md.
+"""Resuming a stopped, failed or interrupted run - see helper_files/RESUMING.md.
 
 A run saves how far it got as it goes; a resumed run takes the earlier attempt's workflow,
 settings and progress, and carries on: a walk sorted by date bookmarked from the page it

@@ -533,6 +533,24 @@ export class DropboxSession {
     }
   }
 
+  /**
+   * When a file was last changed: the time the file itself carried when it was uploaded
+   * (`client_modified`), which a sync keeps, or else when Dropbox received it.
+   */
+  async fileModified(path: string): Promise<number | null> {
+    try {
+      const meta = await this.call<{ '.tag': string; client_modified?: string; server_modified?: string }>(
+        'files/get_metadata',
+        { path },
+      );
+      if (meta['.tag'] !== 'file') return null;
+      return Date.parse(meta.client_modified ?? meta.server_modified ?? '') || null;
+    } catch (error) {
+      if (error instanceof DropboxError && /not_found/.test(error.summary)) return null;
+      throw error;
+    }
+  }
+
   /** Move a file to the Dropbox trash, where it can still be restored. One already gone is fine. */
   async deleteFile(path: string): Promise<void> {
     try {

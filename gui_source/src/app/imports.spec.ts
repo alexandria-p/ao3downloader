@@ -2,6 +2,13 @@ import { TestBed } from '@angular/core/testing';
 import { Bookmark } from './bookmarks';
 import {
   IMPORT_EXCLUDED_FILE,
+  duplicateGroups,
+  newestOf,
+  byRecency,
+  bestGuessOf,
+  modifiedTimes,
+  importRequests,
+  removeFiles,
   LibraryImports,
   dateFiles,
   datedName,
@@ -201,6 +208,72 @@ describe('inferring a date from a file name', () => {
   }
 });
 
+describe('duplicates', () => {
+  it('groups the files of one work in one format, however they are named', () => {
+    const groups = duplicateGroups([
+      'works/1 A - B 2024-01-01.html',
+      'works/1 something else.htm',
+      'works/1 A - B.pdf',
+      'works/2 C.epub',
+      'works/2 C copy.epub',
+      'works/2 C copy 2.epub',
+      'works/3 D.html',
+    ]);
+    expect(groups.map((g) => [g.key, g.files.length])).toEqual([['1:html', 2], ['2:epub', 3]]);
+  });
+
+  it('keeps the newest only when every file has a date and one is the latest', () => {
+    const [group] = duplicateGroups(['works/1 a 2024-01-01.html', 'works/1 b 14 Dec 2024.html', 'works/1 c 20230101.html']);
+    expect(newestOf(group)?.name).toBe('1 b 14 Dec 2024.html');
+    expect(newestOf(duplicateGroups(['works/1 a 2024-01-01.html', 'works/1 b.html'])[0])).toBeNull();
+    expect(newestOf(duplicateGroups(['works/1 a 2024-01-01.html', 'works/1 b 2024-01-01.html'])[0])).toBeNull();
+  });
+
+  it('breaks a shared newest date by the later change time, and only when every tied file has one', () => {
+    const [group] = duplicateGroups(['works/1 a 2024-01-01.html', 'works/1 b 2024-01-01.html', 'works/1 c 2023-01-01.html']);
+    const a = 'works/1 a 2024-01-01.html';
+    const b = 'works/1 b 2024-01-01.html';
+    expect(newestOf(group, { [a]: 1, [b]: 2 })?.name).toBe('1 b 2024-01-01.html');
+    expect(newestOf(group, { [a]: 2, [b]: 2 })).toBeNull();
+    expect(newestOf(group, { [a]: 1 })).toBeNull();
+  });
+
+  it('orders a set by the date in each name, then by when each file changed, then by name', () => {
+    const [group] = duplicateGroups(['works/1 z.html', 'works/1 a.html', 'works/1 m 2020-01-01.html', 'works/1 y.html']);
+    const order = byRecency(group, { 'works/1 y.html': 5, 'works/1 z.html': 9 }).map((f) => f.name);
+    expect(order).toEqual(['1 m 2020-01-01.html', '1 z.html', '1 y.html', '1 a.html']);
+    expect(bestGuessOf(group, {}).name).toBe('1 m 2020-01-01.html');
+  });
+
+  it('asks the library when each file last changed, leaving out what it cannot say', async () => {
+    const store = new MemoryStore(['works/1 a.html', 'works/1 b.html']);
+    const changed: Record<string, number> = { 'works/1 a.html': 42 };
+    (store as LibraryStore).modified = async (path: string) => (store.files.has(path) ? (changed[path] ?? null) : null);
+    expect(await modifiedTimes(store, ['works/1 a.html', 'works/1 b.html', 'works/1 gone.html'])).toEqual({
+      'works/1 a.html': 42,
+    });
+  });
+
+  it('counts roughly the requests an import makes: lookups, other formats per work updated, copies it may replace', () => {
+    const base = { links: '', count: 10, filetypes: ['JSON', 'EPUB', 'PDF'], replaceOutdated: false,
+                   indexOnly: ['1', '2'], lookups: 4, scope: 'all' as const, files: 30 };
+    expect(importRequests(base)).toBe(4 + 8 * 2);
+    expect(importRequests({ ...base, replaceOutdated: true })).toBe(4 + 8 * 2 + 30);
+    expect(importRequests({ ...base, scope: 'skip' })).toBe(4);
+  });
+
+  it('removes each file, carrying on past one that will not go', async () => {
+    const store = new MemoryStore(['works/1 a.html', 'works/1 b.html']);
+    store.delete = async (path: string) => {
+      if (path.endsWith('b.html')) throw new Error('locked');
+      store.files.delete(path);
+    };
+    const result = await removeFiles(store, ['works/1 a.html', 'works/1 b.html']);
+    expect(result.removed).toEqual(['works/1 a.html']);
+    expect(result.failed.map((f) => f.path)).toEqual(['works/1 b.html']);
+  });
+});
+
 describe('LibraryImports', () => {
   it('works out the unindexed works from works/ and the index the page has read', async () => {
     const library = TestBed.inject(Library);
@@ -307,6 +380,33 @@ describe('LibraryImports', () => {
     library.listedAt.set(new Date());
     await imports.check();
     expect(imports.undatedIndexed()).toEqual([]);
+  });
+
+  it('finds duplicates, and passes over a group kept as it was until another file joins it', async () => {
+    let imports = await checked(
+      ['works/7 a.pdf', 'works/7 b.pdf', 'works/8 x.html', 'works/8 y.html'],
+      [{ id: '7', kind: 'duplicates', format: 'pdf', files: ['7 a.pdf', '7 b.pdf'] }],
+      ['7', '8'],
+    );
+    expect(imports.duplicates().map((g) => g.key)).toEqual(['8:html']);
+    expect(imports.hasIssues()).toBe(true);
+
+    TestBed.resetTestingModule();
+    imports = await checked(
+      ['works/7 a.pdf', 'works/7 b.pdf', 'works/7 c.pdf'],
+      [{ id: '7', kind: 'duplicates', format: 'pdf', files: ['7 a.pdf', '7 b.pdf'] }],
+      ['7'],
+    );
+    expect(imports.duplicates().map((g) => g.files.length)).toEqual([3]);
+  });
+
+  it('never counts a duplicate on the files list', async () => {
+    const imports = await checked(
+      ['works/7 a.pdf', 'works/7 b.pdf'],
+      [{ id: '7', kind: 'files', files: ['7 b.pdf'] }],
+      ['7'],
+    );
+    expect(imports.duplicates()).toEqual([]);
   });
 
   it('records the files each list was given, and follows a file that dating renames', async () => {

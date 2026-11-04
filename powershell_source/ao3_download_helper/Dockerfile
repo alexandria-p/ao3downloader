@@ -1,5 +1,5 @@
 # The helper, hosted: one person's own instance, behind a passcode, taking the ao3 login
-# only encrypted. Built by .github/workflows/deploy-hosted.yml - see HOSTING.md.
+# only encrypted. Built by .github/workflows/deploy-hosted.yml.
 #
 # The build context is this folder, and `hosted-settings.ini` has to be in it: the workflow
 # writes it with deploy_config.py just before building. It holds no secrets - the passcode
