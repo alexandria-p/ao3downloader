@@ -31,7 +31,7 @@ that can only write issues in this repository. Nothing secret is in the page.
 
 ## Setting it up
 
-`FEEDBACK.md` in the repository is the full walk-through. In short:
+`helper_files/FEEDBACK.md` in the repository is the full walk-through. In short:
 
 1. In the Cloudflare dashboard:
    - pick a `workers.dev` subdomain;

@@ -16,9 +16,9 @@ Upstream ao3downloader is a console program. This fork adds:
    cannot do the work itself.
 4. **Collection indexing** - one json file per collection, recording what it contains.
 5. **A bundler** (`generate_build_artifacts.ps1`) producing a self-contained `build/`.
-6. **A hosted copy for one person** (`HOSTING.md`) - the page on GitHub Pages, the helper
+6. **A hosted copy for one person** (`helper_files/HOSTING.md`) - the page on GitHub Pages, the helper
    on Render, behind a passcode and taking the ao3 login only encrypted.
-7. **A feedback tab** (`FEEDBACK.md`) - a form on every deployed copy that opens a GitHub
+7. **A feedback tab** (`helper_files/FEEDBACK.md`) - a form on every deployed copy that opens a GitHub
    issue through a Cloudflare Worker (`feedback_worker/`), never through the helper.
 
 ## Layout
@@ -45,8 +45,11 @@ powershell_source/
 .github/workflows/build-windows.yml   builds, tries and publishes the Windows app
 .github/workflows/build-mac.yml       builds, tries and publishes the Mac app
 .github/workflows/build-linux.yml     builds, tries and publishes the Linux app
-HOSTING.md                        how to set the hosted copy up
-FEEDBACK.md                       the feedback tab, and its Cloudflare setup
+helper_files/                     the project's longer documents (only README.md and CLAUDE.md stay at the root):
+  HOSTING.md                      how to set the hosted copy up
+  FEEDBACK.md                     the feedback tab, and its Cloudflare setup
+  DEPLOYING.md, RESUMING.md, TECH_DEBT.md, TERMINOLOGY.md, HANDOFF.md
+  README_OBSOLETE.md              the old full README, still marker-checked
 feedback_worker/                  the Cloudflare Worker that opens feedback issues; node --test
 wiki/                             the GitHub wiki's source; publish-wiki.yml copies it there
 build/                            generated; config/settings.ini is NOT overwritten
@@ -96,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2099 python passed; 997 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2100 python passed; 997 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -168,7 +171,7 @@ and restarting the app would fail for no reason. Probing separates "a helper is 
 
 ### A hosted copy is one person's
 
-`HOSTING.md` is the setup; this is what not to break. The page goes on GitHub Pages under
+`helper_files/HOSTING.md` is the setup; this is what not to break. The page goes on GitHub Pages under
 `/app/`, the helper on Render from a Docker image, both built by
 `.github/workflows/deploy-hosted.yml`. It is for the owner alone - everyone else runs the app
 on their own computer - and it is locked two ways.
@@ -465,7 +468,7 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
 
 ### Feedback goes to Cloudflare, never to the helper
 
-`FEEDBACK.md` is the setup and the full account; this is what not to break.
+`helper_files/FEEDBACK.md` is the setup and the full account; this is what not to break.
 
 - **It is not the helper.** A submission goes from the page (`feedback.ts`) to the feedback
   Worker (`feedback_worker/worker.js`), which opens the issue with a fine-grained GitHub token
@@ -1173,7 +1176,7 @@ which is exactly the date-range quick scan.
 
 ### A run can be retried, and says how far it got [EXPERIMENTAL]
 
-`RESUMING.md` (project root) is the full account; this is what not to break. **Retry** replaced
+`helper_files/RESUMING.md` is the full account; this is what not to break. **Retry** replaced
 the old Resume button; **Resume** now means only un-pausing a run still going.
 
 - **Any ended run can be retried, and a retry is a new run** (its own id and history file,
@@ -1661,7 +1664,7 @@ The rules, and why:
 
 **`from_collections` is set in one place: the cleanup step**, for every workflow but the
 debug ones (`LINKING_ACTIONS`: full, quick and custom scans, the single fic, both collection
-runs). No crawl or walk writes it - don't add a second writer; `TECH_DEBT.md` says why it was
+runs). No crawl or walk writes it - don't add a second writer; `helper_files/TECH_DEBT.md` says why it was
 brittle when there were four. `collection_links` reads every saved collection file and
 returns `(path, list)` for each index entry missing a collection that holds it;
 `write_collection_links` sets the identity field straight onto the file (no new reading).
@@ -1705,7 +1708,7 @@ across much of ao3, not the loop guard. The checkpoint for a finished collection
 `family`, and `finished_before` queues it, so a resume that skips a collection still follows
 what it links to.
 
-**Collection runs can be resumed** (`RESUME_ACTIONS`; `RESUMING.md` has the detail).
+**Collection runs can be resumed** (`RESUME_ACTIONS`; `helper_files/RESUMING.md` has the detail).
 `watch_collections` checkpoints `collections.<name>` after every page of each listing
 (`Ao3.on_collection_page`: page, ids so far, done) and when a collection is saved
 (`on_collection_done`: done, every work number). A resumed run hands `Ao3.collections_before`
@@ -2726,7 +2729,7 @@ Three rules worth keeping:
   `self.inifile` breaks the moment a config folder is set.
 - **Angular's test runner rejects `vi.mock` on relative imports.** Injectable seams
   (`FolderStore`) are how the tests stand in for browser APIs, which don't exist in jsdom.
-- **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `README_OBSOLETE.md` (the old full README) tie hardcoded strings
+- **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `helper_files/README_OBSOLETE.md` (the old full README) tie hardcoded strings
   to `strings.py` constants, and must not contain `{}`. `dev/readme.py` checks every one (a constant that is gone, or a
   value it no longer contains), and `test_readme_markers.py` runs it in the ordinary suite, so
   CI checks it on every pull request and before every deploy. Upstream's `validate readme` workflow, which called it from the
@@ -2743,7 +2746,7 @@ Three rules worth keeping:
 - **The root `README.md` is a short front page, at the user's request**: download links for each
   system, a few lines on what the app does, and mocked screenshots (`docs/screenshots/`, a
   made-up safe-for-work library - never a real account or username). Keep it that short; detail
-  goes in the wiki. The old full README is `README_OBSOLETE.md`, kept for reference and still
+  goes in the wiki. The old full README is `helper_files/README_OBSOLETE.md`, kept for reference and still
   marker-checked. The bundle's own `build/README.md` (the `README` string in
   `build_artifacts.py`) is the full guide that ships in a build: file naming, the matching rule
   and the collections format are documented there by requirement.
@@ -2751,14 +2754,14 @@ Three rules worth keeping:
   `Example_Reader`.
 - Verify claims before reporting them. Several conclusions in this project's history were
   wrong until checked against real fixtures or a live run.
-- **`TECH_DEBT.md` (project root) lists the known weak spots** - `from_collections` among
+- **`helper_files/TECH_DEBT.md` lists the known weak spots** - `from_collections` among
   them, and index writes that find an entry by the name it would have now. Read it before
   working near either, and add to it when you leave something fragile behind.
 - **`wiki/` is the GitHub wiki, short.** `publish-wiki.yml` replaces the wiki with it on every
   push to `main`, so edit it there, never on the wiki. It is the brief version for people
   using the app; the root documents stay the full record. When a change alters what a user
   sees or does - a run, an option, a setting, a file name - update the page it belongs on.
-- **Keep `TERMINOLOGY.md` (project root) up to date with every change to the codebase.** It
+- **Keep `helper_files/TERMINOLOGY.md` up to date with every change to the codebase.** It
   lists the project's terms (with the synonyms used in chat), each workflow's programmatic
   name, options and steps, and how every step works. Whenever a change adds, renames or
   removes a term, workflow, option or step - or changes what a step does - update that file

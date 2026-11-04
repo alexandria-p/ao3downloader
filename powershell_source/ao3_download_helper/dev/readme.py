@@ -22,7 +22,7 @@ from pathlib import Path
 from source_code import strings
 
 # the repository root, from powershell_source/ao3_download_helper/dev/
-DEFAULT_README = Path(__file__).resolve().parents[3] / 'README_OBSOLETE.md'
+DEFAULT_README = Path(__file__).resolve().parents[3] / 'helper_files/README_OBSOLETE.md'
 
 MARKER = re.compile(r'<!--CHECK-->(.*?)<!--([A-Za-z0-9_]+)-->', re.DOTALL)
 

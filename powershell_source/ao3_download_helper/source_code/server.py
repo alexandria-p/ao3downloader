@@ -254,13 +254,13 @@ OVERWRITE_ACTIONS = (ACTION_BOOKMARKS, ACTION_CUSTOM)
 # a custom run told to skip indexing has ruled out.
 NON_BOOKMARK_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM)
 
-# The runs that can be picked up where an earlier attempt left off - see RESUMING.md. The
+# The runs that can be picked up where an earlier attempt left off - see helper_files/RESUMING.md. The
 # three scans and the two collection runs; the rest are short enough that starting again is
 # the resume.
 RESUME_ACTIONS = (ACTION_BOOKMARKS, ACTION_QUICK, ACTION_CUSTOM,
                   ACTION_COLLECTIONS, ACTION_COLLECTION)
 
-# how an earlier run can be retried - see RESUMING.md:
+# how an earlier run can be retried - see helper_files/RESUMING.md:
 # - TOP: the same run again from its first step, answering its questions afresh - a quick scan
 #   over the same window it had (its floor, up to when it first started)
 # - REINDEX: its indexing again from the first page of every listing - nothing taken from the

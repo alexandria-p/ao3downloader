@@ -789,7 +789,7 @@ FAILED_LOGIN_NO_TOKEN_VALUE = 'authenticity token field was empty'
 # endregion
 
 
-# region resuming an earlier run - see RESUMING.md
+# region resuming an earlier run - see helper_files/RESUMING.md
 
 AO3_INFO_RESUMING = 'resuming the {} that started {} - it stopped at: {}'
 AO3_INFO_RESUME_NO_STEP = 'before its first step'

@@ -166,7 +166,7 @@ export interface JobOptions {
   floorRun: string;
   /**
    * The earlier run to pick up where it left off, by id. The helper reads that run's own
-   * record and takes its workflow, file types and options from it - see RESUMING.md.
+   * record and takes its workflow, file types and options from it - see helper_files/RESUMING.md.
    */
   resume?: string;
   /** how that run is retried - the helper's RETRY_MODES */
@@ -353,7 +353,7 @@ export interface RunHistory {
   /** where its indexing broke off - absent on older runs */
   indexFailures?: IndexGap[];
   /**
-   * How far the run got, as it saved it - see RESUMING.md. `stepPlan` is the steps it set out
+   * How far the run got, as it saved it - see helper_files/RESUMING.md. `stepPlan` is the steps it set out
    * to take, `steps` how each had gone when it last saved.
    */
   progress?: {

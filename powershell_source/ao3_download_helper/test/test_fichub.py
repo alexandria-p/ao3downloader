@@ -537,6 +537,20 @@ def test_an_import_replacing_outdated_copies_lets_fichub_replace_an_older_one(li
 
 
 @pytest.mark.fichub
+def test_an_import_replacing_outdated_copies_never_replaces_an_undated_one_from_fichub(
+        library, monkeypatch):
+    # with no date in its name it cannot be judged outdated: it is kept, and not fetched again
+    a_copy(library, '75354806 Wolfbird - OpalApparition.epub')
+    fetched = fichub_serving(monkeypatch)
+    job, ao3 = an_import(library, ['JSON', 'EPUB', 'HTML'], replaceOutdated=True)
+
+    server.rescue_with_fichub(job, library, ao3, MagicMock())
+
+    assert fetched == ['HTML']
+    assert '75354806 Wolfbird - OpalApparition.epub' in work_files(library)
+
+
+@pytest.mark.fichub
 def test_an_import_names_its_files_from_a_fichub_entry_keeping_each_files_own_date_or_none(
         library, monkeypatch):
     a_copy(library, '75354806 saved long ago.html')

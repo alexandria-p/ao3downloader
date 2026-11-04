@@ -1,7 +1,7 @@
 name: "build & deploy hosted app and github releases"
 
 # One person's own hosted copy: the helper on Render, the page on GitHub Pages under /app/.
-# HOSTING.md is the full setup - what to create on Render, and every variable and secret
+# helper_files/HOSTING.md is the full setup - what to create on Render, and every variable and secret
 # below. It also builds the Windows, Mac and Linux apps and publishes them as one GitHub
 # release. Runs on every push to main, and by hand from the Actions tab.
 #
@@ -173,7 +173,7 @@ jobs:
         run: |
           missing=0
           for name in RENDER_API_KEY RENDER_SERVICE_ID RENDER_DEPLOY_HOOK AO3DOWNLOADER_PASSCODE; do
-            if [ -z "${!name}" ]; then echo "::error::the $name secret is not set - see HOSTING.md"; missing=1; fi
+            if [ -z "${!name}" ]; then echo "::error::the $name secret is not set - see helper_files/HOSTING.md"; missing=1; fi
           done
           if [ "$missing" = 1 ]; then
             echo "::notice::the image is published as ${IMAGE}:latest - create the render service from it, set the secrets, and run this again"
@@ -310,7 +310,7 @@ jobs:
 
   feedback:
     name: deploy the feedback service to cloudflare
-    # the feedback tab's Worker (feedback_worker/, FEEDBACK.md). it opens a GitHub issue for
+    # the feedback tab's Worker (feedback_worker/, helper_files/FEEDBACK.md). it opens a GitHub issue for
     # each submission, so people never leave the page - and it is not the Render helper, which
     # answers its owner alone. needs only the tests: nothing it does depends on the version.
     # skipped, with a notice, until the cloudflare secrets are set - feedback is optional
@@ -336,7 +336,7 @@ jobs:
             if [ -z "${!name}" ]; then missing="$missing $name"; fi
           done
           if [ -n "$missing" ]; then
-            echo "::notice::the feedback service is not deployed - set${missing} (FEEDBACK.md)"
+            echo "::notice::the feedback service is not deployed - set${missing} (helper_files/FEEDBACK.md)"
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"

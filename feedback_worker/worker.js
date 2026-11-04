@@ -5,7 +5,7 @@
  * page anyone can download is public. So the page posts the form here, and this - which holds
  * the token as a Worker secret - opens the issue, labelled `feedback` and `positive` or
  * `negative`, and answers with its address. The person never leaves the page or signs up for
- * anything. FEEDBACK.md (repository root) is the setup.
+ * anything. helper_files/FEEDBACK.md is the setup.
  *
  * It is deliberately not the Render helper: that one holds an ao3 login and answers its owner
  * alone, behind a passcode. This answers anyone, and can do nothing but file feedback.

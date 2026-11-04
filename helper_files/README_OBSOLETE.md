@@ -1,12 +1,11 @@
 > **Obsolete.** This is the old, full README, kept for reference. The short front page is
-> [README.md](README.md); the [wiki](wiki/) is the user guide, and [CLAUDE.md](CLAUDE.md) how the
+> [README.md](../README.md); the [wiki](../wiki/) is the user guide, and [CLAUDE.md](../CLAUDE.md) how the
 > code is put together.
 
 # Alex Tips
 
 Download and view saved fanfic as an Angular web app. Can be ran entirely locally.
 
-![Alt text](Screenshot.png)
 
 https://alexandria-p.github.io/ao3downloader/app/
 

@@ -49,5 +49,5 @@ Made-up example library.
 
 - [The wiki](https://github.com/alexandria-p/ao3downloader/wiki): how to use each part of the app.
 - [Report a bug](https://github.com/alexandria-p/ao3downloader/issues), or use the Feedback tab in the app.
-- [README_OBSOLETE.md](README_OBSOLETE.md): the old, much longer README, kept for reference.
+- [helper_files/README_OBSOLETE.md](helper_files/README_OBSOLETE.md): the old, much longer README, kept for reference.
 - [CLAUDE.md](CLAUDE.md): how the code is put together, for developers.

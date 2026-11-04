@@ -92,7 +92,7 @@ jobs:
         working-directory: powershell_source/ao3_download_helper
         shell: bash
         env:
-          # the feedback tab's Worker and its bot check (FEEDBACK.md) - both public, and both
+          # the feedback tab's Worker and its bot check (helper_files/FEEDBACK.md) - both public, and both
           # unset leaves the app with no feedback tab. it is not the hosted helper
           FEEDBACK_URL: ${{ vars.FEEDBACK_URL }}
           TURNSTILE_SITE_KEY: ${{ vars.TURNSTILE_SITE_KEY }}

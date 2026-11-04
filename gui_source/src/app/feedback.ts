@@ -20,7 +20,7 @@ import { safeGet } from './storage';
 /**
  * The feedback tab on the right edge of every page, and the form it opens.
  *
- * A submission goes to the feedback Worker on Cloudflare (`feedback_worker/`, FEEDBACK.md),
+ * A submission goes to the feedback Worker on Cloudflare (`feedback_worker/`, helper_files/FEEDBACK.md),
  * never to the helper: the Worker holds the GitHub token and opens an issue labelled
  * `feedback` and `positive` or `negative`. So nobody leaves the page or signs up for anything,
  * and a hosted copy's Render helper is never asked to do it. Turnstile, Cloudflare's bot

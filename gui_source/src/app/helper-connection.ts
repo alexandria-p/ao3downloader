@@ -25,7 +25,7 @@ export interface PageConfig {
   /** owner/name of the GitHub repository its releases are published on */
   releasesRepo: string;
   /**
-   * the feedback Worker's https address (FEEDBACK.md), or '' for no feedback tab. It is not the
+   * the feedback Worker's https address (helper_files/FEEDBACK.md), or '' for no feedback tab. It is not the
    * helper: feedback goes to Cloudflare, which opens a GitHub issue, and never to Render
    */
   feedbackUrl: string;

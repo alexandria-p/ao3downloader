@@ -290,7 +290,7 @@ def write_config(config_dir: Path, python_home: Path) -> tuple[list[str], list[s
 
 # the feedback form's two public settings, from the GitHub variables of the same names. Not in
 # settings.ini: that file is the user's, and only ever added to, so a value kept there would go
-# stale in every install - the build is what knows where its feedback goes. FEEDBACK.md is the setup
+# stale in every install - the build is what knows where its feedback goes. helper_files/FEEDBACK.md is the setup
 ENV_FEEDBACK_URL = 'FEEDBACK_URL'
 ENV_TURNSTILE_SITE_KEY = 'TURNSTILE_SITE_KEY'
 
@@ -442,7 +442,7 @@ A deployment gives everything it builds one version, and that page checks GitHub
 release each time it opens. A bundle built here has no version, so its page never checks.
 
 The hosted page and the apps also have a **Feedback** tab, which opens a public GitHub issue
-through a small Cloudflare Worker (FEEDBACK.md in the project root). A bundle built here has
+through a small Cloudflare Worker (helper_files/FEEDBACK.md). A bundle built here has
 no Feedback tab, because it has no address for that Worker.
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/). Node is *not*
@@ -1080,7 +1080,7 @@ visitors a bookmark browser whose buttons fail.
 
 A copy on the web for **one person** is supported, and is set up differently: the page on
 GitHub Pages and the helper on Render, behind a passcode (`RequirePasscode`), with the ao3
-login encrypted on its way to the helper. `HOSTING.md` in the project root explains it. It is
+login encrypted on its way to the helper. `helper_files/HOSTING.md` explains it. It is
 not a way to share the app - anyone else should run it on their own computer, as this bundle
 does.
 """

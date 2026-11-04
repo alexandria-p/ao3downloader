@@ -216,7 +216,7 @@ class RunRecord:
             # the run this one picks up from, and the first attempt of the chain it belongs to
             'resumes': None,
             'resumesFirst': None,
-            # how far the run got, written as it goes, so it can be resumed - see RESUMING.md
+            # how far the run got, written as it goes, so it can be resumed - see helper_files/RESUMING.md
             'progress': {},
         }
         self.save()
