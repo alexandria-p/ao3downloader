@@ -7,6 +7,7 @@ import {
   byRecency,
   bestGuessOf,
   modifiedTimes,
+  importRequests,
   removeFiles,
   LibraryImports,
   dateFiles,
@@ -251,6 +252,14 @@ describe('duplicates', () => {
     expect(await modifiedTimes(store, ['works/1 a.html', 'works/1 b.html', 'works/1 gone.html'])).toEqual({
       'works/1 a.html': 42,
     });
+  });
+
+  it('counts roughly the requests an import makes: lookups, other formats per work updated, copies it may replace', () => {
+    const base = { links: '', count: 10, filetypes: ['JSON', 'EPUB', 'PDF'], replaceOutdated: false,
+                   indexOnly: ['1', '2'], lookups: 4, scope: 'all' as const, files: 30 };
+    expect(importRequests(base)).toBe(4 + 8 * 2);
+    expect(importRequests({ ...base, replaceOutdated: true })).toBe(4 + 8 * 2 + 30);
+    expect(importRequests({ ...base, scope: 'skip' })).toBe(4);
   });
 
   it('removes each file, carrying on past one that will not go', async () => {

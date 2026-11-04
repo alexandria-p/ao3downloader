@@ -412,15 +412,30 @@ export interface ImportRequest {
   lookups: number;
   /** which works the formats and replacing are for */
   scope: UpdateScope;
-  /** how many files the works hold, as far as the window found - over `LONG_IMPORT_FILES` it warns */
+  /** how many files the works hold, as far as the window found - copies a replacing run may fetch again */
   files?: number;
 }
 
 /**
- * Over this many files, the index and formats pages and the run window say the import may take
- * a long time and to leave the window open: every work is a request to AO3, paced.
+ * Over this many requests to AO3 (`importRequests`), the run window says an import may take a
+ * long time and to leave the window open: every request is paced.
  */
-export const LONG_IMPORT_FILES = 20;
+export const LONG_IMPORT_REQUESTS = 20;
+
+/**
+ * A rough count of the requests an import makes: one per work looked up for its index entry,
+ * one per other format per work updated, and - when replacing outdated copies - one per file
+ * it holds, at most. Rough by design: a format already on disk, or a copy that is current, costs
+ * nothing.
+ */
+export function importRequests(request: ImportRequest): number {
+  const lookups = request.lookups ?? 0;
+  if (request.scope === 'skip') return lookups;
+  const updated = Math.max(0, request.count - (request.indexOnly?.length ?? 0));
+  const formats = (request.filetypes ?? []).filter((f) => f.toUpperCase() !== 'JSON').length;
+  const replacing = request.replaceOutdated ? (request.files ?? 0) : 0;
+  return lookups + updated * formats + replacing;
+}
 
 /**
  * What never to offer again, at the top of the library, so a library in Dropbox leaves the

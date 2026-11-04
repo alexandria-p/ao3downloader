@@ -43,8 +43,6 @@ Made-up example library.
 
 ![Starting a Quick Scan](docs/screenshots/quick-scan.png)
 
-![Your collections](docs/screenshots/collections.png)
-
 ![Importing files you already had](docs/screenshots/import.png)
 
 ## More

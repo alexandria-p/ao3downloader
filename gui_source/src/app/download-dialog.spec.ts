@@ -2577,12 +2577,23 @@ describe('DownloadDialog', () => {
       expect(element.querySelector('input[name="username"]')).toBeNull();
     });
 
-    it('asks to be left open when the import goes over more than 20 files', async () => {
-      await openImport({ ...IMPORT, files: 20 });
+    it('asks to be left open, above what it will do, when the import makes more than 20 requests', async () => {
+      // 2 lookups, 1 work updated in one other format, 3 files it may replace: about 6
+      await openImport({ ...IMPORT, files: 3 });
       expect(element.querySelector('.long-run-note')).toBeNull();
-      await openImport({ ...IMPORT, files: 21 });
-      expect(element.querySelector('.long-run-note')?.textContent).toContain('This may take a long time - 21 files');
-      expect(element.querySelector('.long-run-note')?.textContent).toContain('leave this window open');
+      // 2 lookups, 1 work in one format, 18 files: about 21
+      await openImport({ ...IMPORT, files: 18 });
+      const note = element.querySelector('.long-run-note')!;
+      expect(note.textContent).toContain('This may take a long time, with ~21 requests to work through');
+      expect(note.textContent).toContain('leave this window open');
+      expect(note.compareDocumentPosition(element.querySelector('.import-summary')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('offers to skip the login below the username and password', async () => {
+      await openImport();
+      const skip = element.querySelector('input[name="skipLogin"]')!;
+      const password = element.querySelector('input[name="password"]')!;
+      expect(password.compareDocumentPosition(skip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('asks for a login, in case some of the works are restricted to AO3 users', async () => {

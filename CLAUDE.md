@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2089 python passed; 995 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2089 python passed; 997 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2121,7 +2121,7 @@ minutes), said before and after (`AO3_INFO_INDEX_CHECK`, then `_FOUND` with the 
 failure that never reads the library and goes to FicHub at the end. No other workflow uses
 `index_one_work`.
 
-**Every run may skip the login** (`skipLogin`, at the top of the login page itself - so a run
+**Every run may skip the login** (`skipLogin`, on the login page itself, below the username and password - so a run
 with nothing else to choose still has no options step, `hasOptions`). Ticked, the sentence
 above the boxes changes: a run that still needs the username says *Enter your username to
 scan your public bookmarks* (or *collections*, `listingWord`) and shows only that box; one
@@ -2241,9 +2241,11 @@ window finishes after dating (`afterDating`). What not to break:
   what it removed out of every later page (`removedPaths` -> `works`, `undatedElsewhere`, and so
   every count, the dating rows and the index question) and `refreshAfterRun` + `check` bring the
   listing and reminder up to date. Lists in the window page **7** at a time
-  (`DUPLICATES_PAGE_SIZE`, `DATES_PAGE_SIZE`). **Over `LONG_IMPORT_FILES` (20) files** the index
-  and formats pages and the run window (`ImportRequest.files`, not on a background run) say it
-  may take a long time and to leave the window open (`.long-run-note`).
+  (`DUPLICATES_PAGE_SIZE`, `DATES_PAGE_SIZE`). **The run window alone warns of a long import**
+  (`.long-run-note`, above its bullets, not on a background run): over `LONG_IMPORT_REQUESTS`
+  (20) by `importRequests` - lookups, plus other formats times works updated, plus the files it
+  holds (`ImportRequest.files`) when replacing - *This may take a long time, with ~X requests to
+  work through*. A rough count on purpose; the window's own pages say nothing about it.
   The *No, do not ask me again for these files* choice includes the duplicates' files. The
   sifting radios are **most recent first** (`byRecency`: by the date in each name, undated
   last, then by when each file last changed, unknown last, then by name). The list page never says what sifting decided for a row.

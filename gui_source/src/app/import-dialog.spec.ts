@@ -853,26 +853,18 @@ describe('ImportDialog', () => {
     expect(rowOrder()).toEqual(['works/9 Other - W.pdf']);
   });
 
-  it('says a long import takes a while and to leave the window open, over 20 files', async () => {
-    const files = Array.from({ length: 21 }, (_, i) => `works/${800 + i} Fic ${i} - W 2024-01-01.html`);
+  it('says nothing about how long an import takes on its own pages - the run window does', async () => {
+    const files = Array.from({ length: 30 }, (_, i) => `works/${800 + i} Fic ${i} - W 2024-01-01.html`);
     await open(unindexedWorks(files, new Set()));
     await click('Continue');
     expect(step()).toBe('index');
-    expect(element.querySelector('.long-run-note')?.textContent).toContain('21 files');
+    expect(element.querySelector('.long-run-note')).toBeNull();
     element.querySelector<HTMLInputElement>('input[name="lookup"][value="yes"]')!.click();
     await fixture.whenStable();
     await click('Continue');
     expect(step()).toBe('formats');
-    expect(element.querySelector('.long-run-note')?.textContent).toContain('leave');
-
-    await open(unindexedWorks(files.slice(0, 20), new Set()));
-    await click('Continue');
     expect(element.querySelector('.long-run-note')).toBeNull();
   });
-
-  // endregion
-
-  // region the dates
 
   it('lists the undated files by name, and offers to skip the step while none has a date', async () => {
     await open();

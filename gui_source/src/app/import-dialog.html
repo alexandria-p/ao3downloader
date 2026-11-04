@@ -520,12 +520,6 @@
         <p class="hint">
           {{ works().length | number }} {{ works().length === 1 ? 'work has' : 'works have' }} no index entry.
         </p>
-        @if (indexFiles() > longImport) {
-          <p class="long-run-note" role="note">
-            This may take a long time - {{ indexFiles() | number }} files to work through. Please leave
-            this window open until it finishes.
-          </p>
-        }
         <label class="check">
           <input type="radio" name="lookup" value="yes" [checked]="lookup() === 'yes'" (change)="lookup.set('yes')" />
           <span>Yes - look each work up on AO3 now and index it</span>
@@ -622,12 +616,6 @@
       }
       @if (busy()) {
         <p class="warning busy-note" role="note">A run is in progress. It has to finish before an import can start.</p>
-      }
-      @if (runs() && scopeFiles() > longImport) {
-        <p class="long-run-note" role="note">
-          This may take a long time - {{ scopeFiles() | number }} files to work through. Please leave
-          this window open until it finishes.
-        </p>
       }
     </section>
     <footer>

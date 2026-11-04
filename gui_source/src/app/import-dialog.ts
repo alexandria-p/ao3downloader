@@ -13,7 +13,6 @@ import {
   FoundFile,
   FoundWork,
   ImportRequest,
-  LONG_IMPORT_FILES,
   LibraryImports,
   MAX_IMPORT_WORKS,
   ToDate,
@@ -758,7 +757,7 @@ export class ImportDialog {
     if (this.updates()) for (const id of this.updating()) ids.add(id);
     return [...ids].map((id) => ({ id, files: [] }));
   });
-  /** how many files the window knows of for these works: their own unindexed files, and undated ones */
+  /** how many files the window knows of for these works - the copies a replacing run might fetch again */
   private filesOf(ids: Iterable<string>): number {
     const wanted = new Set(ids);
     const paths = new Set<string>();
@@ -766,12 +765,6 @@ export class ImportDialog {
     for (const f of this.undatedElsewhere()) if (wanted.has(f.id)) paths.add(f.path);
     return paths.size;
   }
-  /** files of the works the index page asks about */
-  protected readonly indexFiles = computed(() => this.filesOf(this.works().map((w) => w.id)));
-  /** files of the works a run would go over */
-  protected readonly scopeFiles = computed(() => this.filesOf(this.scope().map((w) => w.id)));
-  protected readonly longImport = LONG_IMPORT_FILES;
-
   /** whether there is anything for a run to do: a lookup, or an update */
   protected readonly runs = computed(() => this.scope().length > 0);
   protected readonly tooMany = computed(() => this.scope().length > MAX_IMPORT_WORKS);
