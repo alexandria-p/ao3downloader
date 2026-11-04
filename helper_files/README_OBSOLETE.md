@@ -47,7 +47,7 @@ Leave the window open and go to http://localhost:4200.
 `ao3downloader-windows.zip` holds `ao3downloader.exe` with Python and every dependency packed beside it. Unzip it anywhere, double-click `ao3downloader.exe`, and it does what `Start-Application.ps1` does: starts the helper on port 4400, serves the web UI on http://localhost:4200, and opens your browser there. The window also says `open any web browser to http://localhost:4200`, for when the browser does not open by itself. Leave the window open while you use the app; close it to stop.
 
 - **Where to get it:** every deployment publishes it as that version's release, marked latest, so the newest is always at `https://github.com/<owner>/<repo>/releases/latest` (the zip itself: `.../releases/latest/download/ao3downloader-windows.zip`). The FAQ in the app links there, pinned at the top. The **build windows app** workflow does the building on a Windows runner, and **build & deploy hosted app and github releases** runs it alongside the hosted deploy - the only run that publishes it. A pull request that changes how the app is built builds and tries it the same way, publishing nothing; every run also keeps the zip on the run for 30 days.
-- **Its `settings.ini` is written from the same GitHub deployment variables as the hosted copy** (`EXTRA_WAIT_TIME`, `FILE_NAME_LENGTH` and the rest), except that it always points at the helper the exe starts on your own computer (`HelperUrl=http://127.0.0.1:4400`, no passcode, no `PageOrigin`), and always has `EnableConsoleLogging=true`, so every request and every line a run says appears in the app's window. It never names your hosted helper or its page - the build fails if it would.
+- **Its `settings.ini` is written from the same GitHub deployment variables as the hosted copy** (`EXTRA_WAIT_TIME`, `FILE_NAME_LENGTH` and the rest), except that it always points at the helper the exe starts on your own computer (`HelperUrl=http://127.0.0.1:4400`, no `PageOrigin`), and always has `EnableConsoleLogging=true`, so every request and every line a run says appears in the app's window. It never names your hosted helper or its page - the build fails if it would.
 - **Settings and logs** go beside the exe, in `config\settings.ini` and `logs\`. Your fics go wherever you open a library in the app, as always.
 - **Windows will warn that the app is not signed** the first time: choose **More info**, then **Run anyway**.
 - **Updating: click Update now.** When a newer version is out, the banner at the top of the page has an **Update now** button. The app downloads the new version from your latest GitHub release, checks it against the SHA-256 GitHub publishes for the zip, closes, swaps its own files for the new ones, and starts again; the page reloads itself when it is back - a few seconds. It will not update while a run is going (restarting would end it), and no run can start while it updates. If the swap fails partway, every old file is put back and the old version starts again, and the page says why (the details are in `update\update.log`).
@@ -147,15 +147,11 @@ Then open http://localhost:4200.
 ## Hosting your own copy on the web
 
 You can put the app on the web for yourself alone: the page on GitHub Pages, the helper on
-Render. It asks for a passcode before anything works, and your AO3 login is encrypted on its
-way to the helper. Everyone else should run the app on their own computer, which needs none
-of this.
+Render. Everyone else should run the app on their own computer, which needs none of this.
 
-Three settings in `settings.ini` are specific to it:
+Settings in `settings.ini` specific to it include:
 
 - `HelperUrl` - where the page finds the helper. `http://127.0.0.1:4400` unless hosted.
-- `RequirePasscode` - `true` makes the helper refuse every request without the passcode, and
-  the page ask for it. The passcode itself is never in this file.
 - `PageOrigin` - the address of the page allowed to use a hosted helper.
 
 A local `settings.ini` - in the working copy, or `build/config/settings.ini` in a bundle - is
