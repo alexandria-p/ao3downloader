@@ -21,6 +21,8 @@ Unzip it, then start it:
 - **Mac:** double-click `Start ao3downloader.command`.
 - **Linux:** run `Start ao3downloader.sh`.
 
+Blocked on first start? See `README.txt` in the zip.
+
 Every version is on the [releases page](https://github.com/alexandria-p/ao3downloader/releases/latest).
 
 . ݁₊ ⊹ . ݁ ⟡ ݁ . ⊹ ₊ ݁.

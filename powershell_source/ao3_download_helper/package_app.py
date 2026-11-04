@@ -86,8 +86,8 @@ fi
 exec ./ao3downloader
 """
 
-WINDOWS_README = """ao3downloader
-=============
+WINDOWS_README = """FicFairy (Local Ao3 downloader)
+===============================
 
 Starting it
 -----------
@@ -134,8 +134,8 @@ MAC_FOR = {
               'Rosetta, but more slowly.'),
 }
 
-MAC_README = f"""ao3downloader
-=============
+MAC_README = f"""FicFairy (Local Ao3 downloader)
+===============================
 
 {{which}}
 
@@ -184,8 +184,8 @@ another window: close every ao3downloader window in Terminal and start it again.
 # for what it is
 LINUX_MACHINES = {'x86_64': 'x86_64', 'amd64': 'x86_64'}
 
-LINUX_README = f"""ao3downloader
-=============
+LINUX_README = f"""FicFairy (Local Ao3 downloader)
+===============================
 
 This is for Linux on 64-bit Intel or AMD processors (x86_64).
 
