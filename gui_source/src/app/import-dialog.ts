@@ -115,8 +115,8 @@ export class ImportDialog {
     ),
   );
   protected readonly maxWorks = MAX_IMPORT_WORKS;
-  /** how many works have a file with no date in its name, for the first page */
-  protected readonly undatedWorks = computed(() => new Set(this.undated().map((f) => f.id)).size);
+  /** how many files belong to works with no index entry, for the first page */
+  protected readonly unindexedFiles = computed(() => this.works().reduce((n, w) => n + w.files.length, 0));
 
   // region duplicates
 
@@ -209,10 +209,15 @@ export class ImportDialog {
     return this.siftOutcome()[group.key];
   }
 
-  /** the file picked to keep in a group, or '' when none is */
+  /**
+   * The file picked to keep in a group: the one picked by hand, or - until anything is decided -
+   * the top of the list, the most recent where that can be told. Skipped picks none.
+   */
   protected pickedIn(group: DuplicateGroup): string {
     const outcome = this.outcomeOf(group);
-    return outcome?.kind === 'pick' ? outcome.path : '';
+    if (outcome?.kind === 'pick') return outcome.path;
+    if (outcome) return '';
+    return this.byRecency(group)[0]?.path ?? '';
   }
 
   /** what was decided for a group while sifting, in a few words for the list page */
@@ -252,16 +257,26 @@ export class ImportDialog {
     if (this.chooseAt() > 0) this.chooseAt.set(this.chooseAt() - 1);
   }
 
+  /**
+   * On to the next entry, keeping the file selected here - the top one, until another is picked.
+   * From the last entry it goes to the first one still to sort, or the done note.
+   */
   protected nextEntry(): void {
+    const group = this.choosing();
+    if (group && !this.outcomeOf(group)) {
+      const top = this.pickedIn(group);
+      if (top) this.decide(group, { kind: 'pick', path: top });
+    }
     if (this.chooseAt() < this.siftList().length - 1) this.chooseAt.set(this.chooseAt() + 1);
+    else this.toNextUndecided();
   }
 
-  /** this group only: skipped, or its most recent kept - then the next one still undecided */
-  protected decideThis(choice: 'skip' | 'recent'): void {
-    const group = this.choosing();
-    if (!group) return;
-    if (choice === 'recent' && !this.newestIn(group)) return;
-    this.decide(group, { kind: choice });
+  /** this group skipped: every file kept. Like picking a file, it stays here until Next entry */
+  protected skipThis(group: DuplicateGroup): void {
+    this.decide(group, { kind: 'skip' });
+  }
+
+  private toNextUndecided(): void {
     const list = this.siftList();
     const at = this.chooseAt();
     const after = [...list.keys()].slice(at + 1).concat([...list.keys()].slice(0, at));

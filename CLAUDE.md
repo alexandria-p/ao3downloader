@@ -2207,13 +2207,15 @@ window finishes after dating (`afterDating`). What not to break:
   every group ever marked I'll choose, never shortened** (`siftOrder`; `siftList` is it filtered
   to those marked now): a group changed away on the list leaves the sift, keeps its decision,
   and comes back to its own place if marked again; a newly marked one joins the end. Coming
-  forward from the list opens on the first undecided. Nothing is picked to begin with - a group
-  is sorted once a **radio** picks the file kept, or *Skip this one* / *Keep most recent for this
-  one* (held where the newest cannot be told), which go on to the next undecided. *Previous
-  entry* / *Next entry* move about in the page; the footer has *Back* (to the list), *Skip all
-  remaining, and continue*, *Use most recent for all remaining, and continue* (deciding every
-  undecided one), and *Continue*, held until all are sorted (`siftDone`: *You are done - no more
-  to sort*, the entry buttons gone, the two others disabled). The list shows each sifted
+  forward from the list opens on the first undecided. **The top radio - the most recent - is
+  picked to begin with, but nothing counts as sorted until acted on**: a radio picked - the
+  last, *Or, skip this one*, keeps every file - or *Next entry*, which keeps the picked file (from
+  the last entry it goes to the next still to sort, or the done note). *Previous entry* / *Next
+  entry* sit below the radios. The footer (`footer.even`, every button the same size) has *Back* (to the list),
+  *Mark all remaining as Skip, then Continue*, *Mark all remaining as Keep most recent, then
+  Continue* (deciding every undecided one), and *Continue*, held until all are sorted
+  (`siftDone`: *You are done - no more to sort*, the entry buttons gone, the two others
+  disabled). The list shows each sifted
   group's decision (`siftedSaid`). `removeFiles` deletes on a page with a bar - **never every
   file of a group** - then the dialog filters what it removed out of every later page
   (`removedPaths`) and `refreshAfterRun` + `check` bring the listing and reminder up to date.

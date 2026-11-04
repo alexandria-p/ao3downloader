@@ -475,7 +475,7 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin: 0 0 10px;
+  margin: 4px 0 0;
 }
 
 .sift-done {
@@ -512,4 +512,21 @@ select {
 
 .overview-issues li {
   margin: 2px 0;
+}
+
+/* every footer button the same size */
+footer.even {
+  align-items: stretch;
+}
+
+footer.even .button {
+  flex: 1 1 0;
+  min-height: 52px;
+}
+
+/* the skip, set apart below the files */
+.choose-list .skip-this {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
 }

@@ -157,14 +157,14 @@ describe('ImportDialog', () => {
   it('opens on an overview that says what was found, and lists nothing yet', async () => {
     await open();
     expect(step()).toBe('overview');
-    // works 2 (two undated files) and 3
-    expect(element.querySelector('.overview-undated')?.textContent?.trim()).toBe('2 works have no date');
+    // work 2's two undated files and work 3's one
+    expect(element.querySelector('.overview-undated')?.textContent?.trim()).toBe('3 files have no date');
     expect(element.querySelector('.overview-heading')?.textContent).toContain('Issues found in import:');
     expect(element.querySelector('.overview-undated')?.textContent).toContain(
       'no date',
     );
     expect(element.querySelector('.overview-unindexed')?.textContent).toContain(
-      '3 works have no index',
+      '4 files belong to works that have no index',
     );
     expect(element.querySelector('tr[data-file]')).toBeNull();
     expect(element.textContent).not.toContain('1 A - B');
@@ -173,7 +173,7 @@ describe('ImportDialog', () => {
   it('says only what applies', async () => {
     await open(ALL_DATED);
     expect(element.querySelector('.overview-undated')).toBeNull();
-    expect(element.querySelector('.overview-unindexed')?.textContent?.trim()).toBe('1 work has no index');
+    expect(element.querySelector('.overview-unindexed')?.textContent?.trim()).toBe('1 file belongs to a work that has no index');
   });
 
   it('goes straight to the index question when no file needs a date', async () => {
@@ -299,15 +299,15 @@ describe('ImportDialog', () => {
     await open(SOME, false, [], DUPES);
     expect(element.querySelector('.overview-heading')?.textContent?.trim()).toBe('Issues found in import:');
     expect([...element.querySelectorAll('.overview-issues li')].map((li) => li.textContent?.trim())).toEqual([
-      '3 works have duplicate files',
-      '2 works have no date',
-      '3 works have no index',
+      '7 files are duplicates',
+      '3 files have no date',
+      '4 files belong to works that have no index',
     ]);
   });
 
   it('lists each work and format with more than one file, every file under it, skipped to begin with', async () => {
     await open([], false, [], DUPES);
-    expect(element.querySelector('.overview-duplicates')?.textContent?.trim()).toBe('3 works have duplicate files');
+    expect(element.querySelector('.overview-duplicates')?.textContent?.trim()).toBe('7 files are duplicates');
     await click('Continue');
     expect(step()).toBe('duplicates');
     expect([...element.querySelectorAll('tr[data-group]')].map((r) => r.getAttribute('data-group'))).toEqual([
@@ -401,7 +401,7 @@ describe('ImportDialog', () => {
     element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!.click();
     await fixture.whenStable();
     await click('Choose which to keep');
-    await click('Skip this one');
+    await skipThisOne();
     await click('Continue');
     await settle();
     const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
@@ -415,7 +415,13 @@ describe('ImportDialog', () => {
   });
 
   const groupShown = () => element.querySelector('.choose')!.getAttribute('data-group');
-  const radios = () => [...element.querySelectorAll<HTMLInputElement>('.choose-list input[type="radio"]')];
+  const radios = () => [...element.querySelectorAll<HTMLInputElement>('.choose-list li:not(.skip-this) input[type="radio"]')];
+  async function skipThisOne() {
+    element.querySelector<HTMLInputElement>('.skip-this input')!.click();
+    await fixture.whenStable();
+    // the last one to sort shows the done note at once, with no entries left to move to
+    if (button('Next entry')) await click('Next entry');
+  }
 
   async function toSifting() {
     await open([], false, [], DUPES);
@@ -424,18 +430,31 @@ describe('ImportDialog', () => {
     await click('Choose which to keep');
   }
 
-  it('sifts one at a time, nothing picked to begin with, Continue held until every one is sorted', async () => {
+  it('sifts one at a time, the top file picked to begin with, Continue held until every one is sorted', async () => {
     await toSifting();
     expect(step()).toBe('choose');
     expect(groupShown()).toBe('7:html');
     expect(element.textContent).toContain('1 of 3');
-    expect(radios().map((r) => r.checked)).toEqual([false, false]);
+    // the most recent, at the top, is picked - but nothing counts as sorted yet
+    expect(radios().map((r) => r.checked)).toEqual([true, false]);
+    expect(element.textContent).toContain('3 still to sort');
     expect(primary().disabled).toBe(true);
-    // previous and next entry are in the page, not the footer
-    expect(element.querySelector('.sift-nav')!.textContent).toContain('Previous entry');
-    expect(element.querySelector('footer')!.textContent).not.toContain('Next entry');
-    expect(element.querySelector('footer')!.textContent).toContain('Skip all remaining, and continue');
-    expect(element.querySelector('footer')!.textContent).toContain('Use most recent for all remaining, and continue');
+    expect(button('Keep most recent for this one')).toBeUndefined();
+    // the skip is the last radio, below every file; previous and next entry are below that
+    const last = [...element.querySelectorAll('.choose-list li')].pop()!;
+    expect(last.classList).toContain('skip-this');
+    expect(last.textContent).toContain('Or, skip this one');
+    expect(button('Skip this one')).toBeUndefined();
+    const nav = element.querySelector('.sift-nav')!;
+    expect([...nav.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual([
+      'Previous entry', 'Next entry',
+    ]);
+    expect(element.querySelector('.choose-list')!.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const footer = element.querySelector('footer')!;
+    expect(footer.classList).toContain('even');
+    expect(footer.textContent).not.toContain('Next entry');
+    expect(footer.textContent).toContain('Mark all remaining as Skip, then Continue');
+    expect(footer.textContent).toContain('Mark all remaining as Keep most recent, then Continue');
   });
 
   it('lists the files to choose from most recent first, undated last', async () => {
@@ -470,24 +489,24 @@ describe('ImportDialog', () => {
     expect(noted).toEqual(['duplicates list: 7:html, 7:pdf, 8:epub']);
   });
 
-  it('moves between entries, and finishes with a done note once the last is sorted', async () => {
+  it('takes the picked file on Next entry, and finishes with a done note once the last is sorted', async () => {
     await toSifting();
     radios()[1].click();
     await fixture.whenStable();
     await click('Next entry');
     expect(groupShown()).toBe('7:pdf');
-    expect(button('Keep most recent for this one')!.disabled).toBe(true);
-    await click('Skip this one');
+    await skipThisOne();
     expect(groupShown()).toBe('8:epub');
     await click('Previous entry');
     expect(groupShown()).toBe('7:pdf');
     await click('Next entry');
-    await click('Keep most recent for this one');
+    // the last one: Next entry keeps the top file, and there is nothing left to sort
+    await click('Next entry');
 
     expect(element.querySelector('.sift-done')?.textContent).toContain('You are done - no more to sort');
     expect(element.querySelector('.sift-nav')).toBeNull();
-    expect(button('Skip all remaining, and continue')!.disabled).toBe(true);
-    expect(button('Use most recent for all remaining, and continue')!.disabled).toBe(true);
+    expect(button('Mark all remaining as Skip, then Continue')!.disabled).toBe(true);
+    expect(button('Mark all remaining as Keep most recent, then Continue')!.disabled).toBe(true);
     expect(primary().disabled).toBe(false);
     await click('Continue');
     await settle();
@@ -506,7 +525,7 @@ describe('ImportDialog', () => {
     await chooseIn('7:pdf', 'choose');
     await chooseIn('8:epub', 'choose');
     await click('Choose which to keep');
-    await click('Skip this one');
+    await skipThisOne();
     expect(groupShown()).toBe('7:pdf');
 
     await click('Back');
@@ -544,18 +563,17 @@ describe('ImportDialog', () => {
     expect(radios().map((r) => r.checked)).toEqual([false, true]);
   });
 
-  it('leaves the rest as they are on Skip all remaining, keeping what was picked', async () => {
+  it('leaves the rest as they are on Mark all remaining as Skip, keeping what was sorted', async () => {
     await toSifting();
-    radios()[0].click();
-    await fixture.whenStable();
-    await click('Skip all remaining, and continue');
+    await click('Next entry');
+    await click('Mark all remaining as Skip, then Continue');
     await settle();
     expect(store.deleted).toEqual(['works/7 fic old copy 2023-05-05.htm']);
   });
 
-  it('gives the rest their most recent on Use most recent for all remaining', async () => {
+  it('gives the rest their most recent on Mark all remaining as Keep most recent', async () => {
     await toSifting();
-    await click('Use most recent for all remaining, and continue');
+    await click('Mark all remaining as Keep most recent, then Continue');
     await settle();
     expect(store.deleted.sort()).toEqual([
       'works/7 fic old copy 2023-05-05.htm',
@@ -573,11 +591,10 @@ describe('ImportDialog', () => {
     await click('Continue');
     await click("Mark all as I'll choose myself");
     await click('Choose which to keep');
-    // nothing is picked to begin with: keep the 2020 one, and that is the only one to sort
+    // the most recent dated copy is at the top and picked; Next entry keeps it, and that is all
     const keep = element.querySelector<HTMLInputElement>('input[aria-label="Keep 9 Copy - W 2020-01-01.html"]')!;
-    expect(keep.checked).toBe(false);
-    keep.click();
-    await fixture.whenStable();
+    expect(keep.checked).toBe(true);
+    await click('Next entry');
     await click('Continue');
     await settle();
     expect(store.deleted.sort()).toEqual(['works/9 Copy - W.html', 'works/9 Old - W 2019-01-01.html']);

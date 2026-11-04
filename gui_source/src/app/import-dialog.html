@@ -10,22 +10,22 @@
   <!-- 1: what was found, in a sentence each - the lists come on the pages after -->
   @if (step() === 'overview') {
     <section class="body overview">
-      @if (duplicates().length || undatedWorks() || works().length) {
+      @if (duplicates().length || undated().length || works().length) {
         <p class="overview-heading"><strong>Issues found in import:</strong></p>
         <ul class="overview-issues">
           @if (duplicates().length) {
             <li class="overview-duplicates">
-              {{ duplicates().length | number }} {{ duplicates().length === 1 ? 'work has' : 'works have' }} duplicate files
+              {{ duplicateFiles() | number }} {{ duplicateFiles() === 1 ? 'file is a duplicate' : 'files are duplicates' }}
             </li>
           }
-          @if (undatedWorks()) {
+          @if (undated().length) {
             <li class="overview-undated">
-              {{ undatedWorks() | number }} {{ undatedWorks() === 1 ? 'work has' : 'works have' }} no date
+              {{ undated().length | number }} {{ undated().length === 1 ? 'file has' : 'files have' }} no date
             </li>
           }
           @if (works().length) {
             <li class="overview-unindexed">
-              {{ works().length | number }} {{ works().length === 1 ? 'work has' : 'works have' }} no index
+              {{ unindexedFiles() | number }} {{ unindexedFiles() === 1 ? 'file belongs to a work that has' : 'files belong to works that have' }} no index
             </li>
           }
         </ul>
@@ -166,14 +166,10 @@
           <strong>You are done - no more to sort.</strong> Continue onto the next step.
         </p>
       } @else if (choosing(); as group) {
-        <div class="sift-nav">
-          <button type="button" class="button subtle" [disabled]="chooseAt() === 0" (click)="previousEntry()">Previous entry</button>
-          <span class="choose-progress dim">
-            {{ chooseAt() + 1 }} of {{ siftList().length }}
-            ({{ undecidedCount() | number }} still to sort)
-          </span>
-          <button type="button" class="button subtle" [disabled]="chooseAt() >= siftList().length - 1" (click)="nextEntry()">Next entry</button>
-        </div>
+        <p class="choose-progress dim">
+          {{ chooseAt() + 1 }} of {{ siftList().length }}
+          ({{ undecidedCount() | number }} still to sort)
+        </p>
         <p>
           <strong>Work {{ group.id }}, {{ group.format.toUpperCase() }}:</strong> choose the file to
           keep. The others are deleted.
@@ -195,30 +191,31 @@
               </label>
             </li>
           }
+          <li class="skip-this">
+            <label class="check">
+              <input type="radio" [attr.name]="'keep-' + group.key" aria-label="Or, skip this one"
+                     [checked]="outcomeOf(group)?.kind === 'skip'"
+                     (change)="skipThis(group)" />
+              <span>
+                Or, skip this one
+                <span class="hint">Every file is kept, and this is asked about again next time.</span>
+              </span>
+            </label>
+          </li>
         </ul>
-        <div class="bulk this-one">
-          <button type="button" class="button" [class.on]="outcomeOf(group)?.kind === 'skip'" (click)="decideThis('skip')">
-            Skip this one
-          </button>
-          <button type="button" class="button" [class.on]="outcomeOf(group)?.kind === 'recent'"
-                  [disabled]="!newestIn(group)"
-                  [title]="newestIn(group) ? '' : 'Can\'t tell which is newest: every file needs a date in its name, and one must be the latest'"
-                  (click)="decideThis('recent')">
-            Keep most recent for this one
-          </button>
-          @if (outcomeOf(group); as outcome) {
-            <span class="sifted dim">{{ siftedSaid(group) }}</span>
-          }
+        <div class="sift-nav">
+          <button type="button" class="button subtle" [disabled]="chooseAt() === 0" (click)="previousEntry()">Previous entry</button>
+          <button type="button" class="button subtle" (click)="nextEntry()">Next entry</button>
         </div>
       }
     </section>
-    <footer>
+    <footer class="even">
       <button type="button" class="button subtle" (click)="step.set('duplicates')">Back</button>
       <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="finishChoosingWith('skip')">
-        Skip all remaining, and continue
+        Mark all remaining as Skip, then Continue
       </button>
       <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="finishChoosingWith('recent')">
-        Use most recent for all remaining, and continue
+        Mark all remaining as Keep most recent, then Continue
       </button>
       <button type="button" class="button primary" [disabled]="!siftDone() || busy()" (click)="continueFromChoosing()">
         Continue

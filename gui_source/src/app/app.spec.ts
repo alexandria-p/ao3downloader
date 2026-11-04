@@ -1214,7 +1214,7 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     const offered = element.querySelector('app-import-dialog');
-    expect(offered?.textContent).toContain('1 work');
+    expect(offered?.textContent).toContain('1 file belongs to a work that has no index');
     expect(element.querySelector('.import-issues')?.textContent).toContain('Resolve issues found with import');
     expect(element.querySelector('.import-issues')?.textContent).toContain('1 work has files but no index entry');
 
@@ -1262,7 +1262,7 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.import-issues')?.textContent).toContain('1 file has no date in its name');
-    expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 work has no date');
+    expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 file has no date');
   });
 
   it('puts the reminder above the tabs, on every tab, until dismissed', async () => {
