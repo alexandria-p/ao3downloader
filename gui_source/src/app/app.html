@@ -1,5 +1,5 @@
 <header class="topbar">
-  <h1>AO3 Library</h1>
+  <h1>FicFairy</h1>
   <div class="picker">
     <div class="storage" role="group" aria-label="Where your library is kept">
       <button
@@ -509,7 +509,7 @@
     a newer one is out - as underlined text rather than a button, quieter than the banner
   -->
   <span>
-    ao3downloader {{ currentVersion() ? 'version ' + currentVersion() : '(built on this computer)' }}
+    FicFairy {{ currentVersion() ? 'version ' + currentVersion() : '(built on this computer)' }}
     @if (updateProgress().state === 'updating') {
       &middot; <span class="footer-note">updating to {{ updateTarget() }}...</span>
     } @else if (newerRelease(); as release) {

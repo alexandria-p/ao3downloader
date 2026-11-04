@@ -11,6 +11,11 @@ settings come from its deployment, so the tab does not offer them there.
 
 ## The User settings tab
 
+- **Appearance** - a **palette** (Charcoal, Fairy dust, Midnight, Forest or Ember - all dark)
+  and a **font**: Default, System, Book (serif), Rounded, Easy to read, Typewriter, or
+  **Another font...**, which takes the name of any font installed on your computer. A font
+  your computer does not have shows as the default. Both are saved to this browser, and Reset
+  to defaults puts them back.
 - **Prompts** - every message that offers "don't ask again", grouped by where it appears,
   each set to **Ask always** or **Do not ask again**, including ones you have not seen yet.
   That includes the first-visit notice about saving to Dropbox or this device (with its

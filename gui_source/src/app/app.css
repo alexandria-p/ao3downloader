@@ -58,7 +58,7 @@
 }
 
 .storage button.current {
-  background: #33566b;
+  background: var(--accent-fill);
   color: var(--text-strong);
 }
 
@@ -103,13 +103,13 @@
 }
 
 .button.primary {
-  border-color: #5a7f9a;
-  background: #33566b;
+  border-color: var(--accent-line);
+  background: var(--accent-fill);
   color: var(--text-strong);
 }
 
 .button.primary:hover {
-  background: #3d6580;
+  background: var(--accent-fill-hover);
 }
 
 /*
@@ -160,7 +160,7 @@
 }
 
 .button:hover {
-  background: #383838;
+  background: var(--surface-hover);
 }
 
 .button.subtle {
@@ -331,9 +331,9 @@
   gap: 10px;
   margin: 0 0 14px;
   padding: 10px 12px;
-  border: 1px solid #5a7f9a;
+  border: 1px solid var(--accent-line);
   border-radius: 3px;
-  background: #22303a;
+  background: var(--accent-bg);
   font-size: 0.9rem;
 }
 
@@ -346,9 +346,9 @@
   gap: 10px;
   margin: 0 0 14px;
   padding: 10px 12px;
-  border: 1px solid #5a7f9a;
+  border: 1px solid var(--accent-line);
   border-radius: 3px;
-  background: #22303a;
+  background: var(--accent-bg);
   font-size: 0.9rem;
 }
 

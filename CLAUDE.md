@@ -6,7 +6,9 @@ already cost someone a day.
 
 ## What this fork adds
 
-Upstream ao3downloader is a console program. This fork adds:
+Upstream ao3downloader is a console program. This fork - **FicFairy** to the people using it:
+the page's title, header and footer, the READMEs; the program files and zips keep the
+`ao3downloader` names the updater looks for - adds:
 
 1. **A `JSON` download type** - metadata for every work on a listing, one json file per
    work, with a version history inside each file.
@@ -96,7 +98,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2100 python passed; 997 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2100 python passed; 1004 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2456,6 +2458,16 @@ not to break:
 
 `user-settings.ts` (the `settings` view). What not to break:
 
+- **Appearance is a palette and a font, and only tokens** (`appearance.ts`). A palette sets
+  the neutral and accent custom properties `styles.css` defines on `:root` (`--bg` ...
+  `--accent-line`, `--accent-fill`, `--accent-fill-hover`, `--accent-bg`, `--accent-text`,
+  `--surface-hover`) and the font `--font-body`; the components read those tokens, never the
+  old hard-coded blues and greys, so **a component that hard-codes one will not follow the
+  palette**. Every palette is dark: the status tints (red, amber, green) are fixed and tuned
+  for a dark page. Fonts are local stacks only - nothing is fetched from a font service - and
+  a typed font name goes through `cleanFontName` before it reaches a style. `main.ts` applies
+  the saved choice before bootstrap, so a palette never flashes the default first. Kept in
+  `ao3.palette` / `ao3.font` / `ao3.customFont`; Reset to defaults puts them back.
 - **Every "don't ask again" lives in `preferences.PROMPTS`**, with its localStorage key and the
   value its own code writes when dismissed - and that code imports the key from there
   (`folder-warning.ts`, `work-list.ts`, `download-dialog.ts`, `updates.ts`). The tab lists the

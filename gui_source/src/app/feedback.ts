@@ -322,7 +322,7 @@ export class Feedback implements OnDestroy {
   /** everything that was written, as a file, so a failed send never loses it */
   protected downloadAttempt(): void {
     const lines = [
-      '# ao3downloader feedback - not sent',
+      '# FicFairy feedback - not sent',
       '',
       `Sentiment: ${this.sentiment() || '(not chosen)'}`,
       `Name: ${this.name().trim() || '(none given)'}`,

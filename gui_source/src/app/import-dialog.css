@@ -83,7 +83,7 @@ footer {
 }
 
 .button:hover:not(:disabled) {
-  background: #3a3a3a;
+  background: var(--surface-hover);
 }
 
 .button:disabled {
@@ -92,8 +92,8 @@ footer {
 }
 
 .button.primary {
-  border-color: #5a7f9a;
-  background: #33566b;
+  border-color: var(--accent-line);
+  background: var(--accent-fill);
 }
 
 .button.subtle {
@@ -333,8 +333,8 @@ input[type='date'] {
 }
 
 .toggle.on {
-  background: #33566b;
-  border-color: #5a7f9a;
+  background: var(--accent-fill);
+  border-color: var(--accent-line);
   color: var(--text-strong);
 }
 
@@ -467,7 +467,7 @@ select {
 }
 
 .this-one .button.on {
-  border-color: #5a7f9a;
+  border-color: var(--accent-line);
 }
 
 .sift-nav {

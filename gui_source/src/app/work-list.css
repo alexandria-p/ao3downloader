@@ -154,7 +154,7 @@
 }
 
 .pagination button:hover:not(:disabled):not(.current) {
-  background: #3a3a3a;
+  background: var(--surface-hover);
   color: #fff;
 }
 
@@ -685,8 +685,8 @@
 }
 
 .selection .button.primary {
-  border-color: #5a7f9a;
-  background: #33566b;
+  border-color: var(--accent-line);
+  background: var(--accent-fill);
 }
 
 .selection .button.danger {
@@ -762,7 +762,7 @@
 }
 
 .blurb.ticked {
-  border-color: #5a7f9a;
+  border-color: var(--accent-line);
 }
 
 /* include and exclude by tag, side by side where there is room */
@@ -973,8 +973,8 @@
 }
 
 .hide-modal .button.primary {
-  border-color: #5a7f9a;
-  background: #33566b;
+  border-color: var(--accent-line);
+  background: var(--accent-fill);
 }
 
 .entry-menu {

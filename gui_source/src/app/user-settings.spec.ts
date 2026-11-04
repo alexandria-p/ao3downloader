@@ -19,6 +19,7 @@ import { UpdateCheck } from './updates';
 import { IMPORT_EXCLUDED_FILE, LibraryImports } from './imports';
 import { Library } from './library';
 import { LibraryStore } from './library-store';
+import { CUSTOM_FONT, CUSTOM_FONT_KEY, FONT_KEY, PALETTES, PALETTE_KEY, paletteById } from './appearance';
 import { IniSetting, TOAST_MS, UserSettings } from './user-settings';
 
 const CONFIG: ServerConfig = {
@@ -102,6 +103,55 @@ describe('UserSettings', () => {
     });
   });
 
+  // region appearance
+
+  it('changes the palette at once, keeps it in this browser, and offers it to Reset', async () => {
+    await open();
+    expect(element.querySelectorAll('.palette').length).toBe(PALETTES.length);
+    expect(element.querySelector('.palette.chosen')?.getAttribute('data-palette')).toBe('charcoal');
+
+    const fairy = element.querySelector<HTMLInputElement>('.palette[data-palette="fairy"] input')!;
+    fairy.checked = true;
+    fairy.dispatchEvent(new Event('change'));
+    await settle();
+
+    expect(localStorage.getItem(PALETTE_KEY)).toBe('fairy');
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe(paletteById('fairy').tokens.bg);
+    expect(element.querySelector('.palette.chosen')?.getAttribute('data-palette')).toBe('fairy');
+    expect(toast()).toContain('Fairy dust');
+
+    element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
+    await settle();
+    expect(element.querySelector('[data-change="Palette"] .current')?.textContent).toContain('Fairy dust');
+    element.querySelector<HTMLButtonElement>('.confirm-reset button.confirm')!.click();
+    await settle();
+    expect(localStorage.getItem(PALETTE_KEY)).toBeNull();
+    expect(document.documentElement.style.getPropertyValue('--bg')).toBe(paletteById('charcoal').tokens.bg);
+  });
+
+  it('takes a font by name from this computer, once its box is left, and previews it', async () => {
+    await open();
+    expect(element.querySelector('input[name="customFont"]')).toBeNull();
+
+    choose('select[name="font"]', CUSTOM_FONT);
+    await settle();
+    expect(toast()).toContain('Type the name of a font');
+    await leave('input[name="customFont"]', 'Comic Sans MS";} body{color:red');
+    expect(localStorage.getItem(FONT_KEY)).toBe(CUSTOM_FONT);
+    // nothing that could close the quote or the declaration is kept
+    expect(localStorage.getItem(CUSTOM_FONT_KEY)).toBe('Comic Sans MS bodycolor:red');
+    expect(document.documentElement.style.getPropertyValue('--font-body')).toContain('"Comic Sans MS bodycolor:red"');
+    expect(element.querySelector<HTMLElement>('.font-preview')!.style.fontFamily).toContain('Comic Sans MS');
+
+    choose('select[name="font"]', 'serif');
+    await settle();
+    expect(document.documentElement.style.getPropertyValue('--font-body')).toContain('Georgia');
+    expect(toast()).toContain('Book (serif)');
+    // the name typed is kept, so the custom font can be picked again
+    expect(localStorage.getItem(CUSTOM_FONT_KEY)).toBe('Comic Sans MS bodycolor:red');
+  });
+
+  // endregion
   // region exclusion lists for imports
 
   it('empties every exclusion list for imports on Reset exclusion lists for imports', async () => {
@@ -417,7 +467,7 @@ describe('UserSettings', () => {
 
     const note = (element.querySelector('.browser-note')?.textContent ?? '').replace(/\s+/g, ' ').trim();
     expect(note).toBe(
-      "'Do not ask again' options and any changes to your default file formats are saved to this browser. " +
+      "The palette and font, 'Do not ask again' options and any changes to your default file formats are saved to this browser. " +
         'Changing browsers on your device will use a different set of settings that are saved to that browser.',
     );
     expect(element.querySelector('.browser-note strong')?.textContent).toBe('that');

@@ -76,7 +76,7 @@ h4 {
 }
 
 .other input:focus {
-  outline: 2px solid #5a7f9a;
+  outline: 2px solid var(--accent-line);
   outline-offset: -1px;
 }
 

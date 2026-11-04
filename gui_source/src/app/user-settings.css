@@ -37,9 +37,9 @@ h4 {
 .browser-note {
   margin: 0 0 10px;
   padding: 10px 12px;
-  border: 1px solid #5a7f9a;
+  border: 1px solid var(--accent-line);
   border-radius: 5px;
-  background: #22323d;
+  background: var(--accent-bg);
   font-size: 0.88rem;
 }
 
@@ -243,16 +243,16 @@ input[type='text'] {
 }
 
 .button:hover {
-  background: #383838;
+  background: var(--surface-hover);
 }
 
 .button.primary {
-  border-color: #5a7f9a;
-  background: #33566b;
+  border-color: var(--accent-line);
+  background: var(--accent-fill);
 }
 
 .button.primary:hover {
-  background: #3d6580;
+  background: var(--accent-fill-hover);
 }
 
 /* says every change was saved, or why it was not - above the page, below the feedback tab */
@@ -288,4 +288,90 @@ input[type='text'] {
   input[type='text'] {
     width: 100%;
   }
+}
+
+/* each palette is drawn in its own colours, whichever one the page is in now */
+.palettes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: none;
+}
+
+.palettes legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-weight: 600;
+}
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 130px;
+  padding: 10px;
+  border: 2px solid;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.palette input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.palette:has(input:focus-visible) {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+}
+
+.swatches {
+  display: flex;
+  gap: 4px;
+}
+
+.swatches span {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.palette-name {
+  font-size: 0.88rem;
+}
+
+.palette.chosen .palette-name::before {
+  content: '\2713  ';
+}
+
+.font-choice .field {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.font-choice .field > span {
+  min-width: 80px;
+  font-weight: 600;
+}
+
+.font-choice input[type='text'] {
+  width: 240px;
+}
+
+.font-preview {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 4px;
+  color: var(--text-strong);
+}
+
+.font-choice select {
+  width: 240px;
 }

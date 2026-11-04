@@ -248,7 +248,7 @@ describe('Library', () => {
   it('rejects json that is not an export', async () => {
     await library.load([new File(['{"nope":true}'], 'something.json')] as unknown as FileList);
 
-    expect(library.error()).toContain('none of them look like an ao3downloader export');
+    expect(library.error()).toContain('none of them look like a FicFairy library');
     expect(library.data()).toBeNull();
   });
 

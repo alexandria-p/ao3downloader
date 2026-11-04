@@ -1,4 +1,4 @@
-Download your AO3 bookmarks and collections, keep them up to date, and browse them in a web page.
+**FicFairy** - download your AO3 bookmarks and collections, keep them up to date, and browse them in a web page.
 
 A fork of [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader) that swaps the console menu for a web app and a small local helper.
 

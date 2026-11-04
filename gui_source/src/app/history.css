@@ -45,7 +45,7 @@
 /* ended by the helper, not by anything going wrong - the colour of a stop */
 .run-abandoned { border-left-color: #6b5330; }
 .run-failed { border-left-color: #6b3a3a; }
-.run-running { border-left-color: #5a7f9a; }
+.run-running { border-left-color: var(--accent-line); }
 
 .run-head {
   display: flex;
@@ -153,7 +153,7 @@
   padding: 1px 7px;
   border: 1px solid var(--border);
   border-radius: 3px;
-  color: #9fc4dc;
+  color: var(--accent-text);
   font-size: 0.8rem;
   text-decoration: none;
 }
@@ -184,8 +184,8 @@
 
 /* the run going now - pinned, and told apart from the record of runs gone */
 .run-active {
-  border-color: #5a7f9a;
-  background: #22303a;
+  border-color: var(--accent-line);
+  background: var(--accent-bg);
 }
 
 .run-issues {
