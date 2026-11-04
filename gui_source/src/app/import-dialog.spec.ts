@@ -460,9 +460,10 @@ describe('ImportDialog', () => {
     ]);
     expect(element.querySelector('.choose-list')!.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const footer = element.querySelector('footer')!;
-    expect([...footer.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Back', 'Continue']);
-    // the rest sorted at once from a section of its own, closed to begin with, below the entries
-    const bulk = element.querySelector<HTMLDetailsElement>('details.sort-rest')!;
+    expect([...footer.querySelectorAll(':scope > button')].map((b) => b.textContent?.trim())).toEqual(['Back', 'Continue']);
+    // the rest sorted at once from the footer, above its buttons, closed to begin with
+    const bulk = footer.querySelector<HTMLDetailsElement>(':scope > details.sort-rest')!;
+    expect(footer.firstElementChild).toBe(bulk);
     expect(bulk.open).toBe(false);
     expect(bulk.querySelector('summary')!.textContent?.trim()).toBe('Sort any remaining in bulk');
     expect([...bulk.querySelectorAll('input[type="radio"]')].map((r) => r.getAttribute('aria-label'))).toEqual([

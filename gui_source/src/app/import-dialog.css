@@ -515,9 +515,14 @@ select {
 }
 
 /* every footer button the same size */
-/* the rest sorted at once, out of the way until opened */
+/* the rest sorted at once, in the footer above its buttons, out of the way until opened */
+footer.with-bulk {
+  flex-wrap: wrap;
+}
+
 .sort-rest {
-  margin: 14px 0 0;
+  flex: 1 0 100%;
+  margin: 0 0 4px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 3px;
