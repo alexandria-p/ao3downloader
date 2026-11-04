@@ -19,6 +19,8 @@ import { Faq } from './faq';
 import { Feedback } from './feedback';
 import { History } from './history';
 import { ImportDialog } from './import-dialog';
+import { DebugTab } from './debug-tab';
+import { DebugMode } from './debug';
 import { DatingResult, ImportRequest, LibraryImports } from './imports';
 import { IMPORT_OFFER_KEY } from './preferences';
 import { safeGet, safeSet, safeRemove } from './storage';
@@ -41,11 +43,11 @@ import { UserSettings } from './user-settings';
 const ACTIVE_RUN_POLL_MS = 30_000;
 
 /** the two things this folder holds, the pages that show them, and the two reading pages */
-export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug' | 'settings';
+export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug' | 'settings' | 'debug';
 
 @Component({
   selector: 'app-root',
-  imports: [DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
+  imports: [DebugTab, DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
     CollectionsView, Feedback, PasscodeGate, SetupOverlay, UserSettings, ImportDialog],
   styleUrl: './app.css',
   templateUrl: './app.html',
@@ -111,6 +113,8 @@ export class App {
 
   /** the library's works with files and no index entry, kept current */
   protected readonly imports = inject(LibraryImports);
+  /** this browser's debug mode: a banner at the top, and the DEBUG tab */
+  protected readonly debugMode = inject(DebugMode);
   /** the formats an import can fetch: the helper's, or what any helper offers until it answers */
   protected readonly importFormats = computed(
     () => this.jobs.config()?.filetypes ?? BUILT_IN_CONFIG.filetypes,

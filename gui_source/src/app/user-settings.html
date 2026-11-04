@@ -127,6 +127,18 @@
     </select>
   </section>
 
+  <section class="group debug-mode">
+    <h3>Debug mode</h3>
+    <label class="check">
+      <input type="checkbox" name="debugMode" [checked]="debugMode.on()"
+             (change)="setDebugMode($any($event.target).checked)" />
+      <span>
+        Turn on debug mode
+        <span class="hint">Shows a banner at the top and a DEBUG tab with tools for trying the app out - such as a mock of Resolve issues found in your library that touches no real files. This browser only.</span>
+      </span>
+    </label>
+  </section>
+
   <section class="group import-exclusions">
     <h3>Exclusion lists for imports</h3>
     <p class="hint">

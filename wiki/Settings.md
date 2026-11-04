@@ -26,6 +26,10 @@ settings come from its deployment, so the tab does not offer them there.
   window says so), saved as UTC, and compared as dates in this zone again. Every time the page
   shows - the run window's log, History, *List refreshed* - is in this zone. Reset to defaults
   puts it back to this browser's.
+- **Debug mode** - shows a banner at the top and a **DEBUG** tab, for trying the app out. Its
+  **Mock Resolve issues** opens the Resolve issues window on made-up files - choose duplicates,
+  index issues and/or dating issues, and how many - that live only in memory: nothing in your
+  library is renamed, deleted or written, and no run starts. This browser only.
 - **Exclusion lists for imports** - **Reset exclusion lists for imports** empties every list in
   the open library's `import-excluded.json` (files, index and dates), so everything Resolve
   issues found in your library passed over is offered again. Your files are not touched.

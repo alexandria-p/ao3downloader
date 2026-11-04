@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2088 python passed; 969 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2088 python passed; 977 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -954,6 +954,21 @@ offers are deliberately different in kind:
 - **Show a made-up report** is entirely in the page. Nothing is sent to the helper and no
   run is touched; it fills both end-of-run lists with one entry of every kind so their
   layout can be checked without waiting for a long run and hoping something goes wrong.
+
+### Debug mode is the page's, and its mock touches nothing real
+
+`debug.ts`, `debug-tab.ts`. **Debug mode** (`DebugMode`, `ao3.debugMode`, this browser's
+alone, from User settings' *Debug mode*) is not `EnableDebugTools` (settings.ini, the run
+window's panel): it shows `.debug-banner` above everything, the reminder included, and a
+**DEBUG** tab (`view` `debug`), and changes nothing else. The tab's **Mock Resolve issues**
+builds made-up files for the issues ticked, as many as asked (`mockPaths`: index issues from
+7000001, dating from 7100001, duplicates from 7200001 cycling the cases the page tells apart),
+works them out with the real `unindexedWorks` / `undatedIndexedFiles` / `duplicateGroups`, and
+opens the real `ImportDialog` on them. **Nothing real is touched**: the files are a
+`MemoryStore`; `ImportDialog.sandbox` notes every exclusion-list write (`sandboxNoted`) instead
+of making it and refreshes no listing; *never ask me again* is not bound; and starting hands the
+request back to the tab, which shows it and starts nothing. Only `POST /api/file-names` reaches
+the helper, which writes nothing. Keep any new write the window learns behind `sandbox()`.
 
 ### A login that lapses mid-run ends the run
 
@@ -2199,7 +2214,9 @@ window finishes after dating (`afterDating`). What not to break:
   group's decision (`siftedSaid`). `removeFiles` deletes on a page with a bar - **never every
   file of a group** - then the dialog filters what it removed out of every later page
   (`removedPaths`) and `refreshAfterRun` + `check` bring the listing and reminder up to date.
-  The *No, do not ask me again for these files* choice includes the duplicates' files.
+  The *No, do not ask me again for these files* choice includes the duplicates' files. The
+  sifting radios are **most recent first** (`byRecency`: by the date in each name, undated
+  last). The list page never says what sifting decided for a row.
 - **Four exclusion lists, in one file** (`import-excluded.json` at the library's top,
   `IMPORT_EXCLUDED_FILE`, read once per library; only the page reads it). The **files** list
   (`kind: 'files'`, by name) is dropped before anything is counted - such a file never offers

@@ -115,9 +115,6 @@
                       </li>
                     }
                   </ul>
-                  @if (choiceOf(group) === 'choose' && siftedSaid(group)) {
-                    <span class="sifted-note">{{ siftedSaid(group) }}</span>
-                  }
                   @if (choiceOf(group) === 'recent' && !newestIn(group)) {
                     <span class="undecided-note">Can't tell which is newest - nothing will be deleted, and this is asked again next time</span>
                   }
@@ -186,7 +183,7 @@
           keep. The others are deleted.
         </p>
         <ul class="choose-list" role="radiogroup" [attr.aria-label]="'Keep for work ' + group.id">
-          @for (file of group.files; track file.path) {
+          @for (file of byRecency(group); track file.path) {
             <li>
               <label class="check">
                 <input type="radio" [attr.name]="'keep-' + group.key" [attr.aria-label]="'Keep ' + file.name"

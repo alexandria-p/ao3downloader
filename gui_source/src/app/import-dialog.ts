@@ -88,6 +88,14 @@ export class ImportDialog {
   readonly store = input<LibraryStore | null>(null);
   /** the formats the helper offers, JSON among them */
   readonly formats = input<string[]>(['HTML', 'EPUB', 'PDF', 'MOBI', 'AZW3', 'JSON']);
+  /**
+   * A mock, from the DEBUG tab: the store is one in memory, and nothing reaches the real
+   * library - exclusion lists are noted (`sandboxNotes`) instead of written, and no listing is
+   * refreshed. Starting hands back the request, which the DEBUG tab shows rather than runs.
+   */
+  readonly sandbox = input(false);
+  /** what a mock would have written to the exclusion lists, in words */
+  readonly sandboxNoted = output<string>();
   /** a run is going: nothing may be renamed or started */
   readonly busy = input(false);
 
@@ -177,6 +185,21 @@ export class ImportDialog {
   protected readonly siftDone = computed(() => this.siftList().length > 0 && this.undecidedCount() === 0);
   /** groups marked Keep all go on the duplicates list, not to be asked about again */
   protected readonly rememberKeepAll = signal(false);
+
+  private note(said: string): void {
+    this.sandboxNoted.emit(said);
+  }
+
+  /** a group's files to choose from: the most recent first, by the date in each name; undated last */
+  protected byRecency(group: DuplicateGroup): FoundFile[] {
+    return [...group.files].sort((a, b) => {
+      const da = inferDate(a.name);
+      const db = inferDate(b.name);
+      if (da && db && da !== db) return da > db ? -1 : 1;
+      if (!!da !== !!db) return da ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
 
   protected outcomeOf(group: DuplicateGroup): SiftOutcome | undefined {
     return this.siftOutcome()[group.key];
@@ -303,7 +326,8 @@ export class ImportDialog {
     const plan = this.duplicatePlan();
     if (plan.keep.length) {
       try {
-        await this.imports.excludeDuplicates(plan.keep);
+        if (this.sandbox()) this.note(`duplicates list: ${plan.keep.map((k) => k.group.key).join(', ')}`);
+        else await this.imports.excludeDuplicates(plan.keep);
       } catch {
         // not written: they are offered again next time, which loses nothing
       }
@@ -331,7 +355,7 @@ export class ImportDialog {
     this.removed.set({ ...result });
     this.removing.set(false);
     // the listing and what was found are brought up to date, so no removed file is offered again
-    if (result.removed.length) {
+    if (result.removed.length && !this.sandbox()) {
       try {
         await this.library.refreshAfterRun(result.removed, store);
       } catch {
@@ -573,7 +597,8 @@ export class ImportDialog {
             ...this.undatedElsewhere(),
             ...this.duplicates().flatMap((g) => g.files),
           ]) files.set(file.path, file);
-          await this.imports.excludeFiles([...files.values()]);
+          if (this.sandbox()) this.note(`files list: ${[...files.values()].map((f) => f.name).join(', ')}`);
+          else await this.imports.excludeFiles([...files.values()]);
         } catch {
           // not written: offered again next time, which loses nothing
         }
@@ -601,7 +626,8 @@ export class ImportDialog {
     const skipped = this.undated().filter((f) => this.skipped()[f.path]);
     if (this.rememberSkips() && skipped.length && !this.busy()) {
       try {
-        await this.imports.excludeDating(skipped);
+        if (this.sandbox()) this.note(`dates list: ${skipped.map((f) => f.name).join(', ')}`);
+        else await this.imports.excludeDating(skipped);
       } catch {
         // not written: they are offered for dating again next time, which loses nothing
       }
@@ -636,7 +662,8 @@ export class ImportDialog {
     // a name no longer recorded would ask about its work again - written at once, not on close
     if (result.renamed.length) {
       try {
-        await this.imports.renamed(result.renamed);
+        if (this.sandbox()) this.note(`renamed in the lists: ${result.renamed.length} files`);
+        else await this.imports.renamed(result.renamed);
       } catch {
         // not written: that work's index question may be asked again, which loses nothing
       }
@@ -671,7 +698,8 @@ export class ImportDialog {
   protected async finish(): Promise<void> {
     if (this.lookup() === 'never' && this.works().length) {
       try {
-        await this.imports.excludeFromIndex(this.works());
+        if (this.sandbox()) this.note(`index list: ${this.works().map((w) => w.id).join(', ')}`);
+        else await this.imports.excludeFromIndex(this.works());
       } catch {
         // not written: they are offered again next time, which loses nothing
       }

@@ -413,6 +413,39 @@ describe('ImportDialog', () => {
     expect(element.querySelector('footer')!.textContent).toContain('Use most recent for all remaining, and continue');
   });
 
+  it('lists the files to choose from most recent first, undated last', async () => {
+    await toSifting();
+    await click('Next entry');
+    await click('Next entry');
+    expect(groupShown()).toBe('8:epub');
+    expect(radios().map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Keep 8 Two 2022-03-03.epub',
+      'Keep 8 One 2022-02-02.epub',
+      'Keep 8 Three 2021-01-01.epub',
+    ]);
+    await click('Previous entry');
+    expect(radios().map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Keep 7 Fic - W 2024-01-01.pdf',
+      'Keep 7 Fic - W.pdf',
+    ]);
+  });
+
+  it('writes to no exclusion list and refreshes nothing as a sandbox, saying what it would have', async () => {
+    await open(ALL_DATED, false, [], DUPES);
+    fixture.componentRef.setInput('sandbox', true);
+    TestBed.inject(Library).store.set(store);
+    const noted: string[] = [];
+    fixture.componentInstance.sandboxNoted.subscribe((x) => noted.push(x));
+    await click('Continue');
+    await chooseIn('8:epub', 'all');
+    element.querySelector<HTMLInputElement>('input[name="rememberKeepAll"]')!.click();
+    await fixture.whenStable();
+    await click('Continue');
+    await settle();
+    expect(store.written.size).toBe(0);
+    expect(noted).toEqual(['duplicates list: 8:epub']);
+  });
+
   it('moves between entries, and finishes with a done note once the last is sorted', async () => {
     await toSifting();
     radios()[1].click();
@@ -454,8 +487,8 @@ describe('ImportDialog', () => {
 
     await click('Back');
     expect(step()).toBe('duplicates');
-    // the list says what was decided
-    expect(groupRow('7:html').querySelector('.sifted-note')?.textContent).toContain('Sorted: skipped');
+    // the list keeps to its own choices: nothing about what sifting decided
+    expect(groupRow('7:html').textContent).not.toContain('Sorted:');
     await chooseIn('9:mobi', 'choose');
     await click('Choose which to keep');
     expect(groupShown()).toBe('7:pdf');
