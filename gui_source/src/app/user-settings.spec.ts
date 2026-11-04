@@ -16,6 +16,9 @@ import {
   startingFiletypes,
 } from './preferences';
 import { UpdateCheck } from './updates';
+import { IMPORT_EXCLUDED_FILE, LibraryImports } from './imports';
+import { Library } from './library';
+import { LibraryStore } from './library-store';
 import { IniSetting, TOAST_MS, UserSettings } from './user-settings';
 
 const CONFIG: ServerConfig = {
@@ -98,6 +101,50 @@ describe('UserSettings', () => {
       return new Response('{}', { status: 404 });
     });
   });
+
+  // region exclusion lists for imports
+
+  it('empties every exclusion list for imports on Reset exclusion lists for imports', async () => {
+    const texts = new Map<string, string>([[IMPORT_EXCLUDED_FILE, JSON.stringify({ excluded: [
+      { id: '1', kind: 'files', files: ['1 a.html'] },
+      { id: '2', kind: 'index', files: ['2 b.html'] },
+      { id: '3', kind: 'dates', files: ['3 c.html'] },
+    ] })]]);
+    const store = {
+      label: 'memory', check: async () => {}, list: async () => ['works/1 a.html', 'works/2 b.html'],
+      read: async (path: string) => texts.get(path) ?? null,
+      write: async (path: string, body: Response) => (texts.set(path, await body.text()), 0),
+      size: async () => null, delete: async () => {}, rename: async () => {}, mkdir: async () => {},
+    } as unknown as LibraryStore;
+    TestBed.inject(Library).store.set(store);
+    const imports = TestBed.inject(LibraryImports);
+    await imports.check();
+    expect(imports.found()).toEqual([]);
+    await open();
+
+    const section = element.querySelector('.import-exclusions')!;
+    expect(section.querySelector('h3')?.textContent).toContain('Exclusion lists for imports');
+    expect(section.querySelector('.hint')?.textContent).toContain('import-excluded.json');
+    const button = section.querySelector<HTMLButtonElement>('button.reset-exclusions')!;
+    expect(button.textContent?.trim()).toBe('Reset exclusion lists for imports');
+    button.click();
+    for (let i = 0; i < 3; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await fixture.whenStable();
+    }
+
+    expect(JSON.parse(texts.get(IMPORT_EXCLUDED_FILE)!)).toEqual({ excluded: [] });
+    // everything found is offered again
+    expect(imports.found().map((w) => w.id)).toEqual(['1', '2']);
+    expect(element.textContent).toContain('every exclusion list for imports is empty');
+  });
+
+  it('holds the reset until a library is open', async () => {
+    await open();
+    expect(element.querySelector<HTMLButtonElement>('button.reset-exclusions')!.disabled).toBe(true);
+  });
+
+  // endregion
 
   // region prompts
 

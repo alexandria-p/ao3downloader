@@ -24,6 +24,8 @@ import {
   startingFiletypes,
 } from './preferences';
 import { UpdateCheck } from './updates';
+import { LibraryImports } from './imports';
+import { Library } from './library';
 
 export type Asking = 'ask' | 'skip';
 
@@ -86,6 +88,26 @@ export class UserSettings implements OnDestroy {
   private readonly jobs = inject(Jobs);
   private readonly helper = inject(HelperConnection);
   private readonly updates = inject(UpdateCheck);
+  private readonly imports = inject(LibraryImports);
+  private readonly library = inject(Library);
+
+  /** a library open that can be written to: the exclusion lists live in it */
+  protected readonly canResetExclusions = computed(() => !!this.library.store());
+  protected readonly resettingExclusions = signal(false);
+
+  /** empties every exclusion list for imports in the library open now */
+  protected async resetExclusions(): Promise<void> {
+    if (this.resettingExclusions()) return;
+    this.resettingExclusions.set(true);
+    try {
+      await this.imports.resetExclusions();
+      this.say('Reset: every exclusion list for imports is empty - everything found is offered again');
+    } catch (e) {
+      this.say(`Not reset: ${e instanceof Error ? e.message : String(e)}`, 'problem');
+    } finally {
+      this.resettingExclusions.set(false);
+    }
+  }
 
   protected readonly areas = PROMPT_AREAS.map((area) => ({
     area,

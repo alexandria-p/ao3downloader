@@ -448,6 +448,23 @@ export class LibraryImports {
     await this.check();
   }
 
+  /** whether this library's exclusion lists hold anything at all */
+  async hasExclusions(): Promise<boolean> {
+    const store = this.library.store();
+    return !!store && (await this.entries(store)).length > 0;
+  }
+
+  /**
+   * Empty every exclusion list - files, index and dates - so everything found is offered again.
+   * The files themselves are untouched; only the list is emptied.
+   */
+  async resetExclusions(): Promise<void> {
+    const store = this.library.store();
+    if (!store) throw new Error('open a library first');
+    await this.save(store, []);
+    await this.check();
+  }
+
   /** files renamed by dating: the exclusion list follows them, so a dated file is not a new one */
   async renamed(renames: readonly { from: string; to: string }[]): Promise<void> {
     const store = this.library.store();

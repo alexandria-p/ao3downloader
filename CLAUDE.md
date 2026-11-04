@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2088 python passed; 948 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2088 python passed; 950 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2439,6 +2439,11 @@ not to break:
   The update banner reads its flag once, so choosing it sets `UpdateCheck.dismissed` too.
 - **The tab says first that "do not ask again" choices and default formats are this browser's**
   (`.browser-note`) - kept short at the user's request.
+- **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)
+  writes an empty `import-excluded.json` - all three lists - and checks the library again, so
+  everything passed over is offered again. It needs a library open (`Library.store`), is not
+  part of Reset to defaults (the lists are the library's, not this browser's), and touches no
+  file but the list.
 - **Reset to defaults opens a window listing every value it would change** (`resetChanges`:
   only those that differ, as current -> **default**, grouped Prompts / Download formats /
   settings.ini; nothing to change disables the button), then sets every prompt to *Ask
