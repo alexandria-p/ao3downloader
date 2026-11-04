@@ -149,7 +149,7 @@ Then open http://localhost:4200.
 You can put the app on the web for yourself alone: the page on GitHub Pages, the helper on
 Render. It asks for a passcode before anything works, and your AO3 login is encrypted on its
 way to the helper. Everyone else should run the app on their own computer, which needs none
-of this. [HOSTING.md](HOSTING.md) walks through the setup.
+of this.
 
 Three settings in `settings.ini` are specific to it:
 
@@ -165,7 +165,7 @@ and default, and leave your own values alone.
 
 For a hosted copy the deploy workflow writes **every** setting in `settings.ini` from a GitHub
 variable named after it in upper snake case (`ExtraWaitTime` from `EXTRA_WAIT_TIME`,
-`HelperUrl` from `HELPER_URL`), so you never edit it by hand. HOSTING.md lists them all.
+`HelperUrl` from `HELPER_URL`), so you never edit it by hand.
 
 ## Feedback
 
@@ -175,8 +175,7 @@ feedback** button opens the same form. It opens a short form: positive or negati
 and the log of your latest run, with your AO3 username taken out of it. Sending it opens a
 public GitHub issue in this repository, labelled `feedback`, with no GitHub account needed. The
 page links the issue as soon as it exists. It goes through a small Cloudflare Worker, not
-through the helper. [FEEDBACK.md](FEEDBACK.md) covers how it works and the one-time Cloudflare
-setup. A bundle built on your own computer has no Feedback tab.
+through the helper. A bundle built on your own computer has no Feedback tab.
 
 ## Running in the background
 

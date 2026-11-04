@@ -1,4 +1,4 @@
-# The feedback form's Worker - see helper_files/FEEDBACK.md. Deployed by the
+# The feedback form's Worker. Deployed by the
 # "build & deploy hosted app and github releases" workflow; nothing here is secret. The two
 # secrets (GITHUB_TOKEN, TURNSTILE_SECRET) are set on the Worker by that workflow, from the
 # repository's own secrets, and never written to a file.

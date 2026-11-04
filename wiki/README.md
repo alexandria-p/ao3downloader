@@ -9,5 +9,5 @@ A file's name is its page's title, with hyphens for spaces (`Getting-started.md`
 `[[Page name]]`, or `[[text|Page name]]`.
 
 The longer documents in the repository - `helper_files/README_OBSOLETE.md`, `CLAUDE.md`, `helper_files/TERMINOLOGY.md`,
-`helper_files/HOSTING.md`, `helper_files/RESUMING.md`, `helper_files/TECH_DEBT.md` - stay the full record; these pages are the short
+`helper_files/RESUMING.md`, `helper_files/TECH_DEBT.md` - stay the full record; these pages are the short
 version for people using the app.
