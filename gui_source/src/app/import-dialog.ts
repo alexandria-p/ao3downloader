@@ -353,6 +353,15 @@ export class ImportDialog {
       () => this.stopDating,
       result,
     );
+    // a renamed file keeps its place on the exclusion lists - on the index list above all, where
+    // a name no longer recorded would ask about its work again - written at once, not on close
+    if (result.renamed.length) {
+      try {
+        await this.imports.renamed(result.renamed);
+      } catch {
+        // not written: that work's index question may be asked again, which loses nothing
+      }
+    }
     this.dated.set({ ...result });
     this.dating.set(false);
   }

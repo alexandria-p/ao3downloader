@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2088 python passed; 947 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2088 python passed; 948 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2187,8 +2187,9 @@ window finishes after dating (`afterDating`). What not to break:
   `dateIssues`). The **dates** list (`kind: 'dates'`, the dates page's *Don't ask this again
   for skipped files*, `LibraryImports.excludeDating`: every row ticked Skip) keeps files out of
   dating only (`FoundFile.noDating`) - each still counts for its work's index question. **A
-  rename follows into every list**: dating's (`LibraryImports.renamed`, from
-  `App.takeInDating`) and an import's naming files from their entries (the helper's
+  rename follows into every list**: dating's (`LibraryImports.renamed`, called by the dialog
+  the moment its renames finish, not on close - so a window closed by leaving the page
+  cannot lose it) and an import's naming files from their entries (the helper's
   `follow_renames_in_exclusions`, the one place the helper touches the file) - or the renamed
   file would read as a new one and be asked about again. The page reads the file again
   whenever `Library.listedAt` moves, so a run's renames are seen. **The index page is only there with

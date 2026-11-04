@@ -272,6 +272,25 @@ describe('ImportDialog', () => {
     expect(primary().textContent?.trim()).toBe('Date 1 file and continue');
   });
 
+  it('renames a dated file on the index list as soon as it is renamed, so its work is not asked about again', async () => {
+    const left: FoundFile = { id: '9', path: 'works/9 x.html', name: '9 x.html', format: 'html', date: '', unindexed: true };
+    await open([], false, [left]);
+    store.written.set(IMPORT_EXCLUDED_FILE, JSON.stringify({
+      excluded: [{ id: '9', kind: 'index', files: ['9 x.html', '9 x 2024-01-01.pdf'] }],
+    }));
+    TestBed.inject(Library).store.set(store);
+    await click('Continue');
+    await type(dateBox('works/9 x.html'), '2024-02-03');
+    await click('Date 1 file and continue');
+    await settle();
+
+    // written before the window is closed or anything else is chosen
+    expect(step()).toBe('dating');
+    expect(closed).toEqual([]);
+    const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
+    expect(written.excluded[0].files).toEqual(['9 x 2024-02-03.html', '9 x 2024-01-01.pdf']);
+  });
+
   it('puts only the skipped files on the dates list when told not to ask again', async () => {
     await open();
     TestBed.inject(Library).store.set(store);
