@@ -350,6 +350,7 @@ def test_a_file_an_import_renames_keeps_its_place_on_every_exclusion_list(librar
         {'id': '1', 'kind': 'dates', 'files': ['1 old fic name.html']},
         {'id': '1', 'kind': 'files', 'files': ['1 old fic name 2024-05-06.pdf', '1 gone.epub']},
         {'id': '9', 'kind': 'index', 'files': ['9 other.html']},
+        {'id': '1', 'kind': 'duplicates', 'format': 'html', 'files': ['1 old fic name.html', '1 copy.html']},
     ]}
     with open(os.path.join(library.downloadfolder, strings.IMPORT_EXCLUDED_FILE_NAME), 'w') as f:
         json.dump(excluded, f)
@@ -362,8 +363,9 @@ def test_a_file_an_import_renames_keeps_its_place_on_every_exclusion_list(librar
         ['1 The Fic - Writer.html'],
         ['1 The Fic - Writer 2024-05-06.pdf', '1 gone.epub'],
         ['9 other.html'],
+        ['1 The Fic - Writer.html', '1 copy.html'],
     ]
-    assert strings.AO3_INFO_IMPORT_EXCLUDED_RENAMED.format(2, 'files') in capsys.readouterr().out
+    assert strings.AO3_INFO_IMPORT_EXCLUDED_RENAMED.format(3, 'files') in capsys.readouterr().out
 
 
 def test_an_import_with_no_exclusion_list_writes_none(library):

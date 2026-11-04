@@ -317,7 +317,7 @@
 }
 
 @if (importOpen()) {
-  <app-import-dialog [works]="imports.found()" [undatedElsewhere]="imports.undatedIndexed()"
+  <app-import-dialog [works]="imports.found()" [undatedElsewhere]="imports.undatedIndexed()" [duplicates]="imports.duplicates()"
                      [store]="library.store()"
                      [formats]="importFormats()" [busy]="!!activeRun()"
                      (askAgainChanged)="setImportOffered($event)"

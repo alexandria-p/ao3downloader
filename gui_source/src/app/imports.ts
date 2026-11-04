@@ -161,6 +161,82 @@ export async function dateFiles(
   return result;
 }
 
+/**
+ * Two or more files of one work in one format - by the work number a name starts with and its
+ * extension (`.htm` is html), however the rest is written. `key` is `<id>:<format>`.
+ */
+export interface DuplicateGroup {
+  key: string;
+  id: string;
+  format: OpenableFormat;
+  /** by name */
+  files: FoundFile[];
+}
+
+export function duplicateKey(id: string, format: string): string {
+  return `${id}:${format}`;
+}
+
+/** the work-and-format groups among these paths that hold more than one file */
+export function duplicateGroups(paths: Iterable<string>): DuplicateGroup[] {
+  const groups = new Map<string, FoundFile[]>();
+  for (const file of workFiles(paths)) {
+    const key = duplicateKey(file.id, file.format);
+    groups.set(key, [...(groups.get(key) ?? []), file]);
+  }
+  return [...groups.entries()]
+    .filter(([, files]) => files.length > 1)
+    .map(([key, files]) => ({
+      key,
+      id: files[0].id,
+      format: files[0].format,
+      files: files.sort((a, b) => a.name.localeCompare(b.name)),
+    }))
+    .sort((a, b) => a.id.length - b.id.length || a.id.localeCompare(b.id) || a.format.localeCompare(b.format));
+}
+
+/**
+ * The newest file of a group, by the date each name carries (read as *Infer date* reads one) -
+ * or null when that cannot be told: a file with no date, or two sharing the newest. Nothing is
+ * deleted on a guess.
+ */
+export function newestOf(group: DuplicateGroup): FoundFile | null {
+  const dated = group.files.map((file) => ({ file, date: inferDate(file.name) }));
+  if (dated.some((x) => !x.date)) return null;
+  const newest = dated.reduce((a, b) => (b.date > a.date ? b : a));
+  return dated.filter((x) => x.date === newest.date).length === 1 ? newest.file : null;
+}
+
+/** what removing duplicates did: what went, and what would not */
+export interface RemovingResult {
+  removed: string[];
+  failed: { path: string; error: string }[];
+}
+
+/**
+ * Delete these files, one at a time, saying how far it has got. `stopped` is asked before each
+ * one, so closing the window part way stops there: what was deleted stays deleted.
+ */
+export async function removeFiles(
+  store: LibraryStore,
+  paths: readonly string[],
+  progress: (done: number, total: number) => void = () => undefined,
+  stopped: () => boolean = () => false,
+  result: RemovingResult = { removed: [], failed: [] },
+): Promise<RemovingResult> {
+  for (const [index, path] of paths.entries()) {
+    if (stopped()) break;
+    try {
+      await store.delete(path);
+      result.removed.push(path);
+    } catch (error) {
+      result.failed.push({ path, error: error instanceof Error ? error.message : String(error) });
+    }
+    progress(index + 1, paths.length);
+  }
+  return result;
+}
+
 /** a file to be given a date, with the index entry of its work when there is one */
 export interface ToDate {
   file: FoundFile;
@@ -306,12 +382,16 @@ export interface Excluded {
   index: Map<string, Set<string>>;
   /** file names never offered for dating */
   dates: Set<string>;
+  /** by `<id>:<format>`: the file names a group of duplicates had when kept as it was */
+  duplicates: Map<string, Set<string>>;
 }
 
 /** one line of the excluded file */
 interface ExcludedEntry {
   id: string;
-  kind?: 'files' | 'index' | 'dates';
+  kind?: 'files' | 'index' | 'dates' | 'duplicates';
+  /** a duplicates entry's format */
+  format?: string;
   files?: string[];
   excluded_on?: string;
 }
@@ -328,12 +408,15 @@ function excludedEntries(text: string | null): ExcludedEntry[] {
 }
 
 function excludedOf(entries: ExcludedEntry[]): Excluded {
-  const excluded: Excluded = { files: new Set(), index: new Map(), dates: new Set() };
+  const excluded: Excluded = { files: new Set(), index: new Map(), dates: new Set(), duplicates: new Map() };
   for (const entry of entries) {
     const names = (entry.files ?? []).map(String);
     if (entry.kind === 'files') for (const name of names) excluded.files.add(name);
     else if (entry.kind === 'dates') for (const name of names) excluded.dates.add(name);
-    else {
+    else if (entry.kind === 'duplicates') {
+      const key = duplicateKey(String(entry.id), String(entry.format ?? ''));
+      excluded.duplicates.set(key, new Set([...(excluded.duplicates.get(key) ?? []), ...names]));
+    } else {
       const id = String(entry.id);
       excluded.index.set(id, new Set([...(excluded.index.get(id) ?? []), ...names]));
     }
@@ -344,6 +427,12 @@ function excludedOf(entries: ExcludedEntry[]): Excluded {
 /** what the excluded file leaves out; anything unreadable is nothing */
 export function readExcludedFile(text: string | null): Excluded {
   return excludedOf(excludedEntries(text));
+}
+
+/** whether a group of duplicates is still kept as it was: every file it has now was recorded */
+export function duplicatesExcluded(group: DuplicateGroup, excluded: Excluded): boolean {
+  const recorded = excluded.duplicates.get(group.key);
+  return !!recorded && group.files.every((f) => recorded.has(f.name));
 }
 
 /** whether a work is still left out of the index question: every file it has now was recorded */
@@ -366,7 +455,11 @@ export class LibraryImports {
   /** files of indexed works with no date in their name */
   readonly undatedIndexed = signal<FoundFile[]>([]);
   /** whether anything was found to resolve: works with no index entry, or undated files */
-  readonly hasIssues = computed(() => this.found().length > 0 || this.undatedIndexed().length > 0);
+  /** works with more than one file in one format */
+  readonly duplicates = signal<DuplicateGroup[]>([]);
+  readonly hasIssues = computed(
+    () => this.found().length > 0 || this.undatedIndexed().length > 0 || this.duplicates().length > 0,
+  );
   /** the store the last check was of, so a check of a library since closed is dropped */
   readonly checkedStore = signal<LibraryStore | null>(null);
   /**
@@ -465,6 +558,29 @@ export class LibraryImports {
     await this.check();
   }
 
+  /**
+   * Keep these groups of duplicates as they are (*Keep all*, or more than one kept by hand) and
+   * do not ask about them again while their files stay as they are - each recorded with the
+   * files it keeps.
+   */
+  async excludeDuplicates(groups: { group: DuplicateGroup; kept: FoundFile[] }[]): Promise<void> {
+    const store = this.library.store();
+    if (!store || !groups.length) return;
+    const keys = new Set(groups.map((g) => g.group.key));
+    const today = new Date().toISOString().slice(0, 10);
+    const kept = (await this.entries(store)).filter(
+      (e) => e.kind !== 'duplicates' || !keys.has(duplicateKey(String(e.id), String(e.format ?? ''))),
+    );
+    const added: ExcludedEntry[] = groups.map(({ group, kept: files }) => ({
+      id: group.id,
+      kind: 'duplicates',
+      format: group.format,
+      files: files.map((f) => f.name),
+      excluded_on: today,
+    }));
+    await this.save(store, [...kept, ...added]);
+  }
+
   /** files renamed by dating: the exclusion list follows them, so a dated file is not a new one */
   async renamed(renames: readonly { from: string; to: string }[]): Promise<void> {
     const store = this.library.store();
@@ -489,6 +605,7 @@ export class LibraryImports {
     if (!store) {
       this.found.set([]);
       this.undatedIndexed.set([]);
+      this.duplicates.set([]);
       this.checkedStore.set(null);
       return;
     }
@@ -513,6 +630,7 @@ export class LibraryImports {
       this.undatedIndexed.set(
         [...undatedIndexedFiles(paths, indexed), ...notAsked].filter((f) => !excluded.dates.has(f.name)),
       );
+      this.duplicates.set(duplicateGroups(paths).filter((g) => !duplicatesExcluded(g, excluded)));
       this.checkedStore.set(store);
     } catch {
       // the library could not be listed: whatever was found before is kept until it can

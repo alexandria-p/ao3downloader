@@ -387,3 +387,73 @@ input[type='date'] {
 .remember-skips {
   margin: 12px 0 0;
 }
+
+/* duplicates: each group's files under its title, the choice on the right */
+.duplicates-table th:nth-child(2),
+.duplicates-table td:nth-child(2) {
+  width: 170px;
+}
+
+.duplicates-table td.group-files ul {
+  margin: 4px 0 0;
+  padding: 0 0 0 18px;
+}
+
+.duplicates-table td.group-files li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.group-title {
+  color: var(--text-strong);
+}
+
+/* keep most recent: the one kept in green, the ones that go struck through */
+.duplicates-table li.newest {
+  color: #9fd49a;
+}
+
+.duplicates-table li.goes {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.duplicates-table tr.skipped .group-title {
+  color: var(--text-dim);
+}
+
+.undecided-note {
+  display: block;
+  margin: 4px 0 0;
+  color: #e0c97a;
+  font-size: 0.82rem;
+}
+
+select {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.choose-list {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  list-style: none;
+}
+
+.choose-progress {
+  margin: 0 0 6px;
+}
+
+.undecided summary {
+  color: #e0c97a;
+}

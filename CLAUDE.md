@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2088 python passed; 950 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2088 python passed; 964 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2175,7 +2175,20 @@ window finishes after dating (`afterDating`). What not to break:
   own name ends in - the version the file holds, which may be older than AO3's - never over
   another file. Only an entry the import **makes** is marked `from_import`; a work already
   indexed (one whose undated files brought it into the import) keeps its origin.
-- **Three exclusion lists, in one file** (`import-excluded.json` at the library's top,
+- **Duplicates come first** (`duplicates`, `choose`, `removing` steps, only with some):
+  `duplicateGroups` is every work number and format (`.htm` is html) with more than one file
+  in `works/`, however named. Each row is *Skip* (default: asked again), *Keep all* (kept, on
+  the **duplicates** list), *Keep most recent* or *I'll choose*, with buttons setting every row.
+  **Most recent is never a guess** (`newestOf`): every file in the group needs a date in its
+  name (read as *Infer date* reads one) and one must be strictly newest, or the group is
+  `undecided` - nothing deleted, said on the removing page, asked again next time. *I'll
+  choose* goes through those groups one at a time (newest ticked when there is one, at least
+  one kept; *Skip remaining*, *Use most recent for remaining*); keeping two or more puts the
+  kept files on the duplicates list. `removeFiles` deletes on a page with a bar - **never every
+  file of a group** - then the dialog filters what it removed out of every later page
+  (`removedPaths`) and `refreshAfterRun` + `check` bring the listing and reminder up to date.
+  The *No, do not ask me again for these files* choice includes the duplicates' files.
+- **Four exclusion lists, in one file** (`import-excluded.json` at the library's top,
   `IMPORT_EXCLUDED_FILE`, read once per library; only the page reads it). The **files** list
   (`kind: 'files'`, by name) is dropped before anything is counted - such a file never offers
   the window, the reminder, a date or an index lookup. The **index** list (`kind: 'index'`,
@@ -2186,7 +2199,10 @@ window finishes after dating (`afterDating`). What not to break:
   Its undated files are still offered for dating (`FoundFile.unindexed`, never in an update's
   `dateIssues`). The **dates** list (`kind: 'dates'`, the dates page's *Don't ask this again
   for skipped files*, `LibraryImports.excludeDating`: every row ticked Skip) keeps files out of
-  dating only (`FoundFile.noDating`) - each still counts for its work's index question. **A
+  dating only (`FoundFile.noDating`) - each still counts for its work's index question. The
+  **duplicates** list (`kind: 'duplicates'`, with `format`, `LibraryImports.excludeDuplicates`)
+  keeps a group's number, format and files, passed over while those are all its files
+  (`duplicatesExcluded`). **A
   rename follows into every list**: dating's (`LibraryImports.renamed`, called by the dialog
   the moment its renames finish, not on close - so a window closed by leaving the page
   cannot lose it) and an import's naming files from their entries (the helper's

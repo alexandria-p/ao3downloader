@@ -2,6 +2,10 @@ import { Component, computed, inject, input, output, signal } from '@angular/cor
 import { DecimalPipe } from '@angular/common';
 import {
   DatingResult,
+  DuplicateGroup,
+  RemovingResult,
+  newestOf,
+  removeFiles,
   FoundFile,
   FoundWork,
   ImportRequest,
@@ -20,7 +24,13 @@ import { Jobs } from './jobs';
 import { Library } from './library';
 import { LibraryStore } from './library-store';
 
-type Step = 'overview' | 'dates' | 'dating' | 'index' | 'formats';
+type Step = 'overview' | 'duplicates' | 'choose' | 'removing' | 'dates' | 'dating' | 'index' | 'formats';
+
+/** what to do with one group of duplicates */
+export type DuplicateChoice = 'skip' | 'all' | 'recent' | 'choose';
+
+/** how many groups a page of the duplicates list holds */
+export const DUPLICATES_PAGE_SIZE = 25;
 
 /** how many rows a page of the dates list holds */
 export const DATES_PAGE_SIZE = 25;
@@ -53,9 +63,25 @@ export class ImportDialog {
   private readonly library = inject(Library);
   private readonly imports = inject(LibraryImports);
 
-  readonly works = input.required<FoundWork[]>();
+  readonly worksFound = input.required<FoundWork[]>({ alias: 'works' });
   /** undated files of works the index does have - offered for dating beside the rest */
-  readonly undatedElsewhere = input<FoundFile[]>([]);
+  readonly undatedFound = input<FoundFile[]>([], { alias: 'undatedElsewhere' });
+  /** works with more than one file in one format, offered before anything else */
+  readonly duplicates = input<DuplicateGroup[]>([]);
+  /** the files removed as duplicates here: gone from every page after */
+  private readonly removedPaths = signal<ReadonlySet<string>>(new Set());
+  /** what was found, less anything removed as a duplicate */
+  protected readonly works = computed(() => {
+    const removed = this.removedPaths();
+    if (!removed.size) return this.worksFound();
+    return this.worksFound()
+      .map((w) => ({ ...w, files: w.files.filter((f) => !removed.has(f.path)) }))
+      .filter((w) => w.files.length);
+  });
+  protected readonly undatedElsewhere = computed(() => {
+    const removed = this.removedPaths();
+    return this.undatedFound().filter((f) => !removed.has(f.path));
+  });
   readonly store = input<LibraryStore | null>(null);
   /** the formats the helper offers, JSON among them */
   readonly formats = input<string[]>(['HTML', 'EPUB', 'PDF', 'MOBI', 'AZW3', 'JSON']);
@@ -78,6 +104,193 @@ export class ImportDialog {
     ),
   );
   protected readonly maxWorks = MAX_IMPORT_WORKS;
+
+  // region duplicates
+
+  /** each group's choice, by key; a group not here is skipped */
+  protected readonly dupChoices = signal<Record<string, DuplicateChoice>>({});
+  protected readonly dupPaged = signal(true);
+  protected readonly dupPage = signal(0);
+  protected readonly dupPageSize = DUPLICATES_PAGE_SIZE;
+  protected readonly dupPages = computed(() => Math.max(1, Math.ceil(this.duplicates().length / this.dupPageSize)));
+  protected readonly shownGroups = computed(() =>
+    this.dupPaged()
+      ? this.duplicates().slice(this.dupPage() * this.dupPageSize, (this.dupPage() + 1) * this.dupPageSize)
+      : this.duplicates(),
+  );
+  protected readonly duplicateFiles = computed(() => this.duplicates().reduce((n, g) => n + g.files.length, 0));
+
+  protected choiceOf(group: DuplicateGroup): DuplicateChoice {
+    return this.dupChoices()[group.key] ?? 'skip';
+  }
+
+  protected setChoice(group: DuplicateGroup, choice: DuplicateChoice): void {
+    this.dupChoices.update((c) => ({ ...c, [group.key]: choice }));
+  }
+
+  /** the buttons at the top: the same choice in every row, each still changeable after */
+  protected chooseForAll(choice: DuplicateChoice): void {
+    this.dupChoices.set(Object.fromEntries(this.duplicates().map((g) => [g.key, choice])));
+  }
+
+  protected setDupPaged(paged: boolean): void {
+    this.dupPaged.set(paged);
+    this.dupPage.set(Math.min(this.dupPage(), this.dupPages() - 1));
+  }
+
+  /** the newest file of a group, worked out once per group */
+  protected readonly newest = computed(() => new Map(this.duplicates().map((g) => [g.key, newestOf(g)])));
+
+  protected newestIn(group: DuplicateGroup): FoundFile | null {
+    return this.newest().get(group.key) ?? null;
+  }
+
+  protected dateIn(file: FoundFile): string {
+    return inferDate(file.name);
+  }
+
+  /** the groups to sort through by hand, one at a time, in list order */
+  protected readonly toChoose = computed(() => this.duplicates().filter((g) => this.choiceOf(g) === 'choose'));
+  protected readonly chooseAt = signal(0);
+  protected readonly choosing = computed(() => this.toChoose()[this.chooseAt()] ?? null);
+  /** the files ticked to keep in each group sorted by hand, by key - the newest ticked to begin with */
+  protected readonly keptBy = signal<Record<string, string[]>>({});
+
+  protected keptIn(group: DuplicateGroup): string[] {
+    const kept = this.keptBy()[group.key];
+    if (kept) return kept;
+    const newest = this.newestIn(group);
+    return newest ? [newest.path] : [];
+  }
+
+  protected setKept(group: DuplicateGroup, file: FoundFile, keep: boolean): void {
+    const kept = new Set(this.keptIn(group));
+    if (keep) kept.add(file.path);
+    else kept.delete(file.path);
+    this.keptBy.update((k) => ({ ...k, [group.key]: group.files.filter((f) => kept.has(f.path)).map((f) => f.path) }));
+  }
+
+  protected fromDuplicates(): void {
+    if (this.busy()) return;
+    if (this.toChoose().length) {
+      this.chooseAt.set(0);
+      this.step.set('choose');
+    } else void this.applyDuplicates();
+  }
+
+  /** the next group to sort through, or on to removing once the last is done */
+  protected chooseNext(): void {
+    const group = this.choosing();
+    if (group && !this.keptIn(group).length) return;
+    if (this.chooseAt() < this.toChoose().length - 1) this.chooseAt.set(this.chooseAt() + 1);
+    else void this.applyDuplicates();
+  }
+
+  protected choosePrevious(): void {
+    if (this.chooseAt() > 0) this.chooseAt.set(this.chooseAt() - 1);
+    else this.step.set('duplicates');
+  }
+
+  /** the groups after this one, not sorted through: skipped, or the newest kept */
+  protected finishChoosingWith(choice: 'skip' | 'recent'): void {
+    const rest = this.toChoose().slice(this.chooseAt() + (this.keptIn(this.choosing()!).length ? 1 : 0));
+    this.dupChoices.update((c) => ({ ...c, ...Object.fromEntries(rest.map((g) => [g.key, choice])) }));
+    void this.applyDuplicates();
+  }
+
+  protected readonly removeProgress = signal<{ done: number; total: number }>({ done: 0, total: 0 });
+  protected readonly removing = signal(false);
+  protected readonly removed = signal<RemovingResult | null>(null);
+  /** groups told to keep the most recent whose newest could not be told: left, offered again */
+  protected readonly undecided = signal<DuplicateGroup[]>([]);
+  private stopRemoving = false;
+
+  /**
+   * What the choices come to: files to delete - never every file of a group - groups kept as
+   * they are (on the duplicates list, not asked about again), and groups whose newest could not
+   * be told (left, and offered again next time).
+   */
+  private duplicatePlan(): {
+    remove: string[];
+    keep: { group: DuplicateGroup; kept: FoundFile[] }[];
+    undecided: DuplicateGroup[];
+  } {
+    const remove: string[] = [];
+    const keep: { group: DuplicateGroup; kept: FoundFile[] }[] = [];
+    const undecided: DuplicateGroup[] = [];
+    for (const group of this.duplicates()) {
+      const choice = this.choiceOf(group);
+      if (choice === 'all') keep.push({ group, kept: group.files });
+      else if (choice === 'recent') {
+        const newest = this.newestIn(group);
+        if (!newest) undecided.push(group);
+        else remove.push(...group.files.filter((f) => f !== newest).map((f) => f.path));
+      } else if (choice === 'choose') {
+        const kept = new Set(this.keptIn(group));
+        if (!kept.size) continue;
+        const files = group.files.filter((f) => kept.has(f.path));
+        remove.push(...group.files.filter((f) => !kept.has(f.path)).map((f) => f.path));
+        if (files.length > 1) keep.push({ group, kept: files });
+      }
+    }
+    return { remove, keep, undecided };
+  }
+
+  /** remove what was chosen, on a page of its own; nothing to remove or report goes straight on */
+  protected async applyDuplicates(): Promise<void> {
+    const store = this.store();
+    if (this.busy()) return;
+    const plan = this.duplicatePlan();
+    if (plan.keep.length) {
+      try {
+        await this.imports.excludeDuplicates(plan.keep);
+      } catch {
+        // not written: they are offered again next time, which loses nothing
+      }
+    }
+    this.undecided.set(plan.undecided);
+    if (!store || (!plan.remove.length && !plan.undecided.length)) {
+      this.step.set(this.afterDuplicatesStep());
+      return;
+    }
+    this.step.set('removing');
+    const result: RemovingResult = { removed: [], failed: [] };
+    this.removed.set(result);
+    if (!plan.remove.length) return;
+    this.removing.set(true);
+    this.stopRemoving = false;
+    this.removeProgress.set({ done: 0, total: plan.remove.length });
+    await removeFiles(
+      store,
+      plan.remove,
+      (done, total) => this.removeProgress.set({ done, total }),
+      () => this.stopRemoving,
+      result,
+    );
+    this.removedPaths.set(new Set(result.removed));
+    this.removed.set({ ...result });
+    this.removing.set(false);
+    // the listing and what was found are brought up to date, so no removed file is offered again
+    if (result.removed.length) {
+      try {
+        await this.library.refreshAfterRun(result.removed, store);
+      } catch {
+        // the next read catches up
+      }
+      void this.imports.check();
+    }
+  }
+
+  /** after the duplicates: the dates, when anything is undated, then the index question */
+  private afterDuplicatesStep(): Step {
+    return this.undated().length ? 'dates' : this.afterDatesStep();
+  }
+
+  protected fromRemoving(): void {
+    this.step.set(this.afterDuplicatesStep());
+  }
+
+  // endregion
 
   // region dates
 
@@ -290,11 +503,17 @@ export class ImportDialog {
     switch (this.firstChoice()) {
       case 'repair':
         if (this.busy()) return;
-        this.step.set(this.undated().length ? 'dates' : this.afterDatesStep());
+        this.step.set(this.duplicates().length ? 'duplicates' : this.afterDuplicatesStep());
         return;
       case 'exclude':
         try {
-          await this.imports.excludeFiles([...this.works().flatMap((w) => w.files), ...this.undatedElsewhere()]);
+          const files = new Map<string, FoundFile>();
+          for (const file of [
+            ...this.works().flatMap((w) => w.files),
+            ...this.undatedElsewhere(),
+            ...this.duplicates().flatMap((g) => g.files),
+          ]) files.set(file.path, file);
+          await this.imports.excludeFiles([...files.values()]);
         } catch {
           // not written: offered again next time, which loses nothing
         }
@@ -377,13 +596,13 @@ export class ImportDialog {
   }
 
   protected backFrom(step: 'dates' | 'index' | 'formats'): void {
-    if (step === 'dates') this.step.set('overview');
+    if (step === 'dates') this.step.set(this.duplicates().length && !this.removed() ? 'duplicates' : 'overview');
     else if (step === 'index') this.step.set(this.dated() ? 'overview' : this.undated().length ? 'dates' : 'overview');
     else this.step.set(this.works().length ? 'index' : this.dated() ? 'overview' : this.undated().length ? 'dates' : 'overview');
   }
 
   /** no going back to the dates once files are renamed: they would be offered for dating again */
-  protected readonly canGoBack = computed(() => !this.dated());
+  protected readonly canGoBack = computed(() => !this.dated() && !this.removed()?.removed.length);
 
   /**
    * Done: works never to be offered again are written down, and a run - when there is anything
@@ -422,6 +641,7 @@ export class ImportDialog {
   /** closing while files are being renamed stops after the one in hand; what was renamed stays */
   protected close(): void {
     this.stopDating = true;
+    this.stopRemoving = true;
     this.closed.emit(this.dated());
   }
 

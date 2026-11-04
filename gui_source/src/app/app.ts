@@ -207,6 +207,8 @@ export class App {
       this.imports.undatedIndexed().length;
     const parts = [];
     if (works) parts.push(`${works.toLocaleString()} ${works === 1 ? 'work has' : 'works have'} files but no index entry`);
+    const duplicates = this.imports.duplicates().length;
+    if (duplicates) parts.push(`${duplicates.toLocaleString()} ${duplicates === 1 ? 'work has' : 'works have'} more than one file in the same format`);
     if (undated) parts.push(`${undated.toLocaleString()} ${undated === 1 ? 'file has no date in its name' : 'files have no date in their names'}`);
     return parts.join('; ');
   });
