@@ -13,6 +13,7 @@ import {
   FoundFile,
   FoundWork,
   ImportRequest,
+  LONG_IMPORT_FILES,
   LibraryImports,
   MAX_IMPORT_WORKS,
   ToDate,
@@ -521,7 +522,8 @@ export class ImportDialog {
     if (standing === 'keep' || standing === 'guess') return Promise.resolve({ how: standing });
     return new Promise((resolve) => {
       this.asking.set(group);
-      this.askHow.set(standing === 'choose' ? 'choose' : null);
+      // a best guess is picked to begin with; a standing choose shows the files straight away
+      this.askHow.set(standing === 'choose' ? 'choose' : 'guess');
       this.askPick.set('');
       this.askForOthers.set(null);
       this.askMore.set(more);
@@ -749,6 +751,20 @@ export class ImportDialog {
     if (this.updates()) for (const id of this.updating()) ids.add(id);
     return [...ids].map((id) => ({ id, files: [] }));
   });
+  /** how many files the window knows of for these works: their own unindexed files, and undated ones */
+  private filesOf(ids: Iterable<string>): number {
+    const wanted = new Set(ids);
+    const paths = new Set<string>();
+    for (const w of this.works()) if (wanted.has(w.id)) for (const f of w.files) paths.add(f.path);
+    for (const f of this.undatedElsewhere()) if (wanted.has(f.id)) paths.add(f.path);
+    return paths.size;
+  }
+  /** files of the works the index page asks about */
+  protected readonly indexFiles = computed(() => this.filesOf(this.works().map((w) => w.id)));
+  /** files of the works a run would go over */
+  protected readonly scopeFiles = computed(() => this.filesOf(this.scope().map((w) => w.id)));
+  protected readonly longImport = LONG_IMPORT_FILES;
+
   /** whether there is anything for a run to do: a lookup, or an update */
   protected readonly runs = computed(() => this.scope().length > 0);
   protected readonly tooMany = computed(() => this.scope().length > MAX_IMPORT_WORKS);
@@ -902,6 +918,7 @@ export class ImportDialog {
         indexOnly: this.lookups().filter((id) => taken.has(id) && !updating.has(id)),
         lookups: this.lookups().filter((id) => taken.has(id)).length,
         scope: updates ? this.scopeChosen() : 'skip',
+        files: this.filesOf(taken),
       },
       dated: this.dated(),
     });

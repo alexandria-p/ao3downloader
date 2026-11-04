@@ -56,7 +56,7 @@ def test_get_collection_metadata_reads_the_blurb(listing):
     assert result['name'] == 'DCMK_Works'
     assert result['link'] == 'https://archiveofourown.org/collections/DCMK_Works'
     assert result['title']
-    assert result['maintainers'] == ['Moonlight_Streak']
+    assert result['maintainers'] == ['Example_Reader']
     assert result['description']
     assert result['bookmark_count'] == 7
 
@@ -135,7 +135,7 @@ def test_profile_reads_the_meta_list(tagged):
     assert 'error' not in result
     assert result['active_since'] == '2022-12-27'
     assert len(result['tags']) == 3
-    assert result['maintainers'] == ['Moonlight_Streak']
+    assert result['maintainers'] == ['Example_Reader']
 
 
 def test_profile_reads_active_since_on_a_challenge(exchange):

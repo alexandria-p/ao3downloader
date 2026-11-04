@@ -1043,6 +1043,12 @@
             <ul class="import-summary">
               @for (line of importPlan(); track line) { <li>{{ line }}</li> }
             </ul>
+            @if ((importing()?.files ?? 0) > longImport && !background()) {
+              <p class="long-run-note" role="note">
+                This may take a long time - {{ importing()!.files! | number }} files to work through.
+                Please leave this window open until it finishes.
+              </p>
+            }
           }
           <div class="background-choice" [class.blocked]="backgroundBlocked()">
             <label class="check">
@@ -1242,6 +1248,12 @@
           <ul class="import-summary">
             @for (line of importPlan(); track line) { <li>{{ line }}</li> }
           </ul>
+          @if ((importing()?.files ?? 0) > longImport && !background()) {
+            <p class="long-run-note" role="note">
+              This may take a long time - {{ importing()!.files! | number }} files to work through.
+              Please leave this window open until it finishes.
+            </p>
+          }
         }
         <div class="login-choice">
           <label class="check">

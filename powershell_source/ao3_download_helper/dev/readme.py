@@ -9,7 +9,7 @@ string, and the README quotes the words around the `{}`).
 `test/test_readme_markers.py` runs it over the real README in the ordinary test suite, so CI
 checks it on every pull request and before every deploy. To check by hand, from the helper's folder:
 
-    uv run --no-sync python dev/readme.py [path/to/README.md]
+    uv run --no-sync python dev/readme.py [path/to/README_OBSOLETE.md]
 
 Prints every wrong marker and exits 1, or exits 0 when they all hold. The README defaults to
 the one at the repository root, two folders up.
@@ -22,7 +22,7 @@ from pathlib import Path
 from source_code import strings
 
 # the repository root, from powershell_source/ao3_download_helper/dev/
-DEFAULT_README = Path(__file__).resolve().parents[3] / 'README.md'
+DEFAULT_README = Path(__file__).resolve().parents[3] / 'README_OBSOLETE.md'
 
 MARKER = re.compile(r'<!--CHECK-->(.*?)<!--([A-Za-z0-9_]+)-->', re.DOTALL)
 

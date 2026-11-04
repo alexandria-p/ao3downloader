@@ -8,6 +8,6 @@ A file's name is its page's title, with hyphens for spaces (`Getting-started.md`
 *Getting started*). `_Sidebar.md` is the sidebar on every page. Link pages with
 `[[Page name]]`, or `[[text|Page name]]`.
 
-The longer documents in the repository root - `README.md`, `CLAUDE.md`, `TERMINOLOGY.md`,
+The longer documents in the repository root - `README_OBSOLETE.md`, `CLAUDE.md`, `TERMINOLOGY.md`,
 `HOSTING.md`, `RESUMING.md`, `TECH_DEBT.md` - stay the full record; these pages are the short
 version for people using the app.

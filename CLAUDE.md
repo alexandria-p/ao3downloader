@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2089 python passed; 992 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2089 python passed; 994 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2229,8 +2229,9 @@ window finishes after dating (`afterDating`). What not to break:
   (`duplicatePlan` -> `RemovalStep`s in the list's order): `removeFiles` deletes with a bar -
   **never every file of a group** - and a set marked Keep most recent (on the list or in bulk,
   which marks sets rather than picking files) whose newest cannot be told **pauses the bar and
-  asks** (`askAbout`, `.undecided-ask`): *Choose individually* (the files as radios, as when
-  sifting), *Make a best guess* (`bestGuessOf`, the top of `byRecency`), or *Keep all of them*;
+  asks** (`askAbout`, `.undecided-ask`): *Make a best guess* (picked to begin with;
+  `bestGuessOf`, the top of `byRecency`), *Choose individually* (the files as radios, as when
+  sifting), or *Keep all of them*, answered with **Apply and carry on**;
   then, with more such sets to come, *Do this for any others like this?* - Yes is `standing`,
   followed without asking (a standing *choose* still shows the files). No answer within
   `answerWaitMs` (`UNDECIDED_WAIT_MS`, 5 minutes) keeps that set whole and asks about the next;
@@ -2239,7 +2240,9 @@ window finishes after dating (`afterDating`). What not to break:
   what it removed out of every later page (`removedPaths` -> `works`, `undatedElsewhere`, and so
   every count, the dating rows and the index question) and `refreshAfterRun` + `check` bring the
   listing and reminder up to date. Lists in the window page **7** at a time
-  (`DUPLICATES_PAGE_SIZE`, `DATES_PAGE_SIZE`).
+  (`DUPLICATES_PAGE_SIZE`, `DATES_PAGE_SIZE`). **Over `LONG_IMPORT_FILES` (20) files** the index
+  and formats pages and the run window (`ImportRequest.files`, not on a background run) say it
+  may take a long time and to leave the window open (`.long-run-note`).
   The *No, do not ask me again for these files* choice includes the duplicates' files. The
   sifting radios are **most recent first** (`byRecency`: by the date in each name, undated
   last, then by when each file last changed, unknown last, then by name). The list page never says what sifting decided for a row.
@@ -2712,7 +2715,7 @@ Three rules worth keeping:
   `self.inifile` breaks the moment a config folder is set.
 - **Angular's test runner rejects `vi.mock` on relative imports.** Injectable seams
   (`FolderStore`) are how the tests stand in for browser APIs, which don't exist in jsdom.
-- **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `README.md` tie hardcoded strings
+- **`<!--CHECK-->value<!--CONSTANT_NAME-->` markers** in `README_OBSOLETE.md` (the old full README) tie hardcoded strings
   to `strings.py` constants, and must not contain `{}`. `dev/readme.py` checks every one (a constant that is gone, or a
   value it no longer contains), and `test_readme_markers.py` runs it in the ordinary suite, so
   CI checks it on every pull request and before every deploy. Upstream's `validate readme` workflow, which called it from the
@@ -2726,9 +2729,15 @@ Three rules worth keeping:
 - Tests are named as sentences describing behaviour
   (`test_a_stop_during_a_rate_limit_break_unwinds_instead_of_asking_again`), and grouped
   with `# region` / `# endregion`.
-- Both READMEs must stay in step: the root `README.md` and the one generated into
-  `build/README.md` by the `README` string in `build_artifacts.py`. File naming, the
-  matching rule, and the collections format are documented in both by requirement.
+- **The root `README.md` is a short front page, at the user's request**: download links for each
+  system, a few lines on what the app does, and mocked screenshots (`docs/screenshots/`, a
+  made-up safe-for-work library - never a real account or username). Keep it that short; detail
+  goes in the wiki. The old full README is `README_OBSOLETE.md`, kept for reference and still
+  marker-checked. The bundle's own `build/README.md` (the `README` string in
+  `build_artifacts.py`) is the full guide that ships in a build: file naming, the matching rule
+  and the collections format are documented there by requirement.
+- **No real AO3 username in the repository**, fixtures included - test pages use
+  `Example_Reader`.
 - Verify claims before reporting them. Several conclusions in this project's history were
   wrong until checked against real fixtures or a live run.
 - **`TECH_DEBT.md` (project root) lists the known weak spots** - `from_collections` among

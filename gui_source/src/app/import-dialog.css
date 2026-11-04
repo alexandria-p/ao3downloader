@@ -592,3 +592,12 @@ footer.with-bulk {
 .undecided-ask .ask-timeout {
   margin: 8px 0;
 }
+
+/* a long import: leave the window open */
+.long-run-note {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid #8a6d2f;
+  border-radius: 3px;
+  background: #2d2616;
+}

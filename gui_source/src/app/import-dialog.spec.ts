@@ -306,7 +306,7 @@ describe('ImportDialog', () => {
       ask.querySelector<HTMLInputElement>(`input[name="askOthers"][aria-label="${label}"]`)!.click();
       await fixture.whenStable();
     }
-    await click('Continue removing');
+    await click('Apply and carry on');
   }
 
   async function chooseIn(key: string, choice: string) {
@@ -759,11 +759,14 @@ describe('ImportDialog', () => {
     const ask = element.querySelector('.undecided-ask')!;
     expect(ask.getAttribute('data-group')).toBe('1:html');
     expect([...ask.querySelectorAll('input[name="askHow"]')].map((r) => r.getAttribute('aria-label'))).toEqual([
-      'Choose individually', 'Make a best guess', 'Keep all of them',
+      'Make a best guess', 'Choose individually', 'Keep all of them',
     ]);
+    // a best guess is picked to begin with
+    expect(ask.querySelector<HTMLInputElement>('input[aria-label="Make a best guess"]')!.checked).toBe(true);
     expect(ask.textContent).toContain('Do this for any others like this? (2 more)');
     expect(ask.textContent).toContain('every file of this set is kept');
-    expect(button('Continue removing')!.disabled).toBe(true);
+    // still waiting on whether to do the same for the others
+    expect(button('Apply and carry on')!.disabled).toBe(true);
 
     // choosing shows the files as the sifting page does
     await answerUndecided('Choose individually', { keep: '1 A copy.html', others: false });
@@ -830,6 +833,23 @@ describe('ImportDialog', () => {
     await click('Continue');
     // the undated html went; only the pdf is left to date
     expect(rowOrder()).toEqual(['works/9 Other - W.pdf']);
+  });
+
+  it('says a long import takes a while and to leave the window open, over 20 files', async () => {
+    const files = Array.from({ length: 21 }, (_, i) => `works/${800 + i} Fic ${i} - W 2024-01-01.html`);
+    await open(unindexedWorks(files, new Set()));
+    await click('Continue');
+    expect(step()).toBe('index');
+    expect(element.querySelector('.long-run-note')?.textContent).toContain('21 files');
+    element.querySelector<HTMLInputElement>('input[name="lookup"][value="yes"]')!.click();
+    await fixture.whenStable();
+    await click('Continue');
+    expect(step()).toBe('formats');
+    expect(element.querySelector('.long-run-note')?.textContent).toContain('leave');
+
+    await open(unindexedWorks(files.slice(0, 20), new Set()));
+    await click('Continue');
+    expect(element.querySelector('.long-run-note')).toBeNull();
   });
 
   // endregion
@@ -1138,6 +1158,7 @@ describe('ImportDialog', () => {
       indexOnly: [],
       lookups: 1,
       scope: 'all',
+      files: 1,
     });
   });
 

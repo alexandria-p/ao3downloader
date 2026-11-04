@@ -412,7 +412,15 @@ export interface ImportRequest {
   lookups: number;
   /** which works the formats and replacing are for */
   scope: UpdateScope;
+  /** how many files the works hold, as far as the window found - over `LONG_IMPORT_FILES` it warns */
+  files?: number;
 }
+
+/**
+ * Over this many files, the index and formats pages and the run window say the import may take
+ * a long time and to leave the window open: every work is a request to AO3, paced.
+ */
+export const LONG_IMPORT_FILES = 20;
 
 /**
  * What never to offer again, at the top of the library, so a library in Dropbox leaves the

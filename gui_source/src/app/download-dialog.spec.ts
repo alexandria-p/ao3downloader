@@ -2577,6 +2577,14 @@ describe('DownloadDialog', () => {
       expect(element.querySelector('input[name="username"]')).toBeNull();
     });
 
+    it('asks to be left open when the import goes over more than 20 files', async () => {
+      await openImport({ ...IMPORT, files: 20 });
+      expect(element.querySelector('.long-run-note')).toBeNull();
+      await openImport({ ...IMPORT, files: 21 });
+      expect(element.querySelector('.long-run-note')?.textContent).toContain('This may take a long time - 21 files');
+      expect(element.querySelector('.long-run-note')?.textContent).toContain('leave this window open');
+    });
+
     it('asks for a login, in case some of the works are restricted to AO3 users', async () => {
       await openImport();
       expect(checkbox('Skip AO3 login?')!.checked).toBe(false);

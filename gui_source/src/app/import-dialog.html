@@ -272,17 +272,17 @@
           @if (standing() !== 'choose') {
             <div class="ask-how" role="radiogroup" aria-label="What to do with this set">
               <label class="check">
-                <input type="radio" name="askHow" aria-label="Choose individually"
-                       [checked]="askHow() === 'choose'" (change)="askHow.set('choose')" />
-                <span>Choose individually</span>
-              </label>
-              <label class="check">
                 <input type="radio" name="askHow" aria-label="Make a best guess"
                        [checked]="askHow() === 'guess'" (change)="askHow.set('guess')" />
                 <span>
                   Make a best guess
                   <span class="hint">Keeps {{ guessFor(group).name }} - by the date in each name, then the file updated most recently, then by name.</span>
                 </span>
+              </label>
+              <label class="check">
+                <input type="radio" name="askHow" aria-label="Choose individually"
+                       [checked]="askHow() === 'choose'" (change)="askHow.set('choose')" />
+                <span>Choose individually</span>
               </label>
               <label class="check">
                 <input type="radio" name="askHow" aria-label="Keep all of them"
@@ -331,7 +331,7 @@
             With no answer in {{ waitMinutes() }} {{ waitMinutes() === 1 ? 'minute' : 'minutes' }}, every file of this set is kept.
           </p>
           <button type="button" class="button primary answer-ask" [disabled]="!askReady()" (click)="answerAsked()">
-            Continue removing
+            Apply and carry on
           </button>
         </div>
       }
@@ -529,6 +529,12 @@
         <p class="hint">
           {{ works().length | number }} {{ works().length === 1 ? 'work has' : 'works have' }} no index entry.
         </p>
+        @if (indexFiles() > longImport) {
+          <p class="long-run-note" role="note">
+            This may take a long time - {{ indexFiles() | number }} files to work through. Please leave
+            this window open until it finishes.
+          </p>
+        }
         <label class="check">
           <input type="radio" name="lookup" value="yes" [checked]="lookup() === 'yes'" (change)="lookup.set('yes')" />
           <span>Yes - look each work up on AO3 now and index it</span>
@@ -625,6 +631,12 @@
       }
       @if (busy()) {
         <p class="warning busy-note" role="note">A run is in progress. It has to finish before an import can start.</p>
+      }
+      @if (runs() && scopeFiles() > longImport) {
+        <p class="long-run-note" role="note">
+          This may take a long time - {{ scopeFiles() | number }} files to work through. Please leave
+          this window open until it finishes.
+        </p>
       }
     </section>
     <footer>

@@ -38,7 +38,7 @@ import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, attemptIssues, issueCount, issuesReport } from './issues';
-import { ImportRequest } from './imports';
+import { ImportRequest, LONG_IMPORT_FILES } from './imports';
 import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
 
 type Step =
@@ -174,6 +174,8 @@ export class DownloadDialog implements OnDestroy {
    * the background choice (a hosted copy) and the login.
    */
   readonly importing = input<ImportRequest | null>(null);
+  /** over this many files an import says it may take a long time, and to leave the window open */
+  protected readonly longImport = LONG_IMPORT_FILES;
   /**
    * The newest scan a quick scan would measure back to, once read: undefined until then, null
    * when there is none. 'Anything that has changed since my last run' needs only this, so only
