@@ -360,6 +360,9 @@ def resolve_options(requested) -> dict:
         # an import: replace a copy you have when ao3 has a newer version. off, an import
         # fetches only the formats you do not have and leaves every copy you have alone
         'replaceOutdated': bool(given.get('replaceOutdated')),
+        # an import: the works among its links to index only, with no format fetched - looked
+        # up for their missing index entry, and not among the works chosen to update
+        'indexOnly': work_numbers(given.get('indexOnly')),
         # check every non-bookmark in the index for updates too. a listing of your bookmarks
         # never shows them, so without this they are only read again when something else
         # brings the run to them. not narrowed by a date range or a floor: see
@@ -942,7 +945,8 @@ def step_plan(job: Job) -> list[tuple[str, str]]:
     elif job.action == ACTION_IMPORT:
         # no series walk: an import is about the files you already have
         plan.append(('index', strings.STEP_INDEX_IMPORT))
-        if downloads:
+        # replacing outdated copies downloads with no format added: those a work already has
+        if downloads or job.options.get('replaceOutdated'):
             plan.append(('check', strings.STEP_CHECK_FILES))
             plan.append(('download', strings.STEP_DOWNLOAD_IMPORT))
     elif job.action in (ACTION_WORK, ACTION_WORKS):
@@ -2368,6 +2372,15 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
         ao3.keep_message = strings.AO3_INFO_KEEPING_YOURS
     # an out-of-date copy is not 'already downloaded', so it must not be skipped
     visited = shared.already_downloaded(plan['existing'], downloadtypes, records, plan['stale'])
+    if ao3.held_only:
+        # a format fetched only to replace a copy is not missing from a work without one
+        behind = {parse_text.get_work_number(x) for x in plan['stale']}
+        for record in records:
+            work = str(record.get('id') or '')
+            have = {str(x).upper() for x in (plan['existing'].get(work) or {})}
+            if work not in behind and record.get('link') and all(
+                    x.upper() in have or x.upper() in ao3.held_only for x in downloadtypes):
+                visited.append(record['link'])
     ao3.superseded = plan['superseded']
     ao3.keep_formats = plan.get('keep') or {}
     job.steps.done('check')
@@ -2670,6 +2683,13 @@ def run_works(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     run_fic_list(job, fileops, repo, report, importing=False)
 
 
+def work_numbers(given) -> list[str]:
+    """A list of work numbers from a request: anything that is not one is dropped."""
+
+    if not isinstance(given, list): return []
+    return [str(x) for x in given if str(x).isdigit()]
+
+
 def run_import(job: Job, fileops: FileOps, repo: Repository, report) -> None:
     """Index the works whose files were found in your library with no index entry, and fetch
     the formats asked for.
@@ -2762,9 +2782,22 @@ def run_fic_list(job: Job, fileops: FileOps, repo: Repository, report, importing
 
     if importing:
         name_files_from_index(fileops, records)
-        keep = not job.options.get('replaceOutdated')
-        if keep and downloadtypes: print(strings.AO3_INFO_IMPORT_KEEPING)
-        download_planned(job, fileops, ao3, records, downloadtypes, report, keep_existing=keep)
+        replace = bool(job.options.get('replaceOutdated'))
+        index_only = set(job.options.get('indexOnly') or [])
+        updating = [r for r in records if str(r.get('id') or '') not in index_only]
+        if index_only and len(updating) < len(records):
+            print(strings.AO3_INFO_IMPORT_INDEX_ONLY.format(len(records) - len(updating)))
+        if replace:
+            # replacing outdated copies covers every format a work has, not only those asked
+            # for: the others are fetched only where a copy is there to be replaced
+            asked_for = {x.upper() for x in downloadtypes}
+            ao3.held_only = {x for x in strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES if x not in asked_for}
+            downloadtypes = downloadtypes + [x for x in strings.AO3_ACCEPTABLE_DOWNLOAD_TYPES
+                                             if x in ao3.held_only]
+            ao3.filetypes = downloadtypes
+        elif downloadtypes: print(strings.AO3_INFO_IMPORT_KEEPING)
+        download_planned(job, fileops, ao3, updating, downloadtypes, report,
+                         keep_existing=not replace)
     else:
         records = merge_by_work(records, index_marked_series(job, ao3, report))
         download_planned(job, fileops, ao3, records, downloadtypes, report, overwrite=asked)
@@ -5027,7 +5060,9 @@ class Handler(BaseHTTPRequestHandler):
         # re-fetch a whole library
         if action not in OVERWRITE_ACTIONS: options['overwrite'] = False
         # the import's alone: every other run replaces what is outdated as a matter of course
-        if action != ACTION_IMPORT: options['replaceOutdated'] = False
+        if action != ACTION_IMPORT:
+            options['replaceOutdated'] = False
+            options['indexOnly'] = []
         # the scans alone can be resumed; the run itself checks the one named can be
         if action not in RESUME_ACTIONS: options['resume'] = options['retryMode'] = ''
         # the same for checking non-bookmarks, which costs a request per work outside a series

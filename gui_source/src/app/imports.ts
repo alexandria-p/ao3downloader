@@ -246,6 +246,13 @@ export function importLinks(works: FoundWork[]): string {
   return works.map((w) => `https://archiveofourown.org/works/${w.id}`).join('\n');
 }
 
+/**
+ * Which of the works found are updated - given the formats picked, and their outdated copies
+ * replaced: every one with an issue, only those with undated files, only those with no index
+ * entry, or none (`skip`).
+ */
+export type UpdateScope = 'all' | 'dates' | 'index' | 'skip';
+
 /** what the import window hands the run window to start */
 export interface ImportRequest {
   /** the works' links, one to a line */
@@ -254,6 +261,33 @@ export interface ImportRequest {
   /** JSON, and whichever formats to fetch for works without them */
   filetypes: string[];
   replaceOutdated: boolean;
+  /** the works among `links` only looked up for their index entry - nothing downloaded */
+  indexOnly: string[];
+  /** how many of the works are looked up for a missing index entry */
+  lookups: number;
+  /** which works the formats and replacing are for */
+  scope: UpdateScope;
+}
+
+/**
+ * The works never to offer for import again, at the top of the library, so a library in
+ * Dropbox leaves them out on every device. Like `hidden-works.json`, only the page reads it.
+ */
+export const IMPORT_EXCLUDED_FILE = 'import-excluded.json';
+
+/** the work numbers in the excluded file; anything unreadable is none */
+export function readExcludedFile(text: string | null): Set<string> {
+  try {
+    const parsed = JSON.parse(text ?? '') as { excluded?: unknown };
+    const list = Array.isArray(parsed?.excluded) ? parsed.excluded : [];
+    return new Set(
+      list
+        .map((x) => String((x as { id?: unknown })?.id ?? ''))
+        .filter((id) => /^\d+$/.test(id)),
+    );
+  } catch {
+    return new Set();
+  }
 }
 
 /** the most works one import takes - the helper's `MAX_IMPORT_LINKS` */
@@ -273,7 +307,50 @@ export class LibraryImports {
   readonly hasIssues = computed(() => this.found().length > 0 || this.undatedIndexed().length > 0);
   /** the store the last check was of, so a check of a library since closed is dropped */
   readonly checkedStore = signal<LibraryStore | null>(null);
+  /** the works not to offer again, by number, as each library's file has them */
+  private readonly excludedBy = new WeakMap<LibraryStore, Set<string>>();
   private generation = 0;
+
+  /** the excluded work numbers of this library - read once, then kept */
+  private async excluded(store: LibraryStore): Promise<Set<string>> {
+    let excluded = this.excludedBy.get(store);
+    if (!excluded) {
+      try {
+        excluded = readExcludedFile(await store.read(IMPORT_EXCLUDED_FILE));
+      } catch {
+        excluded = new Set();
+      }
+      this.excludedBy.set(store, excluded);
+    }
+    return excluded;
+  }
+
+  /**
+   * Never offer these works for import again: written to the library's `IMPORT_EXCLUDED_FILE`,
+   * and gone from what was found at once. Their files are left as they are.
+   */
+  async exclude(works: FoundWork[]): Promise<void> {
+    const store = this.library.store();
+    if (!store || !works.length) return;
+    const before = await this.excluded(store);
+    const text = await store.read(IMPORT_EXCLUDED_FILE).catch(() => null);
+    let kept: { id: string }[] = [];
+    try {
+      const parsed = JSON.parse(text ?? '') as { excluded?: unknown };
+      if (Array.isArray(parsed?.excluded)) kept = parsed.excluded as { id: string }[];
+    } catch {
+      // unreadable: written afresh
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const added = works
+      .filter((w) => !before.has(w.id))
+      .map((w) => ({ id: w.id, files: w.files.map((f) => f.name), excluded_on: today }));
+    const document = { excluded: [...kept, ...added] };
+    await store.write(IMPORT_EXCLUDED_FILE, new Response(JSON.stringify(document, null, 2) + '\n'));
+    const next = new Set([...before, ...works.map((w) => w.id)]);
+    this.excludedBy.set(store, next);
+    this.found.update((found) => found.filter((w) => !next.has(w.id)));
+  }
 
   async check(): Promise<void> {
     const store = this.library.store();
@@ -287,8 +364,9 @@ export class LibraryImports {
     const indexed = new Set(this.library.worksById().keys());
     try {
       const paths = await store.list(WORKS_FOLDER, false);
+      const excluded = await this.excluded(store);
       if (generation !== this.generation || store !== this.library.store()) return;
-      this.found.set(unindexedWorks(paths, indexed));
+      this.found.set(unindexedWorks(paths, indexed).filter((w) => !excluded.has(w.id)));
       this.undatedIndexed.set(undatedIndexedFiles(paths, indexed));
       this.checkedStore.set(store);
     } catch {

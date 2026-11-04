@@ -5,8 +5,10 @@ import {
   FoundFile,
   FoundWork,
   ImportRequest,
+  LibraryImports,
   MAX_IMPORT_WORKS,
   ToDate,
+  UpdateScope,
   dateFiles,
   importLinks,
   inferDate,
@@ -49,6 +51,7 @@ export const DATES_PAGE_SIZE = 25;
 export class ImportDialog {
   private readonly jobs = inject(Jobs);
   private readonly library = inject(Library);
+  private readonly imports = inject(LibraryImports);
 
   readonly works = input.required<FoundWork[]>();
   /** undated files of works the index does have - offered for dating beside the rest */
@@ -203,7 +206,10 @@ export class ImportDialog {
 
   // region index and formats
 
-  protected readonly fetchNow = signal(true);
+  /** the works with no index entry: look them up now, later, or never offer them again */
+  protected readonly lookup = signal<'yes' | 'later' | 'never'>('yes');
+  /** which works the formats and replacing are for; `skip` does neither */
+  protected readonly updateScope = signal<UpdateScope>('all');
   /** the formats to fetch for works without them - none ticked to begin with */
   protected readonly picked = signal<string[]>([]);
   protected readonly replaceOutdated = signal(false);
@@ -218,23 +224,53 @@ export class ImportDialog {
     return held;
   });
 
+  /** the works with no index entry that are looked up now */
+  protected readonly lookups = computed(() => (this.lookup() === 'yes' ? this.works().map((w) => w.id) : []));
   /**
-   * The works a run would be over: the unindexed ones, if they are to be fetched, and the
-   * indexed works with undated files - their formats and outdated copies are this window's to
-   * settle too.
+   * The works with date issues that can be updated: an undated file, of an indexed work or of
+   * one looked up now - a work left unindexed is left alone altogether.
    */
+  protected readonly dateIssues = computed(() => {
+    const looked = new Set(this.lookups());
+    const indexed = new Set(this.works().map((w) => w.id));
+    return [...new Set(this.undated().map((f) => f.id))].filter((id) => !indexed.has(id) || looked.has(id));
+  });
+  /** the works with an index issue that can be updated: those looked up now */
+  protected readonly indexIssues = computed(() => this.lookups());
+  /** every work with an issue that can be updated */
+  protected readonly allIssues = computed(() => [...new Set([...this.indexIssues(), ...this.dateIssues()])]);
+  /** the scope chosen, or every work when the one chosen is no longer offered */
+  protected readonly scopeChosen = computed<UpdateScope>(() => {
+    const scope = this.updateScope();
+    if (scope === 'dates' && !this.dateIssues().length) return 'all';
+    if (scope === 'index' && !this.indexIssues().length) return 'all';
+    return scope;
+  });
+  /** the works the formats and replacing are for */
+  protected readonly updating = computed(() => {
+    switch (this.scopeChosen()) {
+      case 'dates':
+        return this.dateIssues();
+      case 'index':
+        return this.indexIssues();
+      case 'skip':
+        return [];
+      default:
+        return this.allIssues();
+    }
+  });
+  /** whether anything is downloaded or replaced: an update chosen, and something to do */
+  protected readonly updates = computed(
+    () => this.updating().length > 0 && (this.picked().length > 0 || this.replaceOutdated()),
+  );
+  /** the works a run is over: those looked up, and those updated */
   protected readonly scope = computed(() => {
-    const ids = new Set<string>();
-    if (this.fetchNow()) for (const work of this.works()) ids.add(work.id);
-    for (const file of this.undatedElsewhere()) ids.add(file.id);
+    const ids = new Set<string>(this.lookups());
+    if (this.updates()) for (const id of this.updating()) ids.add(id);
     return [...ids].map((id) => ({ id, files: [] }));
   });
-  /** whether there is anything left for a run to do */
-  protected readonly runs = computed(
-    () =>
-      this.scope().length > 0 &&
-      ((this.fetchNow() && this.works().length > 0) || this.picked().length > 0 || this.replaceOutdated()),
-  );
+  /** whether there is anything for a run to do: a lookup, or an update */
+  protected readonly runs = computed(() => this.scope().length > 0);
   protected readonly tooMany = computed(() => this.scope().length > MAX_IMPORT_WORKS);
 
   protected toggleFormat(format: string, on: boolean): void {
@@ -292,6 +328,12 @@ export class ImportDialog {
     this.step.set(this.afterDatesStep());
   }
 
+  /** the formats page only when some work could be updated; with none, the window is done */
+  protected fromIndex(): void {
+    if (this.allIssues().length) this.step.set('formats');
+    else this.finish();
+  }
+
   protected backFrom(step: 'dates' | 'index' | 'formats'): void {
     if (step === 'dates') this.step.set('overview');
     else if (step === 'index') this.step.set(this.dated() ? 'overview' : this.undated().length ? 'dates' : 'overview');
@@ -301,18 +343,35 @@ export class ImportDialog {
   /** no going back to the dates once files are renamed: they would be offered for dating again */
   protected readonly canGoBack = computed(() => !this.dated());
 
-  protected finish(): void {
+  /**
+   * Done: works never to be offered again are written down, and a run - when there is anything
+   * for one to do - is handed to the run window. Otherwise the window simply closes.
+   */
+  protected async finish(): Promise<void> {
+    if (this.lookup() === 'never' && this.works().length) {
+      try {
+        await this.imports.exclude(this.works());
+      } catch {
+        // not written: they are offered again next time, which loses nothing
+      }
+    }
     if (!this.runs() || this.busy()) {
       this.closed.emit(this.dated());
       return;
     }
     const works = this.scope().slice(0, MAX_IMPORT_WORKS);
+    const taken = new Set(works.map((w) => w.id));
+    const updating = new Set(this.updates() ? this.updating() : []);
+    const updates = this.updates();
     this.start.emit({
       request: {
         links: importLinks(works),
         count: works.length,
-        filetypes: ['JSON', ...this.picked()],
-        replaceOutdated: this.replaceOutdated(),
+        filetypes: ['JSON', ...(updates ? this.picked() : [])],
+        replaceOutdated: updates && this.replaceOutdated(),
+        indexOnly: this.lookups().filter((id) => taken.has(id) && !updating.has(id)),
+        lookups: this.lookups().filter((id) => taken.has(id)).length,
+        scope: updates ? this.scopeChosen() : 'skip',
       },
       dated: this.dated(),
     });

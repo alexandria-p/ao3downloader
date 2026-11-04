@@ -3,6 +3,7 @@ import { ImportDialog } from './import-dialog';
 import { DatingResult, FoundFile, FoundWork, ImportRequest, unindexedWorks } from './imports';
 import { Jobs } from './jobs';
 import { Library } from './library';
+import { IMPORT_EXCLUDED_FILE, LibraryImports } from './imports';
 import { Bookmark } from './bookmarks';
 import { LibraryStore } from './library-store';
 
@@ -17,11 +18,14 @@ class MemoryStore implements LibraryStore {
   async list() {
     return [];
   }
-  async read() {
-    return null;
+  readonly written = new Map<string, string>();
+  async read(path: string) {
+    return this.written.get(path) ?? null;
   }
-  async write() {
-    return 0;
+  async write(path: string, body: Response) {
+    const text = await body.text();
+    this.written.set(path, text);
+    return text.length;
   }
   async size() {
     return null;
@@ -412,20 +416,37 @@ describe('ImportDialog', () => {
     expect(element.textContent).toContain('Replace a copy you have when AO3 has a newer version');
   });
 
+  function radio(name: string, value: string): HTMLInputElement | null {
+    return element.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`);
+  }
+
+  async function choose(name: string, value: string) {
+    radio(name, value)!.click();
+    await fixture.whenStable();
+  }
+
+  async function tick(name: string) {
+    element.querySelector<HTMLInputElement>(`input[name="${name}"]`)!.click();
+    await fixture.whenStable();
+  }
+
   it('starts an import of every work found, with the formats ticked and whether to replace', async () => {
     await open(ALL_DATED);
     await click('Continue');
     await click('Continue');
-    element.querySelector<HTMLInputElement>('input[name="format-EPUB"]')!.click();
-    element.querySelector<HTMLInputElement>('input[name="replaceOutdated"]')!.click();
-    await fixture.whenStable();
-    await click('Continue to the run');
+    expect(radio('updateScope', 'all')!.checked).toBe(true);
+    await tick('format-EPUB');
+    await tick('replaceOutdated');
+    await click('Continue');
 
     expect(started[0].request).toEqual({
       links: 'https://archiveofourown.org/works/1',
       count: 1,
       filetypes: ['JSON', 'EPUB'],
       replaceOutdated: true,
+      indexOnly: [],
+      lookups: 1,
+      scope: 'all',
     });
   });
 
@@ -434,23 +455,123 @@ describe('ImportDialog', () => {
     await click('Continue');
     await click('Skip this step');
     await click('Continue');
-    element.querySelector<HTMLInputElement>('input[name="replaceOutdated"]')!.click();
-    await fixture.whenStable();
-    await click('Continue to the run');
+    await tick('replaceOutdated');
+    await click('Continue');
     expect(started[0].request.links).toBe(
       'https://archiveofourown.org/works/1\nhttps://archiveofourown.org/works/7',
     );
   });
 
+  it('never shows the index page when every work has an index entry: dating goes straight to the formats', async () => {
+    await open([], false, INDEXED_UNDATED);
+    await click('Continue');
+    expect(step()).toBe('dates');
+    await type(row('works/7 old name.html').querySelector<HTMLInputElement>('input[type="date"]')!, '2024-02-03');
+    await click('Date 1 file and continue');
+    expect(step()).toBe('dating');
+    await click('Continue');
+    expect(step()).toBe('formats');
+    expect(element.textContent).not.toContain('Fetch their index entries');
+    // and only the scopes that have works: no index issues to pick
+    expect(radio('updateScope', 'index')).toBeNull();
+    expect(radio('updateScope', 'dates')).toBeTruthy();
+
+    // skipping the dates goes straight there too
+    await open([], false, INDEXED_UNDATED);
+    await click('Continue');
+    await click('Skip this step');
+    expect(step()).toBe('formats');
+  });
+
+  it('offers updating just the date issues or just the index issues only where there are some', async () => {
+    await open(ALL_DATED);
+    await click('Continue');
+    await click('Continue');
+    expect(radio('updateScope', 'all')).toBeTruthy();
+    expect(radio('updateScope', 'dates')).toBeNull();
+    expect(radio('updateScope', 'index')).toBeTruthy();
+    expect(radio('updateScope', 'skip')).toBeTruthy();
+
+    await open(SOME);
+    await click('Continue');
+    await click('Skip this step');
+    await click('Continue');
+    expect(radio('updateScope', 'dates')).toBeTruthy();
+    expect(radio('updateScope', 'index')).toBeTruthy();
+  });
+
+  it('downloads only for the works with date issues when told, still looking up the rest', async () => {
+    await open(SOME);
+    await click('Continue');
+    await click('Skip this step');
+    await click('Continue');
+    await choose('updateScope', 'dates');
+    await tick('format-EPUB');
+    await click('Continue');
+
+    const request = started[0].request;
+    expect(request.links.split('\n').map((l) => l.split('/').pop())).toEqual(['1', '2', '3']);
+    expect(request.indexOnly).toEqual(['1']);
+    expect(request.scope).toBe('dates');
+    expect(request.filetypes).toEqual(['JSON', 'EPUB']);
+  });
+
+  it('hides the formats and replacing when the step is skipped, and does neither', async () => {
+    await open(ALL_DATED);
+    await click('Continue');
+    await click('Continue');
+    await tick('format-EPUB');
+    await tick('replaceOutdated');
+    await choose('updateScope', 'skip');
+    expect(element.querySelector('input[name="format-EPUB"]')).toBeNull();
+    expect(element.querySelector('input[name="replaceOutdated"]')).toBeNull();
+    await click('Continue');
+
+    expect(started[0].request).toMatchObject({
+      filetypes: ['JSON'],
+      replaceOutdated: false,
+      indexOnly: ['1'],
+      lookups: 1,
+      scope: 'skip',
+    });
+  });
+
   it('is done without a run when there is nothing for one to do', async () => {
     await open(ALL_DATED);
     await click('Continue');
-    element.querySelectorAll<HTMLInputElement>('input[name="fetchNow"]')[1].click();
-    await fixture.whenStable();
-    await click('Continue');
+    await choose('lookup', 'later');
+    // nothing left that could be updated, so the window ends here
     await click('Done');
     expect(started).toEqual([]);
     expect(closed).toEqual([null]);
+  });
+
+  it('is done without a run when an update is chosen with nothing to download or replace', async () => {
+    await open(ALL_DATED, false, INDEXED_UNDATED);
+    await click('Continue');
+    await click('Skip this step');
+    await choose('lookup', 'later');
+    await click('Continue');
+    expect(primary().textContent?.trim()).toBe('Done');
+    await click('Done');
+    expect(started).toEqual([]);
+  });
+
+  it('never offers works again once told not to, writing them to the library', async () => {
+    await open(ALL_DATED);
+    TestBed.inject(Library).store.set(store);
+    const imports = TestBed.inject(LibraryImports);
+    imports.found.set(ALL_DATED);
+    await click('Continue');
+    await choose('lookup', 'never');
+    await click('Done');
+    await settle();
+
+    expect(started).toEqual([]);
+    expect(closed).toHaveLength(1);
+    const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
+    expect(written.excluded.map((x: { id: string }) => x.id)).toEqual(['1']);
+    expect(imports.found()).toEqual([]);
   });
 
   // endregion

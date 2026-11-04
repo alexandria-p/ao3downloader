@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { Bookmark } from './bookmarks';
 import {
+  IMPORT_EXCLUDED_FILE,
   LibraryImports,
   dateFiles,
   datedName,
@@ -28,8 +29,9 @@ class MemoryStore implements LibraryStore {
   async list(path: string) {
     return [...this.files].filter((p) => p.startsWith(`${path}/`));
   }
-  async read() {
-    return null;
+  readonly texts = new Map<string, string>();
+  async read(path: string) {
+    return this.texts.get(path) ?? null;
   }
   async write() {
     return 0;
@@ -201,6 +203,18 @@ describe('LibraryImports', () => {
 
     expect(imports.found().map((w) => w.id)).toEqual(['2']);
     expect(imports.checkedStore()).toBe(store);
+  });
+
+  it('leaves out the works the library says never to offer again', async () => {
+    const library = TestBed.inject(Library);
+    const store = new MemoryStore(['works/1 A - B.html', 'works/2 C - D.html']);
+    store.texts.set(IMPORT_EXCLUDED_FILE, JSON.stringify({ excluded: [{ id: '2' }] }));
+    library.store.set(store);
+    const imports = TestBed.inject(LibraryImports);
+
+    await imports.check();
+
+    expect(imports.found().map((w) => w.id)).toEqual(['1']);
   });
 
   it('finds nothing with no library open', async () => {

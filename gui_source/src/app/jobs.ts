@@ -121,6 +121,8 @@ export interface JobOptions {
    * name. Off, an import fetches only the formats you do not have. The import's alone.
    */
   replaceOutdated?: boolean;
+  /** an import: the works among its links only looked up for their index entry */
+  indexOnly?: string[];
   /**
    * Check every non-bookmark in the index for updates too - the works it holds only because
    * something else led a run to them, such as another work's series. Not narrowed by a date

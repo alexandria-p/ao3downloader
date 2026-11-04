@@ -136,6 +136,13 @@ const METADATA = 'JSON';
 
 const USERNAME_KEY = 'ao3.username';
 const REMEMBER_KEY = 'ao3.remember';
+
+/** which works a repair's downloads are for, as its summary says it */
+const IMPORT_SCOPE_WORDS: Record<string, string> = {
+  all: 'all fics found to have issues in this import',
+  dates: 'any fics found to have date issues in this import',
+  index: 'any fics found to have index issues in this import',
+};
 const MAX_LOG = 200;
 
 @Component({
@@ -555,7 +562,7 @@ export class DownloadDialog implements OnDestroy {
       case 'works':
         return 'Download/update several fics';
       case 'import':
-        return 'Import works found in your library';
+        return 'Resolve issues found in your library';
       case 'custom':
         return 'Custom run';
       case 'quick':
@@ -595,16 +602,28 @@ export class DownloadDialog implements OnDestroy {
   /** JSON is metadata rather than a work, so the update run cannot produce it */
   /** what an import will do, in a sentence, from what the import window chose */
   private importBlurb(): string {
-    const importing = this.importing();
-    const count = importing?.count ?? 0;
-    const works = `${count.toLocaleString()} ${count === 1 ? 'work' : 'works'}`;
-    const formats = (importing?.filetypes ?? []).filter((x) => x !== METADATA);
-    const fetch = formats.length
-      ? ` and downloads ${formats.join(', ')} for any that do not have ${formats.length === 1 ? 'it' : 'them'}` +
-        (importing?.replaceOutdated ? ', replacing a copy AO3 has a newer version of' : ', keeping every copy you have')
-      : '';
-    return `Looks up the ${works} found in your library with no index entry, indexes each one${fetch}. Each is marked as imported unless it turns out to be your bookmark.`;
+    return this.importPlan().join('. ') + '.';
   }
+
+  /** what a repair will do, a line each, from what the import window chose */
+  protected readonly importPlan = computed(() => {
+    const importing = this.importing();
+    if (!importing) return [];
+    const lines: string[] = [];
+    const lookups = importing.lookups ?? 0;
+    if (lookups) lines.push(`Lookup ${lookups.toLocaleString()} ${lookups === 1 ? 'work' : 'works'} with missing index`);
+    const formats = (importing.filetypes ?? []).filter((x) => x !== METADATA);
+    if (importing.scope !== 'skip' && formats.length) {
+      const named = formats.length > 1
+        ? `${formats.slice(0, -1).join(', ')} and ${formats[formats.length - 1]}`
+        : formats[0];
+      lines.push(`Download ${named} for ${IMPORT_SCOPE_WORDS[importing.scope] ?? IMPORT_SCOPE_WORDS['all']}`);
+    }
+    if (importing.scope !== 'skip' && importing.replaceOutdated) {
+      lines.push('Will replace any outdated files with newer ones, if they exist');
+    }
+    return lines;
+  });
 
   protected readonly metadataNotApplicable = computed(() => this.action() === 'update');
 
@@ -1855,7 +1874,9 @@ export class DownloadDialog implements OnDestroy {
         retryMode: resumed ? this.retryMode() || undefined : undefined,
         skipLogin: !this.logsIn(),
         // an import's alone: whether a copy you have is replaced when AO3 has a newer version
-        ...(this.action() === 'import' ? { replaceOutdated: !!this.importing()?.replaceOutdated } : {}),
+        ...(this.action() === 'import'
+          ? { replaceOutdated: !!this.importing()?.replaceOutdated, indexOnly: this.importing()?.indexOnly ?? [] }
+          : {}),
       } satisfies JobOptions,
       // nothing is sent for a run that will not log in, whatever is in the boxes - but a
       // run reading your own listing is found by your username, login or not

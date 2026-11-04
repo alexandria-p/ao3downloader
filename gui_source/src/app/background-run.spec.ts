@@ -261,7 +261,7 @@ describe('Running in the background', () => {
     fixture.componentRef.setInput('action', 'import');
     fixture.componentRef.setInput('importing', {
       links: 'https://archiveofourown.org/works/1', count: 1, filetypes: ['JSON', 'HTML'],
-      replaceOutdated: false,
+      replaceOutdated: false, indexOnly: [], lookups: 1, scope: 'all',
     });
     await fixture.whenStable();
     element = fixture.nativeElement as HTMLElement;
@@ -271,7 +271,7 @@ describe('Running in the background', () => {
     // the import window offered to date them; the run leaves undated files alone
     expect(questionsOffered()).not.toContain('undated');
     expect(questionsOffered()).toContain('fichub');
-    await startIt();
+    await startIt('Start repair in the background');
     expect(jobs.started[0].action).toBe('import');
     expect(jobs.started[0].background).toBe(true);
   });

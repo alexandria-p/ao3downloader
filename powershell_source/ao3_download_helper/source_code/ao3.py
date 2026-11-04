@@ -199,6 +199,10 @@ class Ao3:
         # what a kept format is said as: a newer copy kept on an overwriting run, or - on an
         # import told not to replace outdated copies - whatever copy you have
         self.keep_message = strings.AO3_INFO_KEEPING_NEWER
+        # formats fetched only to replace a copy a work already has - an import told to replace
+        # outdated copies, of formats it was not asked to add. a work with no copy of one of
+        # these is not given one. upper-case
+        self.held_only: set[str] = set()
         # the field marking a work a fic run indexed that is not your bookmark: by its link, or
         # (an import) because its file was found in your library
         self.origin_field = strings.FROM_LINK_FIELD
@@ -901,9 +905,10 @@ class Ao3:
         failed: list[tuple[str, Exception]] = []
         kept = self.keep_formats.get(record['link']) or set()
         current = self.current_formats(record)
-        formats = [x for x in self.filetypes if x.upper() not in kept
+        wanted = self.wanted_formats(record)
+        formats = [x for x in wanted if x.upper() not in kept
                    and not self.format_done(work, x) and x.upper() not in current]
-        for filetype in self.filetypes:
+        for filetype in wanted:
             if filetype.upper() in kept: print(self.keep_message.format(filetype))
             elif self.format_done(work, filetype):
                 print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, work))
@@ -927,6 +932,14 @@ class Ao3:
         log['success'] = True
         self.fileops.write_log(log)
 
+
+    def wanted_formats(self, record: dict) -> list[str]:
+        """The run's formats for this work, less any of `held_only` it has no copy of."""
+
+        if not self.held_only: return list(self.filetypes)
+        here = {str(x).upper()
+                for x in ((self.existing_copies or {}).get(str(record.get('id'))) or {})}
+        return [x for x in self.filetypes if x.upper() not in self.held_only or x.upper() in here]
 
     def current_formats(self, record: dict) -> set[str]:
         """The formats of this work already in the folder that the check step did not mark

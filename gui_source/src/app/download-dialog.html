@@ -1040,7 +1040,9 @@
       <section class="body">
           <!-- an import has no other page to say what it will do -->
           @if (action() === 'import') {
-            <p class="import-summary">{{ blurb() }}</p>
+            <ul class="import-summary">
+              @for (line of importPlan(); track line) { <li>{{ line }}</li> }
+            </ul>
           }
           <div class="background-choice" [class.blocked]="backgroundBlocked()">
             <label class="check">
@@ -1237,7 +1239,9 @@
     @if (step() === 'credentials') {
       <form class="body" (submit)="submit($event)">
         @if (action() === 'import' && !offersBackground()) {
-          <p class="import-summary">{{ blurb() }}</p>
+          <ul class="import-summary">
+            @for (line of importPlan(); track line) { <li>{{ line }}</li> }
+          </ul>
         }
         <div class="login-choice">
           <label class="check">
@@ -1296,20 +1300,23 @@
           />
         </label>
 
-        <label class="check">
-          <input
-            type="checkbox"
-            [checked]="remember()"
-            (change)="toggleRemember($any($event.target).checked)"
-          />
-          <span>Remember my username</span>
-        </label>
+        <!-- a repair is not a run anyone comes back to by name: nothing to remember -->
+        @if (action() !== 'import') {
+          <label class="check">
+            <input
+              type="checkbox"
+              [checked]="remember()"
+              (change)="toggleRemember($any($event.target).checked)"
+            />
+            <span>Remember my username</span>
+          </label>
 
-        <p class="hint">
-          Only the username is saved by this page. Your password is sent straight to AO3 to log
-          in and is never stored here - let your browser's password manager keep it if you want
-          it filled in next time.
-        </p>
+          <p class="hint">
+            Only the username is saved by this page. Your password is sent straight to AO3 to log
+            in and is never stored here - let your browser's password manager keep it if you want
+            it filled in next time.
+          </p>
+        }
         } @else if (needsUsername()) {
           <!-- logged out, a scan of your own listing still finds it by your name -->
           <p>Enter your username to scan your public {{ listingWord() }}.</p>
@@ -1341,7 +1348,11 @@
         </button>
         <button type="button" class="button primary" [disabled]="!backgroundAnswersReady()"
                 (click)="submit($event)">
-          {{ background() ? 'Start in the background' : 'Start download' }}
+          @if (action() === 'import') {
+            {{ background() ? 'Start repair in the background' : 'Start repair' }}
+          } @else {
+            {{ background() ? 'Start in the background' : 'Start download' }}
+          }
         </button>
       </footer>
     }

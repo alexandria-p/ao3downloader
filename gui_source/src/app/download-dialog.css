@@ -899,3 +899,16 @@ fieldset.bare:disabled {
 .log-time {
   opacity: 0.6;
 }
+
+/* what a repair will do, a line each, above the same login choice every run has */
+.import-summary {
+  margin: 0 0 14px;
+  padding: 9px 12px 9px 28px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+
+.import-summary li {
+  margin: 2px 0;
+}

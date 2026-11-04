@@ -33,7 +33,8 @@ def a_copy(library, name: str) -> None:
         f.write(b'<html>an old copy</html>')
 
 
-def importing(library, monkeypatch, filetypes, replace=False, updated='2026-05-01'):
+def importing(library, monkeypatch, filetypes, replace=False, updated='2026-05-01',
+              index_only=()):
     """Run an import over works 1 and 2, AO3 saying each was last updated on `updated`;
     answers what was fetched, by work."""
 
@@ -49,14 +50,15 @@ def importing(library, monkeypatch, filetypes, replace=False, updated='2026-05-0
     def download_one_indexed(self, record, *args, **kwargs):
         kept = self.keep_formats.get(record['link']) or set()
         current = self.current_formats(record)
-        fetched[record['id']] = [x for x in self.filetypes
+        fetched[record['id']] = [x for x in self.wanted_formats(record)
                                  if x.upper() not in kept and x.upper() not in current]
 
     monkeypatch.setattr(Ao3, 'index_one_work', index_one_work)
     monkeypatch.setattr(Ao3, 'download_one_indexed', download_one_indexed)
     monkeypatch.setattr(server, 'finish_run', MagicMock())
     job = server.Job(server.ACTION_IMPORT, filetypes, '',
-                     server.resolve_options({'replaceOutdated': replace}),
+                     server.resolve_options({'replaceOutdated': replace,
+                                             'indexOnly': list(index_only)}),
                      url=f'{link(1)}\n{link(2)}')
     job.ask = MagicMock(side_effect=AssertionError('an import asked a question'))
     server.run_import(job, library, MagicMock(), MagicMock())
@@ -154,6 +156,40 @@ def test_an_import_told_to_replaces_an_outdated_copy(library, monkeypatch):
     _, fetched = importing(library, monkeypatch, ['JSON', 'HTML'], replace=True)
 
     assert fetched['1'] == ['HTML']
+
+
+def test_replacing_with_no_format_added_replaces_only_the_formats_a_work_has(library, monkeypatch):
+    a_copy(library, '1 Fic 1 - Someone 2020-01-01.pdf')
+
+    job, fetched = importing(library, monkeypatch, ['JSON'], replace=True)
+
+    assert fetched['1'] == ['PDF']
+    assert fetched.get('2', []) == []
+    assert 'download' in dict(server.step_plan(job))
+
+
+def test_replacing_with_a_format_added_still_gives_every_work_that_format(library, monkeypatch):
+    a_copy(library, '1 Fic 1 - Someone 2020-01-01.pdf')
+
+    _, fetched = importing(library, monkeypatch, ['JSON', 'EPUB'], replace=True)
+
+    assert sorted(fetched['1']) == ['EPUB', 'PDF']
+    assert fetched['2'] == ['EPUB']
+
+
+def test_works_an_import_only_indexes_get_no_format(library, monkeypatch, capsys):
+    _, fetched = importing(library, monkeypatch, ['JSON', 'HTML'], index_only=['2'])
+
+    assert fetched['1'] == ['HTML']
+    assert '2' not in fetched
+    assert strings.AO3_INFO_IMPORT_INDEX_ONLY.format(1) in capsys.readouterr().out
+
+
+def test_only_an_import_may_name_works_to_index_only():
+    sent, [job], _ = start_request(server.ACTION_IMPORT, '1 2', indexOnly=['2', 'x'])
+    assert job.options['indexOnly'] == ['2']
+    sent, [job], _ = start_request(server.ACTION_WORKS, '1 2', indexOnly=['2'])
+    assert job.options['indexOnly'] == []
 
 
 def test_an_import_never_replaces_a_current_copy_even_when_told_to_replace_outdated_ones(

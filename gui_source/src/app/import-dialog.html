@@ -165,7 +165,7 @@
     </footer>
   }
 
-  <!-- 4: the works with no index entry - fetch them now? -->
+  <!-- 4: the works with no index entry - look them up now, later, or never? -->
   @if (step() === 'index') {
     <section class="body">
       <fieldset>
@@ -174,12 +174,22 @@
           {{ works().length | number }} {{ works().length === 1 ? 'work has' : 'works have' }} no index entry.
         </p>
         <label class="check">
-          <input type="radio" name="fetchNow" [checked]="fetchNow()" (change)="fetchNow.set(true)" />
-          <span>Yes - look each work up on AO3 and index it</span>
+          <input type="radio" name="lookup" value="yes" [checked]="lookup() === 'yes'" (change)="lookup.set('yes')" />
+          <span>Yes - look each work up on AO3 now and index it</span>
         </label>
         <label class="check">
-          <input type="radio" name="fetchNow" [checked]="!fetchNow()" (change)="fetchNow.set(false)" />
+          <input type="radio" name="lookup" value="later" [checked]="lookup() === 'later'" (change)="lookup.set('later')" />
           <span>Not now - they stay unindexed, and this is offered again</span>
+        </label>
+        <label class="check">
+          <input type="radio" name="lookup" value="never" [checked]="lookup() === 'never'" (change)="lookup.set('never')" />
+          <span>
+            No, and do not ask again for these works
+            <span class="hint">
+              They are added to <code>import-excluded.json</code> at the top of your library and
+              left out of every import after this. Their files stay as they are.
+            </span>
+          </span>
         </label>
       </fieldset>
       @if (busy()) {
@@ -190,39 +200,67 @@
       @if (canGoBack()) {
         <button type="button" class="button subtle" (click)="backFrom('index')">Back</button>
       }
-      <button type="button" class="button primary" (click)="step.set('formats')">Continue</button>
+      <button type="button" class="button primary"
+              (click)="fromIndex()">
+        {{ allIssues().length ? 'Continue' : 'Done' }}
+      </button>
     </footer>
   }
 
-  <!-- 5: other formats, and replacing outdated copies -->
+  <!-- 5: which works to update, then other formats, and replacing outdated copies -->
   @if (step() === 'formats') {
     <section class="body">
-      <fieldset class="formats">
-        <legend>Also download them in other formats?</legend>
-        <p class="hint">
-          Ticking a format fetches it for every work here that does not have it. Formats a work
-          already has are not fetched again (unless replacing outdated copies, below).
-        </p>
-        @for (format of offered(); track format) {
+      <fieldset class="update-scope">
+        <legend>Update the works found?</legend>
+        <label class="check">
+          <input type="radio" name="updateScope" value="all" [checked]="scopeChosen() === 'all'" (change)="updateScope.set('all')" />
+          <span>Update all fics found to have issues in this import <span class="dim">({{ allIssues().length | number }})</span></span>
+        </label>
+        @if (dateIssues().length) {
           <label class="check">
-            <input type="checkbox" [attr.name]="'format-' + format"
-                   [checked]="picked().includes(format)"
-                   (change)="toggleFormat(format, $any($event.target).checked)" />
-            <span>
-              {{ format }}
-              @if (held().has(format)) { <span class="dim">(some already have it)</span> }
-            </span>
+            <input type="radio" name="updateScope" value="dates" [checked]="scopeChosen() === 'dates'" (change)="updateScope.set('dates')" />
+            <span>Update just the fics found to have date issues <span class="dim">({{ dateIssues().length | number }})</span></span>
           </label>
         }
+        @if (indexIssues().length) {
+          <label class="check">
+            <input type="radio" name="updateScope" value="index" [checked]="scopeChosen() === 'index'" (change)="updateScope.set('index')" />
+            <span>Update just the fics found to have indexing issues <span class="dim">({{ indexIssues().length | number }})</span></span>
+          </label>
+        }
+        <label class="check">
+          <input type="radio" name="updateScope" value="skip" [checked]="scopeChosen() === 'skip'" (change)="updateScope.set('skip')" />
+          <span>Skip this step</span>
+        </label>
       </fieldset>
-      <label class="check">
-        <input type="checkbox" name="replaceOutdated" [checked]="replaceOutdated()"
-               (change)="replaceOutdated.set($any($event.target).checked)" />
-        <span>
-          Replace a copy you have when AO3 has a newer version than the date in its name
-          <span class="hint">A copy with no date is never replaced, and neither is one that is current.</span>
-        </span>
-      </label>
+      @if (scopeChosen() !== 'skip') {
+        <fieldset class="formats">
+          <legend>Also download them in other formats?</legend>
+          <p class="hint">
+            Ticking a format fetches it for every work updated that does not have it. Formats a
+            work already has are not fetched again (unless replacing outdated copies, below).
+          </p>
+          @for (format of offered(); track format) {
+            <label class="check">
+              <input type="checkbox" [attr.name]="'format-' + format"
+                     [checked]="picked().includes(format)"
+                     (change)="toggleFormat(format, $any($event.target).checked)" />
+              <span>
+                {{ format }}
+                @if (held().has(format)) { <span class="dim">(some already have it)</span> }
+              </span>
+            </label>
+          }
+        </fieldset>
+        <label class="check">
+          <input type="checkbox" name="replaceOutdated" [checked]="replaceOutdated()"
+                 (change)="replaceOutdated.set($any($event.target).checked)" />
+          <span>
+            Replace a copy you have when AO3 has a newer version than the date in its name
+            <span class="hint">A copy with no date is never replaced, and neither is one that is current.</span>
+          </span>
+        </label>
+      }
       @if (runs()) {
         <p class="hint login-next">
           Next you log in to AO3, in case some of these works are restricted to AO3 users. You
@@ -244,7 +282,7 @@
         <button type="button" class="button subtle" (click)="backFrom('formats')">Back</button>
       }
       <button type="button" class="button primary" [disabled]="runs() && busy()" (click)="finish()">
-        {{ runs() ? 'Continue to the run' : 'Done' }}
+        {{ runs() ? 'Continue' : 'Done' }}
       </button>
     </footer>
   }

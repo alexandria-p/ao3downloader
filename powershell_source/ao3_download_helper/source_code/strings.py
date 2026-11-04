@@ -474,6 +474,7 @@ AO3_INFO_IMPORT_NAME_KEPT = 'could not rename {} to match its index entry ({} is
 AO3_INFO_IMPORT_NAMES_UNREADABLE = 'could not list your works folder to name the imported files from their index entries: {}'
 AO3_INFO_IMPORT_UNDATED_KEPT = 'left undated before the import started, so kept as they are'
 AO3_INFO_IMPORT_KEEPING = 'not replacing outdated copies: only formats you do not have are fetched'
+AO3_INFO_IMPORT_INDEX_ONLY = '{} of these works are only indexed: no format is fetched for them'
 ERROR_NO_IMPORT_WORKS = 'There are no works to import.'
 ERROR_TOO_MANY_IMPORT_WORKS = '{} works is more than one import takes ({} at most) - import them in parts.'
 AO3_INFO_REPLACING_NEWER = '  replacing your newer {} of work {} with the older version, as asked'

@@ -1,3 +1,4 @@
+import { ImportRequest } from './imports';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DownloadDialog, parseWorkList } from './download-dialog';
@@ -230,7 +231,7 @@ async function advanceTo(target: 'options' | 'filetypes' | 'credentials' | 'runn
         password.dispatchEvent(new Event('input'));
         await fixture.whenStable();
       }
-      button('Start download')!.click();
+      (button('Start download') ?? button('Start repair'))!.click();
       await fixture.whenStable();
       continue;
     }
@@ -2538,14 +2539,17 @@ describe('DownloadDialog', () => {
   });
 
   describe('an import', () => {
-    const IMPORT = {
+    const IMPORT: ImportRequest = {
       links: 'https://archiveofourown.org/works/1\nhttps://archiveofourown.org/works/2',
       count: 2,
       filetypes: ['JSON', 'EPUB'],
       replaceOutdated: true,
+      indexOnly: ['2'],
+      lookups: 2,
+      scope: 'dates',
     };
 
-    async function openImport(request = IMPORT) {
+    async function openImport(request: ImportRequest = IMPORT) {
       fixture = TestBed.createComponent(DownloadDialog);
       fixture.componentRef.setInput('action', 'import');
       fixture.componentRef.setInput('importing', request);
@@ -2556,10 +2560,17 @@ describe('DownloadDialog', () => {
     it('opens straight on the login, its works and formats chosen in the import window', async () => {
       await openImport();
       expect(currentStep()).toBe('credentials');
-      expect(element.textContent).toContain('Import works found in your library');
-      expect(element.textContent).toContain('2 works');
-      expect(element.textContent).toContain('EPUB');
-      expect(element.textContent).toContain('replacing a copy AO3 has a newer version of');
+      expect(element.querySelector('h2')?.textContent).toContain('Resolve issues found in your library');
+      const lines = [...element.querySelectorAll('.import-summary li')].map((li) => li.textContent?.trim());
+      expect(lines).toEqual([
+        'Lookup 2 works with missing index',
+        'Download EPUB for any fics found to have date issues in this import',
+        'Will replace any outdated files with newer ones, if they exist',
+      ]);
+      expect(button('Start repair')).toBeTruthy();
+      // nothing about remembering a username on a repair
+      expect(element.textContent).not.toContain('Remember my username');
+      expect(element.textContent).not.toContain('Only the username is saved');
       // the run needs no username of its own
       checkbox('Skip AO3 login?')!.click();
       await fixture.whenStable();
@@ -2578,7 +2589,7 @@ describe('DownloadDialog', () => {
       password.value = '';
       password.dispatchEvent(new Event('input'));
       await fixture.whenStable();
-      button('Start download')!.click();
+      button('Start repair')!.click();
       await fixture.whenStable();
       expect(jobs.started).toHaveLength(0);
 
@@ -2594,7 +2605,9 @@ describe('DownloadDialog', () => {
       await fixture.whenStable();
       expect(element.querySelector('.login-reason')).toBeNull();
       expect(element.querySelector('input[name="password"]')).toBeNull();
-      button('Start download')!.click();
+      // the same warning every run shows
+      expect(element.querySelector('.skip-login-warning')?.textContent).toContain('not recommended');
+      button('Start repair')!.click();
       await fixture.whenStable();
       expect(jobs.started[0].options.skipLogin).toBe(true);
       expect(jobs.started[0].password).toBe('');
@@ -2608,12 +2621,14 @@ describe('DownloadDialog', () => {
       expect(sent.url).toBe(IMPORT.links);
       expect(sent.filetypes).toEqual(['JSON', 'EPUB']);
       expect(sent.options.replaceOutdated).toBe(true);
+      expect(sent.options.indexOnly).toEqual(['2']);
       expect(sent.options.overwrite).toBe(false);
     });
 
     it('keeps every copy you have unless told to replace outdated ones', async () => {
-      await openImport({ ...IMPORT, filetypes: ['JSON'], replaceOutdated: false });
-      expect(element.textContent).not.toContain('downloads');
+      await openImport({ ...IMPORT, filetypes: ['JSON'], replaceOutdated: false, scope: 'skip' });
+      const lines = [...element.querySelectorAll('.import-summary li')].map((li) => li.textContent?.trim());
+      expect(lines).toEqual(['Lookup 2 works with missing index']);
       await advanceTo('running');
       expect(jobs.started[0].options.replaceOutdated).toBe(false);
     });
@@ -2622,6 +2637,7 @@ describe('DownloadDialog', () => {
       await open('works');
       await advanceTo('running');
       expect('replaceOutdated' in jobs.started[0].options).toBe(false);
+      expect('indexOnly' in jobs.started[0].options).toBe(false);
     });
   });
 

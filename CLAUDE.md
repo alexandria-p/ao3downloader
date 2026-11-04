@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2082 python passed; 915 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2086 python passed; 922 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2168,9 +2168,20 @@ window finishes after dating (`afterDating`). What not to break:
   own name ends in - the version the file holds, which may be older than AO3's - never over
   another file. Only an entry the import **makes** is marked `from_import`; a work already
   indexed (one whose undated files brought it into the import) keeps its origin.
+- **The index page is only there with unindexed works**, and offers *No, and do not ask again*:
+  `LibraryImports.exclude` writes the works to `import-excluded.json` at the library's top
+  (`IMPORT_EXCLUDED_FILE`), which `check` reads once per library and leaves out. **The formats
+  page starts with which works to update** (`updateScope`: all, date issues, indexing issues,
+  skip); skipped hides the formats and replacing and does neither. A work left unindexed is
+  never updated. Works looked up and not updated go as `indexOnly` (indexed, nothing fetched).
+  **The run window is reached only for a lookup, or an update with something to download or
+  replace** - otherwise the window ends with *Done*. Replacing covers every format a work has
+  (`Ao3.held_only`: a format not ticked is fetched only to replace a copy).
 - **The run window has no link, options or file types step for it** (`importing` input: links,
-  count, file types, `replaceOutdated`), only the background step and the login, with the
-  import's summary (`importBlurb`) on whichever comes first. Its background questions leave out
+  count, file types, `replaceOutdated`, `indexOnly`, `lookups`, `scope`), only the background
+  step and the login, titled *Resolve issues found in your library*, with what it will do as
+  bullets (`importPlan`) on whichever comes first, **Start repair**, and no *Remember my
+  username*. Its background questions leave out
   `undated`. **It asks for the AO3 login** like any run, worded for it (`.login-reason`: some of
   the works may be restricted to AO3 users), unless *Skip AO3 login?* is ticked - then it needs no
   username (`USERNAME_ACTIONS` leaves it out). At most
