@@ -199,14 +199,15 @@ function stamp(year: number, month: number, day: number): string {
 
 /**
  * The ways a date is written in file names, tried in this order - the first that gives a real
- * day wins. Day-first and month-first both write `03-04-2024`, so month-first (the US way, and
- * what most tools write) is tried first; a day over 12 can only be day-first.
+ * day wins. Day-first and month-first both write `03-04-2024` (and `2024-03-04`), so
+ * month-first (the US way, and what most tools write) is tried first; a first number over 12
+ * can only be a day, so that date is read day-first.
  */
 const DATE_PATTERNS: { pattern: RegExp; read: (m: RegExpExecArray) => string }[] = [
-  // 2024-03-04, 2024_03_04, 2024.03.04, 2024/03/04, 2024 03 04
-  { pattern: /(?<!\d)(\d{4})[-_. /](\d{1,2})[-_. /](\d{1,2})(?!\d)/, read: (m) => stamp(+m[1], +m[2], +m[3]) },
-  // 20240304
-  { pattern: /(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)/, read: (m) => stamp(+m[1], +m[2], +m[3]) },
+  // 2024-03-04, 2024_03_04, 2024.03.04, 2024/03/04, 2024 03 04 - month-first, then day-first
+  { pattern: /(?<!\d)(\d{4})[-_. /](\d{1,2})[-_. /](\d{1,2})(?!\d)/, read: (m) => stamp(+m[1], +m[2], +m[3]) || stamp(+m[1], +m[3], +m[2]) },
+  // 20240304 - month-first, then day-first
+  { pattern: /(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)/, read: (m) => stamp(+m[1], +m[2], +m[3]) || stamp(+m[1], +m[3], +m[2]) },
   // 03-04-2024 as month-first, then day-first
   { pattern: /(?<!\d)(\d{1,2})[-_. /](\d{1,2})[-_. /](\d{4})(?!\d)/, read: (m) => stamp(+m[3], +m[1], +m[2]) || stamp(+m[3], +m[2], +m[1]) },
   // 14 Dec 2024, 14 December 2024, 14-Dec-2024
