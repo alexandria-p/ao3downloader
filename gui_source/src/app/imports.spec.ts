@@ -33,7 +33,8 @@ class MemoryStore implements LibraryStore {
   async read(path: string) {
     return this.texts.get(path) ?? null;
   }
-  async write() {
+  async write(path: string, body: Response) {
+    this.texts.set(path, await body.text());
     return 0;
   }
   async size() {
@@ -214,29 +215,83 @@ describe('LibraryImports', () => {
     expect(imports.checkedStore()).toBe(store);
   });
 
-  it('leaves out the works the library says never to offer again', async () => {
+  async function checked(paths: string[], excluded: object[], indexed: string[] = []) {
     const library = TestBed.inject(Library);
-    const store = new MemoryStore(['works/1 A - B.html', 'works/2 C - D.html']);
-    store.texts.set(IMPORT_EXCLUDED_FILE, JSON.stringify({ excluded: [{ id: '2' }] }));
+    const store = new MemoryStore(paths);
+    store.texts.set(IMPORT_EXCLUDED_FILE, JSON.stringify({ excluded }));
     library.store.set(store);
+    library.worksById.set(new Map(indexed.map((id) => [id, { id } as Bookmark])));
     const imports = TestBed.inject(LibraryImports);
-
     await imports.check();
+    return imports;
+  }
 
-    expect(imports.found().map((w) => w.id)).toEqual(['1']);
+  it('never counts or lists a file on the files list, whatever its work', async () => {
+    const imports = await checked(
+      ['works/1 A - B.html', 'works/2 C - D.html', 'works/3 E - F.pdf', 'works/3 E - F.epub'],
+      [{ id: '2', kind: 'files', files: ['2 C - D.html'] }, { id: '3', kind: 'files', files: ['3 E - F.pdf'] }],
+    );
+    expect(imports.found().map((w) => [w.id, w.files.map((f) => f.name)])).toEqual([
+      ['1', ['1 A - B.html']],
+      ['3', ['3 E - F.epub']],
+    ]);
   });
 
-  it('leaves out the undated files the library says never to offer again, file by file', async () => {
-    const library = TestBed.inject(Library);
-    const store = new MemoryStore(['works/1 A - B.html', 'works/1 A - B.pdf']);
-    store.texts.set(IMPORT_EXCLUDED_FILE, JSON.stringify({ excluded: [{ id: '1', files: ['1 A - B.pdf'], only_files: true }] }));
-    library.store.set(store);
-    library.worksById.set(new Map([['1', { id: '1' } as Bookmark]]));
-    const imports = TestBed.inject(LibraryImports);
+  it('offers nothing at all when every file found is on the files list', async () => {
+    const imports = await checked(
+      ['works/1 A - B.html', 'works/7 G - H.pdf'],
+      [{ id: '1', kind: 'files', files: ['1 A - B.html'] }, { id: '7', kind: 'files', files: ['7 G - H.pdf'] }],
+      ['7'],
+    );
+    expect(imports.hasIssues()).toBe(false);
+  });
 
+  it('does not ask about a work on the index list while its files are the ones recorded', async () => {
+    const imports = await checked(
+      ['works/123 no-index 2024-01-01.pdf', 'works/123 no-index 2024-01-01.epub'],
+      [{ id: '123', kind: 'index', files: ['123 no-index 2024-01-01.pdf', '123 no-index 2024-01-01.epub'] }],
+    );
+    expect(imports.found()).toEqual([]);
+    expect(imports.hasIssues()).toBe(false);
+  });
+
+  it('asks about it again once the library has a file for it that was not recorded', async () => {
+    const imports = await checked(
+      ['works/123 no-index 2024-01-01.pdf', 'works/123 no-index 2024-01-01.epub', 'works/123 no-index 2024-01-01.html'],
+      [{ id: '123', kind: 'index', files: ['123 no-index 2024-01-01.pdf', '123 no-index 2024-01-01.epub'] }],
+    );
+    expect(imports.found().map((w) => w.files.length)).toEqual([3]);
+  });
+
+  it('still offers the undated files of a work on the index list for dating, never for the index', async () => {
+    const imports = await checked(
+      ['works/123 no-index.pdf', 'works/123 no-index 2024-01-01.epub'],
+      [{ id: '123', kind: 'index', files: ['123 no-index.pdf', '123 no-index 2024-01-01.epub'] }],
+    );
+    expect(imports.found()).toEqual([]);
+    expect(imports.undatedIndexed().map((f) => [f.name, f.unindexed])).toEqual([['123 no-index.pdf', true]]);
+  });
+
+  it('records the files each list was given, and follows a file that dating renames', async () => {
+    const library = TestBed.inject(Library);
+    const store = new MemoryStore(['works/123 no-index.pdf', 'works/123 no-index.epub', 'works/5 X.html']);
+    const written = { get [IMPORT_EXCLUDED_FILE]() { return store.texts.get(IMPORT_EXCLUDED_FILE)!; } };
+    library.store.set(store);
+    const imports = TestBed.inject(LibraryImports);
     await imports.check();
 
-    expect(imports.undatedIndexed().map((f) => f.name)).toEqual(['1 A - B.html']);
+    await imports.excludeFromIndex(imports.found().filter((w) => w.id === '123'));
+    await imports.excludeFiles(imports.found().find((w) => w.id === '5')!.files);
+    let entries = JSON.parse(written[IMPORT_EXCLUDED_FILE]).excluded;
+    expect(entries.map((e: { id: string; kind: string; files: string[] }) => [e.id, e.kind, e.files])).toEqual([
+      ['123', 'index', ['123 no-index.epub', '123 no-index.pdf']],
+      ['5', 'files', ['5 X.html']],
+    ]);
+    expect(imports.hasIssues()).toBe(true); // 123's undated files are still there to date
+
+    await imports.renamed([{ from: 'works/123 no-index.pdf', to: 'works/123 no-index 2024-02-03.pdf' }]);
+    entries = JSON.parse(written[IMPORT_EXCLUDED_FILE]).excluded;
+    expect(entries[0].files).toEqual(['123 no-index.epub', '123 no-index 2024-02-03.pdf']);
   });
 
   it('finds nothing with no library open', async () => {

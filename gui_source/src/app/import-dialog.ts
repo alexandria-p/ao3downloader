@@ -231,7 +231,9 @@ export class ImportDialog {
   protected readonly dateIssues = computed(() => {
     const looked = new Set(this.lookups());
     const indexed = new Set(this.works().map((w) => w.id));
-    return [...new Set(this.undated().map((f) => f.id))].filter((id) => !indexed.has(id) || looked.has(id));
+    // a file of a work left out of the index question is dated, never looked up for an update
+    const files = this.undated().filter((f) => !f.unindexed && (!indexed.has(f.id) || looked.has(f.id)));
+    return [...new Set(files.map((f) => f.id))];
   });
   /** the works with an index issue that can be updated: those looked up now */
   protected readonly indexIssues = computed(() => this.lookups());
@@ -290,7 +292,7 @@ export class ImportDialog {
         return;
       case 'exclude':
         try {
-          await this.imports.exclude(this.works(), this.undatedElsewhere());
+          await this.imports.excludeFiles([...this.works().flatMap((w) => w.files), ...this.undatedElsewhere()]);
         } catch {
           // not written: offered again next time, which loses nothing
         }
@@ -371,7 +373,7 @@ export class ImportDialog {
   protected async finish(): Promise<void> {
     if (this.lookup() === 'never' && this.works().length) {
       try {
-        await this.imports.exclude(this.works());
+        await this.imports.excludeFromIndex(this.works());
       } catch {
         // not written: they are offered again next time, which loses nothing
       }

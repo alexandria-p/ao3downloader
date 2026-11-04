@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2086 python passed; 937 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2086 python passed; 942 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2144,8 +2144,8 @@ window finishes after dating (`afterDating`). What not to break:
   (`reminderDismissedFor`), and `ao3.importOfferOff` hides it for good. **The first page asks
   what to do** (`firstChoice`, Continue held until chosen): *Repair now (recommended)*; *Not
   now, remind me again next time I open my library* (*Remind me later*, closes); *No, do not ask
-  me again for these files* (*Done*: `LibraryImports.exclude` writes every unindexed work, and
-  each indexed work's undated files with `only_files`, to `import-excluded.json`); *No, never
+  me again for these files* (*Done*: `LibraryImports.excludeFiles` puts every file found on the
+  **files** list); *No, never
   ask me again* (*Done*: `ao3.importOfferOff`). The window itself refuses to rename or start while `busy`. A run ending
   changes the index, which checks again, and the offer comes back then. The helper's 409 is
   the last guard against a run started elsewhere in the meantime.
@@ -2175,9 +2175,18 @@ window finishes after dating (`afterDating`). What not to break:
   own name ends in - the version the file holds, which may be older than AO3's - never over
   another file. Only an entry the import **makes** is marked `from_import`; a work already
   indexed (one whose undated files brought it into the import) keeps its origin.
-- **The index page is only there with unindexed works**, and offers *No, and do not ask again*:
-  `LibraryImports.exclude` writes the works to `import-excluded.json` at the library's top
-  (`IMPORT_EXCLUDED_FILE`), which `check` reads once per library and leaves out. **The formats
+- **Two exclusion lists, in one file** (`import-excluded.json` at the library's top,
+  `IMPORT_EXCLUDED_FILE`, read once per library; only the page reads it). The **files** list
+  (`kind: 'files'`, by name) is dropped before anything is counted - such a file never offers
+  the window, the reminder, a date or an index lookup. The **index** list (`kind: 'index'`,
+  from the index page's *No, and do not ask again for these works*,
+  `LibraryImports.excludeFromIndex`) keeps each work's number **and the files that brought it
+  there**: the work is passed over by the index question only while every file it has now was
+  recorded (`indexExcluded`) - a file added since asks again, and the work is recorded afresh.
+  Its undated files are still offered for dating (`FoundFile.unindexed`, never in an update's
+  `dateIssues`), and a rename by dating follows into the list (`LibraryImports.renamed`, from
+  `App.takeInDating`), or dating it would ask again. **The index page is only there with
+  unindexed works.** **The formats
   page starts with which works to update** (`updateScope`: all, date issues, indexing issues,
   skip); skipped hides the formats and replacing and does neither. A work left unindexed is
   never updated. Works looked up and not updated go as `indexOnly` (indexed, nothing fetched).

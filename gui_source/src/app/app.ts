@@ -240,6 +240,8 @@ export class App {
   /** the renamed files listed again, so the page opens them by their new names */
   private async takeInDating(dated: DatingResult | null): Promise<void> {
     if (!dated?.renamed.length) return;
+    // a dated file of a work left out of the index question is the same file, not a new one
+    await this.imports.renamed(dated.renamed);
     await this.library.refreshAfterRun(dated.renamed.flatMap((x) => [x.from, x.to]));
     void this.imports.check();
   }

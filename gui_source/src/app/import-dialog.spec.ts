@@ -214,22 +214,22 @@ describe('ImportDialog', () => {
     expect(store.written.size).toBe(0);
   });
 
-  it('writes every file found to the exclusion list on No, do not ask me again', async () => {
+  it('puts every file found on the files list on No, do not ask me again', async () => {
     await open(SOME, false, INDEXED_UNDATED);
     TestBed.inject(Library).store.set(store);
     const imports = TestBed.inject(LibraryImports);
-    imports.found.set(SOME);
-    imports.undatedIndexed.set(INDEXED_UNDATED);
     await pick('exclude');
     await click('Done');
 
     expect(closed).toEqual([null]);
     const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
-    expect(written.excluded.map((x: { id: string; only_files?: boolean }) => [x.id, !!x.only_files])).toEqual([
-      ['1', false], ['2', false], ['3', false], ['7', true],
+    expect(written.excluded.map((x: { id: string; kind: string; files: string[] }) => [x.id, x.kind, x.files])).toEqual([
+      ['1', 'files', ['1 A - B 2024-01-01.html']],
+      ['2', 'files', ['2 C - D.html', '2 C - D.pdf']],
+      ['3', 'files', ['3 E - F.epub']],
+      ['7', 'files', ['7 old name.html']],
     ]);
-    expect(imports.found()).toEqual([]);
-    expect(imports.undatedIndexed()).toEqual([]);
+    expect(imports.hasIssues()).toBe(false);
   });
 
   it('turns itself off for good on No, never ask me again', async () => {
@@ -546,6 +546,16 @@ describe('ImportDialog', () => {
     expect(step()).toBe('formats');
   });
 
+  it('never offers an update for the undated file of a work left out of the index question', async () => {
+    const left: FoundFile = { ...INDEXED_UNDATED[0], id: '9', path: 'works/9 x.html', name: '9 x.html', unindexed: true };
+    await open([], false, [left, ...INDEXED_UNDATED]);
+    await click('Continue');
+    await click('Skip this step');
+    expect(step()).toBe('formats');
+    // work 7 only: work 9 has no index entry and is never looked up
+    expect(element.querySelector('input[name="updateScope"][value="all"]')!.closest('label')!.textContent).toContain('(1)');
+  });
+
   it('offers updating just the date issues or just the index issues only where there are some', async () => {
     await open(ALL_DATED);
     await click('Continue');
@@ -633,7 +643,8 @@ describe('ImportDialog', () => {
     expect(started).toEqual([]);
     expect(closed).toHaveLength(1);
     const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
-    expect(written.excluded.map((x: { id: string }) => x.id)).toEqual(['1']);
+    // the work, and the files that brought it here
+    expect(written.excluded).toMatchObject([{ id: '1', kind: 'index', files: ['1 A - B 2024-01-01.html'] }]);
     expect(imports.found()).toEqual([]);
   });
 

@@ -523,7 +523,7 @@ named for a work number your index has no entry for, the page offers to import t
 **Resolve issues found with import** reminder above the tabs offers it too, and its first
 page can put it off, leave these files out for good, or turn it off altogether; and undated files of indexed works are offered for dating). It offers to date the undated ones first - each, all at once, or
 skipped - then, if any have no index entry, whether to index them from AO3 now (or never ask
-about them again, listed in `import-excluded.json`), which works to update, which other
+about them again until a new file for one turns up, listed in `import-excluded.json`), which works to update, which other
 formats to download for them, and whether to replace a copy AO3 has a newer version of (off:
 only missing formats are fetched). It goes on to a run only when there is something to do. Each is marked *Imported from an external source* unless it is
 your bookmark. Never offered while another run is going.
