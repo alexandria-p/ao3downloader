@@ -26,6 +26,9 @@ import { LibraryStore } from './library-store';
 
 type Step = 'overview' | 'duplicates' | 'choose' | 'removing' | 'dates' | 'dating' | 'index' | 'formats';
 
+/** what sifting by hand decided for one group: a file to keep, skipped, or its most recent */
+export type SiftOutcome = { kind: 'pick'; path: string } | { kind: 'skip' } | { kind: 'recent' };
+
 /** what to do with one group of duplicates */
 export type DuplicateChoice = 'skip' | 'all' | 'recent' | 'choose';
 
@@ -149,73 +152,104 @@ export class ImportDialog {
     return inferDate(file.name);
   }
 
-  /**
-   * the groups to sort through by hand, one at a time, in list order - kept as they were when
-   * sifting began, so a group skipped or given its most recent on the way stays in its place
-   */
+  /** the groups marked I'll choose on the list */
   protected readonly toChoose = computed(() => this.duplicates().filter((g) => this.choiceOf(g) === 'choose'));
-  protected readonly siftList = signal<DuplicateGroup[]>([]);
+
+  /**
+   * Every group ever marked I'll choose, in the order it first was. Never shortened: a group
+   * changed to something else on the list and back again returns to its own place, with what
+   * was decided for it while sifting.
+   */
+  private readonly siftOrder = signal<string[]>([]);
+  /** what was decided for each group while sifting, by key - kept apart from the list's choice */
+  protected readonly siftOutcome = signal<Record<string, SiftOutcome>>({});
+  /** the groups to sort through by hand: those marked I'll choose, in sifting order */
+  protected readonly siftList = computed(() => {
+    const byKey = new Map(this.toChoose().map((g) => [g.key, g]));
+    return this.siftOrder().map((key) => byKey.get(key)).filter((g): g is DuplicateGroup => !!g);
+  });
   protected readonly chooseAt = signal(0);
   protected readonly choosing = computed(() => this.siftList()[this.chooseAt()] ?? null);
-  /** the one file picked to keep in each group sorted by hand, by key - the newest to begin with */
-  protected readonly pickedBy = signal<Record<string, string>>({});
+  protected readonly undecidedCount = computed(
+    () => this.siftList().filter((g) => !this.siftOutcome()[g.key]).length,
+  );
+  /** every group sorted through: the done note shows, and Continue is offered */
+  protected readonly siftDone = computed(() => this.siftList().length > 0 && this.undecidedCount() === 0);
   /** groups marked Keep all go on the duplicates list, not to be asked about again */
   protected readonly rememberKeepAll = signal(false);
 
+  protected outcomeOf(group: DuplicateGroup): SiftOutcome | undefined {
+    return this.siftOutcome()[group.key];
+  }
+
+  /** the file picked to keep in a group, or '' when none is */
   protected pickedIn(group: DuplicateGroup): string {
-    const picked = this.pickedBy()[group.key];
-    if (picked !== undefined) return picked;
-    return this.newestIn(group)?.path ?? '';
+    const outcome = this.outcomeOf(group);
+    return outcome?.kind === 'pick' ? outcome.path : '';
   }
 
-  /** a file picked: this group is kept to it, whatever was chosen for it on the way */
+  /** what was decided for a group while sifting, in a few words for the list page */
+  protected siftedSaid(group: DuplicateGroup): string {
+    const outcome = this.outcomeOf(group);
+    if (!outcome) return '';
+    if (outcome.kind === 'skip') return 'Sorted: skipped';
+    if (outcome.kind === 'recent') return this.newestIn(group) ? `Sorted: keeping ${this.newestIn(group)!.name}` : "Sorted: most recent - can't tell which";
+    const file = group.files.find((f) => f.path === outcome.path);
+    return file ? `Sorted: keeping ${file.name}` : '';
+  }
+
+  private decide(group: DuplicateGroup, outcome: SiftOutcome): void {
+    this.siftOutcome.update((o) => ({ ...o, [group.key]: outcome }));
+  }
+
+  /** a file picked to keep: this group is sorted */
   protected setPicked(group: DuplicateGroup, file: FoundFile): void {
-    this.pickedBy.update((p) => ({ ...p, [group.key]: file.path }));
-    this.setChoice(group, 'choose');
+    this.decide(group, { kind: 'pick', path: file.path });
   }
 
+  /** on to the sifting: newly marked groups join the end, and it opens on the first undecided */
   protected fromDuplicates(): void {
     if (this.busy()) return;
-    if (this.toChoose().length) {
-      this.siftList.set(this.toChoose());
-      this.chooseAt.set(0);
-      this.step.set('choose');
-    } else void this.applyDuplicates();
+    if (!this.toChoose().length) {
+      void this.applyDuplicates();
+      return;
+    }
+    const known = new Set(this.siftOrder());
+    this.siftOrder.update((order) => [...order, ...this.toChoose().filter((g) => !known.has(g.key)).map((g) => g.key)]);
+    const first = this.siftList().findIndex((g) => !this.outcomeOf(g));
+    this.chooseAt.set(first < 0 ? 0 : first);
+    this.step.set('choose');
   }
 
-  private advance(): void {
+  protected previousEntry(): void {
+    if (this.chooseAt() > 0) this.chooseAt.set(this.chooseAt() - 1);
+  }
+
+  protected nextEntry(): void {
     if (this.chooseAt() < this.siftList().length - 1) this.chooseAt.set(this.chooseAt() + 1);
-    else void this.applyDuplicates();
   }
 
-  /** the next group to sort through, or on to removing once the last is done */
-  protected chooseNext(): void {
-    const group = this.choosing();
-    if (group && this.choiceOf(group) === 'choose' && !this.pickedIn(group)) return;
-    this.advance();
-  }
-
-  /** this group only: skipped, or its most recent kept - then the next */
+  /** this group only: skipped, or its most recent kept - then the next one still undecided */
   protected decideThis(choice: 'skip' | 'recent'): void {
     const group = this.choosing();
     if (!group) return;
     if (choice === 'recent' && !this.newestIn(group)) return;
-    this.setChoice(group, choice);
-    this.advance();
+    this.decide(group, { kind: choice });
+    const list = this.siftList();
+    const at = this.chooseAt();
+    const after = [...list.keys()].slice(at + 1).concat([...list.keys()].slice(0, at));
+    const next = after.find((i) => !this.outcomeOf(list[i]));
+    if (next !== undefined) this.chooseAt.set(next);
   }
 
-  protected choosePrevious(): void {
-    if (this.chooseAt() > 0) this.chooseAt.set(this.chooseAt() - 1);
-    else this.step.set('duplicates');
-  }
-
-  /** this group and those after it, not yet sorted through: skipped, or their newest kept */
+  /** every group not yet sorted: skipped, or its most recent kept - then on to removing */
   protected finishChoosingWith(choice: 'skip' | 'recent'): void {
-    const rest = this.siftList()
-      .slice(this.chooseAt())
-      .filter((g) => !(this.choiceOf(g) === 'choose' && this.pickedBy()[g.key] !== undefined));
-    this.dupChoices.update((c) => ({ ...c, ...Object.fromEntries(rest.map((g) => [g.key, choice])) }));
+    for (const group of this.siftList()) if (!this.outcomeOf(group)) this.decide(group, { kind: choice });
     void this.applyDuplicates();
+  }
+
+  protected continueFromChoosing(): void {
+    if (this.siftDone()) void this.applyDuplicates();
   }
 
   protected readonly removeProgress = signal<{ done: number; total: number }>({ done: 0, total: 0 });
@@ -248,9 +282,15 @@ export class ImportDialog {
         if (!newest) undecided.push(group);
         else remove.push(...group.files.filter((f) => f !== newest).map((f) => f.path));
       } else if (choice === 'choose') {
-        const picked = this.pickedIn(group);
-        if (!picked || !group.files.some((f) => f.path === picked)) continue;
-        remove.push(...group.files.filter((f) => f.path !== picked).map((f) => f.path));
+        const outcome = this.outcomeOf(group);
+        if (outcome?.kind === 'recent') {
+          const newest = this.newestIn(group);
+          if (!newest) undecided.push(group);
+          else remove.push(...group.files.filter((f) => f !== newest).map((f) => f.path));
+        } else if (outcome?.kind === 'pick' && group.files.some((f) => f.path === outcome.path)) {
+          remove.push(...group.files.filter((f) => f.path !== outcome.path).map((f) => f.path));
+        }
+        // skipped, or never sorted: left as it is
       }
     }
     return { remove, keep, undecided };

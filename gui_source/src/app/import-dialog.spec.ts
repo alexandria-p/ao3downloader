@@ -389,34 +389,51 @@ describe('ImportDialog', () => {
     expect(step()).not.toBe('removing');
   });
 
-  it('sifts through the groups marked I will choose one at a time, one file kept by a radio', async () => {
+  const groupShown = () => element.querySelector('.choose')!.getAttribute('data-group');
+  const radios = () => [...element.querySelectorAll<HTMLInputElement>('.choose-list input[type="radio"]')];
+
+  async function toSifting() {
     await open([], false, [], DUPES);
     await click('Continue');
     await click('I will choose which to keep');
     await click('Choose which to keep');
-    expect(step()).toBe('choose');
-    expect(element.querySelector('.choose')!.getAttribute('data-group')).toBe('7:html');
-    expect(element.textContent).toContain('1 of 3');
+  }
 
-    // a radio per file, the newest picked to begin with: pick the other
-    const radios = () => [...element.querySelectorAll<HTMLInputElement>('.choose-list input[type="radio"]')];
-    expect(radios().map((r) => r.checked)).toEqual([true, false]);
+  it('sifts one at a time, nothing picked to begin with, Continue held until every one is sorted', async () => {
+    await toSifting();
+    expect(step()).toBe('choose');
+    expect(groupShown()).toBe('7:html');
+    expect(element.textContent).toContain('1 of 3');
+    expect(radios().map((r) => r.checked)).toEqual([false, false]);
+    expect(primary().disabled).toBe(true);
+    // previous and next entry are in the page, not the footer
+    expect(element.querySelector('.sift-nav')!.textContent).toContain('Previous entry');
+    expect(element.querySelector('footer')!.textContent).not.toContain('Next entry');
+    expect(element.querySelector('footer')!.textContent).toContain('Skip all remaining, and continue');
+    expect(element.querySelector('footer')!.textContent).toContain('Use most recent for all remaining, and continue');
+  });
+
+  it('moves between entries, and finishes with a done note once the last is sorted', async () => {
+    await toSifting();
     radios()[1].click();
     await fixture.whenStable();
-    await click('Next');
-
-    // the pdfs: no newest to pick, so Next waits and Keep most recent for this one is held
-    expect(element.querySelector('.choose')!.getAttribute('data-group')).toBe('7:pdf');
-    expect(primary().disabled).toBe(true);
+    await click('Next entry');
+    expect(groupShown()).toBe('7:pdf');
     expect(button('Keep most recent for this one')!.disabled).toBe(true);
     await click('Skip this one');
-
-    // the epubs: keep the most recent, and that is the last
-    expect(element.querySelector('.choose')!.getAttribute('data-group')).toBe('8:epub');
+    expect(groupShown()).toBe('8:epub');
+    await click('Previous entry');
+    expect(groupShown()).toBe('7:pdf');
+    await click('Next entry');
     await click('Keep most recent for this one');
-    await settle();
 
-    expect(step()).toBe('removing');
+    expect(element.querySelector('.sift-done')?.textContent).toContain('You are done - no more to sort');
+    expect(element.querySelector('.sift-nav')).toBeNull();
+    expect(button('Skip all remaining, and continue')!.disabled).toBe(true);
+    expect(button('Use most recent for all remaining, and continue')!.disabled).toBe(true);
+    expect(primary().disabled).toBe(false);
+    await click('Continue');
+    await settle();
     expect(store.deleted.sort()).toEqual([
       'works/7 Fic - W 2024-01-01.html',
       'works/8 One 2022-02-02.epub',
@@ -424,45 +441,72 @@ describe('ImportDialog', () => {
     ]);
   });
 
-  it('keeps its place when going back to a group skipped on the way', async () => {
-    await open([], false, [], DUPES);
+  it('goes back to the list, and coming forward opens on the first still to sort, new ones at the end', async () => {
+    const more = duplicateGroups([...DUPES.flatMap((g) => g.files.map((f) => f.path)), 'works/9 a 2020-01-01.mobi', 'works/9 b 2021-01-01.mobi']);
+    await open([], false, [], more);
     await click('Continue');
-    await click('I will choose which to keep');
+    await chooseIn('7:html', 'choose');
+    await chooseIn('7:pdf', 'choose');
+    await chooseIn('8:epub', 'choose');
     await click('Choose which to keep');
     await click('Skip this one');
+    expect(groupShown()).toBe('7:pdf');
+
     await click('Back');
-    expect(element.querySelector('.choose')!.getAttribute('data-group')).toBe('7:html');
-    expect(element.textContent).toContain('1 of 3');
+    expect(step()).toBe('duplicates');
+    // the list says what was decided
+    expect(groupRow('7:html').querySelector('.sifted-note')?.textContent).toContain('Sorted: skipped');
+    await chooseIn('9:mobi', 'choose');
+    await click('Choose which to keep');
+    expect(groupShown()).toBe('7:pdf');
+    expect(element.textContent).toContain('2 of 4');
+    await click('Next entry');
+    await click('Next entry');
+    expect(groupShown()).toBe('9:mobi');
   });
 
-  it('gives the rest their most recent, or skips them, from the buttons at the foot', async () => {
-    await open([], false, [], DUPES);
-    await click('Continue');
-    await click('I will choose which to keep');
+  it('keeps what was decided for a group taken off and put back, in its own place', async () => {
+    await toSifting();
+    radios()[1].click();
+    await fixture.whenStable();
+    await click('Back');
+    // decided, then changed to Skip on the list: out of the sift
+    await chooseIn('7:html', 'skip');
     await click('Choose which to keep');
-    await click('Use most recent for remaining');
+    expect(groupShown()).toBe('7:pdf');
+    expect(element.textContent).toContain('1 of 2');
+
+    // changed back: in its first place again, still decided as before
+    await click('Back');
+    await chooseIn('7:html', 'choose');
+    await click('Choose which to keep');
+    expect(groupShown()).toBe('7:pdf');
+    expect(element.textContent).toContain('2 of 3');
+    await click('Previous entry');
+    expect(groupShown()).toBe('7:html');
+    expect(radios().map((r) => r.checked)).toEqual([false, true]);
+  });
+
+  it('leaves the rest as they are on Skip all remaining, keeping what was picked', async () => {
+    await toSifting();
+    radios()[0].click();
+    await fixture.whenStable();
+    await click('Skip all remaining, and continue');
     await settle();
-    // 7:pdf cannot be told, so it is left and said
+    expect(store.deleted).toEqual(['works/7 fic old copy 2023-05-05.htm']);
+  });
+
+  it('gives the rest their most recent on Use most recent for all remaining', async () => {
+    await toSifting();
+    await click('Use most recent for all remaining, and continue');
+    await settle();
     expect(store.deleted.sort()).toEqual([
       'works/7 fic old copy 2023-05-05.htm',
       'works/8 One 2022-02-02.epub',
       'works/8 Three 2021-01-01.epub',
     ]);
+    // 7:pdf cannot be told, so it is left and said
     expect(element.querySelector('details.undecided')).toBeTruthy();
-  });
-
-  it('leaves the groups not yet sorted through on Skip remaining', async () => {
-    await open([], false, [], DUPES);
-    await click('Continue');
-    await click('I will choose which to keep');
-    await click('Choose which to keep');
-    // a file picked by hand in the first is kept to; the rest are skipped
-    element.querySelectorAll<HTMLInputElement>('.choose-list input[type="radio"]')[0].click();
-    await fixture.whenStable();
-    await click('Next');
-    await click('Skip remaining');
-    await settle();
-    expect(store.deleted).toEqual(['works/7 fic old copy 2023-05-05.htm']);
   });
 
   it('never offers a removed file for dating afterwards', async () => {
@@ -472,7 +516,7 @@ describe('ImportDialog', () => {
     await click('Continue');
     await click('I will choose which to keep');
     await click('Choose which to keep');
-    // with an undated copy the newest cannot be told, so nothing is picked: keep the 2020 one
+    // nothing is picked to begin with: keep the 2020 one, and that is the only one to sort
     const keep = element.querySelector<HTMLInputElement>('input[aria-label="Keep 9 Copy - W 2020-01-01.html"]')!;
     expect(keep.checked).toBe(false);
     keep.click();

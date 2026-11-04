@@ -115,6 +115,9 @@
                       </li>
                     }
                   </ul>
+                  @if (choiceOf(group) === 'choose' && siftedSaid(group)) {
+                    <span class="sifted-note">{{ siftedSaid(group) }}</span>
+                  }
                   @if (choiceOf(group) === 'recent' && !newestIn(group)) {
                     <span class="undecided-note">Can't tell which is newest - nothing will be deleted, and this is asked again next time</span>
                   }
@@ -164,9 +167,20 @@
 
   <!-- 1b: the groups marked I'll choose, one work and format at a time -->
   @if (step() === 'choose') {
-    @if (choosing(); as group) {
-      <section class="body choose" [attr.data-group]="group.key">
-        <p class="choose-progress dim">{{ chooseAt() + 1 }} of {{ siftList().length }}</p>
+    <section class="body choose" [attr.data-group]="siftDone() ? null : choosing()?.key">
+      @if (siftDone()) {
+        <p class="sift-done" role="status">
+          <strong>You are done - no more to sort.</strong> Continue onto the next step.
+        </p>
+      } @else if (choosing(); as group) {
+        <div class="sift-nav">
+          <button type="button" class="button subtle" [disabled]="chooseAt() === 0" (click)="previousEntry()">Previous entry</button>
+          <span class="choose-progress dim">
+            {{ chooseAt() + 1 }} of {{ siftList().length }}
+            ({{ undecidedCount() | number }} still to sort)
+          </span>
+          <button type="button" class="button subtle" [disabled]="chooseAt() >= siftList().length - 1" (click)="nextEntry()">Next entry</button>
+        </div>
         <p>
           <strong>Work {{ group.id }}, {{ group.format.toUpperCase() }}:</strong> choose the file to
           keep. The others are deleted.
@@ -176,7 +190,7 @@
             <li>
               <label class="check">
                 <input type="radio" [attr.name]="'keep-' + group.key" [attr.aria-label]="'Keep ' + file.name"
-                       [checked]="choiceOf(group) === 'choose' && pickedIn(group) === file.path"
+                       [checked]="pickedIn(group) === file.path"
                        (change)="setPicked(group, file)" />
                 <span>
                   <span class="file-name">{{ file.name }}</span>
@@ -190,30 +204,33 @@
           }
         </ul>
         <div class="bulk this-one">
-          <button type="button" class="button" [class.on]="choiceOf(group) === 'skip'" (click)="decideThis('skip')">
+          <button type="button" class="button" [class.on]="outcomeOf(group)?.kind === 'skip'" (click)="decideThis('skip')">
             Skip this one
           </button>
-          <button type="button" class="button" [class.on]="choiceOf(group) === 'recent'"
+          <button type="button" class="button" [class.on]="outcomeOf(group)?.kind === 'recent'"
                   [disabled]="!newestIn(group)"
                   [title]="newestIn(group) ? '' : 'Can\'t tell which is newest: every file needs a date in its name, and one must be the latest'"
                   (click)="decideThis('recent')">
             Keep most recent for this one
           </button>
+          @if (outcomeOf(group); as outcome) {
+            <span class="sifted dim">{{ siftedSaid(group) }}</span>
+          }
         </div>
-        @if (choiceOf(group) === 'choose' && !pickedIn(group)) {
-          <p class="hint">Choose a file to keep, or skip this one.</p>
-        }
-      </section>
-      <footer>
-        <button type="button" class="button subtle" (click)="choosePrevious()">Back</button>
-        <button type="button" class="button" (click)="finishChoosingWith('skip')">Skip remaining</button>
-        <button type="button" class="button" (click)="finishChoosingWith('recent')">Use most recent for remaining</button>
-        <button type="button" class="button primary"
-                [disabled]="(choiceOf(group) === 'choose' && !pickedIn(group)) || busy()" (click)="chooseNext()">
-          {{ chooseAt() < siftList().length - 1 ? 'Next' : 'Continue' }}
-        </button>
-      </footer>
-    }
+      }
+    </section>
+    <footer>
+      <button type="button" class="button subtle" (click)="step.set('duplicates')">Back</button>
+      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="finishChoosingWith('skip')">
+        Skip all remaining, and continue
+      </button>
+      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="finishChoosingWith('recent')">
+        Use most recent for all remaining, and continue
+      </button>
+      <button type="button" class="button primary" [disabled]="!siftDone() || busy()" (click)="continueFromChoosing()">
+        Continue
+      </button>
+    </footer>
   }
 
   <!-- 1c: deleting the duplicates not kept. no going back; the cross stops after the file in hand -->
