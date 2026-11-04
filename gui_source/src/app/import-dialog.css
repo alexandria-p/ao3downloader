@@ -457,3 +457,15 @@ select {
 .undecided summary {
   color: #e0c97a;
 }
+
+.remember-keep-all {
+  margin: 12px 0 0;
+}
+
+.this-one {
+  margin: 0 0 8px;
+}
+
+.this-one .button.on {
+  border-color: #5a7f9a;
+}

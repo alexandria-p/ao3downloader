@@ -149,41 +149,59 @@ export class ImportDialog {
     return inferDate(file.name);
   }
 
-  /** the groups to sort through by hand, one at a time, in list order */
+  /**
+   * the groups to sort through by hand, one at a time, in list order - kept as they were when
+   * sifting began, so a group skipped or given its most recent on the way stays in its place
+   */
   protected readonly toChoose = computed(() => this.duplicates().filter((g) => this.choiceOf(g) === 'choose'));
+  protected readonly siftList = signal<DuplicateGroup[]>([]);
   protected readonly chooseAt = signal(0);
-  protected readonly choosing = computed(() => this.toChoose()[this.chooseAt()] ?? null);
-  /** the files ticked to keep in each group sorted by hand, by key - the newest ticked to begin with */
-  protected readonly keptBy = signal<Record<string, string[]>>({});
+  protected readonly choosing = computed(() => this.siftList()[this.chooseAt()] ?? null);
+  /** the one file picked to keep in each group sorted by hand, by key - the newest to begin with */
+  protected readonly pickedBy = signal<Record<string, string>>({});
+  /** groups marked Keep all go on the duplicates list, not to be asked about again */
+  protected readonly rememberKeepAll = signal(false);
 
-  protected keptIn(group: DuplicateGroup): string[] {
-    const kept = this.keptBy()[group.key];
-    if (kept) return kept;
-    const newest = this.newestIn(group);
-    return newest ? [newest.path] : [];
+  protected pickedIn(group: DuplicateGroup): string {
+    const picked = this.pickedBy()[group.key];
+    if (picked !== undefined) return picked;
+    return this.newestIn(group)?.path ?? '';
   }
 
-  protected setKept(group: DuplicateGroup, file: FoundFile, keep: boolean): void {
-    const kept = new Set(this.keptIn(group));
-    if (keep) kept.add(file.path);
-    else kept.delete(file.path);
-    this.keptBy.update((k) => ({ ...k, [group.key]: group.files.filter((f) => kept.has(f.path)).map((f) => f.path) }));
+  /** a file picked: this group is kept to it, whatever was chosen for it on the way */
+  protected setPicked(group: DuplicateGroup, file: FoundFile): void {
+    this.pickedBy.update((p) => ({ ...p, [group.key]: file.path }));
+    this.setChoice(group, 'choose');
   }
 
   protected fromDuplicates(): void {
     if (this.busy()) return;
     if (this.toChoose().length) {
+      this.siftList.set(this.toChoose());
       this.chooseAt.set(0);
       this.step.set('choose');
     } else void this.applyDuplicates();
   }
 
+  private advance(): void {
+    if (this.chooseAt() < this.siftList().length - 1) this.chooseAt.set(this.chooseAt() + 1);
+    else void this.applyDuplicates();
+  }
+
   /** the next group to sort through, or on to removing once the last is done */
   protected chooseNext(): void {
     const group = this.choosing();
-    if (group && !this.keptIn(group).length) return;
-    if (this.chooseAt() < this.toChoose().length - 1) this.chooseAt.set(this.chooseAt() + 1);
-    else void this.applyDuplicates();
+    if (group && this.choiceOf(group) === 'choose' && !this.pickedIn(group)) return;
+    this.advance();
+  }
+
+  /** this group only: skipped, or its most recent kept - then the next */
+  protected decideThis(choice: 'skip' | 'recent'): void {
+    const group = this.choosing();
+    if (!group) return;
+    if (choice === 'recent' && !this.newestIn(group)) return;
+    this.setChoice(group, choice);
+    this.advance();
   }
 
   protected choosePrevious(): void {
@@ -191,9 +209,11 @@ export class ImportDialog {
     else this.step.set('duplicates');
   }
 
-  /** the groups after this one, not sorted through: skipped, or the newest kept */
+  /** this group and those after it, not yet sorted through: skipped, or their newest kept */
   protected finishChoosingWith(choice: 'skip' | 'recent'): void {
-    const rest = this.toChoose().slice(this.chooseAt() + (this.keptIn(this.choosing()!).length ? 1 : 0));
+    const rest = this.siftList()
+      .slice(this.chooseAt())
+      .filter((g) => !(this.choiceOf(g) === 'choose' && this.pickedBy()[g.key] !== undefined));
     this.dupChoices.update((c) => ({ ...c, ...Object.fromEntries(rest.map((g) => [g.key, choice])) }));
     void this.applyDuplicates();
   }
@@ -207,8 +227,8 @@ export class ImportDialog {
 
   /**
    * What the choices come to: files to delete - never every file of a group - groups kept as
-   * they are (on the duplicates list, not asked about again), and groups whose newest could not
-   * be told (left, and offered again next time).
+   * they are (Keep all, on the duplicates list only when told not to ask again), and groups
+   * whose newest could not be told (left, and offered again next time).
    */
   private duplicatePlan(): {
     remove: string[];
@@ -220,17 +240,17 @@ export class ImportDialog {
     const undecided: DuplicateGroup[] = [];
     for (const group of this.duplicates()) {
       const choice = this.choiceOf(group);
-      if (choice === 'all') keep.push({ group, kept: group.files });
+      if (choice === 'all') {
+        if (this.rememberKeepAll()) keep.push({ group, kept: group.files });
+      }
       else if (choice === 'recent') {
         const newest = this.newestIn(group);
         if (!newest) undecided.push(group);
         else remove.push(...group.files.filter((f) => f !== newest).map((f) => f.path));
       } else if (choice === 'choose') {
-        const kept = new Set(this.keptIn(group));
-        if (!kept.size) continue;
-        const files = group.files.filter((f) => kept.has(f.path));
-        remove.push(...group.files.filter((f) => !kept.has(f.path)).map((f) => f.path));
-        if (files.length > 1) keep.push({ group, kept: files });
+        const picked = this.pickedIn(group);
+        if (!picked || !group.files.some((f) => f.path === picked)) continue;
+        remove.push(...group.files.filter((f) => f.path !== picked).map((f) => f.path));
       }
     }
     return { remove, keep, undecided };

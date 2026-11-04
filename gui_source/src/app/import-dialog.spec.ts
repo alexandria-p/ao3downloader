@@ -355,23 +355,41 @@ describe('ImportDialog', () => {
     expect(element.querySelector('details.undecided summary')?.textContent).toContain('could not tell which file is most recent');
   });
 
-  it('keeps every file of a group on Keep all, and adds it to the duplicates list', async () => {
+  it('keeps every file on Keep all, and asks again next time unless told not to', async () => {
     await open([], false, [], DUPES);
     TestBed.inject(Library).store.set(store);
     await click('Continue');
+    const box = element.querySelector<HTMLInputElement>('input[name="rememberKeepAll"]')!;
+    expect(box.closest('label')!.textContent).toContain("Don't ask me again for the ones marked Keep all");
+    expect(box.closest('label')!.textContent).toContain('Unlike Skip');
     await chooseIn('8:epub', 'all');
     await click('Continue');
     await settle();
     expect(store.deleted).toEqual([]);
+    expect(store.written.has(IMPORT_EXCLUDED_FILE)).toBe(false);
+  });
+
+  it('adds every Keep all group to the duplicates list when the box is ticked', async () => {
+    await open([], false, [], DUPES);
+    TestBed.inject(Library).store.set(store);
+    await click('Continue');
+    await chooseIn('8:epub', 'all');
+    await chooseIn('7:pdf', 'all');
+    element.querySelector<HTMLInputElement>('input[name="rememberKeepAll"]')!.click();
+    await fixture.whenStable();
+    await click('Continue');
+    await settle();
     const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
-    expect(written.excluded).toMatchObject([
-      { id: '8', kind: 'duplicates', format: 'epub', files: ['8 One 2022-02-02.epub', '8 Three 2021-01-01.epub', '8 Two 2022-03-03.epub'] },
+    expect(written.excluded.map((x: { id: string; kind: string; format: string }) => [x.id, x.kind, x.format])).toEqual([
+      ['7', 'duplicates', 'pdf'],
+      ['8', 'duplicates', 'epub'],
     ]);
+    expect(written.excluded[1].files).toEqual(['8 One 2022-02-02.epub', '8 Three 2021-01-01.epub', '8 Two 2022-03-03.epub']);
     // nothing removed or undecided: straight on
     expect(step()).not.toBe('removing');
   });
 
-  it('sorts through the groups marked I will choose, one at a time, keeping what is ticked', async () => {
+  it('sifts through the groups marked I will choose one at a time, one file kept by a radio', async () => {
     await open([], false, [], DUPES);
     await click('Continue');
     await click('I will choose which to keep');
@@ -380,26 +398,57 @@ describe('ImportDialog', () => {
     expect(element.querySelector('.choose')!.getAttribute('data-group')).toBe('7:html');
     expect(element.textContent).toContain('1 of 3');
 
-    // the newest is ticked to begin with; tick the other too
-    const boxes = () => [...element.querySelectorAll<HTMLInputElement>('.choose-list input')];
-    expect(boxes().map((b) => b.checked)).toEqual([true, false]);
-    boxes()[1].click();
+    // a radio per file, the newest picked to begin with: pick the other
+    const radios = () => [...element.querySelectorAll<HTMLInputElement>('.choose-list input[type="radio"]')];
+    expect(radios().map((r) => r.checked)).toEqual([true, false]);
+    radios()[1].click();
     await fixture.whenStable();
     await click('Next');
-    // the pdfs have no newest to tick: nothing ticked, Next held
+
+    // the pdfs: no newest to pick, so Next waits and Keep most recent for this one is held
     expect(element.querySelector('.choose')!.getAttribute('data-group')).toBe('7:pdf');
     expect(primary().disabled).toBe(true);
-    boxes()[1].click();
-    await fixture.whenStable();
-    await click('Next');
-    await click('Use most recent for remaining');
+    expect(button('Keep most recent for this one')!.disabled).toBe(true);
+    await click('Skip this one');
+
+    // the epubs: keep the most recent, and that is the last
+    expect(element.querySelector('.choose')!.getAttribute('data-group')).toBe('8:epub');
+    await click('Keep most recent for this one');
     await settle();
 
+    expect(step()).toBe('removing');
     expect(store.deleted.sort()).toEqual([
-      'works/7 Fic - W 2024-01-01.pdf',
+      'works/7 Fic - W 2024-01-01.html',
       'works/8 One 2022-02-02.epub',
       'works/8 Three 2021-01-01.epub',
     ]);
+  });
+
+  it('keeps its place when going back to a group skipped on the way', async () => {
+    await open([], false, [], DUPES);
+    await click('Continue');
+    await click('I will choose which to keep');
+    await click('Choose which to keep');
+    await click('Skip this one');
+    await click('Back');
+    expect(element.querySelector('.choose')!.getAttribute('data-group')).toBe('7:html');
+    expect(element.textContent).toContain('1 of 3');
+  });
+
+  it('gives the rest their most recent, or skips them, from the buttons at the foot', async () => {
+    await open([], false, [], DUPES);
+    await click('Continue');
+    await click('I will choose which to keep');
+    await click('Choose which to keep');
+    await click('Use most recent for remaining');
+    await settle();
+    // 7:pdf cannot be told, so it is left and said
+    expect(store.deleted.sort()).toEqual([
+      'works/7 fic old copy 2023-05-05.htm',
+      'works/8 One 2022-02-02.epub',
+      'works/8 Three 2021-01-01.epub',
+    ]);
+    expect(element.querySelector('details.undecided')).toBeTruthy();
   });
 
   it('leaves the groups not yet sorted through on Skip remaining', async () => {
@@ -407,9 +456,12 @@ describe('ImportDialog', () => {
     await click('Continue');
     await click('I will choose which to keep');
     await click('Choose which to keep');
+    // a file picked by hand in the first is kept to; the rest are skipped
+    element.querySelectorAll<HTMLInputElement>('.choose-list input[type="radio"]')[0].click();
+    await fixture.whenStable();
+    await click('Next');
     await click('Skip remaining');
     await settle();
-    // the first had its newest ticked, so its other file goes; the rest are left
     expect(store.deleted).toEqual(['works/7 fic old copy 2023-05-05.htm']);
   });
 
@@ -420,7 +472,7 @@ describe('ImportDialog', () => {
     await click('Continue');
     await click('I will choose which to keep');
     await click('Choose which to keep');
-    // with an undated copy the newest cannot be told, so nothing is ticked: keep the 2020 one
+    // with an undated copy the newest cannot be told, so nothing is picked: keep the 2020 one
     const keep = element.querySelector<HTMLInputElement>('input[aria-label="Keep 9 Copy - W 2020-01-01.html"]')!;
     expect(keep.checked).toBe(false);
     keep.click();

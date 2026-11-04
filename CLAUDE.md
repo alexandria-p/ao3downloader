@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2088 python passed; 964 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2088 python passed; 967 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2177,14 +2177,19 @@ window finishes after dating (`afterDating`). What not to break:
   indexed (one whose undated files brought it into the import) keeps its origin.
 - **Duplicates come first** (`duplicates`, `choose`, `removing` steps, only with some):
   `duplicateGroups` is every work number and format (`.htm` is html) with more than one file
-  in `works/`, however named. Each row is *Skip* (default: asked again), *Keep all* (kept, on
-  the **duplicates** list), *Keep most recent* or *I'll choose*, with buttons setting every row.
+  in `works/`, however named. Each row is *Skip* (default: asked again), *Keep all* (kept, and
+  asked again too - on the **duplicates** list only when *Don't ask me again for the ones marked
+  Keep all* is ticked, `rememberKeepAll`, whose hint says how it differs from Skip), *Keep most
+  recent* or *I'll choose*, with buttons setting every row.
   **Most recent is never a guess** (`newestOf`): every file in the group needs a date in its
   name (read as *Infer date* reads one) and one must be strictly newest, or the group is
   `undecided` - nothing deleted, said on the removing page, asked again next time. *I'll
-  choose* goes through those groups one at a time (newest ticked when there is one, at least
-  one kept; *Skip remaining*, *Use most recent for remaining*); keeping two or more puts the
-  kept files on the duplicates list. `removeFiles` deletes on a page with a bar - **never every
+  choose* goes through those groups one at a time (`siftList`, fixed as sifting starts so a
+  group decided on the way keeps its place): a **radio** picks the one file kept (the newest
+  picked to begin with when there is one), *Skip this one* and *Keep most recent for this one*
+  decide that group and go to the next (the second held where the newest cannot be told), and
+  *Skip remaining* / *Use most recent for remaining* decide this one and every one after it not
+  picked by hand. `removeFiles` deletes on a page with a bar - **never every
   file of a group** - then the dialog filters what it removed out of every later page
   (`removedPaths`) and `refreshAfterRun` + `check` bring the listing and reminder up to date.
   The *No, do not ask me again for these files* choice includes the duplicates' files.

@@ -80,10 +80,10 @@
         keep for each - the rest are deleted from your library on the next page.
       </p>
       <p class="hint">
-        <em>Skip</em> leaves them and asks again next time. <em>Keep all</em> keeps every file and
-        adds the group to <code>import-excluded.json</code>, so it is not asked about again unless
-        another file for it turns up. <em>Keep most recent</em> keeps the file whose name carries
-        the latest date - when that cannot be told, nothing is deleted and it is asked again.
+        <em>Skip</em> leaves them and asks again next time. <em>Keep all</em> keeps every file - and
+        is asked about again next time too, unless you tick the box under the list. <em>Keep most
+        recent</em> keeps the file whose name carries the latest date - when that cannot be told,
+        nothing is deleted and it is asked again. <em>I'll choose</em> shows each one in turn.
       </p>
       <div class="bulk">
         <button type="button" class="button" (click)="chooseForAll('skip')">Skip all</button>
@@ -133,6 +133,19 @@
           </tbody>
         </table>
       </div>
+      <label class="check remember-keep-all">
+        <input type="checkbox" name="rememberKeepAll" [checked]="rememberKeepAll()"
+               (change)="rememberKeepAll.set($any($event.target).checked)" />
+        <span>
+          Don't ask me again for the ones marked Keep all
+          <span class="hint">
+            Unlike Skip: every file of each work and format marked <em>Keep all</em> is added to
+            <code>import-excluded.json</code> at the top of your library, and that work and format
+            is not offered as a duplicate again - unless another file for it turns up. Unticked,
+            <em>Keep all</em> keeps the files and asks again next time, as Skip does.
+          </span>
+        </span>
+      </label>
       @if (dupPaged() && dupPages() > 1) {
         <div class="pager">
           <button type="button" class="button subtle" [disabled]="dupPage() === 0" (click)="dupPage.set(dupPage() - 1)">Previous</button>
@@ -153,18 +166,18 @@
   @if (step() === 'choose') {
     @if (choosing(); as group) {
       <section class="body choose" [attr.data-group]="group.key">
-        <p class="choose-progress dim">{{ chooseAt() + 1 }} of {{ toChoose().length }}</p>
+        <p class="choose-progress dim">{{ chooseAt() + 1 }} of {{ siftList().length }}</p>
         <p>
-          <strong>Work {{ group.id }}, {{ group.format.toUpperCase() }}:</strong> tick the files to
-          keep. The rest are deleted.
+          <strong>Work {{ group.id }}, {{ group.format.toUpperCase() }}:</strong> choose the file to
+          keep. The others are deleted.
         </p>
-        <ul class="choose-list">
+        <ul class="choose-list" role="radiogroup" [attr.aria-label]="'Keep for work ' + group.id">
           @for (file of group.files; track file.path) {
             <li>
               <label class="check">
-                <input type="checkbox" [attr.aria-label]="'Keep ' + file.name"
-                       [checked]="keptIn(group).includes(file.path)"
-                       (change)="setKept(group, file, $any($event.target).checked)" />
+                <input type="radio" [attr.name]="'keep-' + group.key" [attr.aria-label]="'Keep ' + file.name"
+                       [checked]="choiceOf(group) === 'choose' && pickedIn(group) === file.path"
+                       (change)="setPicked(group, file)" />
                 <span>
                   <span class="file-name">{{ file.name }}</span>
                   <span class="hint">
@@ -176,18 +189,28 @@
             </li>
           }
         </ul>
-        @if (!keptIn(group).length) {
-          <p class="warning" role="note">Tick at least one file to keep - or skip the rest below.</p>
-        } @else if (keptIn(group).length > 1) {
-          <p class="hint">Keeping more than one: the files kept are added to <code>import-excluded.json</code> and not asked about again unless another turns up.</p>
+        <div class="bulk this-one">
+          <button type="button" class="button" [class.on]="choiceOf(group) === 'skip'" (click)="decideThis('skip')">
+            Skip this one
+          </button>
+          <button type="button" class="button" [class.on]="choiceOf(group) === 'recent'"
+                  [disabled]="!newestIn(group)"
+                  [title]="newestIn(group) ? '' : 'Can\'t tell which is newest: every file needs a date in its name, and one must be the latest'"
+                  (click)="decideThis('recent')">
+            Keep most recent for this one
+          </button>
+        </div>
+        @if (choiceOf(group) === 'choose' && !pickedIn(group)) {
+          <p class="hint">Choose a file to keep, or skip this one.</p>
         }
       </section>
       <footer>
         <button type="button" class="button subtle" (click)="choosePrevious()">Back</button>
         <button type="button" class="button" (click)="finishChoosingWith('skip')">Skip remaining</button>
         <button type="button" class="button" (click)="finishChoosingWith('recent')">Use most recent for remaining</button>
-        <button type="button" class="button primary" [disabled]="!keptIn(group).length || busy()" (click)="chooseNext()">
-          {{ chooseAt() < toChoose().length - 1 ? 'Next' : 'Continue' }}
+        <button type="button" class="button primary"
+                [disabled]="(choiceOf(group) === 'choose' && !pickedIn(group)) || busy()" (click)="chooseNext()">
+          {{ chooseAt() < siftList().length - 1 ? 'Next' : 'Continue' }}
         </button>
       </footer>
     }
