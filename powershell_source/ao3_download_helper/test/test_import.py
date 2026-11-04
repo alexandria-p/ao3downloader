@@ -257,3 +257,75 @@ def test_an_import_can_carry_on_fic_by_fic_like_several_fics():
         server.RETRY_TOP, server.RETRY_DOWNLOADS, server.RETRY_FAILED]
 
 # endregion
+
+
+# region naming files from their index entries
+
+ENTRY = {'id': '1', 'link': link(1), 'title': 'The Fic', 'authors': ['Writer']}
+
+
+def test_a_dated_file_of_an_indexed_work_is_named_from_its_entry_with_the_date_given():
+    names = server.file_names_for([
+        {'name': '1 old name.pdf', 'date': '2024-05-06', 'record': ENTRY},
+        {'name': '9 Kept From Years Ago - Another.html', 'date': '2019-08-14'},
+        {'name': '9 notes.txt', 'date': '2019-08-14'},
+        {'name': '9 x.html', 'date': 'not a date'},
+    ], 200)
+    assert names == ['1 The Fic - Writer 2024-05-06.pdf',
+                     '9 Kept From Years Ago - Another 2019-08-14.html', '', '']
+
+
+def test_the_page_can_ask_for_the_names_dating_gives():
+    sent = {}
+    handler = MagicMock()
+    handler.path = '/api/file-names'
+    handler.admitted.return_value = True
+    handler.read_json.return_value = {'files': [{'name': '1 x.html', 'date': '2024-01-02',
+                                                 'record': ENTRY}]}
+    handler.send_json.side_effect = lambda status, body: sent.update(status=status, body=body)
+    server.Handler.do_POST(handler)
+    assert sent == {'status': 200, 'body': {'names': ['1 The Fic - Writer 2024-01-02.html']}}
+
+
+def test_an_import_renames_its_works_files_to_match_their_new_entries_keeping_their_own_dates(
+        library, capsys):
+    a_copy(library, '1 2020-01-01 old fic name 2024-05-06.pdf')
+    a_copy(library, '1 old fic name.html')
+    a_copy(library, '1 The Fic - Writer 2023-02-02.epub')
+    a_copy(library, '2 Someone Else.html')
+
+    renamed = server.name_files_from_index(library, [ENTRY])
+
+    assert renamed == 2
+    assert sorted(os.listdir(os.path.join(library.downloadfolder, strings.WORKS_FOLDER_NAME))) == [
+        '1 The Fic - Writer 2023-02-02.epub',
+        '1 The Fic - Writer 2024-05-06.pdf',
+        '1 The Fic - Writer.html',
+        '2 Someone Else.html',
+    ]
+    assert 'renamed to match its index entry' in capsys.readouterr().out
+
+
+def test_an_import_never_renames_a_file_over_another(library, capsys):
+    a_copy(library, '1 old.html')
+    a_copy(library, '1 The Fic - Writer.html')
+
+    assert server.name_files_from_index(library, [ENTRY]) == 0
+    assert '1 old.html' in os.listdir(os.path.join(library.downloadfolder, strings.WORKS_FOLDER_NAME))
+    assert 'left as it is' in capsys.readouterr().out
+
+
+def test_a_work_already_indexed_is_not_marked_imported_by_an_import():
+    ao3, repo, _ = make_ao3()
+    ao3.origin_field = strings.FROM_IMPORT_FIELD
+    repo.get_soup.return_value = _work_page_soup()
+    existing = {'id': '111', 'link': link(111), 'title': 'A Fic', 'authors': ['Cal'],
+                'bookmarked': False}
+
+    with patch.object(Ao3, 'proceed', side_effect=lambda soup: soup), \
+         patch('source_code.ao3.bookmark_state', return_value={'bookmarked': False}):
+        record = ao3.index_one_work(link(111), existing)
+
+    assert strings.FROM_IMPORT_FIELD not in record
+
+# endregion

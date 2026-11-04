@@ -235,9 +235,152 @@ input[type='date'] {
   vertical-align: middle;
 }
 
-.dating tr.skipped .file-name {
+/* fixed columns, so a long name is cut short with an ellipsis rather than widening the table -
+   its whole name is the cell's title */
+.dating {
+  table-layout: fixed;
+}
+
+.dating th:nth-child(2),
+.dating td:nth-child(2) {
+  width: 150px;
+}
+
+.dating th:nth-child(3),
+.dating td:nth-child(3) {
+  width: 48px;
+  text-align: center;
+}
+
+.dating td.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* skipped: greyed, its date greyed and disabled - never struck through */
+.dating tr.skipped td.file-name {
   color: var(--text-dim);
-  text-decoration: line-through;
+}
+
+.dating tr.skipped input[type='date'] {
+  opacity: 0.45;
+}
+
+/* dated by Infer date, and not changed by hand since */
+.dating tr.inferred {
+  background: #4a3f12;
+}
+
+.dating tr.inferred td.file-name {
+  color: #f0d77a;
+}
+
+/* inferred, but skipped: the same yellow, faded */
+.dating tr.inferred.skipped {
+  background: #2e2a18;
+}
+
+.dating tr.inferred.skipped td.file-name {
+  color: #a8995c;
+}
+
+/* the bulk row's last button sits on the right */
+.bulk .infer {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--text-dim);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.infer-said {
+  margin: -4px 0 10px;
+  color: #e0c97a;
+  font-size: 0.86rem;
+}
+
+.view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.toggle {
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.toggle.on {
+  background: #33566b;
+  border-color: #5a7f9a;
+  color: var(--text-strong);
+}
+
+.dating-wrap.scrolling {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 8px 0 0;
+}
+
+.bar {
+  height: 8px;
+  margin: 8px 0 12px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+  background: #5a8fb0;
+  transition: width 0.2s;
+}
+
+.dating-failures summary {
+  cursor: pointer;
+  color: var(--danger);
+}
+
+.dating-failures ul {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 6px 0 0;
+  padding: 6px 10px 6px 24px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 0.84rem;
 }
 
 /* on the left of the footer, apart from the buttons */

@@ -717,7 +717,11 @@ class Ao3:
                       'title': page.get('title') or '', 'authors': authors}
 
         fresh = {**record, **stats, **page_bookmark_state(soup, existing)}
-        if not was_bookmark(existing) and fresh.get(strings.BOOKMARKED_FIELD) is not True:
+        # an import marks only the entries it makes: a work already indexed came from
+        # wherever it came from, and an import only brought its files up to date
+        imported_before = self.origin_field == strings.FROM_IMPORT_FIELD and bool(existing)
+        if not was_bookmark(existing) and fresh.get(strings.BOOKMARKED_FIELD) is not True \
+                and not imported_before:
             fresh[self.origin_field] = True
         # a work page is only ever a work's - an entry made here is typed like any other
         fresh.setdefault(strings.BOOKMARK_TYPE_FIELD, strings.BOOKMARK_TYPE_WORK)

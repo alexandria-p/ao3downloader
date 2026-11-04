@@ -4,6 +4,8 @@ import {
   LibraryImports,
   dateFiles,
   datedName,
+  inferDate,
+  renamesFor,
   importLinks,
   isFileDate,
   undatedFiles,
@@ -44,6 +46,11 @@ class MemoryStore implements LibraryStore {
     this.files.add(to);
   }
   async mkdir() {}
+}
+
+function found(path: string) {
+  const name = path.split('/').pop()!;
+  return { id: name.split(' ')[0], path, name, format: 'html' as const, date: '' };
 }
 
 describe('finding works with files and no index entry', () => {
@@ -116,20 +123,70 @@ describe('dating a file', () => {
     store.refuse.add('works/2 C - D.pdf');
     const seen: number[] = [];
 
-    const result = await dateFiles(
-      store,
-      new Map([
-        ['works/1 A - B.html', '2024-01-01'],
-        ['works/2 C - D.pdf', '2024-01-02'],
-      ]),
-      (done) => seen.push(done),
-    );
+    const renames = await renamesFor([
+      { file: found('works/1 A - B.html'), date: '2024-01-01' },
+      { file: found('works/2 C - D.pdf'), date: '2024-01-02' },
+    ]);
+    const result = await dateFiles(store, renames, (done) => seen.push(done));
 
     expect(result.renamed).toEqual([{ from: 'works/1 A - B.html', to: 'works/1 A - B 2024-01-01.html' }]);
     expect(result.failed.map((f) => f.path)).toEqual(['works/2 C - D.pdf']);
     expect([...store.files].sort()).toEqual(['works/1 A - B 2024-01-01.html', 'works/2 C - D.pdf']);
     expect(seen).toEqual([1, 2]);
   });
+
+  it('names a file from the helper where it answers, and adds the date where it does not', async () => {
+    const renames = await renamesFor(
+      [
+        { file: found('works/7 old.html'), date: '2024-02-03', record: { id: '7' } },
+        { file: found('works/8 x.pdf'), date: '2024-02-03' },
+      ],
+      async () => ['7 The Fic - Writer 2024-02-03.html', ''],
+    );
+    expect(renames.map((r) => r.to)).toEqual(['works/7 The Fic - Writer 2024-02-03.html', 'works/8 x 2024-02-03.pdf']);
+
+    const fallback = await renamesFor([{ file: found('works/7 old.html'), date: '2024-02-03' }], async () => {
+      throw new Error('no helper');
+    });
+    expect(fallback[0].to).toBe('works/7 old 2024-02-03.html');
+  });
+
+  it('stops before the next rename once told to', async () => {
+    const store = new MemoryStore(['works/1 A.html', 'works/2 B.html']);
+    let stop = false;
+    const result = await dateFiles(
+      store,
+      [{ path: 'works/1 A.html', to: 'works/1 A 2024-01-01.html' }, { path: 'works/2 B.html', to: 'works/2 B 2024-01-01.html' }],
+      () => (stop = true),
+      () => stop,
+    );
+    expect(result.renamed).toHaveLength(1);
+  });
+});
+
+describe('inferring a date from a file name', () => {
+  const cases: [string, string][] = [
+    ['1 Fic - W 2024-03-04.html', '2024-03-04'],
+    ['1 Fic 2024_03_04 - W.html', '2024-03-04'],
+    ['1 Fic 2024.03.04.html', '2024-03-04'],
+    ['1 Fic - W 20240304.pdf', '2024-03-04'],
+    ['1 Fic - W 03-04-2024.epub', '2024-03-04'],
+    ['1 Fic - W 25-04-2024.epub', '2024-04-25'],
+    ['1 Fic - W 14 Dec 2024.html', '2024-12-14'],
+    ['1 Fic - W 4th December 2024.html', '2024-12-04'],
+    ['1 Fic - W Dec 14, 2024.html', '2024-12-14'],
+    ['1 Fic - W December 14 2024.html', '2024-12-14'],
+    ['1 Fic - W 2024 Dec 14.html', '2024-12-14'],
+    ['1 Fic - W.html', ''],
+    ['20240304 Fic - W.html', ''],
+    ['1 Fic - W 2024-13-40.html', ''],
+    ['1 Fic - W 1850-01-01.html', ''],
+  ];
+  for (const [name, date] of cases) {
+    it(`reads "${name}" as ${date || 'no date'}`, () => {
+      expect(inferDate(name)).toBe(date);
+    });
+  }
 });
 
 describe('LibraryImports', () => {

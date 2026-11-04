@@ -4,58 +4,26 @@
      (click)="$event.stopPropagation()">
   <header>
     <h2>Resolve issues found in your library</h2>
-    @if (step() !== 'dating') {
-      <button type="button" class="icon" (click)="close()" aria-label="Close">&times;</button>
-    }
+    <button type="button" class="icon" (click)="close()" aria-label="Close">&times;</button>
   </header>
 
-  @if (step() === 'found') {
-    <section class="body">
-      @if (importable()) {
-        <p class="found-count">
-          Your library has <strong>{{ works().length | number }}
-          {{ works().length === 1 ? 'work' : 'works' }}</strong>
-          ({{ fileCount() | number }} {{ fileCount() === 1 ? 'file' : 'files' }}) in
-          <code>works/</code> with no index entry. They are named for their work number, so they
-          can be looked up on AO3 and indexed.
-        </p>
-      }
-      @if (undatedElsewhere().length) {
-        <p class="undated-elsewhere">
-          {{ undatedElsewhere().length | number }}
-          {{ undatedElsewhere().length === 1 ? 'file of a work already in your index has' : 'files of works already in your index have' }}
-          no date in {{ undatedElsewhere().length === 1 ? 'its name' : 'their names' }}.
-        </p>
-      }
+  <!-- 1: what was found, in a sentence each - the lists come on the pages after -->
+  @if (step() === 'overview') {
+    <section class="body overview">
       @if (undated().length) {
-        <p>
-          A run cannot tell whether AO3 has a newer version of a file with no date in its name
-          ({{ undated().length | number }} {{ undated().length === 1 ? 'file' : 'files' }} here,
-          in yellow). You can give {{ undated().length === 1 ? 'it' : 'them' }} a date next.
+        <p class="overview-undated">
+          {{ undated().length | number }}
+          {{ undated().length === 1 ? 'file imported from your library has' : 'files imported from your library have' }}
+          no date in {{ undated().length === 1 ? 'its name' : 'their names' }}. You can give
+          {{ undated().length === 1 ? 'it' : 'them' }} a date next.
         </p>
       }
-      <ul class="found-list">
-        @for (file of undatedElsewhere().slice(0, shownWorks); track file.path) {
-          <li>
-            <span class="work-id">Work {{ file.id }}</span>
-            <span class="file-name undated">{{ file.name }}</span>
-          </li>
-        }
-        @if (undatedElsewhere().length > shownWorks) {
-          <li class="dim">and {{ undatedElsewhere().length - shownWorks | number }} more undated files</li>
-        }
-        @for (work of works().slice(0, shownWorks); track work.id) {
-          <li>
-            <span class="work-id">Work {{ work.id }}</span>
-            @for (file of work.files; track file.path) {
-              <span class="file-name" [class.undated]="!file.date">{{ file.name }}</span>
-            }
-          </li>
-        }
-        @if (works().length > shownWorks) {
-          <li class="dim">and {{ works().length - shownWorks | number }} more</li>
-        }
-      </ul>
+      @if (works().length) {
+        <p class="overview-unindexed">
+          Your library has {{ works().length | number }}
+          {{ works().length === 1 ? 'work that was' : 'works that were' }} imported with no index entry.
+        </p>
+      }
       @if (busy()) {
         <p class="warning busy-note" role="note">
           A run is in progress. Nothing can be renamed or imported until it has finished - this
@@ -70,14 +38,15 @@
         <span>Don't ask me again</span>
       </label>
       <button type="button" class="button subtle" (click)="close()">Not now</button>
-      <button type="button" class="button primary" [disabled]="busy()" (click)="fromFound()">
+      <button type="button" class="button primary" [disabled]="busy()" (click)="fromOverview()">
         Continue
       </button>
     </footer>
   }
 
+  <!-- 2: a date for each undated file, one for all, inferred from the names, or skipped -->
   @if (step() === 'dates') {
-    <section class="body">
+    <section class="body dates">
       <p>
         <strong>Would you like to give these files a date?</strong> It goes at the end of the
         name, the way every download is named, and says which version of the work the file
@@ -85,7 +54,8 @@
         your copy is outdated.
       </p>
       <p class="hint">
-        Not sure? Skip it. A skipped file keeps its name, and the import leaves it alone.
+        Not sure? Leave it empty, or skip it. A file with no date keeps its name, and the
+        import leaves it alone.
       </p>
       <div class="bulk">
         <label>
@@ -97,69 +67,112 @@
           Use for all
         </button>
         <button type="button" class="button" (click)="skipAll()">Skip all</button>
+        <button type="button" class="button infer" [disabled]="inferring()" (click)="inferDates()"
+                title="Read a date out of each file's name, however it is written">
+          @if (inferring()) { <span class="spinner" aria-hidden="true"></span> }
+          Infer date
+        </button>
       </div>
-      <table class="dating">
-        <thead>
-          <tr><th>File</th><th>Date</th><th>Skip</th></tr>
-        </thead>
-        <tbody>
-          @for (file of undated(); track file.path) {
-            <tr [class.skipped]="isSkipped(file)" [attr.data-file]="file.path">
-              <td class="file-name">{{ file.name }}</td>
-              <td>
-                <input type="date" [attr.aria-label]="'Date for ' + file.name"
-                       [value]="dateOf(file)" [disabled]="isSkipped(file)"
-                       (input)="setDate(file, $any($event.target).value)" />
-              </td>
-              <td>
-                <input type="checkbox" [attr.aria-label]="'Skip ' + file.name"
-                       [checked]="isSkipped(file)"
-                       (change)="setSkipped(file, $any($event.target).checked)" />
-              </td>
-            </tr>
+      @if (inferredCount() !== null) {
+        <p class="infer-said" role="status">
+          @if (inferredCount()) {
+            {{ inferredCount() | number }} {{ inferredCount() === 1 ? 'file was' : 'files were' }} auto-dated.
+          } @else {
+            Unable to auto-date any works.
           }
-        </tbody>
-      </table>
-      @if (unsettled().length) {
-        <p class="hint unsettled">
-          {{ unsettled().length | number }} still {{ unsettled().length === 1 ? 'needs' : 'need' }}
-          a date or a skip.
         </p>
+      }
+      <div class="view-toggle" role="group" aria-label="How to show the files">
+        <button type="button" class="toggle" [class.on]="paged()" (click)="setPaged(true)">Pages</button>
+        <button type="button" class="toggle" [class.on]="!paged()" (click)="setPaged(false)">One scrolling list</button>
+        <span class="dim">{{ rows().length | number }} {{ rows().length === 1 ? 'file' : 'files' }}</span>
+      </div>
+      <div class="dating-wrap" [class.scrolling]="!paged()">
+        <table class="dating">
+          <thead>
+            <tr><th>File</th><th>Date</th><th>Skip</th></tr>
+          </thead>
+          <tbody>
+            @for (file of shownRows(); track file.path) {
+              <tr [attr.data-file]="file.path" [class.skipped]="isSkipped(file)"
+                  [class.inferred]="isInferred(file)">
+                <td class="file-name" [title]="file.name">{{ file.name }}</td>
+                <td>
+                  <input type="date" [attr.aria-label]="'Date for ' + file.name"
+                         [value]="dateOf(file)" [disabled]="isSkipped(file)"
+                         (input)="setDate(file, $any($event.target).value)" />
+                </td>
+                <td>
+                  <input type="checkbox" [attr.aria-label]="'Skip ' + file.name"
+                         [checked]="isSkipped(file)"
+                         (change)="setSkipped(file, $any($event.target).checked)" />
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (paged() && pages() > 1) {
+        <div class="pager">
+          <button type="button" class="button subtle" [disabled]="page() === 0" (click)="page.set(page() - 1)">Previous</button>
+          <span class="dim">Page {{ page() + 1 }} of {{ pages() }}</span>
+          <button type="button" class="button subtle" [disabled]="page() >= pages() - 1" (click)="page.set(page() + 1)">Next</button>
+        </div>
       }
     </section>
     <footer>
       <button type="button" class="button subtle" (click)="backFrom('dates')">Back</button>
-      <button type="button" class="button primary"
-              [disabled]="unsettled().length > 0 || busy()" (click)="fromDates()">
-        {{ toDate().length ? 'Date ' + toDate().length + (toDate().length === 1 ? ' file' : ' files') + (importable() ? ' and continue' : ' and finish') : (importable() ? 'Continue' : 'Done') }}
+      <button type="button" class="button primary" [disabled]="inferring() || busy()" (click)="fromDates()">
+        {{ toDate().length ? 'Date ' + (toDate().length | number) + (toDate().length === 1 ? ' file' : ' files') + ' and continue' : 'Skip this step' }}
       </button>
     </footer>
   }
 
+  <!-- 3: the renames. no going back from here; the cross stops them after the one in hand -->
   @if (step() === 'dating') {
     <section class="body">
-      <p class="dating-progress">
-        Dating files...
-        @if (datingProgress(); as p) { {{ p.done | number }} of {{ p.total | number }} }
-      </p>
-    </section>
-  }
-
-  @if (step() === 'fetch') {
-    <section class="body">
-      @if (dated(); as d) {
-        <p class="dated-said">
-          Dated {{ d.renamed.length | number }} {{ d.renamed.length === 1 ? 'file' : 'files' }}.
-          @if (d.failed.length) {
-            <span class="warning-text">
-              {{ d.failed.length | number }} could not be renamed and kept {{ d.failed.length === 1 ? 'its' : 'their' }} name:
-              {{ d.failed[0].path }} ({{ d.failed[0].error }}){{ d.failed.length > 1 ? ', ...' : '' }}
-            </span>
-          }
+      @if (dating()) {
+        <p class="dating-progress" role="status">
+          Dating files... {{ datingProgress().done | number }} of {{ datingProgress().total | number }}
         </p>
       }
+      <div class="bar" role="progressbar" [attr.aria-valuenow]="datingProgress().done"
+           [attr.aria-valuemax]="datingProgress().total">
+        <span [style.width.%]="datingProgress().total ? (datingProgress().done / datingProgress().total) * 100 : 0"></span>
+      </div>
+      @if (!dating() && dated(); as d) {
+        <p class="dated-said">
+          Dated {{ d.renamed.length | number }} {{ d.renamed.length === 1 ? 'file' : 'files' }}.
+        </p>
+        @if (d.failed.length) {
+          <details class="dating-failures">
+            <summary>
+              {{ d.failed.length | number }} {{ d.failed.length === 1 ? 'file' : 'files' }} could not be renamed
+            </summary>
+            <ul>
+              @for (failure of d.failed; track failure.path) {
+                <li><span class="file-name" [title]="failure.path">{{ failure.path }}</span> - {{ failure.error }}</li>
+              }
+            </ul>
+          </details>
+        }
+      }
+    </section>
+    <footer>
+      <button type="button" class="button primary" [disabled]="dating()" (click)="fromDating()">
+        Continue
+      </button>
+    </footer>
+  }
+
+  <!-- 4: the works with no index entry - fetch them now? -->
+  @if (step() === 'index') {
+    <section class="body">
       <fieldset>
         <legend>Fetch their index entries from AO3 now?</legend>
+        <p class="hint">
+          {{ works().length | number }} {{ works().length === 1 ? 'work has' : 'works have' }} no index entry.
+        </p>
         <label class="check">
           <input type="radio" name="fetchNow" [checked]="fetchNow()" (change)="fetchNow.set(true)" />
           <span>Yes - look each work up on AO3 and index it</span>
@@ -169,54 +182,69 @@
           <span>Not now - they stay unindexed, and this is offered again</span>
         </label>
       </fieldset>
-      @if (fetchNow()) {
-        <fieldset class="formats">
-          <legend>Also download them in other formats?</legend>
-          <p class="hint">
-            Ticking a format fetches it for every work that does not have it. Formats a work
-            already has are not fetched again (unless replacing outdated copies, below).
-          </p>
-          @for (format of offered(); track format) {
-            <label class="check">
-              <input type="checkbox" [attr.name]="'format-' + format"
-                     [checked]="picked().includes(format)"
-                     (change)="toggleFormat(format, $any($event.target).checked)" />
-              <span>
-                {{ format }}
-                @if (held().has(format)) { <span class="dim">(some already have it)</span> }
-              </span>
-            </label>
-          }
-        </fieldset>
-        <label class="check">
-          <input type="checkbox" name="replaceOutdated" [checked]="replaceOutdated()"
-                 (change)="replaceOutdated.set($any($event.target).checked)" />
-          <span>
-            Replace a copy you have when AO3 has a newer version than the date in its name
-            <span class="hint">A copy with no date is never replaced, and neither is one that is current.</span>
-          </span>
-        </label>
+      @if (busy()) {
+        <p class="warning busy-note" role="note">A run is in progress. It has to finish before an import can start.</p>
+      }
+    </section>
+    <footer>
+      @if (canGoBack()) {
+        <button type="button" class="button subtle" (click)="backFrom('index')">Back</button>
+      }
+      <button type="button" class="button primary" (click)="step.set('formats')">Continue</button>
+    </footer>
+  }
+
+  <!-- 5: other formats, and replacing outdated copies -->
+  @if (step() === 'formats') {
+    <section class="body">
+      <fieldset class="formats">
+        <legend>Also download them in other formats?</legend>
+        <p class="hint">
+          Ticking a format fetches it for every work here that does not have it. Formats a work
+          already has are not fetched again (unless replacing outdated copies, below).
+        </p>
+        @for (format of offered(); track format) {
+          <label class="check">
+            <input type="checkbox" [attr.name]="'format-' + format"
+                   [checked]="picked().includes(format)"
+                   (change)="toggleFormat(format, $any($event.target).checked)" />
+            <span>
+              {{ format }}
+              @if (held().has(format)) { <span class="dim">(some already have it)</span> }
+            </span>
+          </label>
+        }
+      </fieldset>
+      <label class="check">
+        <input type="checkbox" name="replaceOutdated" [checked]="replaceOutdated()"
+               (change)="replaceOutdated.set($any($event.target).checked)" />
+        <span>
+          Replace a copy you have when AO3 has a newer version than the date in its name
+          <span class="hint">A copy with no date is never replaced, and neither is one that is current.</span>
+        </span>
+      </label>
+      @if (runs()) {
         <p class="hint login-next">
           Next you log in to AO3, in case some of these works are restricted to AO3 users. You
           can skip the login there, but works only AO3 users can see will then fail.
         </p>
-        @if (tooMany()) {
-          <p class="warning" role="note">
-            One import takes at most {{ maxWorks | number }} works, so the first
-            {{ maxWorks | number }} are imported now and the rest are offered again afterwards.
-          </p>
-        }
+      }
+      @if (tooMany()) {
+        <p class="warning" role="note">
+          One import takes at most {{ maxWorks | number }} works, so the first
+          {{ maxWorks | number }} are imported now and the rest are offered again afterwards.
+        </p>
       }
       @if (busy()) {
-        <p class="warning busy-note" role="note">
-          A run is in progress. It has to finish before an import can start.
-        </p>
+        <p class="warning busy-note" role="note">A run is in progress. It has to finish before an import can start.</p>
       }
     </section>
     <footer>
-      <button type="button" class="button subtle" (click)="backFrom('fetch')">Back</button>
-      <button type="button" class="button primary" [disabled]="fetchNow() && busy()" (click)="finish()">
-        {{ fetchNow() ? 'Continue to the run' : 'Done' }}
+      @if (canGoBack() || works().length) {
+        <button type="button" class="button subtle" (click)="backFrom('formats')">Back</button>
+      }
+      <button type="button" class="button primary" [disabled]="runs() && busy()" (click)="finish()">
+        {{ runs() ? 'Continue to the run' : 'Done' }}
       </button>
     </footer>
   }

@@ -793,6 +793,28 @@ export class Jobs {
     }
   }
 
+  /**
+   * The names dating gives files (`POST /api/file-names`): from each work's index entry where it
+   * has one, as a download would name it, with the date given. Null when the helper does not
+   * answer - the page then adds the date to the name each file has.
+   */
+  async fileNames(files: readonly { file: { name: string }; date: string; record?: object }[]): Promise<string[] | null> {
+    try {
+      const response = await this.helper.call(`/api/file-names`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          files: files.map((x) => ({ name: x.file.name, date: x.date, record: x.record })),
+        }),
+      });
+      if (!response.ok) return null;
+      const names = ((await response.json()) as { names?: unknown }).names;
+      return Array.isArray(names) && names.length === files.length ? names.map((x) => String(x ?? '')) : null;
+    } catch {
+      return null;
+    }
+  }
+
   async loadRetryableRuns(store: LibraryStore | null): Promise<RetryableRun[] | null> {
     if (!store) return null;
     try {

@@ -394,6 +394,55 @@ def resolve_options(requested) -> dict:
     }
 
 
+# the formats a downloaded work is saved in, by extension - a file named for a work in one of
+# these is that work's copy
+WORK_FILE_EXTENSIONS = ('.html', '.htm', '.epub', '.pdf', '.mobi', '.azw3')
+
+
+def indexed_file_name(record: dict, date: str, extension: str, maximum: int) -> str:
+    """The name a work's file has when it is named from its index entry, as a download names
+    it - `{worknum} {title} - {author}`, cut to `maximum` - but carrying `date` rather than the
+    entry's own `date_updated`. That date is the version the file holds, which is not
+    necessarily the one AO3 has now."""
+
+    parts = parse_soup.apply_name_pattern(
+        parse_soup.get_name_metadata_from_blurb(record), strings.FILE_NAME_PATTERN)
+    stem = parse_text.get_valid_filename(parts, maximum, parse_text.get_date_suffix(date))
+    return (stem or str(record.get('id') or '')) + extension
+
+
+def dated_file_name(name: str, date: str, maximum: int) -> str:
+    """A file with no index entry, given a date: the date on the end of the name it has, cut
+    to leave room as a download's name would be (the same rule as `stamp_undated_works`)."""
+
+    base, extension = os.path.splitext(name)
+    suffix = ' ' + date
+    room = max(1, maximum - len(suffix)) if maximum > 0 else 0
+    trimmed = base[:room].strip() if room else base.strip()
+    return trimmed + suffix + extension
+
+
+def file_names_for(files, maximum: int) -> list[str]:
+    """What the page's dating should rename each file to (`POST /api/file-names`): from its
+    index entry where it has one, or by adding the date to the name it has. A request that does
+    not make sense answers '' for that file, and the page leaves the file alone."""
+
+    names = []
+    for item in files if isinstance(files, list) else []:
+        item = item if isinstance(item, dict) else {}
+        name = str(item.get('name') or '').replace('\\', '/').split('/')[-1]
+        date = parse_text.get_date_stamp(item.get('date') or '')
+        record = item.get('record')
+        extension = os.path.splitext(name)[1]
+        if not name or not date or extension.lower() not in WORK_FILE_EXTENSIONS:
+            names.append('')
+        elif isinstance(record, dict) and record.get('id'):
+            names.append(indexed_file_name(record, date, extension, maximum))
+        else:
+            names.append(dated_file_name(name, date, maximum))
+    return names
+
+
 def example_file_name(maximum: int) -> str:
     """The naming rule shown as an actual name.
 
@@ -2712,6 +2761,7 @@ def run_fic_list(job: Job, fileops: FileOps, repo: Repository, report, importing
     else: job.steps.done('index')
 
     if importing:
+        name_files_from_index(fileops, records)
         keep = not job.options.get('replaceOutdated')
         if keep and downloadtypes: print(strings.AO3_INFO_IMPORT_KEEPING)
         download_planned(job, fileops, ao3, records, downloadtypes, report, keep_existing=keep)
@@ -4399,6 +4449,46 @@ def keep_newer_copies(job: 'Job', records: list[dict], existing: dict, plan: dic
             if not missing and link in plan['stale']: plan['stale'].remove(link)
 
 
+def name_files_from_index(fileops: FileOps, records: list[dict]) -> int:
+    """An import's works, once indexed: each file of theirs in works/ that is not named the way
+    its index entry names it is renamed so it is - **keeping the date its own name ends in**,
+    which is the version the file holds and may well be older than AO3's. A file with no date
+    keeps none. Never over another file; one that will not rename is said and left. Answers how
+    many were renamed.
+
+    Only an import does this: its files came from elsewhere, named however they were, and an
+    entry has just been made for them. Every other run's files were named by a run already.
+    """
+
+    if not records: return 0
+    by_work = {str(r.get('id') or ''): r for r in records if r.get('id')}
+    maximum = fileops.get_ini_value_integer(strings.INI_NAME_LENGTH, strings.INI_DEFAULT_NAME_LENGTH)
+    folder = fileops.worksfolder
+    try:
+        paths = fileops.storage.files_under(folder) if fileops.storage else \
+            [os.path.join(folder, x) for x in os.listdir(folder)]
+    except Exception as e:
+        print(strings.AO3_INFO_IMPORT_NAMES_UNREADABLE.format(e))
+        return 0
+
+    renamed = 0
+    for path in paths:
+        name = path.replace('\\', '/').rsplit('/', 1)[-1]
+        extension = os.path.splitext(name)[1]
+        record = by_work.get(parse_text.get_work_number_from_filename(name) or '')
+        if record is None or extension.lower() not in WORK_FILE_EXTENSIONS: continue
+        wanted = indexed_file_name(record, parse_text.get_date_from_filename(name) or '',
+                                   extension, maximum)
+        if wanted == name: continue
+        new = os.path.join(os.path.dirname(path), wanted)
+        if fileops.exists(new) or not fileops.rename_file(path, new):
+            print(strings.AO3_INFO_IMPORT_NAME_KEPT.format(name, wanted))
+            continue
+        print(strings.AO3_INFO_IMPORT_RENAMED.format(name, wanted))
+        renamed += 1
+    return renamed
+
+
 def keep_existing_copies(records: list[dict], plan: dict, filetypes: list[str]) -> None:
     """Keep every copy already in the folder, current or not - an import told not to replace
     outdated copies.
@@ -4836,6 +4926,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {'runs': [
                 {**record, 'missingDownloads': missing_downloads(record)}
                 for record in floors_among(records if isinstance(records, list) else [])]})
+            return
+
+        if self.path == '/api/file-names':
+            # the page dates files in the library itself, and names them the way a download
+            # would - from the work's index entry where it has one
+            try:
+                files = self.read_json().get('files')
+            except Exception:
+                self.send_json(400, {'error': 'invalid json'})
+                return
+            maximum = FileOps().get_ini_value_integer(strings.INI_NAME_LENGTH,
+                                                      strings.INI_DEFAULT_NAME_LENGTH)
+            self.send_json(200, {'names': file_names_for(files, maximum)})
             return
 
         if self.path == '/api/runs/retryable':

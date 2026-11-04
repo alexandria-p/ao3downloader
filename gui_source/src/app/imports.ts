@@ -118,30 +118,127 @@ export interface DatingResult {
   failed: { path: string; error: string }[];
 }
 
+/** one file to rename: where it is now, and the name it takes */
+export interface Rename {
+  path: string;
+  to: string;
+}
+
 /**
- * Give each file its date, by renaming it in place. One that will not rename - a file already
- * there by the new name, or the library out of reach - is noted and the rest carry on; a
- * rename never writes over another file (`LibraryStore.rename` refuses to).
+ * Rename each file to its new name, in place. One that will not rename - a file already there
+ * by the new name, or the library out of reach - is noted and the rest carry on; a rename never
+ * writes over another file (`LibraryStore.rename` refuses to). `stopped` is asked before each
+ * one, so closing the window part way through stops there: what was renamed stays renamed.
  */
 export async function dateFiles(
   store: LibraryStore,
-  dates: ReadonlyMap<string, string>,
+  renames: readonly Rename[],
   progress: (done: number, total: number) => void = () => undefined,
+  stopped: () => boolean = () => false,
+  result: DatingResult = { renamed: [], failed: [] },
 ): Promise<DatingResult> {
-  const result: DatingResult = { renamed: [], failed: [] };
-  const all = [...dates.entries()];
-  for (const [index, [path, date]] of all.entries()) {
-    const name = path.split('/').pop() ?? path;
-    const to = `${path.slice(0, path.length - name.length)}${datedName(name, date)}`;
+  for (const [index, { path, to }] of renames.entries()) {
+    if (stopped()) break;
+    if (to === path) {
+      progress(index + 1, renames.length);
+      continue;
+    }
     try {
       await store.rename(path, to);
       result.renamed.push({ from: path, to });
     } catch (error) {
       result.failed.push({ path, error: error instanceof Error ? error.message : String(error) });
     }
-    progress(index + 1, all.length);
+    progress(index + 1, renames.length);
   }
   return result;
+}
+
+/** a file to be given a date, with the index entry of its work when there is one */
+export interface ToDate {
+  file: FoundFile;
+  date: string;
+  record?: object;
+}
+
+/**
+ * The new name of each file given a date. A file whose work is indexed is named from that entry,
+ * as a download names it, carrying the date given (`ask`: the helper's `POST /api/file-names`,
+ * which builds names with the very code a download uses); one with no entry - or when the
+ * helper cannot be asked - keeps its name with the date added at the end (`datedName`).
+ */
+export async function renamesFor(
+  files: readonly ToDate[],
+  ask: (files: readonly ToDate[]) => Promise<string[] | null> = async () => null,
+): Promise<Rename[]> {
+  let names: string[] | null = null;
+  try {
+    names = await ask(files);
+  } catch {
+    names = null;
+  }
+  return files.map((item, index) => {
+    const named = names?.[index];
+    const name = named || datedName(item.file.name, item.date);
+    const folder = item.file.path.slice(0, item.file.path.length - item.file.name.length);
+    return { path: item.file.path, to: folder + name };
+  });
+}
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/** the years a date in a file name can plausibly be: AO3 opened in 2008, fanfic predates it */
+function plausible(year: number): boolean {
+  return year >= 1990 && year <= new Date().getUTCFullYear() + 1;
+}
+
+function stamp(year: number, month: number, day: number): string {
+  const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return plausible(year) && isFileDate(date) ? date : '';
+}
+
+/**
+ * The ways a date is written in file names, tried in this order - the first that gives a real
+ * day wins. Day-first and month-first both write `03-04-2024`, so month-first (the US way, and
+ * what most tools write) is tried first; a day over 12 can only be day-first.
+ */
+const DATE_PATTERNS: { pattern: RegExp; read: (m: RegExpExecArray) => string }[] = [
+  // 2024-03-04, 2024_03_04, 2024.03.04, 2024/03/04, 2024 03 04
+  { pattern: /(?<!\d)(\d{4})[-_. /](\d{1,2})[-_. /](\d{1,2})(?!\d)/, read: (m) => stamp(+m[1], +m[2], +m[3]) },
+  // 20240304
+  { pattern: /(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)/, read: (m) => stamp(+m[1], +m[2], +m[3]) },
+  // 03-04-2024 as month-first, then day-first
+  { pattern: /(?<!\d)(\d{1,2})[-_. /](\d{1,2})[-_. /](\d{4})(?!\d)/, read: (m) => stamp(+m[3], +m[1], +m[2]) || stamp(+m[3], +m[2], +m[1]) },
+  // 14 Dec 2024, 14 December 2024, 14-Dec-2024
+  { pattern: /(?<!\d)(\d{1,2})(?:st|nd|rd|th)?[-_. ]+([a-z]{3,9})\.?[-_., ]+(\d{4})(?!\d)/i, read: (m) => monthDate(m[3], m[2], m[1]) },
+  // Dec 14 2024, December 14, 2024
+  { pattern: /(?<![a-z])([a-z]{3,9})\.?[-_. ]+(\d{1,2})(?:st|nd|rd|th)?,?[-_. ]+(\d{4})(?!\d)/i, read: (m) => monthDate(m[3], m[1], m[2]) },
+  // 2024 Dec 14
+  { pattern: /(?<!\d)(\d{4})[-_. ]+([a-z]{3,9})\.?[-_. ]+(\d{1,2})(?!\d)/i, read: (m) => monthDate(m[1], m[2], m[3]) },
+];
+
+function monthDate(year: string, month: string, day: string): string {
+  const index = MONTHS.indexOf(month.slice(0, 3).toLowerCase());
+  return index < 0 ? '' : stamp(+year, index + 1, +day);
+}
+
+/**
+ * A date read out of a file's name, written any of the ways in `DATE_PATTERNS` and anywhere in
+ * the name - or '' when there is none. The work number the name starts with is left out, so a
+ * work numbered 20240304 is not read as a date.
+ */
+export function inferDate(name: string): string {
+  const base = name.replace(/\.[^.]*$/, '');
+  const id = workIdFromFilename(base);
+  const rest = id ? base.slice(id.length) : base;
+  for (const { pattern, read } of DATE_PATTERNS) {
+    const global = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g');
+    for (let m = global.exec(rest); m; m = global.exec(rest)) {
+      const date = read(m);
+      if (date) return date;
+    }
+  }
+  return '';
 }
 
 /** the links an import run is started with, one to a line, as the helper keeps them */

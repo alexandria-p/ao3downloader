@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2077 python passed; 888 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2082 python passed; 915 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2142,11 +2142,19 @@ window finishes after dating (`afterDating`). What not to break:
   run is in progress*. The window itself refuses to rename or start while `busy`. A run ending
   changes the index, which checks again, and the offer comes back then. The helper's 409 is
   the last guard against a run started elsewhere in the meantime.
-- **Dating is the page's**, before any run: `dateFiles` renames each file to `datedName`
-  (` YYYY-MM-DD` before the extension), through `LibraryStore.rename`, which never writes over
-  a file; one that fails is said and the rest carry on. `takeInDating` hands the renames to
-  `refreshAfterRun` so the listing opens them by their new names. A date has to be a real day
-  (`isFileDate`); every undated file needs a date or a skip before the page moves on.
+- **One question per page, each passed over when it has nothing to ask**: overview (counts
+  only), dates, dating (progress), index, formats (`Step`). **Dating is the page's**, before
+  any run: `renamesFor` asks the helper (`Jobs.fileNames`, `POST /api/file-names`,
+  `file_names_for`) for each file's name - from its work's index entry where it has one
+  (`indexed_file_name`, the same pattern, truncation and invalid characters a download uses,
+  with the date given), otherwise `dated_file_name` - and falls back to `datedName` when the
+  helper does not answer. **Don't build names in the page**: the helper's rules would drift.
+  `dateFiles` renames through `LibraryStore.rename` (never over a file), says each failure and
+  carries on, and stops when the window is closed (`stopped`). `takeInDating` hands the renames
+  to `refreshAfterRun`. A date has to be a real day (`isFileDate`); a file with none is simply
+  not dated. **Infer date** (`inferDate`, `DATE_PATTERNS`) reads a date out of a name in any of
+  several forms and never from the leading work number; the rows it dated are reordered and
+  marked (`order`, `inferred`) as the user asked, and a hand edit clears the mark only.
 - **The run is the several-fics run with three differences** (`run_fic_list(importing=True)`):
   entries are marked `from_import` (`Ao3.origin_field`; `rescue_one` too) - an identity field,
   in `IDENTITY_FIELDS` - unless the work turns out to be your bookmark; it **never overwrites**
@@ -2155,6 +2163,11 @@ window finishes after dating (`afterDating`). What not to break:
   only missing formats are fetched; and `settle_undated` asks nothing on an import
   (`AO3_INFO_IMPORT_UNDATED_KEPT`) - the page offered to date them, so one left undated was left
   so on purpose. No series walk. `replaceOutdated` is clamped off for every other action.
+  **Once indexed, each work's files are named from its entry** (`name_files_from_index`, the
+  import's alone): a file not named the way its entry names it is renamed, keeping the date its
+  own name ends in - the version the file holds, which may be older than AO3's - never over
+  another file. Only an entry the import **makes** is marked `from_import`; a work already
+  indexed (one whose undated files brought it into the import) keeps its origin.
 - **The run window has no link, options or file types step for it** (`importing` input: links,
   count, file types, `replaceOutdated`), only the background step and the login, with the
   import's summary (`importBlurb`) on whichever comes first. Its background questions leave out
