@@ -157,11 +157,14 @@ describe('ImportDialog', () => {
   it('opens on an overview that says what was found, and lists nothing yet', async () => {
     await open();
     expect(step()).toBe('overview');
+    // works 2 (two undated files) and 3
+    expect(element.querySelector('.overview-undated')?.textContent?.trim()).toBe('2 works have no date');
+    expect(element.querySelector('.overview-heading')?.textContent).toContain('Issues found in import:');
     expect(element.querySelector('.overview-undated')?.textContent).toContain(
-      '3 files imported from your library have no date in their names. You can give them a date next.',
+      'no date',
     );
     expect(element.querySelector('.overview-unindexed')?.textContent).toContain(
-      'Your library has 3 works that were imported with no index entry.',
+      '3 works have no index',
     );
     expect(element.querySelector('tr[data-file]')).toBeNull();
     expect(element.textContent).not.toContain('1 A - B');
@@ -170,7 +173,7 @@ describe('ImportDialog', () => {
   it('says only what applies', async () => {
     await open(ALL_DATED);
     expect(element.querySelector('.overview-undated')).toBeNull();
-    expect(element.querySelector('.overview-unindexed')?.textContent).toContain('1 work that was imported');
+    expect(element.querySelector('.overview-unindexed')?.textContent?.trim()).toBe('1 work has no index');
   });
 
   it('goes straight to the index question when no file needs a date', async () => {
@@ -292,9 +295,19 @@ describe('ImportDialog', () => {
     await fixture.whenStable();
   }
 
+  it('lists the issues as bullets under one heading: duplicates, then dates, then index', async () => {
+    await open(SOME, false, [], DUPES);
+    expect(element.querySelector('.overview-heading')?.textContent?.trim()).toBe('Issues found in import:');
+    expect([...element.querySelectorAll('.overview-issues li')].map((li) => li.textContent?.trim())).toEqual([
+      '3 works have duplicate files',
+      '2 works have no date',
+      '3 works have no index',
+    ]);
+  });
+
   it('lists each work and format with more than one file, every file under it, skipped to begin with', async () => {
     await open([], false, [], DUPES);
-    expect(element.querySelector('.overview-duplicates')?.textContent).toContain('3 works have more than one file');
+    expect(element.querySelector('.overview-duplicates')?.textContent?.trim()).toBe('3 works have duplicate files');
     await click('Continue');
     expect(step()).toBe('duplicates');
     expect([...element.querySelectorAll('tr[data-group]')].map((r) => r.getAttribute('data-group'))).toEqual([

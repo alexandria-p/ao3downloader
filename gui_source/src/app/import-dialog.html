@@ -10,26 +10,25 @@
   <!-- 1: what was found, in a sentence each - the lists come on the pages after -->
   @if (step() === 'overview') {
     <section class="body overview">
-      @if (undated().length) {
-        <p class="overview-undated">
-          {{ undated().length | number }}
-          {{ undated().length === 1 ? 'file imported from your library has' : 'files imported from your library have' }}
-          no date in {{ undated().length === 1 ? 'its name' : 'their names' }}. You can give
-          {{ undated().length === 1 ? 'it' : 'them' }} a date next.
-        </p>
-      }
-      @if (duplicates().length) {
-        <p class="overview-duplicates">
-          {{ duplicates().length | number }}
-          {{ duplicates().length === 1 ? 'work has' : 'works have' }} more than one file in the same
-          format ({{ duplicateFiles() | number }} files). You can choose which to keep first.
-        </p>
-      }
-      @if (works().length) {
-        <p class="overview-unindexed">
-          Your library has {{ works().length | number }}
-          {{ works().length === 1 ? 'work that was' : 'works that were' }} imported with no index entry.
-        </p>
+      @if (duplicates().length || undatedWorks() || works().length) {
+        <p class="overview-heading"><strong>Issues found in import:</strong></p>
+        <ul class="overview-issues">
+          @if (duplicates().length) {
+            <li class="overview-duplicates">
+              {{ duplicates().length | number }} {{ duplicates().length === 1 ? 'work has' : 'works have' }} duplicate files
+            </li>
+          }
+          @if (undatedWorks()) {
+            <li class="overview-undated">
+              {{ undatedWorks() | number }} {{ undatedWorks() === 1 ? 'work has' : 'works have' }} no date
+            </li>
+          }
+          @if (works().length) {
+            <li class="overview-unindexed">
+              {{ works().length | number }} {{ works().length === 1 ? 'work has' : 'works have' }} no index
+            </li>
+          }
+        </ul>
       }
       <fieldset class="first-choice">
         <legend>What would you like to do?</legend>

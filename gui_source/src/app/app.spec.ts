@@ -1262,7 +1262,7 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.import-issues')?.textContent).toContain('1 file has no date in its name');
-    expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 file imported from your library has no date in its name');
+    expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 work has no date');
   });
 
   it('puts the reminder above the tabs, on every tab, until dismissed', async () => {

@@ -500,3 +500,16 @@ select {
   margin: 4px 0 0;
   color: #9fd49a;
 }
+
+.overview-heading {
+  margin: 0 0 4px;
+}
+
+.overview-issues {
+  margin: 0 0 14px;
+  padding: 0 0 0 22px;
+}
+
+.overview-issues li {
+  margin: 2px 0;
+}

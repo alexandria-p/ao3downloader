@@ -115,6 +115,8 @@ export class ImportDialog {
     ),
   );
   protected readonly maxWorks = MAX_IMPORT_WORKS;
+  /** how many works have a file with no date in its name, for the first page */
+  protected readonly undatedWorks = computed(() => new Set(this.undated().map((f) => f.id)).size);
 
   // region duplicates
 
