@@ -2212,11 +2212,11 @@ window finishes after dating (`afterDating`). What not to break:
   last two, *Skip for now* and *Skip, and don't ask me again for this file* (the duplicates list),
   keep every file - or *Next entry*, which keeps the picked file (from
   the last entry it goes to the next still to sort, or the done note). *Previous entry* / *Next
-  entry* sit below the radios. The footer (`footer.even`, every button the same size) has *Back* (to the list),
-  *Skip all remaining*, *Skip all remaining, and don't ask me about them again*, *Keep most
-  recent for all remaining* (`markRemaining`: each decides every undecided one and goes no
-  further), and *Continue*, held until all are sorted (`siftDone`: *You are done - no more to
-  sort*, the entry buttons gone, the three others disabled). The list never shows what sifting
+  entry* sit below the radios, and below them **Sort any remaining in bulk** (`details.sort-rest`,
+  closed to begin with): radios *Skip for now* / *Skip, don't ask again* / *Keep most recent*
+  (`bulkChoice`) and **Apply to the rest** (`applyToRest`: decides every undecided one and goes no
+  further). The footer is only *Back* (to the list) and *Continue*, held until all are sorted
+  (`siftDone`: *You are done - no more to sort*, the entry buttons and the bulk section gone). The list never shows what sifting
   decided. `removeFiles` deletes on a page with a bar - **never every
   file of a group** - then the dialog filters what it removed out of every later page
   (`removedPaths`) and `refreshAfterRun` + `check` bring the listing and reminder up to date.

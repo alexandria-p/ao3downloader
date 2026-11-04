@@ -27,6 +27,8 @@ import { LibraryStore } from './library-store';
 type Step = 'overview' | 'duplicates' | 'choose' | 'removing' | 'dates' | 'dating' | 'index' | 'formats';
 
 /** what sifting by hand decided for one group: a file to keep, skipped, or its most recent */
+/** what *Sort any remaining in bulk* can do with the rest */
+export type BulkChoice = 'skip' | 'skip-remember' | 'recent';
 export type SiftOutcome = { kind: 'pick'; path: string } | { kind: 'skip'; remember?: boolean } | { kind: 'recent' };
 
 /** what to do with one group of duplicates */
@@ -282,14 +284,24 @@ export class ImportDialog {
     if (next !== undefined) this.chooseAt.set(next);
   }
 
+  /** what *Sort any remaining in bulk* offers, worded as the radios for one entry are */
+  protected readonly bulkOptions: { value: BulkChoice; label: string }[] = [
+    { value: 'skip', label: 'Skip for now' },
+    { value: 'skip-remember', label: "Skip, don't ask again" },
+    { value: 'recent', label: 'Keep most recent' },
+  ];
+  protected readonly bulkChoice = signal<BulkChoice | null>(null);
+
   /**
    * Every group not yet sorted: skipped (for now, or not to be asked about again), or its most
    * recent kept. Nothing is removed yet - the done note shows, and Continue goes on.
    */
-  protected markRemaining(choice: 'skip' | 'recent', remember = false): void {
+  protected applyToRest(): void {
+    const choice = this.bulkChoice();
+    if (!choice) return;
     for (const group of this.siftList()) {
       if (this.outcomeOf(group)) continue;
-      this.decide(group, choice === 'skip' ? { kind: 'skip', remember } : { kind: 'recent' });
+      this.decide(group, choice === 'recent' ? { kind: 'recent' } : { kind: 'skip', remember: choice === 'skip-remember' });
     }
   }
 

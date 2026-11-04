@@ -212,19 +212,26 @@
           <button type="button" class="button subtle" [disabled]="chooseAt() === 0" (click)="previousEntry()">Previous entry</button>
           <button type="button" class="button subtle" (click)="nextEntry()">Next entry</button>
         </div>
+        <details class="sort-rest">
+          <summary>Sort any remaining in bulk</summary>
+          <p>For the rest still to sort ({{ undecidedCount() | number }}):</p>
+          <div class="sort-rest-choices" role="radiogroup" aria-label="For the rest still to sort">
+            @for (option of bulkOptions; track option.value) {
+              <label class="check">
+                <input type="radio" name="sortRest" [attr.aria-label]="option.label"
+                       [checked]="bulkChoice() === option.value" (change)="bulkChoice.set(option.value)" />
+                <span>{{ option.label }}</span>
+              </label>
+            }
+          </div>
+          <button type="button" class="button" [disabled]="!bulkChoice() || busy()" (click)="applyToRest()">
+            Apply to the rest
+          </button>
+        </details>
       }
     </section>
-    <footer class="even">
+    <footer>
       <button type="button" class="button subtle" (click)="step.set('duplicates')">Back</button>
-      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="markRemaining('skip')">
-        Skip all remaining
-      </button>
-      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="markRemaining('skip', true)">
-        Skip all remaining, and don't ask me about them again
-      </button>
-      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="markRemaining('recent')">
-        Keep most recent for all remaining
-      </button>
       <button type="button" class="button primary" [disabled]="!siftDone() || busy()" (click)="continueFromChoosing()">
         Continue
       </button>

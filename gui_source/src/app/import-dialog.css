@@ -515,13 +515,28 @@ select {
 }
 
 /* every footer button the same size */
-footer.even {
-  align-items: stretch;
+/* the rest sorted at once, out of the way until opened */
+.sort-rest {
+  margin: 14px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
 }
 
-footer.even .button {
-  flex: 1 1 0;
-  min-height: 52px;
+.sort-rest summary {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.sort-rest p {
+  margin: 10px 0 6px;
+}
+
+.sort-rest-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
 }
 
 /* the skip, set apart below the files */

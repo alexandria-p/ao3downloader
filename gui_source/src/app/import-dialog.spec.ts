@@ -423,6 +423,13 @@ describe('ImportDialog', () => {
     if (button('Next entry')) await click('Next entry');
   }
 
+  async function sortRest(choice: string) {
+    element.querySelector<HTMLDetailsElement>('details.sort-rest')!.open = true;
+    element.querySelector<HTMLInputElement>(`details.sort-rest input[aria-label="${choice}"]`)!.click();
+    await fixture.whenStable();
+    await click('Apply to the rest');
+  }
+
   async function toSifting() {
     await open([], false, [], DUPES);
     await click('Continue');
@@ -453,12 +460,16 @@ describe('ImportDialog', () => {
     ]);
     expect(element.querySelector('.choose-list')!.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const footer = element.querySelector('footer')!;
-    expect(footer.classList).toContain('even');
-    expect(footer.textContent).not.toContain('Next entry');
-    expect([...footer.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual([
-      'Back', 'Skip all remaining', "Skip all remaining, and don't ask me about them again",
-      'Keep most recent for all remaining', 'Continue',
+    expect([...footer.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['Back', 'Continue']);
+    // the rest sorted at once from a section of its own, closed to begin with, below the entries
+    const bulk = element.querySelector<HTMLDetailsElement>('details.sort-rest')!;
+    expect(bulk.open).toBe(false);
+    expect(bulk.querySelector('summary')!.textContent?.trim()).toBe('Sort any remaining in bulk');
+    expect([...bulk.querySelectorAll('input[type="radio"]')].map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Skip for now', "Skip, don't ask again", 'Keep most recent',
     ]);
+    expect(nav.compareDocumentPosition(bulk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(button('Apply to the rest')!.disabled).toBe(true);
   });
 
   it('lists the files to choose from most recent first, undated last', async () => {
@@ -509,9 +520,7 @@ describe('ImportDialog', () => {
 
     expect(element.querySelector('.sift-done')?.textContent).toContain('You are done - no more to sort');
     expect(element.querySelector('.sift-nav')).toBeNull();
-    expect(button('Skip all remaining')!.disabled).toBe(true);
-    expect(button("Skip all remaining, and don't ask me about them again")!.disabled).toBe(true);
-    expect(button('Keep most recent for all remaining')!.disabled).toBe(true);
+    expect(element.querySelector('details.sort-rest')).toBeNull();
     expect(primary().disabled).toBe(false);
     await click('Continue');
     await settle();
@@ -568,11 +577,11 @@ describe('ImportDialog', () => {
     expect(radios().map((r) => r.checked)).toEqual([false, true]);
   });
 
-  it('leaves the rest as they are on Skip all remaining, keeping what was sorted, and goes on only on Continue', async () => {
+  it('leaves the rest as they are on Skip for now in bulk, keeping what was sorted, and goes on only on Continue', async () => {
     await toSifting();
     TestBed.inject(Library).store.set(store);
     await click('Next entry');
-    await click('Skip all remaining');
+    await sortRest('Skip for now');
     expect(step()).toBe('choose');
     expect(element.querySelector('.sift-done')).toBeTruthy();
     await click('Continue');
@@ -581,20 +590,20 @@ describe('ImportDialog', () => {
     expect(store.written.has(IMPORT_EXCLUDED_FILE)).toBe(false);
   });
 
-  it("puts the rest on the duplicates list on Skip all remaining, and don't ask me about them again", async () => {
+  it("puts the rest on the duplicates list on Skip, don't ask again in bulk", async () => {
     await toSifting();
     TestBed.inject(Library).store.set(store);
     await click('Next entry');
-    await click("Skip all remaining, and don't ask me about them again");
+    await sortRest("Skip, don't ask again");
     await click('Continue');
     await settle();
     const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
     expect(written.excluded.map((x: { id: string; format: string }) => `${x.id}:${x.format}`)).toEqual(['7:pdf', '8:epub']);
   });
 
-  it('gives the rest their most recent on Keep most recent for all remaining', async () => {
+  it('gives the rest their most recent on Keep most recent in bulk', async () => {
     await toSifting();
-    await click('Keep most recent for all remaining');
+    await sortRest('Keep most recent');
     await click('Continue');
     await settle();
     expect(store.deleted.sort()).toEqual([
