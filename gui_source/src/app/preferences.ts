@@ -73,10 +73,11 @@ export const PROMPTS: Prompt[] = [
   {
     key: IMPORT_OFFER_KEY,
     area: 'Your library',
-    name: 'Offer to import works with no index entry',
+    name: 'Offer to resolve issues found in your library',
     description:
-      'When a library opens with downloaded works the index has no entry for, the window ' +
-      'offering to date and import them. With it off, the Works tab\'s Resolve issues found with import button still opens it.',
+      'When a library opens with downloaded works the index has no entry for, or files with ' +
+      'no date in their name: the window offering to date and import them, and the reminder ' +
+      'above the tabs. Turned off by No, never ask me again.',
     dismissed: 'off',
   },
   {

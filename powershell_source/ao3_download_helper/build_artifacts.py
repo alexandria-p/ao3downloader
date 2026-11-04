@@ -520,7 +520,8 @@ all are downloaded; FicHub is offered once, at the end, for every fic that faile
 
 **Importing works already in your library.** When a library opens with files in `works/`
 named for a work number your index has no entry for, the page offers to import them (the
-**Resolve issues found with import** at the top of the Works tab offers it too, and undated files of indexed works are offered for dating). It offers to date the undated ones first - each, all at once, or
+**Resolve issues found with import** reminder above the tabs offers it too, and its first
+page can put it off, leave these files out for good, or turn it off altogether; and undated files of indexed works are offered for dating). It offers to date the undated ones first - each, all at once, or
 skipped - then, if any have no index entry, whether to index them from AO3 now (or never ask
 about them again, listed in `import-excluded.json`), which works to update, which other
 formats to download for them, and whether to replace a copy AO3 has a newer version of (off:

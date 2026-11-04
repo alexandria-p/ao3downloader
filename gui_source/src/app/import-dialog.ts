@@ -61,14 +61,12 @@ export class ImportDialog {
   readonly formats = input<string[]>(['HTML', 'EPUB', 'PDF', 'MOBI', 'AZW3', 'JSON']);
   /** a run is going: nothing may be renamed or started */
   readonly busy = input(false);
-  /** offered on the first page: stop opening this by itself when a library opens */
-  readonly askAgain = input(true);
 
   /** closed without starting anything; `dated` is what was renamed, if anything */
   readonly closed = output<DatingResult | null>();
   /** start the import run with these */
   readonly start = output<{ request: ImportRequest; dated: DatingResult | null }>();
-  /** ticked or unticked 'do not offer this when a library opens' */
+  /** 'No, never ask me again' chosen: neither this window nor the reminder, from now on */
   readonly askAgainChanged = output<boolean>();
 
   protected readonly step = signal<Step>('overview');
@@ -281,8 +279,31 @@ export class ImportDialog {
 
   // region moving between pages
 
-  protected fromOverview(): void {
-    this.step.set(this.undated().length ? 'dates' : this.afterDatesStep());
+  /** the first page's answer: repair now, later, never for these files, or never at all */
+  protected readonly firstChoice = signal<'repair' | 'later' | 'exclude' | 'never' | null>(null);
+
+  protected async fromOverview(): Promise<void> {
+    switch (this.firstChoice()) {
+      case 'repair':
+        if (this.busy()) return;
+        this.step.set(this.undated().length ? 'dates' : this.afterDatesStep());
+        return;
+      case 'exclude':
+        try {
+          await this.imports.exclude(this.works(), this.undatedElsewhere());
+        } catch {
+          // not written: offered again next time, which loses nothing
+        }
+        this.closed.emit(null);
+        return;
+      case 'never':
+        this.askAgainChanged.emit(false);
+        this.closed.emit(null);
+        return;
+      case 'later':
+        this.closed.emit(null);
+        return;
+    }
   }
 
   /** after the dates: the index question, when there are works without an entry */

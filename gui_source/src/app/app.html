@@ -174,6 +174,22 @@
   <app-folder-warning (confirmed)="warningAccepted()" (cancelled)="warningCancelled()" />
 }
 
+<!-- above the tabs, on every tab, until resolved or dismissed for this visit - and never once
+     'No, never ask me again' is chosen -->
+@if (importReminder()) {
+  <div class="import-issues" role="status">
+    <button type="button" class="button import-issues-button"
+            [disabled]="!!activeRun() || !!dialogAction()"
+            [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
+            (click)="openImport()">
+      Resolve issues found with import
+    </button>
+    <span class="import-issues-said">{{ importIssuesSaid() }}</span>
+    <button type="button" class="import-issues-close" aria-label="Dismiss" title="Dismiss until the library is opened again"
+            (click)="dismissImportReminder()">&times;</button>
+  </div>
+}
+
 <nav class="views" aria-label="What to show">
   <button
     type="button"
@@ -231,21 +247,6 @@
   </button>
 </nav>
 
-@if (view() === 'bookmarks') {
-  <!-- at the top of the tab, for as long as there is anything to resolve - closing the window
-       leaves it here -->
-  @if (imports.hasIssues() && imports.checkedStore() === library.store()) {
-    <div class="import-issues" role="status">
-      <button type="button" class="button import-issues-button"
-              [disabled]="!!activeRun() || !!dialogAction()"
-              [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
-              (click)="openImport()">
-        Resolve issues found with import
-      </button>
-      <span class="import-issues-said">{{ importIssuesSaid() }}</span>
-    </div>
-  }
-}
 
 <!--
   the faq is something to read, not a folder to act on, so it carries no buttons - and
@@ -319,7 +320,7 @@
   <app-import-dialog [works]="imports.found()" [undatedElsewhere]="imports.undatedIndexed()"
                      [store]="library.store()"
                      [formats]="importFormats()" [busy]="!!activeRun()"
-                     [askAgain]="importOffered()" (askAgainChanged)="setImportOffered($event)"
+                     (askAgainChanged)="setImportOffered($event)"
                      (closed)="importClosed($event)" (start)="importStart($event)" />
 }
 

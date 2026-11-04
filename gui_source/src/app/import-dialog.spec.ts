@@ -101,8 +101,15 @@ function step(): string {
 }
 
 async function click(text: string) {
+  // the first page's Continue waits for a choice: these walks repair
+  if (step() === 'overview' && text === 'Continue') await pick('repair');
   button(text)!.click();
   await settle();
+}
+
+async function pick(choice: string) {
+  element.querySelector<HTMLInputElement>(`input[name="firstChoice"][value="${choice}"]`)!.click();
+  await fixture.whenStable();
 }
 
 async function settle() {
@@ -176,22 +183,78 @@ describe('ImportDialog', () => {
     expect(button('Continue')!.disabled).toBe(true);
   });
 
-  it("offers Don't ask me again beside its buttons", async () => {
+  it('asks what to do first, holding Continue until something is chosen', async () => {
+    await open();
+    expect(button('Not now')).toBeUndefined();
+    expect(element.querySelector('.dont-ask')).toBeNull();
+    expect(primary().disabled).toBe(true);
+    const labels = [...element.querySelectorAll('input[name="firstChoice"]')].map(
+      (x) => x.closest('label')!.querySelector('span')!.childNodes[0].textContent!.trim(),
+    );
+    expect(labels).toEqual([
+      'Repair now (recommended)',
+      'Not now, remind me again next time I open my library',
+      'No, do not ask me again for these files',
+      'No, never ask me again',
+    ]);
+
+    for (const [choice, text] of [['repair', 'Continue'], ['later', 'Remind me later'], ['exclude', 'Done'], ['never', 'Done']]) {
+      await pick(choice);
+      expect(primary().disabled).toBe(false);
+      expect(primary().textContent?.trim()).toBe(text);
+    }
+  });
+
+  it('closes on Remind me later, having changed nothing', async () => {
+    await open();
+    await pick('later');
+    await click('Remind me later');
+    expect(closed).toEqual([null]);
+    expect(store.renamed).toEqual([]);
+    expect(store.written.size).toBe(0);
+  });
+
+  it('writes every file found to the exclusion list on No, do not ask me again', async () => {
+    await open(SOME, false, INDEXED_UNDATED);
+    TestBed.inject(Library).store.set(store);
+    const imports = TestBed.inject(LibraryImports);
+    imports.found.set(SOME);
+    imports.undatedIndexed.set(INDEXED_UNDATED);
+    await pick('exclude');
+    await click('Done');
+
+    expect(closed).toEqual([null]);
+    const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
+    expect(written.excluded.map((x: { id: string; only_files?: boolean }) => [x.id, !!x.only_files])).toEqual([
+      ['1', false], ['2', false], ['3', false], ['7', true],
+    ]);
+    expect(imports.found()).toEqual([]);
+    expect(imports.undatedIndexed()).toEqual([]);
+  });
+
+  it('turns itself off for good on No, never ask me again', async () => {
     await open();
     const changed: boolean[] = [];
     fixture.componentInstance.askAgainChanged.subscribe((x) => changed.push(x));
-    const box = element.querySelector<HTMLInputElement>('footer .dont-ask input')!;
-    expect(box.closest('label')!.textContent).toContain("Don't ask me again");
-    box.click();
-    await fixture.whenStable();
+    await pick('never');
+    await click('Done');
     expect(changed).toEqual([false]);
+    expect(closed).toEqual([null]);
   });
 
-  it('is closed by Not now, having changed nothing', async () => {
-    await open();
-    await click('Not now');
-    expect(closed).toEqual([null]);
-    expect(store.renamed).toEqual([]);
+  it('cannot start repairing while a run is going, but can still be put off', async () => {
+    await open(SOME, true);
+    await pick('repair');
+    expect(primary().disabled).toBe(true);
+    await pick('later');
+    expect(primary().disabled).toBe(false);
+  });
+
+  it('never says what comes after the formats page', async () => {
+    await open(ALL_DATED);
+    await click('Continue');
+    await click('Continue');
+    expect(element.textContent).not.toContain('Next you log in to AO3');
   });
 
   // endregion

@@ -383,10 +383,3 @@ input[type='date'] {
   font-size: 0.84rem;
 }
 
-/* on the left of the footer, apart from the buttons */
-.dont-ask {
-  margin-right: auto;
-  align-items: center;
-  font-size: 0.85rem;
-  color: var(--text-dim);
-}

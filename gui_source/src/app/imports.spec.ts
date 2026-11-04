@@ -226,6 +226,19 @@ describe('LibraryImports', () => {
     expect(imports.found().map((w) => w.id)).toEqual(['1']);
   });
 
+  it('leaves out the undated files the library says never to offer again, file by file', async () => {
+    const library = TestBed.inject(Library);
+    const store = new MemoryStore(['works/1 A - B.html', 'works/1 A - B.pdf']);
+    store.texts.set(IMPORT_EXCLUDED_FILE, JSON.stringify({ excluded: [{ id: '1', files: ['1 A - B.pdf'], only_files: true }] }));
+    library.store.set(store);
+    library.worksById.set(new Map([['1', { id: '1' } as Bookmark]]));
+    const imports = TestBed.inject(LibraryImports);
+
+    await imports.check();
+
+    expect(imports.undatedIndexed().map((f) => f.name)).toEqual(['1 A - B.html']);
+  });
+
   it('finds nothing with no library open', async () => {
     const imports = TestBed.inject(LibraryImports);
     imports.found.set([{ id: '1', files: [] }]);

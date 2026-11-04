@@ -119,6 +119,20 @@ export class App {
   protected readonly importOpen = signal(false);
   /** whether the import window opens by itself when a library turns out to have some */
   protected readonly importOffered = signal(safeGet(IMPORT_OFFER_KEY) !== 'off');
+  /** the library whose reminder above the tabs was dismissed, this visit */
+  private readonly reminderDismissedFor = signal<object | null>(null);
+  /** the reminder above the tabs: something to resolve in the library open now, not dismissed,
+   *  and not turned off for good */
+  protected readonly importReminder = computed(() => {
+    const store = this.library.store();
+    return this.importOffered() && this.imports.hasIssues() && !!store &&
+      this.imports.checkedStore() === store && this.reminderDismissedFor() !== store;
+  });
+
+  protected dismissImportReminder(): void {
+    this.reminderDismissedFor.set(this.library.store());
+  }
+
   /** the libraries the import window has opened by itself for already, this visit */
   private readonly offeredFor = new WeakSet<object>();
 

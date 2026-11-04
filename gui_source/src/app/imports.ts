@@ -276,19 +276,41 @@ export interface ImportRequest {
  */
 export const IMPORT_EXCLUDED_FILE = 'import-excluded.json';
 
-/** the work numbers in the excluded file; anything unreadable is none */
-export function readExcludedFile(text: string | null): Set<string> {
+/**
+ * What the excluded file leaves out: works with no index entry, by number, and single files
+ * (an indexed work's undated file), by name. Anything unreadable is none.
+ */
+export interface Excluded {
+  ids: Set<string>;
+  files: Set<string>;
+}
+
+/** one line of the excluded file: a whole work, or (`only_files`) just the files named */
+interface ExcludedEntry {
+  id: string;
+  files?: string[];
+  only_files?: boolean;
+  excluded_on?: string;
+}
+
+function excludedEntries(text: string | null): ExcludedEntry[] {
   try {
     const parsed = JSON.parse(text ?? '') as { excluded?: unknown };
-    const list = Array.isArray(parsed?.excluded) ? parsed.excluded : [];
-    return new Set(
-      list
-        .map((x) => String((x as { id?: unknown })?.id ?? ''))
-        .filter((id) => /^\d+$/.test(id)),
-    );
+    return Array.isArray(parsed?.excluded)
+      ? (parsed.excluded as ExcludedEntry[]).filter((x) => x && /^\d+$/.test(String(x.id ?? '')))
+      : [];
   } catch {
-    return new Set();
+    return [];
   }
+}
+
+export function readExcludedFile(text: string | null): Excluded {
+  const excluded: Excluded = { ids: new Set(), files: new Set() };
+  for (const entry of excludedEntries(text)) {
+    if (entry.only_files) for (const name of entry.files ?? []) excluded.files.add(String(name));
+    else excluded.ids.add(String(entry.id));
+  }
+  return excluded;
 }
 
 /** the most works one import takes - the helper's `MAX_IMPORT_LINKS` */
@@ -308,18 +330,18 @@ export class LibraryImports {
   readonly hasIssues = computed(() => this.found().length > 0 || this.undatedIndexed().length > 0);
   /** the store the last check was of, so a check of a library since closed is dropped */
   readonly checkedStore = signal<LibraryStore | null>(null);
-  /** the works not to offer again, by number, as each library's file has them */
-  private readonly excludedBy = new WeakMap<LibraryStore, Set<string>>();
+  /** what not to offer again, as each library's file has it */
+  private readonly excludedBy = new WeakMap<LibraryStore, Excluded>();
   private generation = 0;
 
-  /** the excluded work numbers of this library - read once, then kept */
-  private async excluded(store: LibraryStore): Promise<Set<string>> {
+  /** what this library excludes - read once, then kept */
+  private async excluded(store: LibraryStore): Promise<Excluded> {
     let excluded = this.excludedBy.get(store);
     if (!excluded) {
       try {
         excluded = readExcludedFile(await store.read(IMPORT_EXCLUDED_FILE));
       } catch {
-        excluded = new Set();
+        excluded = { ids: new Set(), files: new Set() };
       }
       this.excludedBy.set(store, excluded);
     }
@@ -327,30 +349,34 @@ export class LibraryImports {
   }
 
   /**
-   * Never offer these works for import again: written to the library's `IMPORT_EXCLUDED_FILE`,
-   * and gone from what was found at once. Their files are left as they are.
+   * Never offer these again: works with no index entry, whole, and undated files of indexed
+   * works, file by file. Written to the library's `IMPORT_EXCLUDED_FILE`, and gone from what
+   * was found at once. The files themselves are left as they are.
    */
-  async exclude(works: FoundWork[]): Promise<void> {
+  async exclude(works: FoundWork[], files: FoundFile[] = []): Promise<void> {
     const store = this.library.store();
-    if (!store || !works.length) return;
+    if (!store || (!works.length && !files.length)) return;
     const before = await this.excluded(store);
-    const text = await store.read(IMPORT_EXCLUDED_FILE).catch(() => null);
-    let kept: { id: string }[] = [];
-    try {
-      const parsed = JSON.parse(text ?? '') as { excluded?: unknown };
-      if (Array.isArray(parsed?.excluded)) kept = parsed.excluded as { id: string }[];
-    } catch {
-      // unreadable: written afresh
-    }
+    const kept = excludedEntries(await store.read(IMPORT_EXCLUDED_FILE).catch(() => null));
     const today = new Date().toISOString().slice(0, 10);
-    const added = works
-      .filter((w) => !before.has(w.id))
+    const added: ExcludedEntry[] = works
+      .filter((w) => !before.ids.has(w.id))
       .map((w) => ({ id: w.id, files: w.files.map((f) => f.name), excluded_on: today }));
+    const byWork = new Map<string, string[]>();
+    for (const file of files) {
+      if (before.files.has(file.name)) continue;
+      byWork.set(file.id, [...(byWork.get(file.id) ?? []), file.name]);
+    }
+    for (const [id, names] of byWork) added.push({ id, files: names, only_files: true, excluded_on: today });
     const document = { excluded: [...kept, ...added] };
     await store.write(IMPORT_EXCLUDED_FILE, new Response(JSON.stringify(document, null, 2) + '\n'));
-    const next = new Set([...before, ...works.map((w) => w.id)]);
+    const next: Excluded = {
+      ids: new Set([...before.ids, ...works.map((w) => w.id)]),
+      files: new Set([...before.files, ...files.map((f) => f.name)]),
+    };
     this.excludedBy.set(store, next);
-    this.found.update((found) => found.filter((w) => !next.has(w.id)));
+    this.found.update((found) => found.filter((w) => !next.ids.has(w.id)));
+    this.undatedIndexed.update((undated) => undated.filter((f) => !next.files.has(f.name)));
   }
 
   async check(): Promise<void> {
@@ -367,8 +393,8 @@ export class LibraryImports {
       const paths = await store.list(WORKS_FOLDER, false);
       const excluded = await this.excluded(store);
       if (generation !== this.generation || store !== this.library.store()) return;
-      this.found.set(unindexedWorks(paths, indexed).filter((w) => !excluded.has(w.id)));
-      this.undatedIndexed.set(undatedIndexedFiles(paths, indexed));
+      this.found.set(unindexedWorks(paths, indexed).filter((w) => !excluded.ids.has(w.id)));
+      this.undatedIndexed.set(undatedIndexedFiles(paths, indexed).filter((f) => !excluded.files.has(f.name)));
       this.checkedStore.set(store);
     } catch {
       // the library could not be listed: whatever was found before is kept until it can

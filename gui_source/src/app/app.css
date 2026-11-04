@@ -456,3 +456,18 @@
   color: var(--text-dim);
   font-size: 0.88rem;
 }
+
+/* the far right of the reminder */
+.import-issues-close {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.import-issues-close:hover {
+  color: var(--text-strong);
+}

@@ -24,6 +24,31 @@
           {{ works().length === 1 ? 'work that was' : 'works that were' }} imported with no index entry.
         </p>
       }
+      <fieldset class="first-choice">
+        <legend>What would you like to do?</legend>
+        <label class="check">
+          <input type="radio" name="firstChoice" value="repair" [checked]="firstChoice() === 'repair'" (change)="firstChoice.set('repair')" />
+          <span>Repair now (recommended)</span>
+        </label>
+        <label class="check">
+          <input type="radio" name="firstChoice" value="later" [checked]="firstChoice() === 'later'" (change)="firstChoice.set('later')" />
+          <span>Not now, remind me again next time I open my library</span>
+        </label>
+        <label class="check">
+          <input type="radio" name="firstChoice" value="exclude" [checked]="firstChoice() === 'exclude'" (change)="firstChoice.set('exclude')" />
+          <span>
+            No, do not ask me again for these files
+            <span class="hint">They are added to <code>import-excluded.json</code> at the top of your library and left out from now on. The files stay as they are.</span>
+          </span>
+        </label>
+        <label class="check">
+          <input type="radio" name="firstChoice" value="never" [checked]="firstChoice() === 'never'" (change)="firstChoice.set('never')" />
+          <span>
+            No, never ask me again
+            <span class="hint">This window and the reminder above the tabs stop for good. User settings turns them back on.</span>
+          </span>
+        </label>
+      </fieldset>
       @if (busy()) {
         <p class="warning busy-note" role="note">
           A run is in progress. Nothing can be renamed or imported until it has finished - this
@@ -32,14 +57,10 @@
       }
     </section>
     <footer>
-      <label class="check dont-ask" title="Resolve issues found with import, at the top of the Works tab, still opens this - and User settings turns it back on">
-        <input type="checkbox" name="askAgain" [checked]="!askAgain()"
-               (change)="askAgainChanged.emit(!$any($event.target).checked)" />
-        <span>Don't ask me again</span>
-      </label>
-      <button type="button" class="button subtle" (click)="close()">Not now</button>
-      <button type="button" class="button primary" [disabled]="busy()" (click)="fromOverview()">
-        Continue
+      <button type="button" class="button primary"
+              [disabled]="!firstChoice() || (firstChoice() === 'repair' && busy())"
+              (click)="fromOverview()">
+        {{ firstChoice() === 'later' ? 'Remind me later' : firstChoice() === 'exclude' || firstChoice() === 'never' ? 'Done' : 'Continue' }}
       </button>
     </footer>
   }
@@ -260,12 +281,6 @@
             <span class="hint">A copy with no date is never replaced, and neither is one that is current.</span>
           </span>
         </label>
-      }
-      @if (runs()) {
-        <p class="hint login-next">
-          Next you log in to AO3, in case some of these works are restricted to AO3 users. You
-          can skip the login there, but works only AO3 users can see will then fail.
-        </p>
       }
       @if (tooMany()) {
         <p class="warning" role="note">

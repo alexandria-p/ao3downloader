@@ -1217,14 +1217,16 @@ describe('App', () => {
     expect(element.querySelector('.import-issues')?.textContent).toContain('Resolve issues found with import');
     expect(element.querySelector('.import-issues')?.textContent).toContain('1 work has files but no index entry');
 
-    Array.from(offered!.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Not now')!.click();
+    offered!.querySelector<HTMLInputElement>('input[name="firstChoice"][value="later"]')!.click();
+    await settled(fixture);
+    Array.from(offered!.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Remind me later')!.click();
     await settled(fixture);
     expect(element.querySelector('app-import-dialog')).toBeNull();
     // the index changing again does not bring it back by itself on this visit
     TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
     await settled(fixture);
     expect(element.querySelector('app-import-dialog')).toBeNull();
-    // the Works tab still offers it
+    // the reminder above the tabs still offers it
     element.querySelector<HTMLButtonElement>('.import-issues button')!.click();
     await settled(fixture);
     expect(element.querySelector('app-import-dialog')).not.toBeNull();
@@ -1262,9 +1264,8 @@ describe('App', () => {
     expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 file imported from your library has no date in its name');
   });
 
-  it('puts the button at the top of the Works tab, above the runs, and nowhere else', async () => {
+  it('puts the reminder above the tabs, on every tab, until dismissed', async () => {
     localStorage.clear();
-    localStorage.setItem('ao3.importOfferOff', 'off');
     libraryWithFiles(['works/999 Not Indexed - Writer.html']);
     TestBed.inject(Library).data.set(exportOf(1));
     const fixture = TestBed.createComponent(App);
@@ -1272,14 +1273,20 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     const issues = element.querySelector('.import-issues')!;
-    const runs = element.querySelector('.actions')!;
-    expect(issues.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    tab(element, 'Collections')!.click();
+    const tabs = element.querySelector('nav.views')!;
+    expect(issues.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const name of ['Collections', 'History', 'FAQ', 'User settings']) {
+      tab(element, name)!.click();
+      await fixture.whenStable();
+      expect(element.querySelector('.import-issues')).not.toBeNull();
+    }
+
+    element.querySelector<HTMLButtonElement>('.import-issues-close')!.click();
     await fixture.whenStable();
     expect(element.querySelector('.import-issues')).toBeNull();
   });
 
-  it('does not open the import by itself once told not to', async () => {
+  it('neither opens the window nor shows the reminder once told never to ask again', async () => {
     localStorage.clear();
     localStorage.setItem('ao3.importOfferOff', 'off');
     libraryWithFiles(['works/999 Not Indexed - Writer.html']);
@@ -1289,7 +1296,26 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('app-import-dialog')).toBeNull();
-    expect(element.querySelector('.import-issues')).not.toBeNull();
+    expect(element.querySelector('.import-issues')).toBeNull();
+  });
+
+  it('turns the window and the reminder off for good from its first page', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/999 Not Indexed - Writer.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    const offered = element.querySelector('app-import-dialog')!;
+    offered.querySelector<HTMLInputElement>('input[name="firstChoice"][value="never"]')!.click();
+    await settled(fixture);
+    Array.from(offered.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Done')!.click();
+    await settled(fixture);
+
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    expect(element.querySelector('.import-issues')).toBeNull();
+    expect(localStorage.getItem('ao3.importOfferOff')).toBe('off');
   });
 
   // endregion
