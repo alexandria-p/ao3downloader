@@ -136,7 +136,7 @@
         <span>
           Don't ask this again for skipped files
           <span class="hint">
-            Every work and format marked Skip - here, or while choosing by hand - is added to
+            Every work and format marked Skip here is added to
             <code>import-excluded.json</code> at the top of your library with all its files kept,
             and is not offered as a duplicate again unless another file for it turns up.
           </span>
@@ -193,13 +193,18 @@
           }
           <li class="skip-this">
             <label class="check">
-              <input type="radio" [attr.name]="'keep-' + group.key" aria-label="Or, skip this one"
-                     [checked]="outcomeOf(group)?.kind === 'skip'"
-                     (change)="skipThis(group)" />
-              <span>
-                Or, skip this one
-                <span class="hint">Every file is kept, and this is asked about again next time.</span>
-              </span>
+              <input type="radio" [attr.name]="'keep-' + group.key" aria-label="Skip for now"
+                     [checked]="outcomeOf(group)?.kind === 'skip' && !skipRemembered(group)"
+                     (change)="skipThis(group, false)" />
+              <span>Skip for now</span>
+            </label>
+          </li>
+          <li class="skip-this remember">
+            <label class="check">
+              <input type="radio" [attr.name]="'keep-' + group.key" aria-label="Skip, and don't ask me again for this file"
+                     [checked]="skipRemembered(group)"
+                     (change)="skipThis(group, true)" />
+              <span>Skip, and don't ask me again for this file</span>
             </label>
           </li>
         </ul>
@@ -211,11 +216,14 @@
     </section>
     <footer class="even">
       <button type="button" class="button subtle" (click)="step.set('duplicates')">Back</button>
-      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="finishChoosingWith('skip')">
-        Mark all remaining as Skip, then Continue
+      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="markRemaining('skip')">
+        Skip all remaining
       </button>
-      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="finishChoosingWith('recent')">
-        Mark all remaining as Keep most recent, then Continue
+      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="markRemaining('skip', true)">
+        Skip all remaining, and don't ask me about them again
+      </button>
+      <button type="button" class="button" [disabled]="siftDone() || busy()" (click)="markRemaining('recent')">
+        Keep most recent for all remaining
       </button>
       <button type="button" class="button primary" [disabled]="!siftDone() || busy()" (click)="continueFromChoosing()">
         Continue

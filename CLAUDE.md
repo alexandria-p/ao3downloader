@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2088 python passed; 979 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2088 python passed; 980 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2194,7 +2194,7 @@ window finishes after dating (`afterDating`). What not to break:
   `duplicateGroups` is every work number and format (`.htm` is html) with more than one file
   in `works/`, however named. Each row is *Skip* (default: every file kept, asked again - on
   the **duplicates** list only when *Don't ask this again for skipped files* is ticked,
-  `rememberSkipped`, which takes groups skipped while sifting too), *Keep most recent* or *I'll
+  `rememberSkipped` - the list's skips only; sifting asks per group), *Keep most recent* or *I'll
   choose*; *Keep all* was folded into Skip at the user's request, being the same thing. Buttons
   *Mark all as Skip* / *Keep most recent* / *I'll choose myself* set every row, and the primary
   reads *Skip this step* with every row skipped (`allSkipped`), *Choose which to keep* with any
@@ -2203,20 +2203,21 @@ window finishes after dating (`afterDating`). What not to break:
   name (read as *Infer date* reads one) and one must be strictly newest, or the group is
   `undecided` - nothing deleted, said on the removing page, asked again next time. *I'll
   choose* sifts those groups one at a time. **What sifting decides is kept apart from the
-  list's choice** (`siftOutcome`: a file picked, skipped, or most recent), and **the order is
+  list's choice** (`siftOutcome`: a file picked, skipped - `remember` when not to be asked again - or most recent), and **the order is
   every group ever marked I'll choose, never shortened** (`siftOrder`; `siftList` is it filtered
   to those marked now): a group changed away on the list leaves the sift, keeps its decision,
   and comes back to its own place if marked again; a newly marked one joins the end. Coming
   forward from the list opens on the first undecided. **The top radio - the most recent - is
   picked to begin with, but nothing counts as sorted until acted on**: a radio picked - the
-  last, *Or, skip this one*, keeps every file - or *Next entry*, which keeps the picked file (from
+  last two, *Skip for now* and *Skip, and don't ask me again for this file* (the duplicates list),
+  keep every file - or *Next entry*, which keeps the picked file (from
   the last entry it goes to the next still to sort, or the done note). *Previous entry* / *Next
   entry* sit below the radios. The footer (`footer.even`, every button the same size) has *Back* (to the list),
-  *Mark all remaining as Skip, then Continue*, *Mark all remaining as Keep most recent, then
-  Continue* (deciding every undecided one), and *Continue*, held until all are sorted
-  (`siftDone`: *You are done - no more to sort*, the entry buttons gone, the two others
-  disabled). The list shows each sifted
-  group's decision (`siftedSaid`). `removeFiles` deletes on a page with a bar - **never every
+  *Skip all remaining*, *Skip all remaining, and don't ask me about them again*, *Keep most
+  recent for all remaining* (`markRemaining`: each decides every undecided one and goes no
+  further), and *Continue*, held until all are sorted (`siftDone`: *You are done - no more to
+  sort*, the entry buttons gone, the three others disabled). The list never shows what sifting
+  decided. `removeFiles` deletes on a page with a bar - **never every
   file of a group** - then the dialog filters what it removed out of every later page
   (`removedPaths`) and `refreshAfterRun` + `check` bring the listing and reminder up to date.
   The *No, do not ask me again for these files* choice includes the duplicates' files. The

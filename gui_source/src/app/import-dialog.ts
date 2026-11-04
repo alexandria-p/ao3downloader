@@ -27,7 +27,7 @@ import { LibraryStore } from './library-store';
 type Step = 'overview' | 'duplicates' | 'choose' | 'removing' | 'dates' | 'dating' | 'index' | 'formats';
 
 /** what sifting by hand decided for one group: a file to keep, skipped, or its most recent */
-export type SiftOutcome = { kind: 'pick'; path: string } | { kind: 'skip' } | { kind: 'recent' };
+export type SiftOutcome = { kind: 'pick'; path: string } | { kind: 'skip'; remember?: boolean } | { kind: 'recent' };
 
 /** what to do with one group of duplicates */
 export type DuplicateChoice = 'skip' | 'recent' | 'choose';
@@ -185,7 +185,7 @@ export class ImportDialog {
   );
   /** every group sorted through: the done note shows, and Continue is offered */
   protected readonly siftDone = computed(() => this.siftList().length > 0 && this.undecidedCount() === 0);
-  /** skipped groups go on the duplicates list, all their files kept, not to be asked about again */
+  /** the list's skipped groups go on the duplicates list, all their files kept - sifting says so per group */
   protected readonly rememberSkipped = signal(false);
   /** every row marked Skip: the step is skipped as a whole */
   protected readonly allSkipped = computed(() => this.duplicates().every((g) => this.choiceOf(g) === 'skip'));
@@ -218,16 +218,6 @@ export class ImportDialog {
     if (outcome?.kind === 'pick') return outcome.path;
     if (outcome) return '';
     return this.byRecency(group)[0]?.path ?? '';
-  }
-
-  /** what was decided for a group while sifting, in a few words for the list page */
-  protected siftedSaid(group: DuplicateGroup): string {
-    const outcome = this.outcomeOf(group);
-    if (!outcome) return '';
-    if (outcome.kind === 'skip') return 'Sorted: skipped';
-    if (outcome.kind === 'recent') return this.newestIn(group) ? `Sorted: keeping ${this.newestIn(group)!.name}` : "Sorted: most recent - can't tell which";
-    const file = group.files.find((f) => f.path === outcome.path);
-    return file ? `Sorted: keeping ${file.name}` : '';
   }
 
   private decide(group: DuplicateGroup, outcome: SiftOutcome): void {
@@ -271,9 +261,17 @@ export class ImportDialog {
     else this.toNextUndecided();
   }
 
-  /** this group skipped: every file kept. Like picking a file, it stays here until Next entry */
-  protected skipThis(group: DuplicateGroup): void {
-    this.decide(group, { kind: 'skip' });
+  /**
+   * This group skipped: every file kept - for now, or put on the duplicates list so it is not
+   * asked about again. Like picking a file, it stays here until Next entry.
+   */
+  protected skipThis(group: DuplicateGroup, remember: boolean): void {
+    this.decide(group, { kind: 'skip', remember });
+  }
+
+  protected skipRemembered(group: DuplicateGroup): boolean {
+    const outcome = this.outcomeOf(group);
+    return outcome?.kind === 'skip' && !!outcome.remember;
   }
 
   private toNextUndecided(): void {
@@ -284,10 +282,15 @@ export class ImportDialog {
     if (next !== undefined) this.chooseAt.set(next);
   }
 
-  /** every group not yet sorted: skipped, or its most recent kept - then on to removing */
-  protected finishChoosingWith(choice: 'skip' | 'recent'): void {
-    for (const group of this.siftList()) if (!this.outcomeOf(group)) this.decide(group, { kind: choice });
-    void this.applyDuplicates();
+  /**
+   * Every group not yet sorted: skipped (for now, or not to be asked about again), or its most
+   * recent kept. Nothing is removed yet - the done note shows, and Continue goes on.
+   */
+  protected markRemaining(choice: 'skip' | 'recent', remember = false): void {
+    for (const group of this.siftList()) {
+      if (this.outcomeOf(group)) continue;
+      this.decide(group, choice === 'skip' ? { kind: 'skip', remember } : { kind: 'recent' });
+    }
   }
 
   protected continueFromChoosing(): void {
@@ -331,8 +334,8 @@ export class ImportDialog {
         } else if (outcome?.kind === 'pick' && group.files.some((f) => f.path === outcome.path)) {
           remove.push(...group.files.filter((f) => f.path !== outcome.path).map((f) => f.path));
         }
-        // skipped while sorting by hand: kept, and remembered as the list's skips are
-        else if (outcome?.kind === 'skip' && this.rememberSkipped()) keep.push({ group, kept: group.files });
+        // skipped while sorting by hand: kept, and on the duplicates list only when told so there
+        else if (outcome?.kind === 'skip' && outcome.remember) keep.push({ group, kept: group.files });
         // never sorted: left as it is
       }
     }

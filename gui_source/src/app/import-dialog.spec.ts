@@ -392,7 +392,7 @@ describe('ImportDialog', () => {
     expect(store.written.has(IMPORT_EXCLUDED_FILE)).toBe(false);
   });
 
-  it('puts every skipped group on the duplicates list when the box is ticked, sifted skips too', async () => {
+  it("puts the list's skipped groups on the duplicates list when the box is ticked, and a sifted one told not to ask again", async () => {
     await open([], false, [], DUPES);
     TestBed.inject(Library).store.set(store);
     await click('Continue');
@@ -401,7 +401,7 @@ describe('ImportDialog', () => {
     element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!.click();
     await fixture.whenStable();
     await click('Choose which to keep');
-    await skipThisOne();
+    await skipThisOne(true);
     await click('Continue');
     await settle();
     const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
@@ -416,8 +416,8 @@ describe('ImportDialog', () => {
 
   const groupShown = () => element.querySelector('.choose')!.getAttribute('data-group');
   const radios = () => [...element.querySelectorAll<HTMLInputElement>('.choose-list li:not(.skip-this) input[type="radio"]')];
-  async function skipThisOne() {
-    element.querySelector<HTMLInputElement>('.skip-this input')!.click();
+  async function skipThisOne(remember = false) {
+    element.querySelector<HTMLInputElement>(remember ? '.skip-this.remember input' : '.skip-this:not(.remember) input')!.click();
     await fixture.whenStable();
     // the last one to sort shows the done note at once, with no entries left to move to
     if (button('Next entry')) await click('Next entry');
@@ -440,10 +440,12 @@ describe('ImportDialog', () => {
     expect(element.textContent).toContain('3 still to sort');
     expect(primary().disabled).toBe(true);
     expect(button('Keep most recent for this one')).toBeUndefined();
-    // the skip is the last radio, below every file; previous and next entry are below that
-    const last = [...element.querySelectorAll('.choose-list li')].pop()!;
-    expect(last.classList).toContain('skip-this');
-    expect(last.textContent).toContain('Or, skip this one');
+    // the two skips are the last radios, below every file; previous and next entry are below that
+    const items = [...element.querySelectorAll('.choose-list li')];
+    expect(items.slice(-2).map((li) => li.textContent?.trim())).toEqual([
+      'Skip for now', "Skip, and don't ask me again for this file",
+    ]);
+    expect(element.textContent).not.toContain('Or, skip this one');
     expect(button('Skip this one')).toBeUndefined();
     const nav = element.querySelector('.sift-nav')!;
     expect([...nav.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual([
@@ -453,8 +455,10 @@ describe('ImportDialog', () => {
     const footer = element.querySelector('footer')!;
     expect(footer.classList).toContain('even');
     expect(footer.textContent).not.toContain('Next entry');
-    expect(footer.textContent).toContain('Mark all remaining as Skip, then Continue');
-    expect(footer.textContent).toContain('Mark all remaining as Keep most recent, then Continue');
+    expect([...footer.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual([
+      'Back', 'Skip all remaining', "Skip all remaining, and don't ask me about them again",
+      'Keep most recent for all remaining', 'Continue',
+    ]);
   });
 
   it('lists the files to choose from most recent first, undated last', async () => {
@@ -505,8 +509,9 @@ describe('ImportDialog', () => {
 
     expect(element.querySelector('.sift-done')?.textContent).toContain('You are done - no more to sort');
     expect(element.querySelector('.sift-nav')).toBeNull();
-    expect(button('Mark all remaining as Skip, then Continue')!.disabled).toBe(true);
-    expect(button('Mark all remaining as Keep most recent, then Continue')!.disabled).toBe(true);
+    expect(button('Skip all remaining')!.disabled).toBe(true);
+    expect(button("Skip all remaining, and don't ask me about them again")!.disabled).toBe(true);
+    expect(button('Keep most recent for all remaining')!.disabled).toBe(true);
     expect(primary().disabled).toBe(false);
     await click('Continue');
     await settle();
@@ -563,17 +568,34 @@ describe('ImportDialog', () => {
     expect(radios().map((r) => r.checked)).toEqual([false, true]);
   });
 
-  it('leaves the rest as they are on Mark all remaining as Skip, keeping what was sorted', async () => {
+  it('leaves the rest as they are on Skip all remaining, keeping what was sorted, and goes on only on Continue', async () => {
     await toSifting();
+    TestBed.inject(Library).store.set(store);
     await click('Next entry');
-    await click('Mark all remaining as Skip, then Continue');
+    await click('Skip all remaining');
+    expect(step()).toBe('choose');
+    expect(element.querySelector('.sift-done')).toBeTruthy();
+    await click('Continue');
     await settle();
     expect(store.deleted).toEqual(['works/7 fic old copy 2023-05-05.htm']);
+    expect(store.written.has(IMPORT_EXCLUDED_FILE)).toBe(false);
   });
 
-  it('gives the rest their most recent on Mark all remaining as Keep most recent', async () => {
+  it("puts the rest on the duplicates list on Skip all remaining, and don't ask me about them again", async () => {
     await toSifting();
-    await click('Mark all remaining as Keep most recent, then Continue');
+    TestBed.inject(Library).store.set(store);
+    await click('Next entry');
+    await click("Skip all remaining, and don't ask me about them again");
+    await click('Continue');
+    await settle();
+    const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
+    expect(written.excluded.map((x: { id: string; format: string }) => `${x.id}:${x.format}`)).toEqual(['7:pdf', '8:epub']);
+  });
+
+  it('gives the rest their most recent on Keep most recent for all remaining', async () => {
+    await toSifting();
+    await click('Keep most recent for all remaining');
+    await click('Continue');
     await settle();
     expect(store.deleted.sort()).toEqual([
       'works/7 fic old copy 2023-05-05.htm',
