@@ -96,7 +96,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2088 python passed; 978 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2088 python passed; 979 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2192,10 +2192,13 @@ window finishes after dating (`afterDating`). What not to break:
   indexed (one whose undated files brought it into the import) keeps its origin.
 - **Duplicates come first** (`duplicates`, `choose`, `removing` steps, only with some):
   `duplicateGroups` is every work number and format (`.htm` is html) with more than one file
-  in `works/`, however named. Each row is *Skip* (default: asked again), *Keep all* (kept, and
-  asked again too - on the **duplicates** list only when *Don't ask me again for the ones marked
-  Keep all* is ticked, `rememberKeepAll`, whose hint says how it differs from Skip), *Keep most
-  recent* or *I'll choose*, with buttons setting every row.
+  in `works/`, however named. Each row is *Skip* (default: every file kept, asked again - on
+  the **duplicates** list only when *Don't ask this again for skipped files* is ticked,
+  `rememberSkipped`, which takes groups skipped while sifting too), *Keep most recent* or *I'll
+  choose*; *Keep all* was folded into Skip at the user's request, being the same thing. Buttons
+  *Mark all as Skip* / *Keep most recent* / *I'll choose myself* set every row, and the primary
+  reads *Skip this step* with every row skipped (`allSkipped`), *Choose which to keep* with any
+  to choose, else *Continue*.
   **Most recent is never a guess** (`newestOf`): every file in the group needs a date in its
   name (read as *Infer date* reads one) and one must be strictly newest, or the group is
   `undecided` - nothing deleted, said on the removing page, asked again next time. *I'll

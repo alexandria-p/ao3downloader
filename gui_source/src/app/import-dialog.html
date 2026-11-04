@@ -79,16 +79,15 @@
         keep for each - the rest are deleted from your library on the next page.
       </p>
       <p class="hint">
-        <em>Skip</em> leaves them and asks again next time. <em>Keep all</em> keeps every file - and
-        is asked about again next time too, unless you tick the box under the list. <em>Keep most
-        recent</em> keeps the file whose name carries the latest date - when that cannot be told,
-        nothing is deleted and it is asked again. <em>I'll choose</em> shows each one in turn.
+        <em>Skip</em> keeps every file, and asks again next time unless you tick the box under the
+        list. <em>Keep most recent</em> keeps the file whose name carries the latest date - when
+        that cannot be told, nothing is deleted and it is asked again. <em>I'll choose</em> shows
+        each one in turn.
       </p>
       <div class="bulk">
-        <button type="button" class="button" (click)="chooseForAll('skip')">Skip all</button>
-        <button type="button" class="button" (click)="chooseForAll('all')">Keep all</button>
-        <button type="button" class="button" (click)="chooseForAll('recent')">Keep most recent for all</button>
-        <button type="button" class="button" (click)="chooseForAll('choose')">I will choose which to keep</button>
+        <button type="button" class="button" (click)="chooseForAll('skip')">Mark all as Skip</button>
+        <button type="button" class="button" (click)="chooseForAll('recent')">Mark all as Keep most recent</button>
+        <button type="button" class="button" (click)="chooseForAll('choose')">Mark all as I'll choose myself</button>
       </div>
       <div class="view-toggle" role="group" aria-label="How to show the duplicates">
         <button type="button" class="toggle" [class.on]="dupPaged()" (click)="setDupPaged(true)">Pages</button>
@@ -122,7 +121,6 @@
                   <select [attr.aria-label]="'Keep for work ' + group.id + ' ' + group.format"
                           [value]="choiceOf(group)" (change)="setChoice(group, $any($event.target).value)">
                     <option value="skip" [selected]="choiceOf(group) === 'skip'">Skip</option>
-                    <option value="all" [selected]="choiceOf(group) === 'all'">Keep all</option>
                     <option value="recent" [selected]="choiceOf(group) === 'recent'">Keep most recent</option>
                     <option value="choose" [selected]="choiceOf(group) === 'choose'">I'll choose</option>
                   </select>
@@ -132,16 +130,15 @@
           </tbody>
         </table>
       </div>
-      <label class="check remember-keep-all">
-        <input type="checkbox" name="rememberKeepAll" [checked]="rememberKeepAll()"
-               (change)="rememberKeepAll.set($any($event.target).checked)" />
+      <label class="check remember-skips remember-skipped-duplicates">
+        <input type="checkbox" name="rememberSkipped" [checked]="rememberSkipped()"
+               (change)="rememberSkipped.set($any($event.target).checked)" />
         <span>
-          Don't ask me again for the ones marked Keep all
+          Don't ask this again for skipped files
           <span class="hint">
-            Unlike Skip: every file of each work and format marked <em>Keep all</em> is added to
-            <code>import-excluded.json</code> at the top of your library, and that work and format
-            is not offered as a duplicate again - unless another file for it turns up. Unticked,
-            <em>Keep all</em> keeps the files and asks again next time, as Skip does.
+            Every work and format marked Skip - here, or while choosing by hand - is added to
+            <code>import-excluded.json</code> at the top of your library with all its files kept,
+            and is not offered as a duplicate again unless another file for it turns up.
           </span>
         </span>
       </label>
@@ -156,7 +153,7 @@
     <footer>
       <button type="button" class="button subtle" (click)="step.set('overview')">Back</button>
       <button type="button" class="button primary" [disabled]="busy()" (click)="fromDuplicates()">
-        {{ toChoose().length ? 'Choose which to keep' : 'Continue' }}
+        {{ toChoose().length ? 'Choose which to keep' : allSkipped() ? 'Skip this step' : 'Continue' }}
       </button>
     </footer>
   }

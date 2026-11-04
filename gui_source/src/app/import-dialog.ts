@@ -30,7 +30,7 @@ type Step = 'overview' | 'duplicates' | 'choose' | 'removing' | 'dates' | 'datin
 export type SiftOutcome = { kind: 'pick'; path: string } | { kind: 'skip' } | { kind: 'recent' };
 
 /** what to do with one group of duplicates */
-export type DuplicateChoice = 'skip' | 'all' | 'recent' | 'choose';
+export type DuplicateChoice = 'skip' | 'recent' | 'choose';
 
 /** how many groups a page of the duplicates list holds */
 export const DUPLICATES_PAGE_SIZE = 25;
@@ -185,8 +185,10 @@ export class ImportDialog {
   );
   /** every group sorted through: the done note shows, and Continue is offered */
   protected readonly siftDone = computed(() => this.siftList().length > 0 && this.undecidedCount() === 0);
-  /** groups marked Keep all go on the duplicates list, not to be asked about again */
-  protected readonly rememberKeepAll = signal(false);
+  /** skipped groups go on the duplicates list, all their files kept, not to be asked about again */
+  protected readonly rememberSkipped = signal(false);
+  /** every row marked Skip: the step is skipped as a whole */
+  protected readonly allSkipped = computed(() => this.duplicates().every((g) => this.choiceOf(g) === 'skip'));
 
   private note(said: string): void {
     this.sandboxNoted.emit(said);
@@ -286,7 +288,7 @@ export class ImportDialog {
 
   /**
    * What the choices come to: files to delete - never every file of a group - groups kept as
-   * they are (Keep all, on the duplicates list only when told not to ask again), and groups
+   * they are (skipped, on the duplicates list only when told not to ask again), and groups
    * whose newest could not be told (left, and offered again next time).
    */
   private duplicatePlan(): {
@@ -299,10 +301,9 @@ export class ImportDialog {
     const undecided: DuplicateGroup[] = [];
     for (const group of this.duplicates()) {
       const choice = this.choiceOf(group);
-      if (choice === 'all') {
-        if (this.rememberKeepAll()) keep.push({ group, kept: group.files });
-      }
-      else if (choice === 'recent') {
+      if (choice === 'skip') {
+        if (this.rememberSkipped()) keep.push({ group, kept: group.files });
+      } else if (choice === 'recent') {
         const newest = this.newestIn(group);
         if (!newest) undecided.push(group);
         else remove.push(...group.files.filter((f) => f !== newest).map((f) => f.path));
@@ -315,7 +316,9 @@ export class ImportDialog {
         } else if (outcome?.kind === 'pick' && group.files.some((f) => f.path === outcome.path)) {
           remove.push(...group.files.filter((f) => f.path !== outcome.path).map((f) => f.path));
         }
-        // skipped, or never sorted: left as it is
+        // skipped while sorting by hand: kept, and remembered as the list's skips are
+        else if (outcome?.kind === 'skip' && this.rememberSkipped()) keep.push({ group, kept: group.files });
+        // never sorted: left as it is
       }
     }
     return { remove, keep, undecided };

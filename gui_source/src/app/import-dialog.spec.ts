@@ -328,13 +328,14 @@ describe('ImportDialog', () => {
   it('sets every row at once from the buttons at the top, each still changeable', async () => {
     await open([], false, [], DUPES);
     await click('Continue');
-    for (const [label, value] of [['Keep all', 'all'], ['Keep most recent for all', 'recent'],
-                                  ['I will choose which to keep', 'choose'], ['Skip all', 'skip']]) {
+    expect(element.querySelector('select option[value="all"]')).toBeNull();
+    for (const [label, value] of [['Mark all as Keep most recent', 'recent'],
+                                  ["Mark all as I'll choose myself", 'choose'], ['Mark all as Skip', 'skip']]) {
       await click(label);
       expect([...element.querySelectorAll('tr[data-group] select')].map((x) => (x as HTMLSelectElement).value))
         .toEqual([value, value, value]);
     }
-    await chooseIn('8:epub', 'all');
+    await chooseIn('8:epub', 'recent');
     expect(groupRow('7:html').querySelector('select')!.value).toBe('skip');
   });
 
@@ -368,28 +369,39 @@ describe('ImportDialog', () => {
     expect(element.querySelector('details.undecided summary')?.textContent).toContain('could not tell which file is most recent');
   });
 
-  it('keeps every file on Keep all, and asks again next time unless told not to', async () => {
+  it('says Skip this step with every row skipped, Choose which to keep with one to choose, else Continue', async () => {
+    await open([], false, [], DUPES);
+    await click('Continue');
+    expect(primary().textContent?.trim()).toBe('Skip this step');
+    await chooseIn('8:epub', 'recent');
+    expect(primary().textContent?.trim()).toBe('Continue');
+    await chooseIn('7:html', 'choose');
+    expect(primary().textContent?.trim()).toBe('Choose which to keep');
+  });
+
+  it('keeps every skipped file, and asks again next time unless told not to', async () => {
     await open([], false, [], DUPES);
     TestBed.inject(Library).store.set(store);
     await click('Continue');
-    const box = element.querySelector<HTMLInputElement>('input[name="rememberKeepAll"]')!;
-    expect(box.closest('label')!.textContent).toContain("Don't ask me again for the ones marked Keep all");
-    expect(box.closest('label')!.textContent).toContain('Unlike Skip');
-    await chooseIn('8:epub', 'all');
-    await click('Continue');
+    const box = element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!;
+    expect(box.closest('label')!.textContent).toContain("Don't ask this again for skipped files");
+    expect(box.closest('label')!.textContent).toContain('import-excluded.json');
+    await click('Skip this step');
     await settle();
     expect(store.deleted).toEqual([]);
     expect(store.written.has(IMPORT_EXCLUDED_FILE)).toBe(false);
   });
 
-  it('adds every Keep all group to the duplicates list when the box is ticked', async () => {
+  it('puts every skipped group on the duplicates list when the box is ticked, sifted skips too', async () => {
     await open([], false, [], DUPES);
     TestBed.inject(Library).store.set(store);
     await click('Continue');
-    await chooseIn('8:epub', 'all');
-    await chooseIn('7:pdf', 'all');
-    element.querySelector<HTMLInputElement>('input[name="rememberKeepAll"]')!.click();
+    await chooseIn('7:html', 'recent');
+    await chooseIn('8:epub', 'choose');
+    element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!.click();
     await fixture.whenStable();
+    await click('Choose which to keep');
+    await click('Skip this one');
     await click('Continue');
     await settle();
     const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
@@ -398,8 +410,8 @@ describe('ImportDialog', () => {
       ['8', 'duplicates', 'epub'],
     ]);
     expect(written.excluded[1].files).toEqual(['8 One 2022-02-02.epub', '8 Three 2021-01-01.epub', '8 Two 2022-03-03.epub']);
-    // nothing removed or undecided: straight on
-    expect(step()).not.toBe('removing');
+    // the html's most recent kept, the older copy removed
+    expect(store.deleted).toEqual(['works/7 fic old copy 2023-05-05.htm']);
   });
 
   const groupShown = () => element.querySelector('.choose')!.getAttribute('data-group');
@@ -408,7 +420,7 @@ describe('ImportDialog', () => {
   async function toSifting() {
     await open([], false, [], DUPES);
     await click('Continue');
-    await click('I will choose which to keep');
+    await click("Mark all as I'll choose myself");
     await click('Choose which to keep');
   }
 
@@ -450,13 +462,12 @@ describe('ImportDialog', () => {
     const noted: string[] = [];
     fixture.componentInstance.sandboxNoted.subscribe((x) => noted.push(x));
     await click('Continue');
-    await chooseIn('8:epub', 'all');
-    element.querySelector<HTMLInputElement>('input[name="rememberKeepAll"]')!.click();
+    element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!.click();
     await fixture.whenStable();
-    await click('Continue');
+    await click('Skip this step');
     await settle();
     expect(store.written.size).toBe(0);
-    expect(noted).toEqual(['duplicates list: 8:epub']);
+    expect(noted).toEqual(['duplicates list: 7:html, 7:pdf, 8:epub']);
   });
 
   it('moves between entries, and finishes with a done note once the last is sorted', async () => {
@@ -560,7 +571,7 @@ describe('ImportDialog', () => {
     const works = [{ id: '9', files: undated[0].files }];
     await open(works, false, [], undated);
     await click('Continue');
-    await click('I will choose which to keep');
+    await click("Mark all as I'll choose myself");
     await click('Choose which to keep');
     // nothing is picked to begin with: keep the 2020 one, and that is the only one to sort
     const keep = element.querySelector<HTMLInputElement>('input[aria-label="Keep 9 Copy - W 2020-01-01.html"]')!;
