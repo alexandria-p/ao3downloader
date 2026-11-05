@@ -910,7 +910,8 @@ the combined run, 'just update incomplete' and 'just download new bookmarks'. Th
 passes the quick scan and the full scan are built from, each usable alone, and offering them
 beside the two runs people should reach for invites picking a part when the whole was wanted.
 They carry a `[DEBUG]` prefix and the red `.button.debug` treatment so they never read as
-part of the ordinary set. `App` reads the flag off `Jobs.config`, loading it as the page
+part of the ordinary set. They are all **Advanced options** holds, and it is not shown at all without them;
+*Download/update a specific fic*, *several fics* and *Custom run* sit beside the two scans. `App` reads the flag off `Jobs.config`, loading it as the page
 opens rather than waiting for a dialog to need it.
 
 The panel itself is for working on the app rather than for using it, and the two things it

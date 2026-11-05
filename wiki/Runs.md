@@ -6,10 +6,10 @@ A **run** is one press of a button: it logs in to AO3, indexes, downloads, and r
 | --- | --- | --- | --- |
 | **Quick Scan** | Bookmarks | Everyday use: new bookmarks, and anything AO3 updated since your last scan | Small |
 | **(Full scan) Reindex & Update All** | Bookmarks | Repairing the index, or catching a finished fic that was added to | Reads everything - hours on a large library |
-| **Download/update a specific fic** | Advanced options | One fic, by link or work number. Always re-downloads it | One fic |
-| **Download/update several fics** | Advanced options | A pasted list of links or work numbers (any separators, up to 500). Always re-downloads them | One fic each |
+| **Download/update a specific fic** | Bookmarks | One fic, by link or work number. Always re-downloads it | One fic |
+| **Download/update several fics** | Bookmarks | A pasted list of links or work numbers (any separators, up to 500). Always re-downloads them | One fic each |
 | **Import works found in your library** | Offered when a library opens, and under the tabs | Files in `works/` with no index entry: date them, index them, add formats | One fic each |
-| **Custom run** | Advanced options | A slice of pages, a date range, or working from the index without reading AO3 | Depends |
+| **Custom run** | Bookmarks | A slice of pages, a date range, or working from the index without reading AO3 | Depends |
 | **Index my collections** | Collections | Your own collections | 1 request per 20 works |
 | **Index collection by URL** | Collections | Any collection, from a link | 1 request per 20 works |
 

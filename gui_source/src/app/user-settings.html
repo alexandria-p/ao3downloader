@@ -90,6 +90,8 @@
               @for (font of group.fonts; track font.id) {
                 <option [value]="font.id" [selected]="font.id === appearance.font()" [style.font-family]="font.stack || null">{{ font.name }}</option>
               }
+              <!-- a line under System, in browsers that draw one inside a list; others skip it -->
+              <hr />
             }
           }
         </select>

@@ -234,7 +234,7 @@ With a date range, steps 2 and 3 read "…in that date range".
 ## Download/update several fics
 
 - **Programmatic name:** `works`
-- The single-fic run over a list. Under **Advanced options**, beside *Download/update a specific fic*.
+- The single-fic run over a list. On the Works tab with the other runs, beside *Download/update a specific fic*. (**Advanced options** holds only the `[DEBUG]` runs, and is shown only when `EnableDebugTools` is on.)
 - **Options:**
   - The fics: work links or work numbers pasted into one box, separated by new lines, commas, spaces or semicolons in any mix (`parseWorkList` on the page, `work_links` in the helper). A link to any chapter counts; the same fic twice is one fic. Anything that is neither is named and the run will not start; at most 500 fics a run (`MAX_WORK_LINKS`). The run keeps them as its `url`, one link to a line, which History lists.
   - *Get all works from encountered series*

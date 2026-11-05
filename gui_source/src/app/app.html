@@ -297,16 +297,27 @@
       (Full scan) Reindex &amp; Update All
     </button>
 
-    <details class="advanced">
-      <summary>Advanced options</summary>
-      <div class="advanced-actions">
-        <!--
-          the passes the two runs above are built from, each usable on its own. kept for
-          working on the app rather than for using it, so they appear only when
-          settings.ini turns the debug tools on - and wear the same colour as every other
-          debug control, so nobody reaches for one by habit
-        -->
-        @if (debugTools()) {
+    <!-- the runs for one job each, beside the two everyday ones rather than hidden away -->
+    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('work')">
+      Download/update a specific fic
+    </button>
+    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('works')">
+      Download/update several fics
+    </button>
+    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('custom')">
+      Custom run
+    </button>
+
+    <!--
+      the passes the two scans are built from, each usable on its own. kept for working on the
+      app rather than for using it, so they appear only when settings.ini turns the debug tools
+      on - and wear the same colour as every other debug control, so nobody reaches for one by
+      habit. with nothing in it, the disclosure is not shown at all
+    -->
+    @if (debugTools()) {
+      <details class="advanced">
+        <summary>Advanced options</summary>
+        <div class="advanced-actions">
           <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('sync')">
             [DEBUG] Download new bookmarks and update incomplete fics
           </button>
@@ -316,18 +327,9 @@
           <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('new')">
             [DEBUG] Just download newly added bookmarks
           </button>
-        }
-        <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('work')">
-          Download/update a specific fic
-        </button>
-        <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('works')">
-          Download/update several fics
-        </button>
-        <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('custom')">
-          Custom run
-        </button>
-      </div>
-    </details>
+        </div>
+      </details>
+    }
   } @else {
     <button type="button" class="button primary" [disabled]="!!activeRun()" (click)="openRun('collections')">
       Index my collections

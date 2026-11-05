@@ -166,16 +166,18 @@ describe('App', () => {
     ]);
   });
 
-  it('keeps the single-purpose runs behind advanced options', async () => {
-    // each is right for exactly one job and confusing as a default, so none of them sits
-    // in the way of the two that are not
+  it('offers the single-purpose runs beside the two scans, and no Advanced options without debug tools', async () => {
     const element = await withFolder();
 
-    const advanced = element.querySelector('.advanced');
-    expect(advanced?.querySelector('summary')?.textContent?.trim()).toBe('Advanced options');
-    expect(
-      Array.from(advanced!.querySelectorAll('button')).map((b) => b.textContent?.trim()),
-    ).toEqual(['Download/update a specific fic', 'Download/update several fics', 'Custom run']);
+    expect(actionLabels(element).slice(0, 5)).toEqual([
+      'Quick Scan',
+      '(Full scan) Reindex & Update All',
+      'Download/update a specific fic',
+      'Download/update several fics',
+      'Custom run',
+    ]);
+    // nothing anyone can use would be in it, so it is not there at all
+    expect(element.querySelector('.advanced')).toBeNull();
   });
 
   // they are the passes the two runs above are built from, kept for working on the app
@@ -220,6 +222,10 @@ describe('App', () => {
       '[DEBUG] Just update any bookmarks marked as incomplete',
       '[DEBUG] Just download newly added bookmarks',
     ]);
+    // the debug runs, and only they, are behind Advanced options
+    const advanced = element.querySelector('.advanced');
+    expect(advanced?.querySelector('summary')?.textContent?.trim()).toBe('Advanced options');
+    expect(Array.from(advanced!.querySelectorAll('button')).every((b) => b.classList.contains('debug'))).toBe(true);
   });
 
   // writing into a folder you chose needs an API only Chromium has, and the moment it bites
