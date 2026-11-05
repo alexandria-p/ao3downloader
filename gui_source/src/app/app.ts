@@ -21,7 +21,7 @@ import { History } from './history';
 import { ImportDialog } from './import-dialog';
 import { DebugTab } from './debug-tab';
 import { DebugMode } from './debug';
-import { DatingResult, ImportRequest, LibraryImports } from './imports';
+import { DatingResult, ImportRequest, LibraryImports, importIssueCounts, importIssueLines } from './imports';
 import { IMPORT_OFFER_KEY } from './preferences';
 import { safeGet, safeSet, safeRemove } from './storage';
 import { FolderWarning, folderWarningDismissed } from './folder-warning';
@@ -129,7 +129,7 @@ export class App {
    *  and not turned off for good */
   protected readonly importReminder = computed(() => {
     const store = this.library.store();
-    return this.importOffered() && this.imports.hasIssues() && !!store &&
+    return this.importOffered() && this.imports.hasIssues() && !!store && !this.library.loading() &&
       this.imports.checkedStore() === store && this.reminderDismissedFor() !== store;
   });
 
@@ -205,17 +205,12 @@ export class App {
   }
 
   /** what the Works tab's button has found, in a few words */
-  protected readonly importIssuesSaid = computed(() => {
-    const works = this.imports.found().length;
-    const undated = this.imports.found().reduce((n, w) => n + w.files.filter((f) => !f.date && !f.noDating).length, 0) +
-      this.imports.undatedIndexed().length;
-    const parts = [];
-    if (works) parts.push(`${works.toLocaleString()} ${works === 1 ? 'work has' : 'works have'} files but no index entry`);
-    const duplicates = this.imports.duplicates().length;
-    if (duplicates) parts.push(`${duplicates.toLocaleString()} ${duplicates === 1 ? 'work has' : 'works have'} more than one file in the same format`);
-    if (undated) parts.push(`${undated.toLocaleString()} ${undated === 1 ? 'file has no date in its name' : 'files have no date in their names'}`);
-    return parts.join('; ');
-  });
+  /** counted and worded as the import window's own overview, in files, so the two agree */
+  protected readonly importIssuesSaid = computed(() =>
+    importIssueLines(importIssueCounts(this.imports.found(), this.imports.undatedIndexed(), this.imports.duplicates()))
+      .map((line) => line.text)
+      .join('; '),
+  );
 
   /** from the Works tab's button: the import window, by hand */
   protected openImport(): void {
@@ -342,10 +337,13 @@ export class App {
     });
     // whenever the index changes - a read, a refresh, a run's changes taken in - the works
     // with files and no entry are worked out again: one listing of works/
+    // - but only once the library is wholly read and set up: the store is set before the index
+    // is read, and checked against that empty index every file looked unindexed
     effect(() => {
       this.library.worksById();
       const store = this.library.store();
-      untracked(() => void (store ? this.imports.check() : this.imports.found.set([])));
+      const reading = this.library.loading() || this.librarySetup.state() !== 'idle';
+      untracked(() => (store && !reading ? void this.imports.check() : this.imports.forget()));
     });
     // offered by itself once per library per visit, and never while a run is going: the run
     // reads and writes the library, and renaming files under it is not safe. a run ending

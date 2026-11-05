@@ -1204,6 +1204,26 @@ describe('App', () => {
     }
   }
 
+  it('neither checks nor offers anything while the library is still being read', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/1 Work 1 - Writer 2024-01-01.html']);
+    const library = TestBed.inject(Library);
+    library.loading.set(true);
+    // the store is set before the index is read: against an empty index, work 1 looks unindexed
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    expect(element.querySelector('.import-issues')).toBeNull();
+
+    library.data.set(exportOf(1));
+    library.worksById.set(new Map([['1', work(1)]]));
+    library.loading.set(false);
+    await settled(fixture);
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    expect(element.querySelector('.import-issues')).toBeNull();
+  });
+
   it('offers to import works whose files have no index entry, once, when the library opens', async () => {
     localStorage.clear();
     libraryWithFiles(['works/1 Work 1 - Writer.html', 'works/999 Not Indexed - Writer.html']);
@@ -1216,7 +1236,10 @@ describe('App', () => {
     const offered = element.querySelector('app-import-dialog');
     expect(offered?.textContent).toContain('1 file belongs to a work that has no index');
     expect(element.querySelector('.import-issues')?.textContent).toContain('Resolve issues found with import');
-    expect(element.querySelector('.import-issues')?.textContent).toContain('1 work has files but no index entry');
+    // the reminder counts and words it as the window's own bullets do
+    const bullets = [...offered!.querySelectorAll('.overview-issues li')].map((li) => li.textContent!.trim());
+    expect(bullets).toEqual(['2 files have no date', '1 file belongs to a work that has no index']);
+    expect(element.querySelector('.import-issues-said')?.textContent?.trim()).toBe(bullets.join('; '));
 
     offered!.querySelector<HTMLInputElement>('input[name="firstChoice"][value="later"]')!.click();
     await settled(fixture);
@@ -1261,7 +1284,7 @@ describe('App', () => {
     await settled(fixture);
     const element = fixture.nativeElement as HTMLElement;
 
-    expect(element.querySelector('.import-issues')?.textContent).toContain('1 file has no date in its name');
+    expect(element.querySelector('.import-issues')?.textContent).toContain('1 file has no date');
     expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 file has no date');
   });
 

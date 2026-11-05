@@ -96,6 +96,55 @@ function byWork(files: FoundFile[]): FoundWork[] {
 }
 
 /** the files among these works with no date in their name */
+/**
+ * What the import has to resolve, counted in files - the one count the reminder above the tabs
+ * and the import window's own overview both give, so the two can never disagree.
+ */
+export interface ImportIssueCounts {
+  /** files in a set of two or more of one work in one format */
+  duplicateFiles: number;
+  /** files with no date in their name that dating would offer */
+  undatedFiles: number;
+  /** files of works with no index entry */
+  unindexedFiles: number;
+}
+
+export function importIssueCounts(
+  works: FoundWork[],
+  undatedElsewhere: FoundFile[],
+  duplicates: DuplicateGroup[],
+): ImportIssueCounts {
+  return {
+    duplicateFiles: duplicates.reduce((n, g) => n + g.files.length, 0),
+    undatedFiles: undatedFiles(works).length + undatedElsewhere.length,
+    unindexedFiles: works.reduce((n, w) => n + w.files.length, 0),
+  };
+}
+
+export interface ImportIssueLine {
+  kind: 'duplicates' | 'undated' | 'unindexed';
+  text: string;
+}
+
+/** the overview's lines, in its order: duplicates, then dates, then index */
+export function importIssueLines(counts: ImportIssueCounts): ImportIssueLine[] {
+  const n = (x: number) => x.toLocaleString();
+  const lines: ImportIssueLine[] = [];
+  if (counts.duplicateFiles) {
+    lines.push({ kind: 'duplicates',
+      text: `${n(counts.duplicateFiles)} ${counts.duplicateFiles === 1 ? 'file is a duplicate' : 'files are duplicates'}` });
+  }
+  if (counts.undatedFiles) {
+    lines.push({ kind: 'undated',
+      text: `${n(counts.undatedFiles)} ${counts.undatedFiles === 1 ? 'file has' : 'files have'} no date` });
+  }
+  if (counts.unindexedFiles) {
+    lines.push({ kind: 'unindexed',
+      text: `${n(counts.unindexedFiles)} ${counts.unindexedFiles === 1 ? 'file belongs to a work that has' : 'files belong to works that have'} no index` });
+  }
+  return lines;
+}
+
 export function undatedFiles(works: FoundWork[]): FoundFile[] {
   return works.flatMap((w) => w.files.filter((f) => !f.date && !f.noDating));
 }
@@ -677,6 +726,18 @@ export class LibraryImports {
       return { ...entry, files };
     });
     if (changed) await this.save(store, next).catch(() => undefined);
+  }
+
+  /**
+   * Nothing found, and any check still going thrown away: for while the library is being read
+   * or set up. Checked against a half-read index, every file would look unindexed.
+   */
+  forget(): void {
+    this.generation++;
+    this.found.set([]);
+    this.undatedIndexed.set([]);
+    this.duplicates.set([]);
+    this.checkedStore.set(null);
   }
 
   async check(): Promise<void> {

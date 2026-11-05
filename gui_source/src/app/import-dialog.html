@@ -13,20 +13,8 @@
       @if (duplicates().length || undated().length || works().length) {
         <p class="overview-heading"><strong>Issues found in import:</strong></p>
         <ul class="overview-issues">
-          @if (duplicates().length) {
-            <li class="overview-duplicates">
-              {{ duplicateFiles() | number }} {{ duplicateFiles() === 1 ? 'file is a duplicate' : 'files are duplicates' }}
-            </li>
-          }
-          @if (undated().length) {
-            <li class="overview-undated">
-              {{ undated().length | number }} {{ undated().length === 1 ? 'file has' : 'files have' }} no date
-            </li>
-          }
-          @if (works().length) {
-            <li class="overview-unindexed">
-              {{ unindexedFiles() | number }} {{ unindexedFiles() === 1 ? 'file belongs to a work that has' : 'files belong to works that have' }} no index
-            </li>
+          @for (line of issueLines(); track line.kind) {
+            <li [class]="'overview-' + line.kind">{{ line.text }}</li>
           }
         </ul>
       }

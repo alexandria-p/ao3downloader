@@ -22,8 +22,7 @@ import {
   inferDate,
   isFileDate,
   renamesFor,
-  undatedFiles,
-} from './imports';
+  undatedFiles, importIssueCounts, importIssueLines } from './imports';
 import { Jobs } from './jobs';
 import { Library } from './library';
 import { LibraryStore } from './library-store';
@@ -135,6 +134,10 @@ export class ImportDialog {
   protected readonly maxWorks = MAX_IMPORT_WORKS;
   /** how many files belong to works with no index entry, for the first page */
   protected readonly unindexedFiles = computed(() => this.works().reduce((n, w) => n + w.files.length, 0));
+  /** the overview's bullets - worded and counted as the reminder above the tabs is */
+  protected readonly issueLines = computed(() =>
+    importIssueLines(importIssueCounts(this.works(), this.undatedElsewhere(), this.duplicates())),
+  );
 
   // region duplicates
 
