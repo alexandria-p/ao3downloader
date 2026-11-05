@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1012 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1014 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2491,7 +2491,11 @@ not to break:
   `--warn-*`, `--ok-*`, `--note-*`, `--backdrop`) and sets `color-scheme`. The components read
   those tokens, never a hard-coded grey, status tint or accent, so **a component that hard-codes
   a colour will not follow the palette** - and on a light palette will likely be unreadable.
-  AO3's own rating, warning and category tiles keep AO3's colours on purpose. **Fonts are the
+  AO3's own rating, warning and category tiles keep AO3's colours on purpose. **The header logo
+  follows the palette** (`--logo-filter`, `logoFilter`): drawn in one pink (`LOGO_HUE`, measured
+  off the file), it is hue-rotated to the accent's hue, left as drawn when the accent is within
+  `LOGO_KEEP_WITHIN` of that pink, and greyed for a grey accent - so a new palette tints it with
+  no change here. Swapping the logo for one in another colour means measuring `LOGO_HUE` again. **Fonts are the
   computer's own or bundled with the page** (`fonts.css`: @fontsource packages, OFL, Latin and
   Latin Extended, 400 and 700): served from the page's own address, never a font service, and
   downloaded by the browser only once a chosen font is used - so offering them costs nothing,

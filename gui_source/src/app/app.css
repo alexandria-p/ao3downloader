@@ -33,6 +33,8 @@
   width: 44px;
   height: 44px;
   flex: none;
+  /* turned to the palette's accent colour (appearance.logoFilter) */
+  filter: var(--logo-filter, none);
 }
 
 .picker {

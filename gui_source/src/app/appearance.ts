@@ -296,12 +296,47 @@ export function fontStack(id: string, custom: string): string {
   return fontById(id).stack;
 }
 
+/** the logo's own pink, as a hue in degrees - measured off `public/ficfairy-logo.png` */
+export const LOGO_HUE = 316;
+/** how near a palette's accent must be to the logo's pink for the artwork to be left as drawn */
+const LOGO_KEEP_WITHIN = 30;
+
+/** a `#rrggbb` colour's hue (0-360) and saturation (0-1), or null for anything else */
+export function hueOf(hex: string): { hue: number; saturation: number } | null {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if (!match) return null;
+  const [r, g, b] = match.slice(1).map((part) => parseInt(part, 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const chroma = max - min;
+  if (!chroma) return { hue: 0, saturation: 0 };
+  const light = (max + min) / 2;
+  const saturation = chroma / (1 - Math.abs(2 * light - 1));
+  const hue = max === r ? ((g - b) / chroma) % 6 : max === g ? (b - r) / chroma + 2 : (r - g) / chroma + 4;
+  return { hue: (hue * 60 + 360) % 360, saturation };
+}
+
+/**
+ * The css filter that tints the logo to a palette's accent: the logo is drawn in one pink, so
+ * turning its hue to the accent's keeps every line and shade while changing the colour. A
+ * palette whose accent is already near that pink keeps the artwork as drawn, and one with a
+ * grey accent gets a grey logo.
+ */
+export function logoFilter(accent: string): string {
+  const colour = hueOf(accent);
+  if (!colour) return 'none';
+  if (colour.saturation < 0.1) return 'grayscale(1)';
+  const turn = Math.round(((colour.hue - LOGO_HUE + 540) % 360) - 180);
+  return Math.abs(turn) <= LOGO_KEEP_WITHIN ? 'none' : `hue-rotate(${turn}deg)`;
+}
+
 /** sets the tokens, the status colours for the palette's mode, and the font on the page's root */
 export function applyAppearance(palette: string, font: string, custom: string, root: HTMLElement = document.documentElement): void {
   const chosen = paletteById(palette);
   const status = chosen.mode === 'light' ? STATUS_LIGHT : STATUS_DARK;
   for (const [token, value] of Object.entries({ ...status, ...chosen.tokens })) root.style.setProperty(`--${token}`, value);
   root.style.setProperty('--font-body', fontStack(font, custom));
+  root.style.setProperty('--logo-filter', logoFilter(chosen.tokens.accent));
   // form controls, scrollbars and date pickers follow the palette's mode
   root.style.colorScheme = chosen.mode;
   root.dataset['palette'] = chosen.id;

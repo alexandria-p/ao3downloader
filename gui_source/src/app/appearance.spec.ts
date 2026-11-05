@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUSTOM_FONT, FONTS, FONT_GROUPS, PALETTES, STATUS_DARK, STATUS_LIGHT, applyAppearance, cleanFontName, fontById, fontStack } from './appearance';
+import { CUSTOM_FONT, FONTS, FONT_GROUPS, PALETTES, STATUS_DARK, STATUS_LIGHT, applyAppearance, cleanFontName, fontById, fontStack, logoFilter } from './appearance';
 
 describe('appearance', () => {
   it('gives every palette the same tokens, so none leaves a colour behind from another', () => {
@@ -63,5 +63,20 @@ describe('appearance', () => {
     expect(FONT_GROUPS.flatMap((g) => g.fonts)).toEqual(FONTS);
     expect(FONTS.length).toBeGreaterThan(20);
     expect(new Set(FONTS.map((f) => f.id)).size).toBe(FONTS.length);
+  });
+  it('tints the logo to each palette, leaving it as drawn where the accent is already its pink', () => {
+    expect(logoFilter(PALETTES.find((p) => p.id === 'strawberry-milk')!.tokens.accent)).toBe('none');
+    expect(logoFilter(PALETTES.find((p) => p.id === 'fairy')!.tokens.accent)).toBe('none');
+    expect(logoFilter(PALETTES.find((p) => p.id === 'forest')!.tokens.accent)).toMatch(/^hue-rotate\(-?\d+deg\)$/);
+    expect(logoFilter('#808080')).toBe('grayscale(1)');
+    expect(logoFilter('not a colour')).toBe('none');
+
+    const root = document.createElement('div');
+    applyAppearance('midnight', '', '', root);
+    expect(root.style.getPropertyValue('--logo-filter')).toBe(logoFilter(PALETTES.find((p) => p.id === 'midnight')!.tokens.accent));
+  });
+
+  it('starts the page with the logo tinted as the default palette tints it', () => {
+    expect(logoFilter(PALETTES[0].tokens.accent)).toBe('hue-rotate(-112deg)');
   });
 });

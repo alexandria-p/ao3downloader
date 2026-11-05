@@ -38,6 +38,8 @@
   --note-border: #6b5a8a;
   --backdrop: rgba(0, 0, 0, 0.6);
 
+  /* the Charcoal palette's blue - `appearance.ts` sets it for the palette chosen */
+  --logo-filter: hue-rotate(-112deg);
   --font-body: 'Segoe UI', Tahoma, Verdana, system-ui, sans-serif;
 }
 
