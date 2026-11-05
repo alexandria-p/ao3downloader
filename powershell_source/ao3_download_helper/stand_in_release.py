@@ -4,8 +4,8 @@ build runner without publishing anything.
     python stand_in_release.py <the app's zip> <port> [version]
 
 It answers `/repos/<anything>/releases/latest` as GitHub's api does - a newer version, with
-the zip as an asset of the zip's own name (`ao3downloader-windows.zip`,
-`ao3downloader-macos-intel.zip`...) and its real SHA-256 - and serves the zip.
+the zip as an asset of the zip's own name (`ficfairy-ao3downloader-windows.zip`,
+`ficfairy-ao3downloader-macos-intel.zip`...) and its real SHA-256 - and serves the zip.
 The app is pointed at it with `AO3DOWNLOADER_UPDATE_SOURCE=http://127.0.0.1:<port>`
 (`source_code/updater.py`). `build-windows.yml`, `build-mac.yml` and `build-linux.yml` use it to install the app, update it, and
 check what the update changed and what it left alone.

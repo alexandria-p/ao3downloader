@@ -23,7 +23,7 @@ def test_the_app_is_a_folder_with_a_console_window():
     # a folder, not one self-unpacking file; and a window the helper can talk in
     assert '--onedir' in arguments and '--onefile' not in arguments
     assert '--console' in arguments
-    assert arguments[arguments.index('--name') + 1] == 'ao3downloader'
+    assert arguments[arguments.index('--name') + 1] == 'ficfairy'
 
 
 def test_the_settings_template_and_the_page_are_packed_in():
@@ -51,7 +51,7 @@ def test_the_entry_point_is_the_desktop_module():
 # region what goes beside the exe
 
 def app_folder(tmp_path: Path) -> Path:
-    (tmp_path / 'dist' / 'ao3downloader').mkdir(parents=True)
+    (tmp_path / 'dist' / 'ficfairy').mkdir(parents=True)
     return tmp_path
 
 
@@ -74,7 +74,7 @@ def test_on_a_mac_a_script_to_double_click_goes_beside_the_program(tmp_path):
     # a downloaded zip quarantines every file in it; the script lifts that off the folder, so
     # macOS asks once, about the script, and not about each library the program loads
     assert 'xattr -dr com.apple.quarantine .' in script
-    assert 'exec ./ao3downloader' in script
+    assert 'exec ./ficfairy' in script
     assert os.access(launcher, os.X_OK)
     assert b'\r' not in launcher.read_bytes()
 
@@ -95,7 +95,7 @@ def test_on_linux_a_script_to_start_it_goes_beside_the_program(tmp_path):
     launcher = app / package_app.LINUX_LAUNCHER
     script = launcher.read_text(encoding='utf-8')
     assert script.startswith('#!/bin/bash\n')
-    assert 'exec ./ao3downloader' in script
+    assert 'exec ./ficfairy' in script
     assert os.access(launcher, os.X_OK)
     assert b'\r' not in launcher.read_bytes()
     assert not (app / package_app.MAC_LAUNCHER).exists()
@@ -108,7 +108,7 @@ def test_the_linux_readme_says_how_to_start_it_and_which_browser_to_use(tmp_path
     assert 'x86_64' in readme
     assert 'Chrome' in readme and 'Firefox' in readme
     assert 'Update now' in readme
-    assert b'\r' not in (tmp_path / 'dist' / 'ao3downloader' / 'README.txt').read_bytes()
+    assert b'\r' not in (tmp_path / 'dist' / 'ficfairy' / 'README.txt').read_bytes()
 
 
 needs_bash = pytest.mark.skipif(sys.platform == 'win32', reason='runs the bash launcher')
@@ -120,7 +120,7 @@ def run_launcher(tmp_path: Path, environment: dict) -> str:
 
     app = package_app.assemble(app_folder(tmp_path), 'linux')
     said = tmp_path / 'said.txt'
-    program = app / 'ao3downloader'
+    program = app / 'ficfairy'
     program.write_text(f'#!/bin/bash\necho "program in $(pwd) $AO3DOWNLOADER_IN_TERMINAL" >> "{said}"\n',
                        encoding='utf-8')
     program.chmod(0o755)
@@ -141,14 +141,14 @@ def test_the_linux_launcher_runs_the_program_in_its_own_folder_when_there_is_no_
     said = run_launcher(tmp_path, {})
 
     assert 'terminal' not in said
-    assert f'program in {tmp_path / "dist" / "ao3downloader"}' in said
+    assert f'program in {tmp_path / "dist" / "ficfairy"}' in said
 
 
 @needs_bash
 def test_the_linux_launcher_opens_a_terminal_to_run_in_on_a_desktop_and_only_once(tmp_path):
     said = run_launcher(tmp_path, {'DISPLAY': ':0'}).splitlines()
 
-    app = tmp_path / 'dist' / 'ao3downloader'
+    app = tmp_path / 'dist' / 'ficfairy'
     assert said[0] == f'terminal -e {app / package_app.LINUX_LAUNCHER}'
     # the launcher it ran in the terminal ran the program, not a second terminal
     assert said[1] == f'program in {app} 1'
@@ -164,47 +164,53 @@ def test_the_zip_unzips_into_one_folder_and_holds_no_settings(tmp_path):
     archive = package_app.make_zip(app, tmp_path / 'app.zip')
 
     names = zipfile.ZipFile(archive).namelist()
-    assert all(name.startswith('ao3downloader/') for name in names)
-    assert 'ao3downloader/_internal/python.dll' in names
+    assert all(name.startswith('ficfairy/') for name in names)
+    assert 'ficfairy/_internal/python.dll' in names
     # nothing in config/ - so unzipping an update over the app can never replace the
     # settings.ini someone has edited
-    assert not any(name.startswith('ao3downloader/config/') for name in names)
+    assert not any(name.startswith('ficfairy/config/') for name in names)
 
 
 def test_the_zip_is_named_for_the_system_it_was_built_on(monkeypatch):
     monkeypatch.setattr(package_app.sys, 'platform', 'win32')
-    assert package_app.zip_name() == 'ao3downloader-windows.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-windows.zip'
     monkeypatch.setattr(package_app.sys, 'platform', 'darwin')
     monkeypatch.setattr(package_app.machines, 'machine', lambda: 'arm64')
-    assert package_app.zip_name() == 'ao3downloader-macos-apple-silicon.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-macos-apple-silicon.zip'
     monkeypatch.setattr(package_app.machines, 'machine', lambda: 'x86_64')
-    assert package_app.zip_name() == 'ao3downloader-macos-intel.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-macos-intel.zip'
     # the names the updater looks for on each system
     monkeypatch.setattr(package_app.sys, 'platform', 'linux')
-    assert package_app.zip_name() == 'ao3downloader-linux-x86_64.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-linux-x86_64.zip'
     monkeypatch.setattr(package_app.machines, 'machine', lambda: 'aarch64')
-    assert package_app.zip_name() == 'ao3downloader-linux-aarch64.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-linux-aarch64.zip'
+
+
+def test_the_updater_looks_for_the_name_each_zip_is_built_with():
+    from source_code import updater
+    for platform, machine in [('win32', None), ('darwin', 'arm64'), ('darwin', 'x86_64'), ('linux', 'x86_64')]:
+        assert updater.kind_for(platform, machine).asset == package_app.zip_name(platform, machine)
 
 
 def test_each_mac_readme_says_which_macs_it_is_for_and_where_the_other_one_is(tmp_path):
     silicon = (package_app.assemble(app_folder(tmp_path / 'one'), 'darwin', 'arm64') / 'README.txt').read_text(encoding='utf-8')
     assert 'Apple silicon (M1 or later)' in silicon.split('Starting it')[0]
-    assert 'ao3downloader-macos-intel.zip' in silicon
+    assert 'ficfairy-ao3downloader-macos-intel.zip' in silicon
 
     intel = (package_app.assemble(app_folder(tmp_path / 'two'), 'darwin', 'x86_64') / 'README.txt').read_text(encoding='utf-8')
     assert 'This is for Intel Macs' in intel
-    assert 'ao3downloader-macos-apple-silicon.zip' in intel
+    assert 'ficfairy-ao3downloader-macos-apple-silicon.zip' in intel
 
 
 def test_the_zip_keeps_the_program_executable(tmp_path):
     app = package_app.assemble(app_folder(tmp_path), 'darwin')
-    program = app / 'ao3downloader'
+    program = app / 'ficfairy'
     program.write_bytes(b'program')
     program.chmod(0o755)
 
     archive = zipfile.ZipFile(package_app.make_zip(app, tmp_path / 'app.zip'))
 
-    for name in ('ao3downloader/ao3downloader', f'ao3downloader/{package_app.MAC_LAUNCHER}'):
+    for name in ('ficfairy/ficfairy', f'ficfairy/{package_app.MAC_LAUNCHER}'):
         assert (archive.getinfo(name).external_attr >> 16) & 0o111
 
 
@@ -220,12 +226,12 @@ def test_a_symlink_in_the_app_is_zipped_as_a_symlink_and_never_followed(tmp_path
 
     archive = zipfile.ZipFile(package_app.make_zip(app, tmp_path / 'app.zip'))
 
-    for name, target in (('ao3downloader/_internal/Python', 'lib/Python'),
-                         ('ao3downloader/_internal/Frameworks', 'lib')):
+    for name, target in (('ficfairy/_internal/Python', 'lib/Python'),
+                         ('ficfairy/_internal/Frameworks', 'lib')):
         info = archive.getinfo(name)
         assert stat.S_ISLNK(info.external_attr >> 16)
         assert archive.read(name).decode() == target
-    assert not any(n.startswith('ao3downloader/_internal/Frameworks/') for n in archive.namelist())
+    assert not any(n.startswith('ficfairy/_internal/Frameworks/') for n in archive.namelist())
 
 # endregion
 

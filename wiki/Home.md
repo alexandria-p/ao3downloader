@@ -17,4 +17,4 @@ A fork of [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader) th
 - [[Developing]] - building, testing and how it fits together.
 - [[Glossary]] - the words used here.
 
-Found a bug? Use the **Feedback** tab on the right edge of the app, or [open an issue](https://github.com/alexandria-p/ao3downloader/issues).
+Found a bug? Use the **Feedback** tab on the right edge of the app, or [open an issue](https://github.com/alexandria-p/ficfairy/issues).

@@ -560,6 +560,23 @@ describe('App', () => {
     expect(text).not.toContain('Last indexed');
   });
 
+  it('puts the run buttons under the listing heading and List refreshed, not above the listing', async () => {
+    const { fixture, element } = await render(1);
+    TestBed.inject(Library).listedAt.set(new Date('2026-11-03T10:00:00Z'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const list = element.querySelector('app-work-list')!;
+    const heading = list.querySelector('.listing-heading')!;
+    const note = list.querySelector('.meta-line.note')!;
+    const quick = [...list.querySelectorAll('.actions button')].find((b) => b.textContent?.includes('Quick Scan'));
+    expect(quick).toBeTruthy();
+    expect(heading.compareDocumentPosition(quick!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(note.compareDocumentPosition(quick!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // and only once on the page
+    expect([...element.querySelectorAll('.actions button')].filter((b) => b.textContent?.includes('Quick Scan')).length).toBe(1);
+  });
+
   it('counts what each page holds on its tab', async () => {
     const library = TestBed.inject(Library);
     library.data.set(exportOf(3));
@@ -789,6 +806,16 @@ describe('App', () => {
     ).toBe('https://archiveofourown.org/faq/downloading-fanworks');
   });
 
+  it('shows the logo beside the name, from the page itself, without reading it out twice', async () => {
+    const { element } = await render(1);
+
+    const heading = element.querySelector('.topbar h1');
+    const logo = heading?.querySelector('img.logo');
+    expect(logo?.getAttribute('src')).toBe('ficfairy-logo.png');
+    expect(logo?.getAttribute('alt')).toBe('');
+    expect(heading?.textContent?.trim()).toBe('Fic Fairy');
+  });
+
   it('pins where to download the app to the top of the FAQ', async () => {
     const { fixture, element } = await render(1);
     tab(element, 'FAQ')!.click();
@@ -797,14 +824,14 @@ describe('App', () => {
     const first = element.querySelector('app-faq .faq')?.firstElementChild;
     expect(first?.classList.contains('download-app')).toBe(true);
     expect(first?.querySelector('a')?.getAttribute('href')).toBe(
-      'https://github.com/alexandria-p/ao3downloader/releases/latest',
+      'https://github.com/alexandria-p/ficfairy/releases/latest',
     );
-    expect(first?.textContent).toContain('ao3downloader.exe');
-    expect(first?.textContent).toContain('ao3downloader-macos-apple-silicon.zip');
-    expect(first?.textContent).toContain('ao3downloader-macos-intel.zip');
-    expect(first?.textContent).toContain('Start ao3downloader.command');
-    expect(first?.textContent).toContain('ao3downloader-linux-x86_64.zip');
-    expect(first?.textContent).toContain('Start ao3downloader.sh');
+    expect(first?.textContent).toContain('ficfairy.exe');
+    expect(first?.textContent).toContain('ficfairy-ao3downloader-macos-apple-silicon.zip');
+    expect(first?.textContent).toContain('ficfairy-ao3downloader-macos-intel.zip');
+    expect(first?.textContent).toContain('Start FicFairy.command');
+    expect(first?.textContent).toContain('ficfairy-ao3downloader-linux-x86_64.zip');
+    expect(first?.textContent).toContain('Start FicFairy.sh');
   });
 
   it('has a Report a bug tab next to the FAQ that points at the GitHub issues', async () => {
@@ -817,7 +844,7 @@ describe('App', () => {
 
     const page = element.querySelector('.report-bug');
     expect(page?.querySelector('a')?.getAttribute('href')).toBe(
-      'https://github.com/alexandria-p/ao3downloader/issues',
+      'https://github.com/alexandria-p/ficfairy/issues',
     );
     // something to read, not a folder to act on - no run buttons
     expect(element.querySelector('.actions')).toBeNull();
@@ -879,7 +906,7 @@ describe('App', () => {
       const footer = element.querySelector('.app-footer');
       expect(footer?.textContent).toContain('version 1.8.2');
       expect(footer?.querySelector('a')?.getAttribute('href')).toBe(
-        'https://github.com/alexandria-p/ao3downloader',
+        'https://github.com/alexandria-p/ficfairy',
       );
     }
   });
@@ -916,7 +943,7 @@ describe('App', () => {
 
     const link = element.querySelector('.app-footer .footer-link');
     expect(link?.textContent?.trim()).toBe('up to date with latest');
-    expect(link?.getAttribute('href')).toBe('https://github.com/alexandria-p/ao3downloader/releases/latest');
+    expect(link?.getAttribute('href')).toBe('https://github.com/alexandria-p/ficfairy/releases/latest');
   });
 
   it('says nothing in the footer about being the latest until GitHub has answered', async () => {
@@ -974,7 +1001,25 @@ describe('App', () => {
 
     const banner = element.querySelector('.update-failed');
     expect(banner?.textContent).toContain('the file is in use');
-    expect(banner?.textContent).toContain('Your settings and your library are as they were');
+    expect(banner?.textContent).toContain('This copy and your library are as they were');
+  });
+
+  it('sends anyone whose update failed to download the latest release by hand, whatever went wrong', async () => {
+    // a release whose zip was renamed is the case this is for: the app finds no file under the
+    // name it knows, and the only way on is a new copy from the release page
+    const { fixture, element } = await render(1);
+    TestBed.inject(UpdateCheck).updating.set({
+      state: 'failed', error: 'the latest release, 2.0.0, has no ficfairy-ao3downloader-windows.zip',
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const banner = element.querySelector('.update-failed');
+    expect(banner?.textContent).toContain('There was a problem updating the app');
+    expect(banner?.textContent).toContain('has no ficfairy-ao3downloader-windows.zip');
+    expect(banner?.textContent).toContain('download the latest version again');
+    expect(banner?.querySelector('a.manual-download')?.getAttribute('href'))
+      .toBe('https://github.com/alexandria-p/ficfairy/releases/latest');
   });
 
   it('says when a newer version is out, and stops for good when told to', async () => {
@@ -1162,7 +1207,7 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     const source = element.querySelector('.topbar .source');
-    expect(source?.textContent).toContain('/Apps/ao3-downloader');
+    expect(source?.textContent).toContain('/Apps/FicFairy');
     expect(source?.getAttribute('title')).toContain('me@example.com');
     // the library is open, which is everything a run needs
     expect(actionLabels(element)).toContain('Quick Scan');
@@ -1180,7 +1225,7 @@ describe('App', () => {
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
 
-    expect(element.querySelector('.empty')?.textContent).toContain('/Apps/ao3-downloader');
+    expect(element.querySelector('.empty')?.textContent).toContain('/Apps/FicFairy');
     expect(actionLabels(element)).toEqual([]);
   });
 

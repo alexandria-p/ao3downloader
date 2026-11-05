@@ -61,7 +61,7 @@
 .backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--backdrop);
 }
 
 .dialog {
@@ -162,7 +162,7 @@ em {
 
 .sentiment label.chosen {
   border-color: var(--accent-line);
-  background: #2b4352;
+  background: var(--accent-bg);
 }
 
 .field {
@@ -242,9 +242,9 @@ em {
 
 .problem {
   padding: 10px 12px;
-  border: 1px solid #6b4a4a;
+  border: 1px solid var(--danger-border);
   border-radius: 3px;
-  background: #2f1e1e;
+  background: var(--danger-bg);
 }
 
 .failed p {

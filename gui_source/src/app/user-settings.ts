@@ -27,7 +27,7 @@ import { UpdateCheck } from './updates';
 import { LibraryImports } from './imports';
 import { Library } from './library';
 import { DebugMode } from './debug';
-import { Appearance, CUSTOM_FONT, DEFAULT_FONT, DEFAULT_PALETTE, FONTS, PALETTES, fontById, fontStack, paletteById } from './appearance';
+import { Appearance, CUSTOM_FONT, DEFAULT_FONT, DEFAULT_PALETTE, FONTS, FONT_GROUPS, PALETTES, fontById, fontStack, paletteById } from './appearance';
 
 export type Asking = 'ask' | 'skip';
 
@@ -97,6 +97,12 @@ export class UserSettings implements OnDestroy {
   protected readonly appearance = inject(Appearance);
   protected readonly palettes = PALETTES;
   protected readonly fonts = FONTS;
+  protected readonly fontGroups = FONT_GROUPS;
+  /** the palettes, dark ones first, each kind under its own heading */
+  protected readonly paletteGroups = [
+    { mode: 'dark', name: 'Dark', palettes: PALETTES.filter((p) => p.mode === 'dark') },
+    { mode: 'light', name: 'Light', palettes: PALETTES.filter((p) => p.mode === 'light') },
+  ];
   protected readonly customFontId = CUSTOM_FONT;
   /** what a font choice looks like, for its preview line */
   protected readonly fontPreview = computed(() => fontStack(this.appearance.font(), this.appearance.customFont()));

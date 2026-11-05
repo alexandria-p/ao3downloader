@@ -1,5 +1,9 @@
 :host {
   display: block;
+  /* the fairy is placed against the page itself, so she can fly down past the header */
+  position: relative;
+  /* how far everything near her starts from the left, to leave her room */
+  --fairy-room: 150px;
   max-width: 1000px;
   margin: 0 auto;
   padding: 16px 20px 60px;
@@ -9,26 +13,109 @@
 
 .topbar {
   display: flex;
-  flex-wrap: wrap;
+  /* the name and the buttons always share the row: with a wide font chosen the buttons wrap
+     among themselves on the right rather than dropping under the name */
+  flex-wrap: nowrap;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
+  min-height: 64px;
   padding-bottom: 12px;
+  padding-left: var(--fairy-room);
   border-bottom: 1px solid var(--border);
 }
 
 .topbar h1 {
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
+  /* the title's own font, never the one chosen in User settings (styles.css) */
+  font-family: 'Doomsdays Dragons', var(--font-body);
+  font-size: 64px;
+  font-weight: normal;
+  /* no taller than the bar's 51px of content (64px less its padding and line), so the bar -
+     and the buttons, centred in it - stay exactly where they were however large the name is */
+  line-height: 51px;
+  height: 51px;
+  /* the name never wraps or shrinks; the buttons beside it give way instead */
+  flex: none;
+  white-space: nowrap;
   color: var(--text-strong);
+}
+
+/* the name's capitals start 12px below the top of the bar and end just above its line: moved
+   down within the bar rather than making it taller. The span moves, not the h1, which would
+   otherwise become what the fairy is placed against */
+.topbar h1 .name {
+  position: relative;
+  top: 9.5px;
+}
+
+/* the fairy flying in over the tabs: large, tilted, and hanging below the header line, beside
+   the tabs and any banner under it, which start --fairy-room in to make space for her. She is
+   a transparent picture, tinted to the palette (appearance.logoFilter), never in the way of a
+   click, and her alt text is empty because the name beside her is what is read out */
+.topbar h1 .logo {
+  position: absolute;
+  top: 2px;
+  left: 14px;
+  z-index: 1;
+  width: 150px;
+  height: 150px;
+  transform: rotate(-6deg);
+  pointer-events: none;
+  filter: var(--logo-filter, none);
+}
+
+/* :host first, so this outranks each one's own margin shorthand further down */
+:host .run-in-progress,
+:host .update-available,
+:host .debug-banner,
+:host .import-issues,
+:host .views {
+  margin-left: var(--fairy-room);
+}
+
+/* too narrow to give her room beside the tabs: she sits in the bar beside the name instead */
+@media (max-width: 760px) {
+  :host {
+    --fairy-room: 0px;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .picker {
+    justify-content: flex-start;
+  }
+
+  .topbar h1 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 2.6rem;
+    line-height: 1;
+    height: auto;
+  }
+
+  .topbar h1 .name {
+    top: 0;
+  }
+
+  .topbar h1 .logo {
+    position: static;
+    width: 64px;
+    height: 64px;
+    transform: none;
+  }
 }
 
 .picker {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   align-items: center;
+  min-width: 0;
 }
 
 /* where the library lives: two halves of one control, so it reads as a choice of one */
@@ -117,17 +204,17 @@
   part of the ordinary set, and reads that way at a glance beside the buttons that are
 */
 .button.debug {
-  border-color: #8a4040;
-  background: #4a2020;
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
   color: var(--text-strong);
 }
 
 .button.debug:hover {
-  background: #5d2828;
+  background: var(--danger-bg-hover);
 }
 
 .remembered {
-  color: #7fb069;
+  color: var(--ok-text);
   font-size: 0.7em;
   vertical-align: middle;
 }
@@ -140,9 +227,9 @@
   justify-content: space-between;
   margin: 16px 0;
   padding: 10px 12px;
-  border: 1px solid #5a5230;
+  border: 1px solid var(--warn-border);
   border-radius: 3px;
-  background: #2b2820;
+  background: var(--warn-bg);
   font-size: 0.88rem;
 }
 
@@ -175,9 +262,9 @@
 .error {
   margin: 16px 0;
   padding: 10px 12px;
-  border: 1px solid #6b3a3a;
+  border: 1px solid var(--danger-border);
   border-radius: 3px;
-  background: #2e2020;
+  background: var(--danger-bg);
   color: var(--danger);
 }
 
@@ -206,14 +293,14 @@
 
 .read-progress .fill {
   height: 100%;
-  background: #5a8f6a;
+  background: var(--ok-fill);
   transition: width 0.3s ease;
 }
 
 /* no total to divide by - a listing, or a zip Dropbox builds as it sends - so show motion
    rather than a false number */
 .read-progress .fill.indeterminate {
-  background: linear-gradient(90deg, transparent, #5a8f6a, transparent);
+  background: linear-gradient(90deg, transparent, var(--ok-fill), transparent);
   background-size: 40% 100%;
   background-repeat: no-repeat;
   animation: read-sweep 1.4s ease-in-out infinite;
@@ -360,8 +447,8 @@
 
 /* the one thing an update banner says that is a problem - amber, as a copy to check is */
 .update-available.update-failed {
-  border-color: #9a7a3d;
-  background: #3a3222;
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
 }
 
 /* what this page is and where it comes from - on every tab, and kept in view at the bottom
@@ -447,9 +534,9 @@
   gap: 10px;
   margin: 0 0 16px;
   padding: 10px 12px;
-  border: 1px solid #8a6d3b;
+  border: 1px solid var(--warn-border);
   border-radius: 5px;
-  background: #33291a;
+  background: var(--warn-bg);
 }
 
 .import-issues-said {
@@ -476,13 +563,13 @@
 .debug-banner {
   margin: 0 0 12px;
   padding: 8px 12px;
-  border: 1px solid #a04646;
+  border: 1px solid var(--danger-border);
   border-radius: 5px;
-  background: #3a1e1e;
-  color: #f0c0c0;
+  background: var(--danger-bg);
+  color: var(--danger-text);
   font-size: 0.9rem;
 }
 
 .views .debug-tab-button {
-  color: #f08a8a;
+  color: var(--danger-text);
 }

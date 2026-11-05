@@ -18,7 +18,7 @@
 .backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--backdrop);
 }
 
 .dialog {
@@ -90,12 +90,12 @@ footer {
 }
 
 .example .yes {
-  color: #7fb37f;
+  color: var(--ok-text);
   font-weight: 700;
 }
 
 .example .no {
-  color: #d08b8b;
+  color: var(--danger-text);
   font-weight: 700;
 }
 

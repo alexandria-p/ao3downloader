@@ -1,6 +1,6 @@
 name: build linux app
 
-# The Linux app: a zip holding the ao3downloader program and "Start ao3downloader.sh", which
+# The Linux app: a zip holding the ficfairy program and "Start FicFairy.sh", which
 # starts the helper, serves the page and opens Chrome or Chromium - in place of
 # Start-Application.ps1, with nothing to install first. package_app.py builds it; this runs it
 # on Linux, because PyInstaller builds for the system it runs on. Built on the oldest Ubuntu
@@ -50,7 +50,7 @@ jobs:
       contents: write
     env:
       APP_VERSION: ${{ inputs.version || '0.0.1' }}
-      ZIP: dist/ao3downloader-linux-x86_64.zip
+      ZIP: dist/ficfairy-ao3downloader-linux-x86_64.zip
 
     steps:
       - name: checkout
@@ -108,14 +108,14 @@ jobs:
           place="$RUNNER_TEMP/unzipped"
           rm -rf "$place" && mkdir -p "$place"
           unzip -q "$ZIP" -d "$place"
-          app="$place/ao3downloader"
-          if [ ! -x "$app/ao3downloader" ]; then echo "the program is not executable"; exit 1; fi
-          if [ ! -x "$app/Start ao3downloader.sh" ]; then echo "the launcher is not executable"; exit 1; fi
-          file "$app/ao3downloader"
-          file "$app/ao3downloader" | grep -q 'x86-64' || { echo 'not built for x86_64'; exit 1; }
+          app="$place/ficfairy"
+          if [ ! -x "$app/ficfairy" ]; then echo "the program is not executable"; exit 1; fi
+          if [ ! -x "$app/Start FicFairy.sh" ]; then echo "the launcher is not executable"; exit 1; fi
+          file "$app/ficfairy"
+          file "$app/ficfairy" | grep -q 'x86-64' || { echo 'not built for x86_64'; exit 1; }
 
           # the launcher execs the program, so this is the app's own process
-          "$app/Start ao3downloader.sh" > "$RUNNER_TEMP/app.log" 2>&1 < /dev/null &
+          "$app/Start FicFairy.sh" > "$RUNNER_TEMP/app.log" 2>&1 < /dev/null &
           started=$!
           stop() { kill "$started" 2>/dev/null || true; }
           trap stop EXIT
@@ -154,7 +154,7 @@ jobs:
           place="$RUNNER_TEMP/installed"
           rm -rf "$place" && mkdir -p "$place"
           unzip -q "$ZIP" -d "$place"
-          app="$place/ao3downloader"
+          app="$place/ficfairy"
           settings="$app/config/settings.ini"
           origin='Origin: http://localhost:4200'
           helper() { curl -sf --max-time 2 -H "$origin" http://127.0.0.1:4400/api/config; }
@@ -166,7 +166,7 @@ jobs:
 
           (cd powershell_source/ao3_download_helper \
             && uv run --no-sync python stand_in_release.py "$GITHUB_WORKSPACE/$ZIP" 8765 > "$RUNNER_TEMP/release.log" 2>&1 &)
-          AO3DOWNLOADER_NO_BROWSER=1 "$app/Start ao3downloader.sh" > "$RUNNER_TEMP/installed.log" 2>&1 < /dev/null &
+          AO3DOWNLOADER_NO_BROWSER=1 "$app/Start FicFairy.sh" > "$RUNNER_TEMP/installed.log" 2>&1 < /dev/null &
           started=$!
           finish() {
             status=$?
@@ -174,9 +174,9 @@ jobs:
               echo '--- what the app folder holds ---'; ls -la "$app" "$app/update" 2>/dev/null
               for f in update/update.log update/swap-output.txt; do echo "--- $f ---"; cat "$app/$f" 2>/dev/null || echo '(none)'; done
               echo '--- the stand-in release ---'; cat "$RUNNER_TEMP/release.log"
-              echo '--- processes ---'; pgrep -lf ao3downloader || true
+              echo '--- processes ---'; pgrep -lf ficfairy || true
             fi
-            pkill -x ao3downloader || true
+            pkill -x ficfairy || true
             pkill -f stand_in_release.py || true
           }
           trap finish EXIT
@@ -208,7 +208,7 @@ jobs:
           for left in update/new update/previous update/download.zip update/restarted; do
             if [ -e "$app/$left" ]; then echo "the swap left $left behind"; exit 1; fi
           done
-          if [ ! -x "$app/ao3downloader" ]; then echo 'the new program is not executable'; exit 1; fi
+          if [ ! -x "$app/ficfairy" ]; then echo 'the new program is not executable'; exit 1; fi
 
           after=$(cat "$settings")
           echo "$after"
@@ -222,7 +222,7 @@ jobs:
       - name: keep the zip on this run
         uses: actions/upload-artifact@v4
         with:
-          name: ao3downloader-linux-x86_64
+          name: ficfairy-ao3downloader-linux-x86_64
           path: ${{ env.ZIP }}
           retention-days: 30
 
@@ -241,12 +241,12 @@ jobs:
             gh release create "$TAG" \
               --target "$GITHUB_SHA" \
               --latest \
-              --title "ao3downloader $VERSION" \
-              --notes "Windows: download ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe. Windows may warn that the app is not signed: choose More info, then Run anyway.
+              --title "FicFairy $VERSION" \
+              --notes "Windows: download ficfairy-ao3downloader-windows.zip, unzip it, and double-click ficfairy.exe. Windows may warn that the app is not signed: choose More info, then Run anyway.
 
-          Mac: download ao3downloader-macos-apple-silicon.zip for an M1 or later, or ao3downloader-macos-intel.zip for an Intel Mac, open it, and double-click Start ao3downloader.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
+          Mac: download ficfairy-ao3downloader-macos-apple-silicon.zip for an M1 or later, or ficfairy-ao3downloader-macos-intel.zip for an Intel Mac, open it, and double-click Start FicFairy.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
 
-          Linux (64-bit Intel or AMD): download ao3downloader-linux-x86_64.zip, unzip it, and run Start ao3downloader.sh. Use Chrome or Chromium - Firefox cannot open a folder for the app.
+          Linux (64-bit Intel or AMD): download ficfairy-ao3downloader-linux-x86_64.zip, unzip it, and run Start FicFairy.sh. Use Chrome or Chromium - Firefox cannot open a folder for the app.
 
           The README inside each zip says the rest." \
               || echo 'the release was made meanwhile, by another build'

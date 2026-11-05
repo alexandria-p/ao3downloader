@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUSTOM_FONT, FONTS, PALETTES, applyAppearance, cleanFontName, fontStack } from './appearance';
+import { CUSTOM_FONT, FONTS, FONT_GROUPS, PALETTES, STATUS_DARK, STATUS_LIGHT, applyAppearance, cleanFontName, fontById, fontStack, logoFilter } from './appearance';
 
 describe('appearance', () => {
   it('gives every palette the same tokens, so none leaves a colour behind from another', () => {
@@ -32,5 +32,51 @@ describe('appearance', () => {
 
     applyAppearance('nonsense', '', '', root);
     expect(root.dataset['palette']).toBe('charcoal');
+  });
+  it('offers dark and light palettes that differ in more than shade, each with a unique id', () => {
+    expect(PALETTES.filter((p) => p.mode === 'dark').length).toBeGreaterThan(5);
+    expect(PALETTES.filter((p) => p.mode === 'light').length).toBeGreaterThan(5);
+    expect(new Set(PALETTES.map((p) => p.id)).size).toBe(PALETTES.length);
+    expect(new Set(PALETTES.map((p) => p.tokens.accent)).size).toBe(PALETTES.length);
+  });
+
+  it('brings the status colours for the palette mode, so failures stay readable on a light page', () => {
+    expect(Object.keys(STATUS_LIGHT).sort()).toEqual(Object.keys(STATUS_DARK).sort());
+    const root = document.createElement('div');
+    applyAppearance('strawberry-milk', '', '', root);
+    expect(root.style.getPropertyValue('--danger-bg')).toBe(STATUS_LIGHT['danger-bg']);
+    expect(root.style.getPropertyValue('--bg')).toBe('#fff0f4');
+    expect(root.dataset['mode']).toBe('light');
+    expect(root.style.colorScheme).toBe('light');
+
+    applyAppearance('charcoal', '', '', root);
+    expect(root.style.getPropertyValue('--danger-bg')).toBe(STATUS_DARK['danger-bg']);
+    expect(root.style.colorScheme).toBe('dark');
+  });
+
+  it('keeps the ids a browser may already have saved, now as bundled fonts', () => {
+    expect(fontById('rounded').stack).toContain("'Nunito'");
+    expect(fontById('legible').stack).toContain("'Atkinson Hyperlegible'");
+  });
+
+  it('puts every font in exactly one group, and has more than a handful', () => {
+    expect(FONT_GROUPS.flatMap((g) => g.fonts)).toEqual(FONTS);
+    expect(FONTS.length).toBeGreaterThan(20);
+    expect(new Set(FONTS.map((f) => f.id)).size).toBe(FONTS.length);
+  });
+  it('tints the logo to each palette, leaving it as drawn where the accent is already its pink', () => {
+    expect(logoFilter(PALETTES.find((p) => p.id === 'strawberry-milk')!.tokens.accent)).toBe('none');
+    expect(logoFilter(PALETTES.find((p) => p.id === 'fairy')!.tokens.accent)).toBe('none');
+    expect(logoFilter(PALETTES.find((p) => p.id === 'forest')!.tokens.accent)).toMatch(/^hue-rotate\(-?\d+deg\)$/);
+    expect(logoFilter('#808080')).toBe('grayscale(1)');
+    expect(logoFilter('not a colour')).toBe('none');
+
+    const root = document.createElement('div');
+    applyAppearance('midnight', '', '', root);
+    expect(root.style.getPropertyValue('--logo-filter')).toBe(logoFilter(PALETTES.find((p) => p.id === 'midnight')!.tokens.accent));
+  });
+
+  it('starts the page with the logo tinted as the default palette tints it', () => {
+    expect(logoFilter(PALETTES[0].tokens.accent)).toBe('hue-rotate(-112deg)');
   });
 });

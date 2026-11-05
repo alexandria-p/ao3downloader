@@ -11,7 +11,7 @@
 .backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--backdrop);
 }
 
 .dialog {
@@ -189,13 +189,13 @@ legend {
 
 .fill {
   height: 100%;
-  background: #5a8f6a;
+  background: var(--ok-fill);
   transition: width 0.3s ease;
 }
 
 /* no total to divide by yet, so show motion rather than a false number */
 .fill.indeterminate {
-  background: linear-gradient(90deg, transparent, #5a8f6a, transparent);
+  background: linear-gradient(90deg, transparent, var(--ok-fill), transparent);
   background-size: 40% 100%;
   background-repeat: no-repeat;
   animation: sweep 1.4s ease-in-out infinite;
@@ -239,9 +239,9 @@ legend {
 }
 
 .signed-in {
-  border-color: #3f5f45;
-  background: #1f2a21;
-  color: #9fd4ab;
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--ok-text);
 }
 
 /* the window's first moment, while it works out which step to open on */
@@ -265,8 +265,8 @@ legend {
 
 /* a panel that only exists when settings.ini asks for it, so it wears a warning colour */
 .settings.debug {
-  border-color: #6b5330;
-  background: #2f2618;
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
 }
 
 .debug-actions {
@@ -330,7 +330,7 @@ legend {
 }
 
 .step-list li.step-done .step-mark {
-  color: #7fb37f;
+  color: var(--ok-text);
 }
 
 /* done, but by the attempt a resumed run picks up from - ticked, and dimmed to say so */
@@ -339,7 +339,7 @@ legend {
 }
 
 .step-list li.step-earlier .step-mark {
-  color: #7fb37f;
+  color: var(--ok-text);
 }
 
 /*
@@ -351,23 +351,23 @@ legend {
 }
 
 .step-list li.step-skipped .step-mark {
-  color: #9a8fb0;
+  color: var(--note-text);
 }
 
 .step-skip-tag {
   margin-right: 4px;
-  color: #9a8fb0;
+  color: var(--note-text);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.03em;
 }
 
 .step-list li.step-failed {
-  color: #d08b8b;
+  color: var(--danger-text);
 }
 
 .step-list li.step-failed .step-mark {
-  color: #d08b8b;
+  color: var(--danger-text);
 }
 
 /* endregion */
@@ -456,13 +456,13 @@ legend {
 }
 
 .button.danger {
-  border-color: #7a4444;
-  background: #3b2626;
-  color: #e6b3b3;
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-text);
 }
 
 .button.danger:hover:not(:disabled) {
-  background: #4c2f2f;
+  background: var(--danger-bg-hover);
 }
 
 .button:disabled {
@@ -491,15 +491,15 @@ legend {
 .warning {
   margin: 0 0 12px;
   padding: 9px 11px;
-  border: 1px solid #5a5230;
+  border: 1px solid var(--warn-border);
   border-radius: 3px;
-  background: #2b2820;
+  background: var(--warn-bg);
   font-size: 0.86rem;
 }
 
 .warning.pause {
-  border-color: #6b5330;
-  background: #2f2618;
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
 }
 
 /* a pause the user chose, told apart from ao3's by colour as well as by wording */
@@ -515,9 +515,9 @@ legend {
 .error {
   margin: 0 0 12px;
   padding: 9px 11px;
-  border: 1px solid #6b3a3a;
+  border: 1px solid var(--danger-border);
   border-radius: 3px;
-  background: #2e2020;
+  background: var(--danger-bg);
   color: var(--danger);
   font-size: 0.88rem;
 }
@@ -525,10 +525,10 @@ legend {
 .success {
   margin: 0 0 12px;
   padding: 9px 11px;
-  border: 1px solid #3f5f45;
+  border: 1px solid var(--ok-border);
   border-radius: 3px;
-  background: #1f2a21;
-  color: #9fd4ab;
+  background: var(--ok-bg);
+  color: var(--ok-text);
   font-size: 0.88rem;
 }
 
@@ -554,9 +554,9 @@ pre {
 .failures {
   margin: 0 0 12px;
   padding: 10px 12px;
-  border: 1px solid #6b3a3a;
+  border: 1px solid var(--danger-border);
   border-radius: 3px;
-  background: #2e2020;
+  background: var(--danger-bg);
   font-size: 0.85rem;
 }
 
@@ -568,8 +568,8 @@ pre {
 
 /* amber rather than red: nothing was lost, but there is something to tidy up by hand */
 .failures.kept {
-  border-color: #6b5a2a;
-  background: #2b2616;
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
 }
 
 .export-issues {
@@ -613,9 +613,9 @@ pre {
 .question {
   margin: 0 0 12px;
   padding: 11px 13px;
-  border: 1px solid #7a6a3a;
+  border: 1px solid var(--warn-border);
   border-radius: 3px;
-  background: #2b2619;
+  background: var(--warn-bg);
   font-size: 0.85rem;
 }
 
@@ -687,7 +687,7 @@ pre {
 }
 
 .settings .warn {
-  color: #d9b45f;
+  color: var(--warn-text);
 }
 
 /* the naming rule is shown rather than offered, so it needs room to explain itself */
@@ -821,7 +821,7 @@ fieldset.bare:disabled {
 
 .retry-steps [data-outcome='failed'] .outcome,
 .retry-steps [data-outcome='running'] .outcome {
-  color: #e08a8a;
+  color: var(--danger-text);
 }
 
 .retry-steps [data-outcome='pending'] .outcome {
@@ -831,9 +831,9 @@ fieldset.bare:disabled {
 .retry-warning {
   margin: 12px 0 0;
   padding: 10px 12px;
-  border: 1px solid #a07a2a;
+  border: 1px solid var(--warn-border);
   border-radius: 5px;
-  background: #3a3020;
+  background: var(--warn-bg);
 }
 
 .retry-warning p {
@@ -861,9 +861,9 @@ fieldset.bare:disabled {
 .retry-issues {
   margin: 10px 0 0;
   padding: 10px 12px;
-  border: 1px solid #8a6d3b;
+  border: 1px solid var(--warn-border);
   border-radius: 5px;
-  background: #33291a;
+  background: var(--warn-bg);
 }
 
 .retry-issues p {
@@ -917,7 +917,7 @@ fieldset.bare:disabled {
 .long-run-note {
   margin: 10px 0;
   padding: 8px 12px;
-  border: 1px solid #8a6d2f;
+  border: 1px solid var(--warn-border);
   border-radius: 3px;
-  background: #2d2616;
+  background: var(--warn-bg);
 }

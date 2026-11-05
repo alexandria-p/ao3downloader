@@ -7,8 +7,9 @@ already cost someone a day.
 ## What this fork adds
 
 Upstream ao3downloader is a console program. This fork - **FicFairy** to the people using it:
-the page's title, header and footer, the READMEs; the program files and zips keep the
-`ao3downloader` names the updater looks for - adds:
+the page's title, header and footer, the READMEs, the repository (`alexandria-p/ficfairy`),
+the release zips (`ficfairy-ao3downloader-<system>.zip`) and the app inside them (`ficfairy/`,
+`ficfairy.exe`, `Start FicFairy.command` / `.sh`) - adds:
 
 1. **A `JSON` download type** - metadata for every work on a listing, one json file per
    work, with a version history inside each file.
@@ -98,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2100 python passed; 1006 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1015 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -224,7 +225,7 @@ has none.
 
 ### The Windows app is the bundle with Python packed in
 
-`ao3downloader.exe` replaces `Start-Application.ps1` for people who should not need
+`ficfairy.exe` replaces `Start-Application.ps1` for people who should not need
 PowerShell or uv. `source_code/desktop.py` is its entry point - it does what the launcher
 does: settings and logs beside the exe (`config/`, `logs/`, through the same
 `AO3DOWNLOADER_CONFIG_FOLDER` / `_LOG_FOLDER` a build uses), the prebuilt page served from the
@@ -277,8 +278,8 @@ What not to break:
 ### The Mac app is the same app, started by a script
 
 `build-mac.yml` runs `package_app.py` twice, as a matrix: on `macos-latest` for Apple
-silicon and on `macos-15-intel` for Intel, adding `ao3downloader-macos-apple-silicon.zip` and
-`ao3downloader-macos-intel.zip` to the same release as the Windows zip (`package_app.system`
+silicon and on `macos-15-intel` for Intel, adding `ficfairy-ao3downloader-macos-apple-silicon.zip` and
+`ficfairy-ao3downloader-macos-intel.zip` to the same release as the Windows zip (`package_app.system`
 names a Mac zip by `platform.machine()`; Windows stays plain `windows`, the name the updater
 looks for). **Not one universal build**: that needs a universal Python and universal copies
 of every compiled library, and the Python uv installs is per-chip; the Intel build would run
@@ -287,7 +288,7 @@ on Apple silicon through Rosetta, but Apple is winding Rosetta down. Each job ch
 program is the same `desktop.py`; what differs is all about getting a Mac to start it and to
 use the right browser.
 
-- **`Start ao3downloader.command` is what people double-click** (`MAC_LAUNCHER`), not the
+- **`Start FicFairy.command` is what people double-click** (`MAC_LAUNCHER`), not the
   program. A browser quarantines a download and Archive Utility quarantines every file it
   unzips, so an unsigned program would be refused, and each library it loads could be too.
   The script is the one thing macOS asks about (Privacy & Security > Open Anyway - macOS 15
@@ -315,16 +316,16 @@ use the right browser.
   the other's create fails harmlessly, then each uploads its zip with `--clobber`. The notes
   are the same text in both workflows, since either may write them. For the minutes between
   the release appearing and a system's zip landing, Update now there fails with "the latest
-  release has no ao3downloader-<system>.zip" - clear, and gone on the next try.
+  release has no ficfairy-ao3downloader-<system>.zip" - clear, and gone on the next try.
 
 ### The Linux app is the same app, started by a script too
 
-`build-linux.yml` builds `ao3downloader-linux-x86_64.zip` on `ubuntu-22.04` - the oldest
+`build-linux.yml` builds `ficfairy-ao3downloader-linux-x86_64.zip` on `ubuntu-22.04` - the oldest
 runner, because a PyInstaller program needs at least the glibc it was built against - and adds
 it to the same release (`package_app.system`: `linux-<machine>`, x86_64 only for now). The
 program is the same `desktop.py`.
 
-- **`Start ao3downloader.sh` is what people run** (`LINUX_LAUNCHER`). A file manager runs a
+- **`Start FicFairy.sh` is what people run** (`LINUX_LAUNCHER`). A file manager runs a
   script with no terminal, so where there is a desktop (`DISPLAY`/`WAYLAND_DISPLAY`) and no
   terminal it opens one to run itself in, setting `AO3DOWNLOADER_IN_TERMINAL` so the copy in
   the terminal does not open another. With no desktop it `exec`s the program where it is -
@@ -349,7 +350,7 @@ program is the same `desktop.py`.
 Mac or Linux with a version and a repository has an `Updater` (`desktop.make_updater`, set on
 `Handler.updater`); every other helper answers 404 and its page only links the release.
 `updater.kind_for` says what an update is on each system (`Kind`): which release asset
-(`ao3downloader-windows.zip`, or `ao3downloader-macos-<chip>.zip` / `ao3downloader-linux-x86_64.zip`
+(`ficfairy-ao3downloader-windows.zip`, or `ficfairy-ao3downloader-macos-<chip>.zip` / `ficfairy-ao3downloader-linux-x86_64.zip`
 by `platform.machine()`),
 which program must be in the zip, and which swap script, started how.
 
@@ -370,15 +371,28 @@ clean swap, and a failed move rolled back, on each system. **On Linux** the same
 with `linux` as its third argument and starts the launcher with `setsid -f` instead.
 
 
+- **The zips are named `ficfairy-ao3downloader-<system>.zip`** (`package_app.ZIP_PREFIX`,
+  `updater.ASSET_PREFIX`), and hold `ficfairy/` - the program `ficfairy` (`ficfairy.exe` on
+  Windows) and `Start FicFairy.command` / `Start FicFairy.sh` (`package_app.APP_NAME`,
+  `updater.ZIP_ROOT`, `EXE_NAME`, `MAC_PROGRAM`). **Copies installed before the rename cannot
+  update** - their updater wants `ao3downloader/ao3downloader.exe` in the zip - and that was
+  accepted at the user's request: nobody depended on it yet. Download the app again by hand.
 - **One run or one update, never both.** `start_update` checks for a run and `claim`s the
   updater under `Handler.jobs_lock` - the lock a run is started under - and a run start checks
   `updater.busy()` (`checking`, `downloading`, `restarting`) under it too. A failed update is
   not busy, so it never blocks runs.
 - **What it installs**: `latest` reads `/repos/<repo>/releases/latest`, takes its
-  `ao3downloader-windows.zip`, and only if newer (`is_newer`, number by number). The download
-  must be https (unless `AO3DOWNLOADER_UPDATE_SOURCE` points it at a stand-in), match GitHub's
-  published `digest` (SHA-256) and `size`, and pass `check_zip`: every entry under
-  `ao3downloader/`, none absolute or with `..`, the exe and `_internal/` present. `unpack`
+  `ficfairy-ao3downloader-windows.zip`, and only if newer (`is_newer`, number by number). The download
+  must be https **on `github.com`** (`RELEASE_LINK_HOST`), **a release file of the same
+  account the app was built for** (`released_by`: `/<owner>/<repo>/releases/download/...`, the
+  owner from `releasesRepo` by `owner_of`; the repository's name is not held, so a renamed one
+  still updates), must **land** after GitHub's redirect
+  on `github.com` or a `*.githubusercontent.com` host (`github_host`, read off the response's
+  final `url`), and must **have** a published `digest` - a release with none is refused, not
+  installed unchecked - which it must match (SHA-256), with its `size`. A stand-in source set by
+  `AO3DOWNLOADER_UPDATE_SOURCE` is exempt from all three: it is on this computer, set up by
+  whoever started the app. Then it must pass `check_zip`: every entry under
+  `ficfairy/`, none absolute or with `..`, the exe and `_internal/` present. `unpack`
   skips `config/`, `logs/` and `update/` even if a zip carried them. Any failure leaves the app
   untouched and `state: failed` with the reason.
 - **The swap is a PowerShell script** (`SWAP_SCRIPT`, written to `update/apply-update.ps1`,
@@ -401,7 +415,12 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
 - **The page waits it out** (`UpdateCheck.updateNow`): after the 202 it polls `/api/config`;
   the helper not answering is the swap, not a failure; the same version coming back after
   that is. It reloads the page once the helper reports the new version, and gives up after
-  `waitMs`. A reported failure is shown once and remembered as seen (`ao3.updateFailureSeen`).
+  `waitMs`. A reported failure is shown once and remembered as seen (`ao3.updateFailureSeen`), and
+  **always sends the reader to download the app again by hand** (`.update-failed`'s
+  `a.manual-download`, `latestReleaseUrl`: `releases/latest`), whatever went wrong - a release
+  whose zip was renamed is the case it is for, since an app finds no file under a name it does
+  not know. The newer-version banner and footer read only the release's tag, so they still
+  say a version is out when its zip is not one this app can take.
 - **Tested end to end on Windows, both Macs and Linux**: `build-windows.yml` (and
   `build-mac.yml` and `build-linux.yml`, the same way - on a Mac checking the app came back in
   a new Terminal window) installs the zip, edits its
@@ -2467,13 +2486,36 @@ not to break:
 - **Appearance is a palette and a font, and only tokens** (`appearance.ts`). A palette sets
   the neutral and accent custom properties `styles.css` defines on `:root` (`--bg` ...
   `--accent-line`, `--accent-fill`, `--accent-fill-hover`, `--accent-bg`, `--accent-text`,
-  `--surface-hover`) and the font `--font-body`; the components read those tokens, never the
-  old hard-coded blues and greys, so **a component that hard-codes one will not follow the
-  palette**. Every palette is dark: the status tints (red, amber, green) are fixed and tuned
-  for a dark page. Fonts are local stacks only - nothing is fetched from a font service - and
-  a typed font name goes through `cleanFontName` before it reaches a style. `main.ts` applies
-  the saved choice before bootstrap, so a palette never flashes the default first. Kept in
-  `ao3.palette` / `ao3.font` / `ao3.customFont`; Reset to defaults puts them back.
+  `--surface-hover`) and the font `--font-body`. **Each palette is `dark` or `light`**, and its
+  mode brings the status tokens with it (`STATUS_DARK` / `STATUS_LIGHT`: `--danger-*`,
+  `--warn-*`, `--ok-*`, `--note-*`, `--backdrop`) and sets `color-scheme`. The components read
+  those tokens, never a hard-coded grey, status tint or accent, so **a component that hard-codes
+  a colour will not follow the palette** - and on a light palette will likely be unreadable.
+  AO3's own rating, warning and category tiles keep AO3's colours on purpose. **The header logo flies over the tabs** (`.topbar h1 .logo`: 150px, tilted, placed against
+  `:host`, below the header line; the header, the tabs and every banner between them start
+  `--fairy-room` in to make space, and under 760px wide she sits in the bar at 64px instead). It
+  **follows the palette** (`--logo-filter`, `logoFilter`): drawn in one pink (`LOGO_HUE`, measured
+  off the file), it is hue-rotated to the accent's hue, left as drawn when the accent is within
+  `LOGO_KEEP_WITHIN` of that pink, and greyed for a grey accent - so a new palette tints it with
+  no change here. Swapping the logo for one in another colour means measuring `LOGO_HUE` again. **Fonts are the
+  computer's own or bundled with the page** (`fonts.css`: @fontsource packages, OFL, Latin and
+  Latin Extended, 400 and 700): served from the page's own address, never a font service, and
+  downloaded by the browser only once a chosen font is used - so offering them costs nothing,
+  and they work offline. The old `rounded` and `legible` ids now name the bundled Nunito and
+  Atkinson Hyperlegible, so a saved choice still works. A typed font name goes through
+  `cleanFontName` before it reaches a style. **The header reads "Fic Fairy"** (two words, at
+  the user's choice), 64px, moved down inside the bar's own 51px so the bar and its buttons
+  never move; it never wraps or shrinks (`flex: none`), and the bar never wraps on a wide
+  window - with a wide font the buttons wrap among themselves on the right. **On the Works
+  tab the run buttons sit inside the listing, under its heading and *List refreshed***
+  (`<ng-template #runActions>`, projected into `app-work-list` through
+  `<ng-content select="[listingActions]">`); with no listing, and on Collections, they stay
+  above the content. **The header title is never in that font**: it is
+  always Doomsdays Dragons (`src/fonts/doomsdays-dragons.otf`, `@font-face` in `styles.css`), by
+  GraphicSauce, Freeware Non-Commercial - fine for an app given away free, at the user's
+  decision, and credited in the README. Don't use it anywhere that sells something. `main.ts` applies the saved choice before
+  bootstrap, so a palette never flashes the default first. Kept in `ao3.palette` / `ao3.font` /
+  `ao3.customFont`; Reset to defaults puts them back.
 - **Every "don't ask again" lives in `preferences.PROMPTS`**, with its localStorage key and the
   value its own code writes when dismissed - and that code imports the key from there
   (`folder-warning.ts`, `work-list.ts`, `download-dialog.ts`, `updates.ts`). The tab lists the

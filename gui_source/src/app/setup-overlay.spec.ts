@@ -39,13 +39,13 @@ describe('SetupOverlay', () => {
   it('covers the page with a spinner and says what it is making', async () => {
     const setup = TestBed.inject(LibrarySetup);
     const library = target(['indexing']) as SetupTarget & { made: string[]; release: () => void };
-    const preparing = setup.prepare(library, '/Apps/ao3-downloader');
+    const preparing = setup.prepare(library, '/Apps/FicFairy');
     const { fixture, element } = await render();
     fixture.detectChanges();
 
     expect(element.querySelector('.cover')).toBeTruthy();
     expect(element.querySelector('.spinner')).toBeTruthy();
-    expect(element.textContent).toContain('Setting up /Apps/ao3-downloader');
+    expect(element.textContent).toContain('Setting up /Apps/FicFairy');
     expect(element.textContent).toContain('collections, images, runs, works');
     expect(element.querySelector('.cover')?.getAttribute('aria-busy')).toBe('true');
 

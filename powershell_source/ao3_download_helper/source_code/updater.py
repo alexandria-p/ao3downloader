@@ -7,7 +7,7 @@ any other way answers the update endpoints 404, and its page never shows the but
 What happens, in order:
 
 1. `latest` asks GitHub for the repository's latest release and finds this app's zip -
-   `ao3downloader-windows.zip`, on a Mac the one for its chip, or on Linux the one for its machine. It has to be newer than this
+   `ficfairy-ao3downloader-windows.zip`, on a Mac the one for its chip, or on Linux the one for its machine. It has to be newer than this
    app, or nothing happens.
 2. `install` downloads it into `update/` beside the program and checks it: against the SHA-256
    GitHub publishes for the file, and entry by entry - every file has to land inside the
@@ -23,7 +23,7 @@ What happens, in order:
 
 The swap is PowerShell on Windows (`SWAP_SCRIPT`) and bash on a Mac (`MAC_SWAP_SCRIPT`), and
 the two write the same log lines. On a Mac the app lives in a Terminal window, so the script
-starts it again by opening `Start ao3downloader.command` in a new one.
+starts it again by opening `Start FicFairy.command` in a new one.
 
 `config/` and `logs/` are never moved: they are not in the zip, and the script skips them by
 name as well. So an update never touches the user's settings.ini - the restarted app adds any
@@ -31,6 +31,7 @@ new setting to it, and comments out any the new version dropped (`desktop.settin
 """
 
 import hashlib
+from urllib.parse import urlsplit
 import os
 import re
 import stat
@@ -44,17 +45,19 @@ from typing import Callable
 
 import requests
 
-ASSET_NAME = 'ao3downloader-windows.zip'
+ASSET_NAME = 'ficfairy-ao3downloader-windows.zip'
 # the folder the zip unpacks into: every entry has to be inside it
-ZIP_ROOT = 'ao3downloader'
-EXE_NAME = 'ao3downloader.exe'
-MAC_PROGRAM = 'ao3downloader'
+ZIP_ROOT = 'ficfairy'
+# what each release zip's name starts with (package_app.ZIP_PREFIX); the folder inside is ZIP_ROOT
+ASSET_PREFIX = 'ficfairy-ao3downloader'
+EXE_NAME = 'ficfairy.exe'
+MAC_PROGRAM = 'ficfairy'
 # what a Mac is started by - the script the swap reopens in Terminal (package_app.MAC_LAUNCHER)
-MAC_LAUNCHER = 'Start ao3downloader.command'
+MAC_LAUNCHER = 'Start FicFairy.command'
 # which Mac zip is this Mac's: the same names package_app builds them under
 MAC_CHIPS = {'arm64': 'apple-silicon', 'x86_64': 'intel'}
 # what starts the app on Linux, which the swap runs again (package_app.LINUX_LAUNCHER)
-LINUX_LAUNCHER = 'Start ao3downloader.sh'
+LINUX_LAUNCHER = 'Start FicFairy.sh'
 # Linux builds, named by machine; anything else has no published build to update from
 LINUX_MACHINES = {'x86_64': 'x86_64', 'amd64': 'x86_64'}
 # left by the Mac swap for the app it starts: a Terminal window opened by `open` gets none of
@@ -65,6 +68,10 @@ UPDATE_FOLDER = 'update'
 # never moved or replaced: the user's, not the app's
 KEPT = ('config', 'logs', UPDATE_FOLDER)
 GITHUB_API = 'https://api.github.com'
+# where a real release's zip may come from: the link GitHub's answer gives is on github.com, and
+# GitHub sends the download itself from one of its own githubusercontent.com hosts
+RELEASE_LINK_HOST = 'github.com'
+DOWNLOAD_HOST_SUFFIX = '.githubusercontent.com'
 # a stand-in for GitHub's api, so an update can be tried end to end without a real release -
 # the Windows build does exactly that. only ever set by whoever starts the app
 ENV_UPDATE_SOURCE = 'AO3DOWNLOADER_UPDATE_SOURCE'
@@ -141,13 +148,13 @@ def kind_for(platform: str | None = None, machine: str | None = None) -> Kind | 
         import platform as machines
         chip = MAC_CHIPS.get(machine or machines.machine())
         if not chip: return None
-        return Kind(f'{ZIP_ROOT}-macos-{chip}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
+        return Kind(f'{ASSET_PREFIX}-macos-{chip}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
                     'macos')
     if platform.startswith('linux'):
         import platform as machines
         arch = LINUX_MACHINES.get((machine or machines.machine()).lower())
         if not arch: return None
-        return Kind(f'{ZIP_ROOT}-linux-{arch}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
+        return Kind(f'{ASSET_PREFIX}-linux-{arch}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
                     'linux')
     return None
 
@@ -350,10 +357,19 @@ class Updater:
         if not asset or not asset.get('browser_download_url'):
             raise UpdateError(f'the latest release, {version}, has no {self.kind.asset}')
         download = str(asset['browser_download_url'])
-        # the real thing is only ever https; a stand-in source is on this computer
-        if not download.startswith('https://') and self.source == GITHUB_API:
-            raise UpdateError('the download is not over https - not fetching it')
         digest = str(asset.get('digest') or '')
+        # a stand-in source is on this computer, set up by whoever started the app; the real
+        # thing is held to GitHub's own https hosts and to the checksum GitHub publishes
+        if self.source == GITHUB_API:
+            if not download.startswith('https://'):
+                raise UpdateError('the download is not over https - not fetching it')
+            if host_of(download) != RELEASE_LINK_HOST:
+                raise UpdateError(f'the download is not on {RELEASE_LINK_HOST} - not fetching it')
+            owner = owner_of(self.repository)
+            if not released_by(download, owner):
+                raise UpdateError(f"the download is not one of {owner}'s releases on GitHub - not fetching it")
+            if not digest.startswith('sha256:'):
+                raise UpdateError(f'GitHub published no checksum for {self.kind.asset} - not installing it')
         return Release(version=version, download=download,
                        digest=digest.removeprefix('sha256:') if digest.startswith('sha256:') else '',
                        size=int(asset.get('size') or 0))
@@ -424,6 +440,11 @@ class Updater:
             with self.get(release.download, stream=True, timeout=TIMEOUT_SECONDS) as response:
                 if response.status_code != 200:
                     raise UpdateError(f'the download failed ({response.status_code})')
+                # GitHub redirects the link to where the file is kept; it has to end up on
+                # GitHub's own hosts, never somewhere a redirect was talked into
+                landed = getattr(response, 'url', None)
+                if self.source == GITHUB_API and isinstance(landed, str) and not github_host(host_of(landed)):
+                    raise UpdateError('the download was sent somewhere other than GitHub - not installing it')
                 with open(target, 'wb') as out:
                     for chunk in response.iter_content(1024 * 1024):
                         if not chunk: continue
@@ -438,6 +459,31 @@ class Updater:
             raise UpdateError('the download does not match the checksum GitHub published for it '
                               '- not installing it')
         return target
+
+
+def host_of(url: str) -> str:
+    return (urlsplit(url).hostname or '').lower()
+
+
+def owner_of(repository: str) -> str:
+    """The account a repository belongs to: `alexandria-p` of `alexandria-p/ficfairy`."""
+
+    return repository.split('/')[0].strip().lower()
+
+
+def released_by(url: str, owner: str) -> bool:
+    """Whether a link is a release file of one of `owner`'s own repositories -
+    `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>` and nothing else. The
+    repository's name is not held to the one this app was built with, so a renamed repository
+    (GitHub answers for the old name) still updates; the account is."""
+
+    parts = urlsplit(url).path.split('/')
+    return (bool(owner) and len(parts) >= 7 and parts[0] == '' and parts[1].lower() == owner
+            and bool(parts[2]) and parts[3] == 'releases' and parts[4] == 'download')
+
+
+def github_host(host: str) -> bool:
+    return host == RELEASE_LINK_HOST or host.endswith(DOWNLOAD_HOST_SUFFIX)
 
 
 def remove_tree(path: Path) -> None:
@@ -529,7 +575,7 @@ finally {
     # the page is still open in the browser and reloads itself, so no second tab
     $env:AO3DOWNLOADER_NO_BROWSER = '1'
     $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
-    Start-Process -FilePath (Join-Path $AppDir 'ao3downloader.exe') -WorkingDirectory $AppDir
+    Start-Process -FilePath (Join-Path $AppDir 'ficfairy.exe') -WorkingDirectory $AppDir
     Say 'started the app again'
 }
 '''
@@ -564,15 +610,15 @@ start_again() {
         # the old app's window set AO3DOWNLOADER_IN_TERMINAL, and this script has it - left
         # set, the launcher would run the app with no window to show it in
         unset AO3DOWNLOADER_IN_TERMINAL
-        if setsid -f "$APP_DIR/Start ao3downloader.sh" > /dev/null 2>&1 < /dev/null; then
+        if setsid -f "$APP_DIR/Start FicFairy.sh" > /dev/null 2>&1 < /dev/null; then
             say 'started the app again'
         else
-            say 'could not start the app again - run Start ao3downloader.sh'
+            say 'could not start the app again - run Start FicFairy.sh'
         fi
-    elif open -a Terminal "$APP_DIR/Start ao3downloader.command"; then
+    elif open -a Terminal "$APP_DIR/Start FicFairy.command"; then
         say 'started the app again'
     else
-        say 'could not start the app again - double-click Start ao3downloader.command'
+        say 'could not start the app again - double-click Start FicFairy.command'
     fi
 }
 

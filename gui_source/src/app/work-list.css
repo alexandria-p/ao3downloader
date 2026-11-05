@@ -112,9 +112,9 @@
 .error {
   margin: 16px 0;
   padding: 10px 12px;
-  border: 1px solid #6b3a3a;
+  border: 1px solid var(--danger-border);
   border-radius: 3px;
-  background: #2e2020;
+  background: var(--danger-bg);
   color: var(--danger);
 }
 
@@ -155,13 +155,13 @@
 
 .pagination button:hover:not(:disabled):not(.current) {
   background: var(--surface-hover);
-  color: #fff;
+  color: var(--text-strong);
 }
 
 .pagination button.current {
-  background: #f0f0f0;
-  border-color: #f0f0f0;
-  color: #1e1e1e;
+  background: var(--text-strong);
+  border-color: var(--text-strong);
+  color: var(--bg);
   font-weight: 600;
   cursor: default;
 }
@@ -311,7 +311,7 @@
 /* a title with a downloaded copy behind it is worth telling apart from one that
    will bounce out to ao3 */
 .heading a.title.local {
-  color: #fff;
+  color: var(--text-strong);
 }
 
 .heading a.title:not(.local) {
@@ -452,8 +452,8 @@
 }
 
 .badge.rec {
-  border-color: #7a6a3a;
-  color: #d8c07a;
+  border-color: var(--warn-border);
+  color: var(--warn-text);
 }
 
 .notes {
@@ -690,8 +690,8 @@
 }
 
 .selection .button.danger {
-  border-color: #6b4a4a;
-  background: #3a2424;
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
 }
 
 .selection .button:disabled {
@@ -738,7 +738,7 @@
 }
 
 .custom-mark {
-  color: #e2b45a;
+  color: var(--warn-text);
 }
 
 .selection-outcome {
@@ -789,7 +789,7 @@
   width: 16px;
   height: 16px;
   margin-right: 6px;
-  color: #c9b8ea;
+  color: var(--note-text);
 }
 
 .origin-icon svg {
@@ -803,11 +803,11 @@
 }
 
 .origin-icon.bookmarks {
-  color: #e07a7a;
+  color: var(--danger-text);
 }
 
 .origin-icon.collection {
-  color: #a6d8c2;
+  color: var(--ok-text);
 }
 
 .origin-icon.other {
@@ -815,22 +815,22 @@
 }
 
 .badge.origin {
-  border-color: #6b5a8a;
-  color: #c9b8ea;
+  border-color: var(--note-border);
+  color: var(--note-text);
 }
 
 .badge.origin.collection {
-  border-color: #4f7a68;
-  color: #a6d8c2;
+  border-color: var(--ok-border);
+  color: var(--ok-text);
 }
 
 .badge.mirror {
-  border-color: #8a6f3a;
-  color: #e6c98a;
+  border-color: var(--warn-border);
+  color: var(--warn-text);
 }
 
 .badge.hidden-badge {
-  border-color: #6b6b6b;
+  border-color: var(--border-strong);
   color: var(--text-dim);
 }
 
@@ -900,7 +900,7 @@
 .hide-modal .backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--backdrop);
 }
 
 .hide-modal .dialog {

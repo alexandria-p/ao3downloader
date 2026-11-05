@@ -12,7 +12,7 @@
 .backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--backdrop);
 }
 
 /* never taller than the window: the body scrolls, so the buttons stay in view */
@@ -142,14 +142,14 @@ legend {
 .warning {
   margin: 0 0 12px;
   padding: 9px 11px;
-  border: 1px solid #5a5230;
+  border: 1px solid var(--warn-border);
   border-radius: 3px;
-  background: #2b2820;
+  background: var(--warn-bg);
   font-size: 0.86rem;
 }
 
 .warning-text {
-  color: #e0c97a;
+  color: var(--warn-text);
 }
 
 code {
@@ -185,7 +185,7 @@ code {
 }
 
 .found-list .file-name.undated {
-  color: #e0c97a;
+  color: var(--warn-text);
 }
 
 .bulk {
@@ -212,7 +212,6 @@ input[type='date'] {
   color: var(--text-strong);
   font: inherit;
   font-size: 0.85rem;
-  color-scheme: dark;
 }
 
 .dating {
@@ -269,20 +268,20 @@ input[type='date'] {
 
 /* dated by Infer date, and not changed by hand since */
 .dating tr.inferred {
-  background: #4a3f12;
+  background: var(--warn-bg-strong);
 }
 
 .dating tr.inferred td.file-name {
-  color: #f0d77a;
+  color: var(--warn-text);
 }
 
 /* inferred, but skipped: the same yellow, faded */
 .dating tr.inferred.skipped {
-  background: #2e2a18;
+  background: var(--warn-bg);
 }
 
 .dating tr.inferred.skipped td.file-name {
-  color: #a8995c;
+  color: var(--warn-text-dim);
 }
 
 /* the bulk row's last button sits on the right */
@@ -310,7 +309,7 @@ input[type='date'] {
 
 .infer-said {
   margin: -4px 0 10px;
-  color: #e0c97a;
+  color: var(--warn-text);
   font-size: 0.86rem;
 }
 
@@ -364,7 +363,7 @@ input[type='date'] {
 .bar span {
   display: block;
   height: 100%;
-  background: #5a8fb0;
+  background: var(--accent-line);
   transition: width 0.2s;
 }
 
@@ -412,7 +411,7 @@ input[type='date'] {
 
 /* keep most recent: the one kept in green, the ones that go struck through */
 .duplicates-table li.newest {
-  color: #9fd49a;
+  color: var(--ok-text);
 }
 
 .duplicates-table li.goes {
@@ -427,7 +426,7 @@ input[type='date'] {
 .undecided-note {
   display: block;
   margin: 4px 0 0;
-  color: #e0c97a;
+  color: var(--warn-text);
   font-size: 0.82rem;
 }
 
@@ -455,7 +454,7 @@ select {
 }
 
 .undecided summary {
-  color: #e0c97a;
+  color: var(--warn-text);
 }
 
 .remember-keep-all {
@@ -481,9 +480,9 @@ select {
 .sift-done {
   margin: 8px 0;
   padding: 12px;
-  border: 1px solid #4f7a4c;
+  border: 1px solid var(--ok-border);
   border-radius: 3px;
-  background: #1f2d1e;
+  background: var(--ok-bg);
 }
 
 .sifted,
@@ -498,7 +497,7 @@ select {
 .sifted-note {
   display: block;
   margin: 4px 0 0;
-  color: #9fd49a;
+  color: var(--ok-text);
 }
 
 .overview-heading {
@@ -561,11 +560,11 @@ footer.with-bulk {
   display: block;
   font-size: 0.82rem;
   font-weight: 600;
-  color: #8fc58a;
+  color: var(--ok-text);
 }
 
 .top-label.guess {
-  color: #d9b45c;
+  color: var(--warn-text);
 }
 
 /* the files to choose from while the removing page is paused: scrolls, however many there are */
@@ -578,9 +577,9 @@ footer.with-bulk {
 .undecided-ask {
   margin: 14px 0 0;
   padding: 12px 14px;
-  border: 1px solid #8a6d2f;
+  border: 1px solid var(--warn-border);
   border-radius: 3px;
-  background: #2d2616;
+  background: var(--warn-bg);
 }
 
 .undecided-ask .ask-how,
@@ -602,11 +601,11 @@ footer.with-bulk {
 
 /* a row with no date and no Skip tick: Continue waits on it */
 .dating tr.needs-answer td {
-  background: #3a3020;
+  background: var(--warn-bg);
 }
 
 .dating tr.needs-answer td:first-child {
-  box-shadow: inset 3px 0 0 #e2b45a;
+  box-shadow: inset 3px 0 0 var(--warn-text);
 }
 
 .needs-answer-note {
@@ -616,10 +615,10 @@ footer.with-bulk {
   justify-content: space-between;
   margin: 10px 0;
   padding: 8px 12px;
-  border: 1px solid #8a6d2f;
+  border: 1px solid var(--warn-border);
   border-radius: 4px;
-  background: #2d2616;
-  color: #f0d79c;
+  background: var(--warn-bg);
+  color: var(--warn-text);
 }
 
 .needs-answer-note .button {

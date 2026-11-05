@@ -46,9 +46,9 @@ class Answer:
 
 
 def app_zip(extra: dict[str, bytes] | None = None, leave_out: tuple = ()) -> bytes:
-    files = {'ao3downloader/ao3downloader.exe': b'new exe',
-             'ao3downloader/_internal/python.dll': b'new dll',
-             'ao3downloader/README.txt': b'new readme', **(extra or {})}
+    files = {'ficfairy/ficfairy.exe': b'new exe',
+             'ficfairy/_internal/python.dll': b'new dll',
+             'ficfairy/README.txt': b'new readme', **(extra or {})}
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w') as archive:
         for name, data in files.items():
@@ -58,7 +58,7 @@ def app_zip(extra: dict[str, bytes] | None = None, leave_out: tuple = ()) -> byt
 
 def github(tag: str = 'v1.8.3', body: bytes | None = None, digest: str | None = None,
            size: int | None = None, url: str = 'https://github.com/x/y/releases/download/v1.8.3/'
-                                                 'ao3downloader-windows.zip'):
+                                                 'ficfairy-ao3downloader-windows.zip'):
     body = app_zip() if body is None else body
     digest = 'sha256:' + hashlib.sha256(body).hexdigest() if digest is None else digest
     asked = []
@@ -103,7 +103,7 @@ def test_it_asks_for_the_latest_release_of_its_own_repository(tmp_path):
 
     assert get.asked == ['https://api.github.com/repos/x/y/releases/latest']
     assert release.version == '1.8.3'
-    assert release.download.endswith('/ao3downloader-windows.zip')
+    assert release.download.endswith('/ficfairy-ao3downloader-windows.zip')
     assert release.digest == hashlib.sha256(app_zip()).hexdigest()
 
 
@@ -123,7 +123,7 @@ def test_a_release_without_the_windows_zip_is_not_an_update(tmp_path):
         return Answer(data={'tag_name': 'v2.0.0', 'assets': []})
     update, _, _ = updater(tmp_path, get)
 
-    with pytest.raises(UpdateError, match='has no ao3downloader-windows.zip'):
+    with pytest.raises(UpdateError, match='has no ficfairy-ao3downloader-windows.zip'):
         update.latest()
 
 
@@ -132,6 +132,79 @@ def test_a_download_that_is_not_https_is_refused(tmp_path):
 
     with pytest.raises(UpdateError, match='https'):
         update.latest()
+
+
+def test_a_download_link_off_github_is_refused(tmp_path):
+    update, _, _ = updater(tmp_path, github(url='https://example.com/ficfairy-ao3downloader-windows.zip'))
+
+    with pytest.raises(UpdateError, match='not on github.com'):
+        update.latest()
+
+
+def test_a_release_file_from_another_account_on_github_is_refused(tmp_path):
+    update, _, _ = updater(tmp_path, github(
+        url='https://github.com/someone-else/y/releases/download/v1.8.3/ficfairy-ao3downloader-windows.zip'))
+
+    with pytest.raises(UpdateError, match="not one of x's releases"):
+        update.latest()
+
+
+def test_a_github_link_that_is_not_a_release_file_is_refused(tmp_path):
+    update, _, _ = updater(tmp_path, github(url='https://github.com/x/y/raw/main/ficfairy-ao3downloader-windows.zip'))
+
+    with pytest.raises(UpdateError, match='releases'):
+        update.latest()
+
+
+def test_a_release_file_from_the_same_account_after_a_rename_is_still_an_update(tmp_path):
+    # an app built as x/y asks for x/y; GitHub answers for the renamed x/z with x/z's links
+    update, _, _ = updater(tmp_path, github(
+        url='https://github.com/X/z/releases/download/v1.8.3/ficfairy-ao3downloader-windows.zip'))
+
+    assert '/X/z/releases/download/' in update.latest().download
+
+
+def test_a_release_github_published_no_checksum_for_is_refused(tmp_path):
+    update, _, _ = updater(tmp_path, github(digest=''))
+
+    with pytest.raises(UpdateError, match='no checksum'):
+        update.latest()
+
+
+def redirected_to(landing: str):
+    """GitHub's answer, with the download sent on to `landing` as GitHub's redirect would."""
+
+    get = github()
+
+    def follow(address, **kwargs):
+        answer = get(address, **kwargs)
+        if not address.endswith('/releases/latest'): answer.url = landing
+        return answer
+    return follow
+
+
+def test_a_download_redirected_to_githubs_own_file_host_installs(tmp_path):
+    _, launch, _ = installed(tmp_path, redirected_to(
+        'https://release-assets.githubusercontent.com/github-production-release-asset/1/abc'))
+
+    assert launch.called
+
+
+def test_a_download_redirected_off_github_is_not_installed(tmp_path):
+    update, launch, _ = installed(tmp_path, redirected_to('https://example.com/elsewhere.zip'))
+
+    assert not launch.called
+    assert update.state['state'] == 'failed'
+    assert 'other than GitHub' in update.state['error']
+
+
+def test_a_stand_in_source_on_this_computer_is_not_held_to_githubs_hosts(tmp_path, monkeypatch):
+    # the build workflows update the app from stand_in_release.py on 127.0.0.1
+    monkeypatch.setenv(updates.ENV_UPDATE_SOURCE, 'http://127.0.0.1:8765')
+    update, _, _ = updater(tmp_path, github(url='http://127.0.0.1:8765/ficfairy-ao3downloader-windows.zip',
+                                            digest=''))
+
+    assert update.latest().download.startswith('http://127.0.0.1')
 
 
 def test_github_not_answering_is_said_plainly(tmp_path):
@@ -159,7 +232,7 @@ def test_the_new_version_is_unpacked_and_the_swap_handed_to_powershell(tmp_path)
     update, launch, leave = installed(tmp_path, github())
 
     new = tmp_path / 'update' / 'new'
-    assert (new / 'ao3downloader.exe').read_bytes() == b'new exe'
+    assert (new / 'ficfairy.exe').read_bytes() == b'new exe'
     assert (new / '_internal' / 'python.dll').read_bytes() == b'new dll'
     command = launch.call_args.args[0]
     assert command[0] == 'powershell.exe'
@@ -195,8 +268,8 @@ def test_a_detached_launch_writes_what_the_command_prints_to_the_file(tmp_path):
 
 
 def test_the_users_own_folders_in_a_zip_are_never_unpacked(tmp_path):
-    body = app_zip({'ao3downloader/config/settings.ini': b'[settings]\nExtraWaitTime=0\n',
-                    'ao3downloader/logs/log.jsonl': b'{}'})
+    body = app_zip({'ficfairy/config/settings.ini': b'[settings]\nExtraWaitTime=0\n',
+                    'ficfairy/logs/log.jsonl': b'{}'})
     installed(tmp_path, github(body=body))
 
     assert not (tmp_path / 'update' / 'new' / 'config').exists()
@@ -206,12 +279,12 @@ def test_the_users_own_folders_in_a_zip_are_never_unpacked(tmp_path):
 @pytest.mark.parametrize('change, reason', [
     ({'digest': 'sha256:' + '0' * 64}, 'checksum'),
     ({'size': 3}, 'bytes'),
-    ({'body': app_zip({'ao3downloader/../../evil.txt': b'x'})}, 'where it should not be'),
+    ({'body': app_zip({'ficfairy/../../evil.txt': b'x'})}, 'where it should not be'),
     ({'body': app_zip({'somewhere-else/evil.txt': b'x'})}, 'where it should not be'),
     # on Windows, a drive letter part would jump out of the app's folder
-    ({'body': app_zip({'ao3downloader/C:/Windows/evil.txt': b'x'})}, 'where it should not be'),
-    ({'body': app_zip(leave_out=('ao3downloader/ao3downloader.exe',))}, 'no ao3downloader.exe'),
-    ({'body': app_zip(leave_out=('ao3downloader/_internal/python.dll',))}, 'no _internal'),
+    ({'body': app_zip({'ficfairy/C:/Windows/evil.txt': b'x'})}, 'where it should not be'),
+    ({'body': app_zip(leave_out=('ficfairy/ficfairy.exe',))}, 'no ficfairy.exe'),
+    ({'body': app_zip(leave_out=('ficfairy/_internal/python.dll',))}, 'no _internal'),
 ])
 def test_a_download_that_is_not_right_is_not_installed(tmp_path, change, reason):
     update, launch, leave = installed(tmp_path, github(**change))
@@ -220,7 +293,7 @@ def test_a_download_that_is_not_right_is_not_installed(tmp_path, change, reason)
     assert state['state'] == 'failed'
     assert reason in state['error']
     assert not launch.called and not leave.called
-    assert not (tmp_path / 'update' / 'new' / 'ao3downloader.exe').exists()
+    assert not (tmp_path / 'update' / 'new' / 'ficfairy.exe').exists()
     # a failed update is over: a run may start again
     assert not update.busy()
 
@@ -256,7 +329,7 @@ def test_an_app_folder_it_cannot_write_to_is_said_before_anything_downloads(tmp_
 
 @pytest.mark.parametrize('log, failure', [
     ('', ''),
-    ('2026-01-01 swapped ao3downloader.exe, _internal\n', ''),
+    ('2026-01-01 swapped ficfairy.exe, _internal\n', ''),
     ('2026-01-01 update failed: the file is in use\n', 'the file is in use'),
     ('2026-01-01 update failed: in use\n2026-02-01 swapped _internal\n', ''),
     ('2026-01-01 swapped _internal\n2026-02-01 update failed: disk full\n', 'disk full'),
@@ -278,7 +351,7 @@ def test_the_script_never_touches_the_users_folders_and_always_starts_the_app_ag
     assert "Where-Object { $kept -notcontains $_ }" in script
     # the old files go back if any move fails, and the app starts again either way
     assert 'putting the old ones back' in script
-    assert 'finally {' in script and "Start-Process -FilePath (Join-Path $AppDir 'ao3downloader.exe')" in script
+    assert 'finally {' in script and "Start-Process -FilePath (Join-Path $AppDir 'ficfairy.exe')" in script
 
 # endregion
 

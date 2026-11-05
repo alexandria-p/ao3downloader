@@ -1,5 +1,5 @@
 <header class="topbar">
-  <h1>FicFairy</h1>
+  <h1><img class="logo" src="ficfairy-logo.png" alt="" width="44" height="44" /><span class="name">Fic Fairy</span></h1>
   <div class="picker">
     <div class="storage" role="group" aria-label="Where your library is kept">
       <button
@@ -121,12 +121,11 @@
   @case ('failed') {
     <p class="update-available update-failed" role="alert">
       <span>
-        <strong>The update did not go through:</strong> {{ updateError() }}
-        @if (newerRelease(); as release) {
-          You can <a [href]="release.url" target="_blank" rel="noopener">download it from GitHub</a>
-          instead.
-        }
-        Your settings and your library are as they were.
+        <strong>There was a problem updating the app:</strong> {{ updateError() }}.
+        This copy and your library are as they were. Please download the latest version again
+        by hand from <a class="manual-download" [href]="latestReleaseUrl()" target="_blank" rel="noopener">the
+        latest release on GitHub</a>, unzip it, and use it in place of this one - to keep your
+        settings, copy this copy's <code>config</code> folder into the new one.
       </span>
       <button type="button" class="button subtle" (click)="clearUpdateError()">OK</button>
     </p>
@@ -273,7 +272,8 @@
   to work out what it already has and writes everything back into it. the panel below
   already asks for one, so an empty button bar above it would only repeat the question.
 -->
-@if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && view() !== 'debug' && canRun()) {
+<!-- the run buttons, shown in one of two places: see where runActions is used -->
+<ng-template #runActions>
 <div class="actions">
   @if (view() === 'bookmarks') {
     <!--
@@ -328,6 +328,16 @@
     </button>
   }
 </div>
+</ng-template>
+
+<!--
+  on the Works tab with a listing to show, the buttons sit inside it, under its heading and
+  'List refreshed' (projected into app-work-list); everywhere else, here above the content
+-->
+@if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && view() !== 'debug' && canRun()) {
+  @if (!(view() === 'bookmarks' && data())) {
+    <ng-container [ngTemplateOutlet]="runActions" />
+  }
 }
 
 @if (dialogAction(); as action) {
@@ -455,7 +465,11 @@
       label="Bookmarks"
       [note]="listingNote()"
       [selectable]="true"
-    />
+    >
+      @if (canRun()) {
+        <div listingActions><ng-container [ngTemplateOutlet]="runActions" /></div>
+      }
+    </app-work-list>
   } @else if ((!isEmpty() || mode() === 'dropbox') && !loading()) {
     <p class="notice">
       No bookmarks indexed in this folder yet. Use <strong>Quick Scan</strong> above to

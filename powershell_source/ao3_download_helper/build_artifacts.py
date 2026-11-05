@@ -433,9 +433,9 @@ folder somewhere else, leave `.venv/` behind and let the first run rebuild it.
 
 On Windows, a Mac or Linux, the **app** does all of this without PowerShell or uv: a zip
 built by `package_app.py` and published by the **build windows app**, **build mac app** and
-**build linux app** workflows. On Windows, unzip it and double-click `ao3downloader.exe`; on a
-Mac, double-click `Start ao3downloader.command`, and use Chrome rather than Safari; on Linux,
-run `Start ao3downloader.sh`, and use Chrome or Chromium rather than Firefox. The rest of
+**build linux app** workflows. On Windows, unzip it and double-click `ficfairy.exe`; on a
+Mac, double-click `Start FicFairy.command`, and use Chrome rather than Safari; on Linux,
+run `Start FicFairy.sh`, and use Chrome or Chromium rather than Firefox. The rest of
 this section is for this folder.
 
 A deployment gives everything it builds one version, and that page checks GitHub for a newer

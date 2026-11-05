@@ -24,7 +24,7 @@ def folders_put_back(monkeypatch):
 
 def test_settings_and_logs_go_beside_the_exe(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, 'frozen', True, raising=False)
-    monkeypatch.setattr(sys, 'executable', str(tmp_path / 'ao3downloader.exe'))
+    monkeypatch.setattr(sys, 'executable', str(tmp_path / 'ficfairy.exe'))
 
     desktop.use_folders(desktop.app_folder())
 
@@ -71,7 +71,7 @@ def test_the_page_is_served_without_a_line_per_file(tmp_path, monkeypatch, capsy
 
 def started(tmp_path, monkeypatch, busy=()):
     monkeypatch.setattr(sys, 'frozen', True, raising=False)
-    monkeypatch.setattr(sys, 'executable', str(tmp_path / 'ao3downloader.exe'))
+    monkeypatch.setattr(sys, 'executable', str(tmp_path / 'ficfairy.exe'))
     monkeypatch.setattr(sys, '_MEIPASS', str(tmp_path / '_internal'), raising=False)
     monkeypatch.setenv(desktop.ENV_NO_BROWSER, '1')
     held = MagicMock(return_value='')
@@ -116,7 +116,7 @@ def test_the_app_already_running_is_said_rather_than_starting_a_second_helper(tm
 def test_a_helper_that_will_not_start_holds_the_window_open(tmp_path, monkeypatch):
     web(tmp_path)
     monkeypatch.setattr(sys, 'frozen', True, raising=False)
-    monkeypatch.setattr(sys, 'executable', str(tmp_path / 'ao3downloader.exe'))
+    monkeypatch.setattr(sys, 'executable', str(tmp_path / 'ficfairy.exe'))
     monkeypatch.setattr(sys, '_MEIPASS', str(tmp_path / '_internal'), raising=False)
     monkeypatch.setenv(desktop.ENV_NO_BROWSER, '1')
     held = MagicMock(return_value='')
