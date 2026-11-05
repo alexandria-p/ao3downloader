@@ -2644,7 +2644,7 @@ state) - `Library.refresh` on demand; History has the same icon for its own list
 
 **Both listings show their headings from the first moment of a read** (`App.firstRead`, the
 listing's `loading` input): *Bookmarks* / *Collections* alone while nothing is counted (still
-loading, or none), *List not yet loaded* until the first read lands, the buttons and the bar under
+loading, or none), *List not yet loaded* (with no refresh icon) until the first read lands, the buttons and the bar under
 them - no filters and no 'empty' message yet.
 
 **A switch of library starts from nothing being read** (`Library.notReading`, from `showLocal`

@@ -938,6 +938,7 @@ describe('App', () => {
 
     expect(element.querySelector('app-work-list .listing-heading')?.textContent?.trim()).toBe('Bookmarks');
     expect(element.querySelector('app-work-list .meta-line.note')?.textContent).toContain('List not yet loaded');
+    expect(element.querySelector('app-work-list .refresh-icon')).toBeNull();
     expect(element.querySelector<HTMLElement>('app-work-list details.filters')?.hidden).toBe(true);
     expect(element.querySelector('app-work-list .index .notice')).toBeNull();
 
@@ -946,6 +947,7 @@ describe('App', () => {
     await fixture.whenStable();
     expect(element.querySelector('app-collections-view .listing-heading')?.textContent?.trim()).toBe('Collections');
     expect(element.querySelector('app-collections-view .meta-line.note')?.textContent).toContain('List not yet loaded');
+    expect(element.querySelector('app-collections-view .refresh-icon')).toBeNull();
     expect(element.querySelector('app-collections-view .collections .notice')).toBeNull();
     library.loading.set(false);
   });

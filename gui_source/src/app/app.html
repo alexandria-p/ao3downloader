@@ -496,7 +496,7 @@
       [note]="listingNote() || 'List not yet loaded'"
       [selectable]="true"
     >
-      <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
+      @if (listedAt()) {<span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>}
       <div listingProgress>
         <ng-container [ngTemplateOutlet]="libraryProgress" />
       </div>
@@ -512,7 +512,7 @@
   }
 } @else if (view() === 'collections') {
   <app-collections-view [preparing]="libraryPreparing()" [loading]="firstRead()">
-    <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
+    @if (listedAt()) {<span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>}
     <div listingProgress>
       <ng-container [ngTemplateOutlet]="libraryProgress" />
     </div>

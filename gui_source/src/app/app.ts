@@ -285,6 +285,8 @@ export class App {
   });
   /** the library's first read since it was opened: nothing to list yet, and no time to say */
   protected readonly firstRead = computed(() => this.loading() && !this.data());
+  /** when the list was last read - none yet means nothing to refresh, so no refresh icon */
+  protected readonly listedAt = this.library.listedAt;
   protected readonly sourceName = this.library.sourceName;
   protected readonly folderName = this.library.folderName;
   protected readonly needsReconnect = this.library.needsReconnect;
