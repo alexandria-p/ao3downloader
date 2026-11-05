@@ -358,8 +358,40 @@
   margin: 14px 0 12px;
 }
 
-.head-actions {
-  margin: 8px 0 0;
+/* the pill naming a collection made here wears the accent, as ao3's challenge pill does */
+.badge.custom {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+/* an opened collection made here: name and pencil on the left, Edit collection on the right */
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.title-row .edit-collection {
+  margin-left: auto;
+  flex: none;
+}
+
+.pencil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-dim);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.pencil:hover {
+  background: var(--surface-hover);
+  color: var(--accent);
 }
 
 .button {

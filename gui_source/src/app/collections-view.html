@@ -7,18 +7,20 @@
   @if (isCustom(collection)) {
   <!-- one of your own: made here, so there is no ao3 page, reading history or challenge -->
   <header class="collection-head">
-    <h2>{{ collection.title }}</h2>
+    <!-- the name, its pencil, and Edit collection at the right of the same line -->
+    <div class="title-row">
+      <h2>{{ collection.title }}</h2>
+      @if (writable()) {
+        <ng-container [ngTemplateOutlet]="pencil" [ngTemplateOutletContext]="{ $implicit: collection }" />
+        <button type="button" class="button edit-collection" (click)="editing.set(collection)">Edit collection</button>
+      }
+    </div>
     <p class="flags">
       <span class="badge custom">Collection made in Fic Fairy</span>
       @for (badge of badges(collection); track badge) {
         <span class="badge">{{ badge }}</span>
       }
     </p>
-    @if (writable()) {
-      <p class="head-actions">
-        <button type="button" class="button" (click)="editing.set(collection)">Edit collection</button>
-      </p>
-    }
   </header>
 
   @if (collection.description) {
@@ -223,6 +225,9 @@
           <button type="button" class="title linklike" (click)="show(collection)">
             {{ collection.title }}
           </button>
+          @if (isCustom(collection) && writable()) {
+            <ng-container [ngTemplateOutlet]="pencil" [ngTemplateOutletContext]="{ $implicit: collection }" />
+          }
           @if (collection.maintainers.length) {
             <span class="by">by</span>
             @for (person of collection.maintainers; track person; let last = $last) {
@@ -311,6 +316,18 @@
     </nav>
   }
 }
+
+<!-- the pencil beside a collection made in Fic Fairy: opens the same window as Edit collection -->
+<ng-template #pencil let-collection>
+  <button type="button" class="pencil" title="Edit collection" aria-label="Edit collection"
+          (click)="editing.set(collection)">
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+      <path d="M11.3 1.7a1.5 1.5 0 0 1 2.1 0l.9.9a1.5 1.5 0 0 1 0 2.1L5.6 13.4 2 14l.6-3.6 8.7-8.7z"
+            fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+      <path d="M9.8 3.2l3 3" stroke="currentColor" stroke-width="1.4" />
+    </svg>
+  </button>
+</ng-template>
 
 @if (editing()) {
   <app-collection-editor [collection]="editorCollection()" (saved)="editorSaved($event)"

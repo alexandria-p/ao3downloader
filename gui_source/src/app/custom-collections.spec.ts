@@ -627,8 +627,30 @@ describe('making and editing collections from the Collections tab', () => {
   });
 
   it('offers no edit on a collection from ao3', async () => {
+    expect(element.querySelector('.pencil')).toBeNull();
     button('Yuletide 2024').click();
     await settle();
     expect(button('Edit collection')).toBeUndefined();
+    expect(element.querySelector('.pencil')).toBeNull();
+  });
+
+  it('puts Edit collection on the name line, and a pencil by the name that opens the same window', async () => {
+    await custom.create('Mine', { works: ['1'], externals: [] });
+    await settle();
+    // in the listing, beside the name
+    element.querySelector<HTMLButtonElement>('.collection .heading .pencil')!.click();
+    await settle();
+    expect(element.querySelector<HTMLInputElement>('app-collection-editor [name="title"]')!.value).toBe('Mine');
+    button('Cancel').click();
+    await settle();
+
+    button('Mine').click();
+    await settle();
+    const row = element.querySelector('.collection-head .title-row')!;
+    expect(row.querySelector('h2')!.textContent).toContain('Mine');
+    expect(row.querySelector('.edit-collection')!.textContent).toContain('Edit collection');
+    row.querySelector<HTMLButtonElement>('.pencil')!.click();
+    await settle();
+    expect(element.querySelector<HTMLInputElement>('app-collection-editor [name="title"]')!.value).toBe('Mine');
   });
 });

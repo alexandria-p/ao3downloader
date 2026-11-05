@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library } from './library';
 import { WorkList } from './work-list';
 import { CollectionEditor } from './collection-editor';
@@ -29,7 +29,7 @@ type Tab = 'works' | 'bookmarks';
  */
 @Component({
   selector: 'app-collections-view',
-  imports: [DecimalPipe, WorkList, CollectionEditor],
+  imports: [DecimalPipe, NgTemplateOutlet, WorkList, CollectionEditor],
   styleUrl: './collections-view.css',
   templateUrl: './collections-view.html',
 })
