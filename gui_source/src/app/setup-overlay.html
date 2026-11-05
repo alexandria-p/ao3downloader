@@ -1,21 +1,12 @@
-@if (setup.state() !== 'idle') {
+@if (setup.state() === 'asking') {
   <div
     class="cover"
-    [attr.role]="setup.state() === 'asking' ? 'alertdialog' : 'status'"
+    role="alertdialog"
     aria-modal="true"
     aria-live="polite"
-    [attr.aria-busy]="setup.state() === 'working'"
   >
     <div class="panel">
-      @if (setup.state() === 'working') {
-        <div class="spinner" aria-hidden="true"></div>
-        <h2>{{ setup.message() }}</h2>
-        <p>{{ setup.detail() }}</p>
-        @if (setup.progress(); as progress) {
-          <p class="count">{{ progress.done | number }} of {{ progress.total | number }}</p>
-        }
-        <p class="hint">Please wait - the page will be back in a moment.</p>
-      } @else {
+      <!-- only a question covers the page: the working steps are in the loading bar -->
         <h2>Move your works into {{ works }}/?</h2>
         <p>
           This folder has <strong>{{ setup.looseWorks() | number }}</strong>
@@ -35,7 +26,6 @@
             Move them into {{ works }}/
           </button>
         </div>
-      }
     </div>
   </div>
 }

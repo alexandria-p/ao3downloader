@@ -299,7 +299,7 @@ export class Library {
       if (generation === this.generation) this.readProgress.set(progress);
     };
     try {
-      await this.setup.prepare(this.dropboxTarget(), APP_FOLDER_PATH);
+      await this.setup.prepare(this.dropboxTarget(), `Dropbox${APP_FOLDER_PATH}`);
       if (generation !== this.generation) return;
       this.store.set(new DropboxLibraryStore(this.dropbox));
       note({ stage: 'listing', found: 0 });

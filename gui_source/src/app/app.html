@@ -436,7 +436,10 @@
   [listingProgress]) - or here, above the content, where the tab has no title to go under
 -->
 <ng-template #libraryProgress>
-  @if (loading()) {
+  @if (setupWorking()) {
+    <!-- setting the library up, said step by step: a question alone gets a window -->
+    <app-progress-bar [percent]="setupPercent()" [caption]="setupCaption()" label="Setting up your library" />
+  } @else if (loading()) {
     @if (mode() === 'dropbox' && reading(); as reading) {
       <app-progress-bar [percent]="reading.percent" [caption]="reading.caption"
                         label="Reading your library from Dropbox" />

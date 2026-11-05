@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 
 /**
  * A progress bar and its caption, in the palette's accent colour: reading the library, reading
@@ -12,7 +12,7 @@ import { Component, input } from '@angular/core';
       <div
         class="bar"
         role="progressbar"
-        [attr.aria-label]="label() || caption()"
+        [attr.aria-label]="label() || plain()"
         [attr.aria-valuenow]="percent()"
         aria-valuemin="0"
         aria-valuemax="100"
@@ -20,7 +20,7 @@ import { Component, input } from '@angular/core';
         <div class="fill" [class.indeterminate]="percent() === null" [style.width.%]="percent() ?? 100"></div>
       </div>
       <p class="notice" role="status">
-        {{ caption() }}@if (percent() !== null) {<span class="percent"> - {{ percent() }}%</span>}
+        @for (part of parts(); track $index) {@if (part.code) {<code>{{ part.text }}</code>} @else {<ng-container>{{ part.text }}</ng-container>}}@if (percent() !== null) {<span class="percent"> - {{ percent() }}%</span>}
       </p>
     </div>
   `,
@@ -38,6 +38,14 @@ import { Component, input } from '@angular/core';
       margin: 4px 0 0;
       color: var(--text-dim);
       font-size: 0.85rem;
+    }
+
+    .notice code {
+      padding: 0 4px;
+      border-radius: 3px;
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 0.95em;
     }
 
     .bar {
@@ -78,4 +86,16 @@ export class ProgressBar {
   readonly caption = input('');
   /** what the bar is for, to a screen reader; the caption when not given */
   readonly label = input('');
+
+  /**
+   * The caption in pieces: text between backticks is a folder or file location, shown as code
+   * (`Creating folder \`Dropbox/Apps/FicFairy/works\``)
+   */
+  protected readonly parts = computed(() =>
+    this.caption()
+      .split('`')
+      .map((text, i) => ({ text, code: i % 2 === 1 }))
+      .filter((part) => part.text),
+  );
+  protected readonly plain = computed(() => this.caption().replaceAll('`', ''));
 }

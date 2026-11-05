@@ -295,6 +295,10 @@ export class App {
   /** what setting a library up could not do - files it could not move, say */
   private readonly librarySetup = inject(LibrarySetup);
   protected readonly setupReport = this.librarySetup.report;
+  /** setting the library up, said in the loading bar rather than over the page */
+  protected readonly setupWorking = computed(() => this.librarySetup.state() === 'working');
+  protected readonly setupCaption = this.librarySetup.caption;
+  protected readonly setupPercent = this.librarySetup.percent;
   /** where the library is in Dropbox - always the app folder, so there is nothing to pick */
   protected readonly appFolderPath = APP_FOLDER_PATH;
 

@@ -1,3 +1,4 @@
+import { LibrarySetup } from './library-setup';
 import { LibraryImports } from './imports';
 import { DebugMode } from './debug';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
@@ -890,6 +891,19 @@ describe('App', () => {
     fixture.detectChanges();
     await fixture.whenStable();
     expect(quick().disabled).toBe(false);
+  });
+
+  it('says what setting the library up is doing in the loading bar, not over the page', async () => {
+    const { fixture, element } = await render(1);
+    const setup = TestBed.inject(LibrarySetup);
+    setup.state.set('working');
+    setup.caption.set('Creating folder `Dropbox/Apps/FicFairy/runs`');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(element.querySelector('app-progress-bar')?.textContent).toContain('Creating folder Dropbox/Apps/FicFairy/runs');
+    expect(element.querySelector('app-progress-bar code')?.textContent).toBe('Dropbox/Apps/FicFairy/runs');
+    expect(element.querySelector('app-setup-overlay .cover')).toBeNull();
+    setup.state.set('idle');
   });
 
   it('highlights the storage chosen, and only that one', async () => {

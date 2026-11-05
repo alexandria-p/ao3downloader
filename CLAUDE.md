@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1025 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1026 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2412,7 +2412,14 @@ whichever tab is showing**: `#libraryProgress` in `app.html` is projected into e
 `[listingProgress]` - on Works and Collections under the title **and its buttons**, on the FAQ
 under *About downloading from AO3* - and goes above the content only where there is no title
 (`progressOnTop`: Works before a read, Dropbox's sign-in panel). Held buttons are dimmed
-(`.button:disabled`). **A percentage
+(`.button:disabled`).
+
+**Setting a library up is said in that same bar, step by step** (`LibrarySetup.caption`):
+*Checking the folders in `Dropbox/Apps/FicFairy`...*, *Creating folder `.../works` (2 of 4)*,
+*Moving your works into `.../works/`* (with a percentage). It runs before every full read -
+opening, switching, Refresh - and only its one question (move loose top-level works into
+`works/`?) covers the page (`app-setup-overlay`, `state === 'asking'`). The run buttons wait
+throughout (`libraryPreparing`). **A percentage
 only where there is a real total**: a listing comes a page at a time with no total, and
 Dropbox builds a folder's zip as it sends it, so it usually gives no `Content-Length` - those
 stages count what has arrived (files found, bytes so far, folder N of M) with an
@@ -2760,6 +2767,8 @@ Three rules worth keeping:
 
 ## Conventions
 
+- **A folder or file location shown to the reader is code-styled** - `<code>` in a template,
+  or between backticks in an `app-progress-bar` caption, which renders them as code.
 - Comments say **why**, not what. Several in here exist to stop a "simplification" that
   would reintroduce a fixed bug - `allow_reuse_address`, the cancel-raises behaviour, and
   the `dt`/`dd` document-order pairing especially.
