@@ -121,12 +121,11 @@
   @case ('failed') {
     <p class="update-available update-failed" role="alert">
       <span>
-        <strong>The update did not go through:</strong> {{ updateError() }}
-        @if (newerRelease(); as release) {
-          You can <a [href]="release.url" target="_blank" rel="noopener">download it from GitHub</a>
-          instead.
-        }
-        Your settings and your library are as they were.
+        <strong>There was a problem updating the app:</strong> {{ updateError() }}.
+        This copy and your library are as they were. Please download the latest version again
+        by hand from <a class="manual-download" [href]="latestReleaseUrl()" target="_blank" rel="noopener">the
+        latest release on GitHub</a>, unzip it, and use it in place of this one - to keep your
+        settings, copy this copy's <code>config</code> folder into the new one.
       </span>
       <button type="button" class="button subtle" (click)="clearUpdateError()">OK</button>
     </p>

@@ -984,7 +984,25 @@ describe('App', () => {
 
     const banner = element.querySelector('.update-failed');
     expect(banner?.textContent).toContain('the file is in use');
-    expect(banner?.textContent).toContain('Your settings and your library are as they were');
+    expect(banner?.textContent).toContain('This copy and your library are as they were');
+  });
+
+  it('sends anyone whose update failed to download the latest release by hand, whatever went wrong', async () => {
+    // a release whose zip was renamed is the case this is for: the app finds no file under the
+    // name it knows, and the only way on is a new copy from the release page
+    const { fixture, element } = await render(1);
+    TestBed.inject(UpdateCheck).updating.set({
+      state: 'failed', error: 'the latest release, 2.0.0, has no ficfairy-ao3downloader-windows.zip',
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const banner = element.querySelector('.update-failed');
+    expect(banner?.textContent).toContain('There was a problem updating the app');
+    expect(banner?.textContent).toContain('has no ficfairy-ao3downloader-windows.zip');
+    expect(banner?.textContent).toContain('download the latest version again');
+    expect(banner?.querySelector('a.manual-download')?.getAttribute('href'))
+      .toBe('https://github.com/alexandria-p/ficfairy/releases/latest');
   });
 
   it('says when a newer version is out, and stops for good when told to', async () => {

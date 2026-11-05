@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1010 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1012 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -415,7 +415,12 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
 - **The page waits it out** (`UpdateCheck.updateNow`): after the 202 it polls `/api/config`;
   the helper not answering is the swap, not a failure; the same version coming back after
   that is. It reloads the page once the helper reports the new version, and gives up after
-  `waitMs`. A reported failure is shown once and remembered as seen (`ao3.updateFailureSeen`).
+  `waitMs`. A reported failure is shown once and remembered as seen (`ao3.updateFailureSeen`), and
+  **always sends the reader to download the app again by hand** (`.update-failed`'s
+  `a.manual-download`, `latestReleaseUrl`: `releases/latest`), whatever went wrong - a release
+  whose zip was renamed is the case it is for, since an app finds no file under a name it does
+  not know. The newer-version banner and footer read only the release's tag, so they still
+  say a version is out when its zip is not one this app can take.
 - **Tested end to end on Windows, both Macs and Linux**: `build-windows.yml` (and
   `build-mac.yml` and `build-linux.yml`, the same way - on a Mac checking the app came back in
   a new Terminal window) installs the zip, edits its

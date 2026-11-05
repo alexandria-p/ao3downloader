@@ -178,7 +178,7 @@ export class UpdateCheck {
     }
     this.updating.set({
       state: 'failed',
-      error: 'the app has not come back yet. If its window is closed, start ao3downloader.exe again.',
+      error: 'the app has not come back yet - if its window is closed, start it again',
     });
   }
 
