@@ -548,7 +548,9 @@
     <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
   </app-debug-tab>
 } @else {
-  <app-faq />
+  <app-faq>
+    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+  </app-faq>
 }
 
 </div>

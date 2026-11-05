@@ -16,11 +16,11 @@
 @if (note()) {
   <p class="meta-line note">{{ note() }}</p>
 }
-<!-- reading the library: under the title, as on every tab -->
-<ng-content select="[listingProgress]" />
-
 <!-- whatever the page puts under the heading - on the Works tab, its run buttons -->
 <ng-content select="[listingActions]" />
+
+<!-- reading the library: under the title and its buttons, as on every tab -->
+<ng-content select="[listingProgress]" />
 
 <!--
   narrowing the listing, not searching ao3: everything here is filtered from what the folder

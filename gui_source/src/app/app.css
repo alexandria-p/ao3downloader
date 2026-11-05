@@ -301,6 +301,12 @@
   user-select: none;
 }
 
+/* held - a run going, or the library still loading - and looking it */
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .button:hover {
   background: var(--surface-hover);
 }

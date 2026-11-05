@@ -2409,8 +2409,10 @@ every entry. It publishes each stage as `Library.readProgress` (`ReadProgress`),
 `describeReadProgress` turns that into the bar and caption (`app-progress-bar`, in the palette's
 `--accent`, as History's *Reading past runs* and the run window's bar are), **under the title of
 whichever tab is showing**: `#libraryProgress` in `app.html` is projected into each tab as
-`[listingProgress]`, and goes above the content only where there is no title (`progressOnTop`:
-the FAQ, Works before a read, Dropbox's sign-in panel). **A percentage
+`[listingProgress]` - on Works and Collections under the title **and its buttons**, on the FAQ
+under *About downloading from AO3* - and goes above the content only where there is no title
+(`progressOnTop`: Works before a read, Dropbox's sign-in panel). Held buttons are dimmed
+(`.button:disabled`). **A percentage
 only where there is a real total**: a listing comes a page at a time with no total, and
 Dropbox builds a folder's zip as it sends it, so it usually gives no `Content-Length` - those
 stages count what has arrived (files found, bytes so far, folder N of M) with an

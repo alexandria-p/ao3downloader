@@ -275,11 +275,10 @@ export class App {
   });
   /**
    * Where the library's reading bar goes when the tab showing has no title to put it under:
-   * the FAQ, Works before anything is read, and Dropbox's sign-in panel
+   * Works before anything is read, and Dropbox's sign-in panel
    */
   protected readonly progressOnTop = computed(() => {
     const view = this.view();
-    if (view === 'faq') return true;
     if (this.mode() === 'dropbox' && !this.canRun() && (view === 'bookmarks' || view === 'collections')) return true;
     return view === 'bookmarks' && !this.data();
   });
