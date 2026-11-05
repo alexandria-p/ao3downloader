@@ -9,6 +9,9 @@ import { Component, computed, input } from '@angular/core';
   selector: 'app-progress-bar',
   template: `
     <div class="read-progress">
+      @if (note()) {
+        <p class="note" role="status">{{ note() }}</p>
+      }
       <div
         class="bar"
         role="progressbar"
@@ -27,11 +30,21 @@ import { Component, computed, input } from '@angular/core';
   styles: `
     :host {
       display: block;
+      margin: 0 0 14px;
     }
 
-    /* the full width of the page (or of the tab's column) */
+    /* a panel the full width of the page (or the tab's column): transparent, with a dashed
+       outline in the palette's accent */
     .read-progress {
-      margin: 0 0 14px;
+      padding: 12px 14px 10px;
+      border: 1.5px dashed var(--accent-line);
+      border-radius: 8px;
+      background: transparent;
+    }
+
+    .note {
+      margin: 0 0 10px;
+      color: var(--text-dim);
     }
 
     .notice {
@@ -86,6 +99,8 @@ export class ProgressBar {
   readonly caption = input('');
   /** what the bar is for, to a screen reader; the caption when not given */
   readonly label = input('');
+  /** a line above the bar saying why it is reading, when there is a reason worth saying */
+  readonly note = input('');
 
   /**
    * The caption in pieces: text between backticks is a folder or file location, shown as code

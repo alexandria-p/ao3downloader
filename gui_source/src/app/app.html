@@ -429,10 +429,10 @@
   <button
     type="button"
     class="refresh-icon"
-    [class.spinning]="refreshing()"
-    [disabled]="libraryLocked() || refreshing()"
-    [attr.title]="libraryLocked() ? lockedTitle : refreshing() ? 'Refreshing...' : 'Refresh the list - read the library again'"
-    [attr.aria-label]="refreshing() ? 'Refreshing' : 'Refresh the list'"
+    [class.spinning]="refreshing() || loading()"
+    [disabled]="libraryLocked() || refreshing() || loading()"
+    [attr.title]="libraryLocked() ? lockedTitle : refreshing() || loading() ? 'Refreshing...' : 'Refresh the list - read the library again'"
+    [attr.aria-label]="refreshing() || loading() ? 'Refreshing' : 'Refresh the list'"
     (click)="refreshLibrary()"
   >
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -442,14 +442,6 @@
   </button>
 </ng-template>
 
-<!-- a background run's changes being brought in: under the Works and Collections buttons -->
-<ng-template #behindNote>
-  @if (refreshing()) {
-    <p class="notice library-behind" role="status">
-      A run has finished since this library was read - bringing the list up to date...
-    </p>
-  }
-</ng-template>
 
 <ng-template #libraryProgress>
   @if (setupWorking()) {
@@ -457,10 +449,11 @@
     <app-progress-bar [percent]="setupPercent()" [caption]="setupCaption()" label="Setting up your library" />
   } @else if (loading()) {
     @if (mode() === 'dropbox' && reading(); as reading) {
-      <app-progress-bar [percent]="reading.percent" [caption]="reading.caption"
+      <app-progress-bar [percent]="reading.percent" [caption]="reading.caption" [note]="behindNote()"
                         label="Reading your library from Dropbox" />
     } @else {
-      <app-progress-bar [caption]="mode() === 'dropbox' ? 'Reading your library from Dropbox...' : 'Reading files...'" />
+      <app-progress-bar [caption]="mode() === 'dropbox' ? 'Reading your library from Dropbox...' : 'Reading files...'"
+                        [note]="behindNote()" />
     }
   }
 </ng-template>
@@ -503,7 +496,6 @@
     >
       <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
       <div listingProgress>
-        <ng-container [ngTemplateOutlet]="behindNote" />
         <ng-container [ngTemplateOutlet]="libraryProgress" />
       </div>
       @if (canRun()) {
@@ -520,7 +512,6 @@
   <app-collections-view [preparing]="libraryPreparing()">
     <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
     <div listingProgress>
-      <ng-container [ngTemplateOutlet]="behindNote" />
       <ng-container [ngTemplateOutlet]="libraryProgress" />
     </div>
     @if (canRun()) {

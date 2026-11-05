@@ -211,7 +211,7 @@
     {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
   </p>
   @if (listedAt(); as at) {
-    <p class="meta-line note">List refreshed {{ shownTime(at) }}. <ng-content select="[noteAction]" /></p>
+    <p class="meta-line note">List refreshed {{ shownTime(at) }} <ng-content select="[noteAction]" /></p>
   }
   <!-- under the heading, one row: the page's run buttons (projected), then making your own -->
   <div class="listing-actions">

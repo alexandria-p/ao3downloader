@@ -266,6 +266,19 @@ describe('App', () => {
     expect(shownTime('sometime last week')).toBe('sometime last week');
   });
 
+  it('holds the refresh icon and spins it while the list is read again', async () => {
+    const library = TestBed.inject(Library);
+    library.listedAt.set(new Date('2026-11-05T12:00:00Z'));
+    const { fixture, element } = await render(1);
+    library.refreshing.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const icon = element.querySelector<HTMLButtonElement>('.refresh-icon')!;
+    expect(icon.disabled).toBe(true);
+    expect(icon.classList).toContain('spinning');
+    library.refreshing.set(false);
+  });
+
   it('offers Refresh as an icon beside List refreshed, not in the header, which reads it again', async () => {
     const library = TestBed.inject(Library);
     library.listedAt.set(new Date('2026-11-05T12:00:00Z'));
@@ -362,9 +375,11 @@ describe('App', () => {
   it('shows a bar while a Dropbox library is read, with a number only once there is one', async () => {
     TestBed.inject(StorageChoice).mode.set('dropbox');
     const library = TestBed.inject(Library);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    // a read under way: set once the page has opened, since opening a library starts afresh
     library.loading.set(true);
     library.readProgress.set({ stage: 'listing', found: 0 });
-    const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
 
@@ -1339,6 +1354,8 @@ describe('App', () => {
     localStorage.clear();
     libraryWithFiles(['works/1 Work 1 - Writer 2024-01-01.html']);
     const library = TestBed.inject(Library);
+    // a read under way, which opening the page would otherwise start afresh
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
     library.loading.set(true);
     // the store is set before the index is read: against an empty index, work 1 looks unindexed
     const fixture = TestBed.createComponent(App);

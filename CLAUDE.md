@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1026 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1028 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2406,8 +2406,10 @@ dropping them would show fewer works than the collection's own count promises.
 `Library.showDropbox` lists the folder, downloads the index as one zip per folder
 (`INDEX_FOLDERS`, falling back to a file at a time when Dropbox refuses the zip), then parses
 every entry. It publishes each stage as `Library.readProgress` (`ReadProgress`), and
-`describeReadProgress` turns that into the bar and caption (`app-progress-bar`, in the palette's
-`--accent`, as History's *Reading past runs* and the run window's bar are), **under the title of
+`describeReadProgress` turns that into the bar and caption (`app-progress-bar`: a transparent
+panel with a dashed `--accent-line` outline, the bar in `--accent`, and an optional `note` line
+above it - *A run has finished since this library was read...* when `freshness.behind` is why it
+reads; as History's *Reading past runs* and the run window's bar are), **under the title of
 whichever tab is showing**: `#libraryProgress` in `app.html` is projected into each tab as
 `[listingProgress]` - on Works and Collections under the title **and its buttons**, on the FAQ
 under *About downloading from AO3* - and goes above the content only where there is no title
@@ -2627,7 +2629,13 @@ until the new read replaces them, with a notice while it reads. A run from anoth
 that was already going at the read is not known to have been going, so its ending is not
 seen until a later run's record appears. **Above the listing, *List refreshed* is the only
 time shown** (a *Last indexed* beside it was removed at the user's request; `data.retrieved`,
-the newest `last_indexed`, is still worked out). It is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** is an icon beside *List refreshed* on Works and Collections (`#refreshIcon`, projected as `[noteAction]`; `.refresh-icon`, spinning while it reads) - `Library.refresh` on demand; History has the same icon for its own list (`load`). There is none in the header. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and the Refresh icon are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
+the newest `last_indexed`, is still worked out). It is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** is an icon beside *List refreshed* on Works and Collections (`#refreshIcon`, projected as `[noteAction]`; `.refresh-icon`, spinning and held while anything reads the list - a refresh or a full read; transparent in every
+state) - `Library.refresh` on demand; History has the same icon for its own list (`load`). There is none in the header. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and the Refresh icon are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
+
+**A switch of library starts from nothing being read** (`Library.notReading`, from `showLocal`
+and `showDropbox`): a read it replaces stops at its generation check without saying it is done,
+so switching Dropbox -> this computer -> Dropbox -> this computer while Dropbox still read, to a
+folder with nothing to read yet, left *Reading files...* up for ever.
 
 ### Every downloaded format has a button beside the title
 

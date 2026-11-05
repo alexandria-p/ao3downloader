@@ -297,6 +297,12 @@ export class App {
   protected readonly setupReport = this.librarySetup.report;
   /** setting the library up, said in the loading bar rather than over the page */
   protected readonly setupWorking = computed(() => this.librarySetup.state() === 'working');
+  /** said in the loading panel when a run elsewhere is what it is reading for */
+  protected readonly behindNote = computed(() =>
+    this.refreshing() && this.freshness.behind()
+      ? 'A run has finished since this library was read - bringing the list up to date...'
+      : '',
+  );
   protected readonly setupCaption = this.librarySetup.caption;
   protected readonly setupPercent = this.librarySetup.percent;
   /** where the library is in Dropbox - always the app folder, so there is nothing to pick */
@@ -458,7 +464,7 @@ export class App {
    */
   protected readonly listingNote = computed(() => {
     const listed = this.library.listedAt();
-    return listed ? `List refreshed ${shownTime(listed)}.` : '';
+    return listed ? `List refreshed ${shownTime(listed)}` : '';
   });
 
   /** a folder with nothing in it at all is what the getting-started panel is for */

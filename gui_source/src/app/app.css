@@ -559,14 +559,6 @@
   font-size: 0.88rem;
 }
 
-/* the works list is behind a run that finished elsewhere - said beside the way to catch up */
-.notice.library-behind {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-}
-
 /* the Works tab's first line while the library has works or files to sort out */
 .import-issues {
   display: flex;
@@ -630,24 +622,41 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 4px;
-  padding: 3px;
+  margin-left: 2px;
+  padding: 0 2px;
   border: 0;
   border-radius: 3px;
-  background: none;
+  /* transparent in every state - hover only colours the arrow */
+  background: transparent;
+  appearance: none;
   color: var(--text-dim);
-  vertical-align: middle;
+  /* sat on the text's baseline and a pixel below it: the arrow's middle then meets the middle
+     of the capitals and digits beside it, which is where the eye lines it up */
+  vertical-align: -1px;
   cursor: pointer;
 }
 
+.refresh-icon svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+  transform-origin: 50% 50%;
+}
+
 .refresh-icon:hover:not(:disabled) {
-  background: var(--surface-hover);
   color: var(--accent);
 }
 
 .refresh-icon:disabled {
+  background: transparent;
   opacity: 0.5;
   cursor: default;
+}
+
+/* spinning is the point while it reads: not faded with the rest of a held button */
+.refresh-icon.spinning:disabled {
+  opacity: 1;
+  color: var(--accent);
 }
 
 .refresh-icon.spinning svg {
