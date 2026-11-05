@@ -25,4 +25,6 @@ export class Faq {
   private readonly helper = inject(HelperConnection);
   /** only the hosted copy offers background runs, so only its FAQ says how they work */
   protected readonly offersBackground = !this.helper.isLocal();
+  /** the hosted copy says where to get the app in its footer instead (`App.hosted`) */
+  protected readonly hosted = !this.helper.isLocal();
 }

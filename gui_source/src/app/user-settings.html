@@ -3,6 +3,8 @@
     <h2>User settings</h2>
     <button type="button" class="button reset-all" (click)="openReset()">Reset to defaults</button>
   </div>
+  <!-- reading the library: under the title, as on every tab -->
+  <ng-content select="[listingProgress]" />
   <p class="browser-note" role="note">
     The palette and font, 'Do not ask again' options and any changes to your default file formats
     are saved to this browser. Changing browsers on your device will use a different set of settings that are saved

@@ -213,6 +213,8 @@
   @if (listedAt(); as at) {
     <p class="meta-line note">List refreshed {{ shownTime(at) }}.</p>
   }
+  <!-- reading the library: under the title, as on every tab -->
+  <ng-content select="[listingProgress]" />
   <!-- under the heading, one row: the page's run buttons (projected), then making your own -->
   <div class="listing-actions">
     <ng-content select="[listingActions]" />

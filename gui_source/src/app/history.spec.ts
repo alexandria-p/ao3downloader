@@ -73,6 +73,25 @@ describe('History', () => {
     TestBed.configureTestingModule({ providers: [{ provide: Jobs, useValue: jobs }] });
   });
 
+  it('shows a bar while it reads past runs', async () => {
+    let finish!: (runs: RunHistory[]) => void;
+    vi.spyOn(jobs, 'loadRuns').mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    fixture = TestBed.createComponent(History);
+    element = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    await fixture.whenStable().catch(() => undefined);
+    fixture.detectChanges();
+    expect(element.querySelector('app-progress-bar [role="progressbar"]')).not.toBeNull();
+    expect(element.textContent).toContain('Reading past runs');
+    finish([]);
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await fixture.whenStable();
+    }
+    fixture.detectChanges();
+    expect(element.querySelector('app-progress-bar')).toBeNull();
+  });
+
   it('says it lists only the most recent runs, in an (i) beside the heading', async () => {
     await show([]);
     expect(element.querySelector('h2 .history-limit')?.textContent).toContain('100 most recent runs');

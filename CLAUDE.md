@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1020 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1023 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -539,7 +539,10 @@ window so a long listing never hides it, with a link to `releasesRepo` on GitHub
 
 **The FAQ pins a download panel first** (`.download-app`): the latest release's page
 (`releases/latest`, from `releasesRepo`, which defaults to this repository for a page with no
-config), what to do with the zip, and this page's version when it has one.
+config), what to do with the zip, and this page's version when it has one. **Not on the hosted
+copy** (`Faq.hosted`, `!HelperConnection.isLocal()`): there it is one line in the footer instead,
+`.run-locally` above the version line - *Run this on your own computer - download the latest
+version from GitHub*.
 
 ### A run can carry on in the background
 
@@ -2400,7 +2403,11 @@ dropping them would show fewer works than the collection's own count promises.
 `Library.showDropbox` lists the folder, downloads the index as one zip per folder
 (`INDEX_FOLDERS`, falling back to a file at a time when Dropbox refuses the zip), then parses
 every entry. It publishes each stage as `Library.readProgress` (`ReadProgress`), and
-`describeReadProgress` turns that into the bar and caption above the listing. **A percentage
+`describeReadProgress` turns that into the bar and caption (`app-progress-bar`, in the palette's
+`--accent`, as History's *Reading past runs* and the run window's bar are), **under the title of
+whichever tab is showing**: `#libraryProgress` in `app.html` is projected into each tab as
+`[listingProgress]`, and goes above the content only where there is no title (`progressOnTop`:
+the FAQ, Works before a read, Dropbox's sign-in panel). **A percentage
 only where there is a real total**: a listing comes a page at a time with no total, and
 Dropbox builds a folder's zip as it sends it, so it usually gives no `Content-Length` - those
 stages count what has arrived (files found, bytes so far, folder N of M) with an

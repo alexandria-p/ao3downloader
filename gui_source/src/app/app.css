@@ -132,7 +132,6 @@
   display: inline-flex;
   border: 1px solid var(--border-strong);
   border-radius: 3px;
-  overflow: hidden;
 }
 
 .storage button {
@@ -154,8 +153,20 @@
 }
 
 .storage button.current {
-  background: var(--accent-fill);
+  position: relative;
   color: var(--text-strong);
+}
+
+/* the one chosen is circled, as if by pen, in the palette's link colour - drawn over the
+   control and past its edges, so the control itself no longer clips */
+.storage .pen-circle {
+  position: absolute;
+  inset: -7px -9px;
+  width: calc(100% + 18px);
+  height: calc(100% + 14px);
+  overflow: visible;
+  color: var(--link);
+  pointer-events: none;
 }
 
 .source {
@@ -288,46 +299,9 @@
   color: var(--text-dim);
 }
 
-/* reading a Dropbox library: the same bar as a run's progress window */
-.read-progress {
-  margin: 16px 0;
-  max-width: 640px;
-}
-
-.read-progress .notice {
-  margin: 4px 0 0;
-}
-
-.read-progress .bar {
-  height: 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  background: var(--bg);
-  overflow: hidden;
-}
-
-.read-progress .fill {
-  height: 100%;
-  background: var(--ok-fill);
-  transition: width 0.3s ease;
-}
-
-/* no total to divide by - a listing, or a zip Dropbox builds as it sends - so show motion
-   rather than a false number */
-.read-progress .fill.indeterminate {
-  background: linear-gradient(90deg, transparent, var(--ok-fill), transparent);
-  background-size: 40% 100%;
-  background-repeat: no-repeat;
-  animation: read-sweep 1.4s ease-in-out infinite;
-}
-
-@keyframes read-sweep {
-  from { background-position: -40% 0; }
-  to { background-position: 140% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .read-progress .fill.indeterminate { animation: none; opacity: 0.5; }
+/* the library's reading bar, where a tab has no title to put it under */
+.progress-top {
+  margin: 20px 0 0;
 }
 
 .empty {
@@ -486,6 +460,22 @@
 
 .app-footer a {
   color: var(--text-dim);
+}
+
+/* the hosted copy's pointer to the app, a panel above the version line */
+.app-footer .run-locally {
+  flex: 1 0 100%;
+  margin: 0 0 4px;
+  padding: 7px 11px;
+  border: 1px solid var(--accent-line);
+  border-radius: 3px;
+  background: var(--accent-bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.app-footer .run-locally a {
+  color: var(--link);
 }
 
 /* whether this is the latest version: underlined text, never a button - the banner is the

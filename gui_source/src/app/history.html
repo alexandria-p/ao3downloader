@@ -16,6 +16,8 @@
   @if (readAt(); as at) {
     <p class="meta-line note">List refreshed {{ shownTime(at) }}.</p>
   }
+  <!-- reading the library: under the title, as on every tab -->
+  <ng-content select="[listingProgress]" />
 
   <!--
     the run going now, pinned above everything: while it is going nothing else can start,
@@ -93,7 +95,7 @@
   }
 
   @if (loading()) {
-    <p class="notice">Reading past runs...</p>
+    <app-progress-bar caption="Reading past runs..." />
   } @else if (unavailable()) {
     <p class="notice">
       Open a library - choose a folder, or sign in to Dropbox - to see the runs recorded in it.

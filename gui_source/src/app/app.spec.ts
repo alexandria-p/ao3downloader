@@ -852,6 +852,36 @@ describe('App', () => {
     expect(first?.textContent).toContain('Start FicFairy.sh');
   });
 
+  it('on the hosted copy, says where to get the app in the footer instead of the FAQ', async () => {
+    const { element: local } = await render(1);
+    expect(local.querySelector('.app-footer .run-locally')).toBeNull();
+
+    TestBed.inject(HelperConnection).settings.update((c) => ({
+      ...c, helperUrl: 'https://ao3-helper.onrender.com',
+    }));
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    const panel = element.querySelector('.app-footer .run-locally');
+    expect(panel?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Run this on your own computer - download the latest version from GitHub',
+    );
+    expect(panel?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/alexandria-p/ficfairy/releases/latest');
+    expect(element.querySelector('.app-footer')?.firstElementChild).toBe(panel);
+
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('app-faq .download-app')).toBeNull();
+  });
+
+  it('circles the storage chosen, and only that one', async () => {
+    const { element } = await render(1);
+    const buttons = [...element.querySelectorAll('.storage button')];
+    const circled = buttons.filter((b) => b.querySelector('svg.pen-circle'));
+    expect(circled.length).toBe(1);
+    expect(circled[0].classList.contains('current')).toBe(true);
+  });
+
   it('has a Report a bug tab next to the FAQ that points at the GitHub issues', async () => {
     const { fixture, element } = await render(1);
     const tabs = Array.from(element.querySelectorAll('nav.views button')).map((b) => b.textContent?.trim());

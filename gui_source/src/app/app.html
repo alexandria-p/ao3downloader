@@ -9,6 +9,12 @@
         [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null"
         (click)="setMode('local')"
       >
+        @if (mode() === 'local') {
+          <svg class="pen-circle" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 10 24 C 5 11, 36 3, 66 4 C 90 5, 99 15, 95 26 C 90 37, 52 39, 26 36 C 9 34, 2 25, 9 15 C 15 8, 30 5, 44 5"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke" />
+          </svg>
+        }
         This computer
       </button>
       <button
@@ -18,6 +24,12 @@
         [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null"
         (click)="setMode('dropbox')"
       >
+        @if (mode() === 'dropbox') {
+          <svg class="pen-circle" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 10 24 C 5 11, 36 3, 66 4 C 90 5, 99 15, 95 26 C 90 37, 52 39, 26 36 C 9 34, 2 25, 9 15 C 15 8, 30 5, 44 5"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke" />
+          </svg>
+        }
         Dropbox
       </button>
     </div>
@@ -414,30 +426,23 @@
   </p>
 }
 
-@if (loading()) {
-  @if (mode() === 'dropbox' && reading(); as reading) {
-    <div class="read-progress">
-      <div
-        class="bar"
-        role="progressbar"
-        aria-label="Reading your library from Dropbox"
-        [attr.aria-valuenow]="reading.percent"
-        aria-valuemin="0"
-        aria-valuemax="100"
-      >
-        <div
-          class="fill"
-          [class.indeterminate]="reading.percent === null"
-          [style.width.%]="reading.percent ?? 100"
-        ></div>
-      </div>
-      <p class="notice" role="status">
-        {{ reading.caption }}@if (reading.percent !== null) {<span class="percent"> - {{ reading.percent }}%</span>}
-      </p>
-    </div>
-  } @else {
-    <p class="notice">{{ mode() === 'dropbox' ? 'Reading your library from Dropbox...' : 'Reading files...' }}</p>
+<!--
+  reading the library: one bar, under the title of whichever tab is showing (projected into it as
+  [listingProgress]) - or here, above the content, where the tab has no title to go under
+-->
+<ng-template #libraryProgress>
+  @if (loading()) {
+    @if (mode() === 'dropbox' && reading(); as reading) {
+      <app-progress-bar [percent]="reading.percent" [caption]="reading.caption"
+                        label="Reading your library from Dropbox" />
+    } @else {
+      <app-progress-bar [caption]="mode() === 'dropbox' ? 'Reading your library from Dropbox...' : 'Reading files...'" />
+    }
   }
+</ng-template>
+
+@if (progressOnTop()) {
+  <div class="progress-top"><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
 }
 
 @if (mode() === 'dropbox' && !canRun() && (view() === 'bookmarks' || view() === 'collections')) {
@@ -477,6 +482,7 @@
       [note]="listingNote()"
       [selectable]="true"
     >
+      <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
       @if (canRun()) {
         <div listingActions><ng-container [ngTemplateOutlet]="runActions" /></div>
       }
@@ -494,16 +500,20 @@
     </p>
   }
   <app-collections-view>
+    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
     @if (canRun()) {
       <!-- the buttons join the collections view's own row, so they wrap with its New collection -->
       <div listingActions class="joined-actions"><ng-container [ngTemplateOutlet]="runActions" /></div>
     }
   </app-collections-view>
 } @else if (view() === 'history') {
-  <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)" />
+  <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)">
+    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+  </app-history>
 } @else if (view() === 'bug') {
   <section class="report-bug">
     <h2>Report a bug</h2>
+    <ng-container [ngTemplateOutlet]="libraryProgress" />
     <p>
       Something not working? Open an issue on
       <a [href]="issuesUrl()" target="_blank" rel="noopener">GitHub</a>.
@@ -525,15 +535,26 @@
     }
   </section>
 } @else if (view() === 'settings') {
-  <app-user-settings />
+  <app-user-settings>
+    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+  </app-user-settings>
 } @else if (view() === 'debug' && debugMode.on()) {
-  <app-debug-tab [formats]="importFormats()" />
+  <app-debug-tab [formats]="importFormats()">
+    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+  </app-debug-tab>
 } @else {
   <app-faq />
 }
 
 <!-- on every tab, and pinned to the bottom of the window while a long listing scrolls -->
 <footer class="app-footer" #appFooter>
+  <!-- the hosted copy (GitHub Pages) points at the app, here rather than in the FAQ -->
+  @if (hosted) {
+    <p class="run-locally" role="note">
+      Run this on your own computer -
+      <a [href]="latestReleaseUrl()" target="_blank" rel="noopener">download the latest version from GitHub</a>
+    </p>
+  }
   <!--
     always says whether this is the latest, so someone who dismissed the banner still sees
     a newer one is out - as underlined text rather than a button, quieter than the banner

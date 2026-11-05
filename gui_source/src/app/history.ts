@@ -4,6 +4,7 @@ import { DecimalPipe } from '@angular/common';
 import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
 import { describeGap, issueCount, issuesOf, issuesReport, saveText } from './issues';
 import { Library } from './library';
+import { ProgressBar } from './progress-bar';
 import { HISTORY_LIMIT } from './library-store';
 
 
@@ -16,7 +17,7 @@ import { HISTORY_LIMIT } from './library-store';
  */
 @Component({
   selector: 'app-history',
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, ProgressBar],
   templateUrl: './history.html',
   styleUrl: './history.css',
 })
