@@ -116,6 +116,23 @@
   gap: 10px;
 }
 
+/* how it ended, with Retry under it, in the card's top right corner */
+.run-corner {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Retry's straight top edge ends where the pill's straight bottom edge does, each going into
+   its curve at the same point: in by the pill's corner (half its height - 0.75rem of text at
+   line-height 1.5, 2px padding and 1px border each side) less the button's own 3px corner */
+.run-corner .retry {
+  margin-right: calc(0.5625rem + 3px - 3px);
+}
+
 .run-name {
   font-weight: 600;
   color: var(--text-strong);
@@ -124,6 +141,8 @@
 /* how a run ended, as a pill in its status colour - the first thing read on a card */
 .run-status {
   flex: none;
+  /* its height is set by these, so Retry can be lined up with where its round end begins */
+  line-height: 1.5;
   padding: 2px 10px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;

@@ -638,6 +638,11 @@ describe('App', () => {
     // collections only ever load out of a folder that was opened, so this state comes with
     // one - and without it the buttons are gated and the gate's own notice is what shows
     library.folderName.set('downloads');
+    // read successfully - so 'no bookmarks' is known, not a guess
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
+    const store = {} as never;
+    library.store.set(store);
+    library.lastRead.set({ store, at: Date.now() });
 
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
@@ -927,6 +932,77 @@ describe('App', () => {
     setup.state.set('idle');
   });
 
+  it('shows both listings\' headings while the library is first read, with nothing counted yet', async () => {
+    const library = TestBed.inject(Library);
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
+    const fixture = TestBed.createComponent(App);
+    const element = fixture.nativeElement as HTMLElement;
+    library.loading.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-work-list .listing-heading')?.textContent?.trim()).toBe('Bookmarks');
+    expect(element.querySelector('app-work-list .meta-line.note')?.textContent).toContain('List not yet loaded');
+    expect(element.querySelector('app-work-list .refresh-icon')).toBeNull();
+    expect(element.querySelector<HTMLElement>('app-work-list details.filters')?.hidden).toBe(true);
+    expect(element.querySelector('app-work-list .index .notice')).toBeNull();
+
+    tab(element, 'Collections')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(element.querySelector('app-collections-view .listing-heading')?.textContent?.trim()).toBe('Collections');
+    expect(element.querySelector('app-collections-view .meta-line.note')?.textContent).toContain('List not yet loaded');
+    expect(element.querySelector('app-collections-view .refresh-icon')).toBeNull();
+    expect(element.querySelector('app-collections-view .collections .notice')).toBeNull();
+    library.loading.set(false);
+  });
+
+  it('holds Try again on a failed read for 3, 2, 1, then reads again only when pressed', async () => {
+    vi.useFakeTimers();
+    try {
+      const library = TestBed.inject(Library);
+      vi.spyOn(library, 'showLocal').mockResolvedValue();
+      const retry = vi.spyOn(library, 'retryRead').mockResolvedValue();
+      const fixture = TestBed.createComponent(App);
+      const element = fixture.nativeElement as HTMLElement;
+      library.error.set('Could not read /Apps/FicFairy from Dropbox. Dropbox asked us to slow down.');
+      library.readFailure.set({ waitSeconds: 3, slowDown: true });
+      fixture.detectChanges();
+      const button = () => element.querySelector<HTMLButtonElement>('.read-error .try-again')!;
+      expect(element.querySelector('.read-error .slow-down')?.textContent).toContain('asking for a breather');
+      expect(button().disabled).toBe(true);
+      expect(button().textContent?.trim()).toBe('3...');
+
+      vi.advanceTimersByTime(1000);
+      fixture.detectChanges();
+      expect(button().textContent?.trim()).toBe('2...');
+      vi.advanceTimersByTime(2000);
+      fixture.detectChanges();
+      expect(button().disabled).toBe(false);
+      expect(button().textContent?.trim()).toBe('Try again');
+      // never by itself
+      expect(retry).not.toHaveBeenCalled();
+
+      button().click();
+      expect(retry).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lists no collections with no library open - the panel above says how to open one', async () => {
+    const library = TestBed.inject(Library);
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
+    library.store.set(null);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    tab(element, 'Collections')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(element.querySelector('app-collections-view')).toBeNull();
+  });
+
   it('highlights the storage chosen, and only that one', async () => {
     const { element } = await render(1);
     const buttons = [...element.querySelectorAll('.storage button')];
@@ -1181,6 +1257,10 @@ describe('App', () => {
 
     expect(element.querySelector('app-folder-warning')).toBeTruthy();
     expect(element.querySelector('app-folder-warning')?.textContent).toContain('work ID at the start');
+    // and where the date goes in the ideal name, and how it is written
+    const ideal = element.querySelector('app-folder-warning .ideal')?.textContent?.replace(/\s+/g, ' ');
+    expect(ideal).toContain('34816549 No Paths Are Bound - Cal 2024-12-14.html');
+    expect(element.querySelector('app-folder-warning')?.textContent).toContain('YYYY-MM-DD');
     expect(opened).not.toHaveBeenCalled();
   });
 
@@ -1350,6 +1430,21 @@ describe('App', () => {
     }
   }
 
+  it('neither checks nor offers anything when the library could not be read', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/1 Work 1 - Writer 2024-01-01.html']);
+    const library = TestBed.inject(Library);
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
+    library.error.set('Could not read downloads.');
+    library.readFailure.set({ waitSeconds: 3, slowDown: false });
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    expect(element.querySelector('.import-issues')).toBeNull();
+    library.readFailure.set(null);
+  });
+
   it('neither checks nor offers anything while the library is still being read', async () => {
     localStorage.clear();
     libraryWithFiles(['works/1 Work 1 - Writer 2024-01-01.html']);
@@ -1370,6 +1465,22 @@ describe('App', () => {
     await settled(fixture);
     expect(element.querySelector('app-import-dialog')).toBeNull();
     expect(element.querySelector('.import-issues')).toBeNull();
+  });
+
+  it('offers the window and the reminder for duplicates alone, with nothing undated or unindexed', async () => {
+    localStorage.clear();
+    // work 1 is indexed and both copies are dated: the only issue is that there are two
+    libraryWithFiles(['works/1 Work 1 - Writer 2024-01-01.html', 'works/1 Work 1 - Writer 2024-02-01.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    const offered = element.querySelector('app-import-dialog');
+    const bullets = [...offered!.querySelectorAll('.overview-issues li')].map((li) => li.textContent!.trim());
+    expect(bullets).toEqual(['2 files are duplicates']);
+    expect(element.querySelector('.import-issues-said')?.textContent?.trim()).toBe('2 files are duplicates');
   });
 
   it('offers to import works whose files have no index entry, once, when the library opens', async () => {

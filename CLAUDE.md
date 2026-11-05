@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1032 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1044 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1108,7 +1108,7 @@ window, nothing started. *Choose which earlier scan to measure back to* reads th
 (`newestFloor`, `floorRuns`), never read twice. **Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
 history before every run window opens, and in Dropbox each record is a download of its own, so
 one after another a long history held the window for most of a minute. A record that will not
-read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many. The History tab says it shows only that many, in an (i) beside its heading (`.history-limit`), and *List refreshed* under it (`readAt`) as Works and Collections do. **It is read once, not on every visit**: the list is kept in `Jobs.historyRead` (with `at`) and shown again when the tab opens; only Refresh, a run starting (`Jobs.start`) or ending (`finishUp`, or a run leaving `activeRuns`) - `forgetHistory` - make it read again. Every tab's content starts 20px under the tabs, under a title of 1.15rem/600. Older records stay in `runs/`. **The helper reads records lazily too** (`runs.iter_runs`): `last_successful` stops at
+read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many. The History tab says it shows only that many, in an (i) beside its heading (`.history-limit`), and *List refreshed* under it (`readAt`) as Works and Collections do. **It is read once, not on every visit**: the list is kept in `Jobs.historyRead` (with `at`) and shown again when the tab opens; only Refresh, a run starting (`Jobs.start`) or ending (`finishUp`, or a run leaving `activeRuns`) - `forgetHistory` - make it read again. Every tab's content starts 20px under the tabs, under a title of 1.15rem/600 in `--text-strong`. Older records stay in `runs/`. **The helper reads records lazily too** (`runs.iter_runs`): `last_successful` stops at
 the first floor, usually the newest record, rather than reading 100 first; `find_run` (a
 retry, a chosen floor's `chosen_floor_at`) reads only the file whose name ends with the id's
 first 8, falling back to the rest only for a hand-renamed file. History marks interrupted runs
@@ -2565,9 +2565,9 @@ not to break:
   on this computer each have their own), *Saved in your library folder* / *your Dropbox library*
   for the import exclusion lists (`import-excluded.json`, `libraryPlace`), and *Saved to
   `settings.ini`* for the helper's file (a helper on this computer only; a hosted one's comes from
-  its deployment and is not shown). Order: Default download formats first, Appearance (a
-  `details`, closed to begin with, Font above Palette), Prompts (a `details` too), AO3 time zone,
-  exclusion lists, Questions (hosted; a `details` too), settings.ini (local), and **Debug mode always last**. A prompt
+  its deployment and is not shown). Order: Default download formats first, AO3 time zone, Appearance
+  (a `details`, closed to begin with, Font above Palette), Questions (hosted; a `details` too),
+  'Ask again' Prompts (a `details` too), exclusion lists, settings.ini (local), and **Debug mode always last**. A prompt
   with `listed: false` (the browser notice) is kept off the tab but still reset.
 - **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)
   writes an empty `import-excluded.json` - all three lists - and checks the library again, so
@@ -2640,10 +2640,26 @@ that was already going at the read is not known to have been going, so its endin
 seen until a later run's record appears. **Above the listing, *List refreshed* is the only
 time shown** (a *Last indexed* beside it was removed at the user's request; `data.retrieved`,
 the newest `last_indexed`, is still worked out). It is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** is an icon beside *List refreshed* on Works and Collections (`#refreshIcon`, projected as `[noteAction]`; `.refresh-icon`, spinning and held while anything reads the list - a refresh or a full read; transparent in every
-state) - `Library.refresh` on demand; History has the same icon for its own list (`load`). There is none in the header. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and the Refresh icon are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
+state) - `Library.refresh` on demand; History has the same icon for its own list (`load`), shown only once it has read one - not with no library open, nor after a read that failed. There is none in the header. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and the Refresh icon are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
 
-**A switch of library starts from nothing being read** (`Library.notReading`, from `showLocal`
-and `showDropbox`): a read it replaces stops at its generation check without saying it is done,
+**Both listings show their headings from the first moment of a read** (`App.firstRead`, the
+listing's `loading` input): *Bookmarks* / *Collections* alone while nothing is counted (still
+loading, or none), *List not yet loaded* (with no refresh icon) until the first read lands, the buttons and the bar under
+them - no filters and no 'empty' message yet. **'No bookmarks indexed' and 'No collections in this
+folder yet' wait for a successful read** (`libraryWasRead` / `wasRead`: `Library.lastRead` for
+the open store) - set even for a new, empty folder, unlike *List refreshed*.
+
+**A failed read offers Try again, never retries by itself** (`Library.readFailure`,
+`retryRead`): the button counts 3, 2, 1 - or from Dropbox's own `Retry-After`, if longer
+(`DropboxError.retryAfter`, `READ_RETRY_SECONDS`) - before it can be pressed, and a 429 adds a
+line asking the reader to slow down. Pressing it clears the panel and reads again; a new failure
+brings it back. **No import check runs after a failed read** - against no index, every file
+looked unindexed and the Resolve issues window offered to 'repair' the whole library.
+
+**A switch of library starts from nothing being read, and with no error** (`Library.notReading`,
+from `showLocal` and `showDropbox` - a Dropbox read's failure is not this computer's). The
+error panel sits above whatever the tab shows, so it is in one place on every tab, and the
+Collections listing shows only with a library open or opening. From the switch: a read it replaces stops at its generation check without saying it is done,
 so switching Dropbox -> this computer -> Dropbox -> this computer while Dropbox still read, to a
 folder with nothing to read yet, left *Reading files...* up for ever.
 

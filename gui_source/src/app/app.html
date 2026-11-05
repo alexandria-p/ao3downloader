@@ -351,7 +351,7 @@
   'List refreshed' (projected into app-work-list); everywhere else, here above the content
 -->
 @if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && view() !== 'debug' && canRun()) {
-  @if (!(view() === 'bookmarks' && data()) && view() !== 'collections') {
+  @if (!(view() === 'bookmarks' && (data() || loading())) && view() !== 'collections') {
     <ng-container [ngTemplateOutlet]="runActions" />
   }
 }
@@ -369,6 +369,25 @@
                      (closed)="importClosed($event)" (start)="importStart($event)" />
 }
 
+
+<!-- above anything the tab shows, so it is in the same place on every tab -->
+@if (error()) {
+  <div class="error read-error" role="alert">
+    <p>{{ error() }}</p>
+    <!-- a failed read can be asked again, but only by hand, and only after a pause -->
+    @if (readFailure(); as failure) {
+      @if (failure.slowDown) {
+        <p class="slow-down">
+          Dropbox is asking for a breather. Give it a moment before trying again - asking again
+          straight away only makes it wait longer.
+        </p>
+      }
+      <button type="button" class="button try-again" [disabled]="retryCountdown() > 0" (click)="tryReadAgain()">
+        {{ retryCountdown() > 0 ? retryCountdown() + '...' : 'Try again' }}
+      </button>
+    }
+  </div>
+}
 
 @if (mode() === 'local') {
   @if (needsReconnect()) {
@@ -408,9 +427,6 @@
   }
 }
 
-@if (error()) {
-  <p class="error">{{ error() }}</p>
-}
 
 @if (setupReport()) {
   <p class="reconnect">
@@ -462,7 +478,7 @@
   <div class="progress-top"><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
 }
 
-@if (mode() === 'dropbox' && !canRun() && (view() === 'bookmarks' || view() === 'collections')) {
+@if (mode() === 'dropbox' && !canRun() && !loading() && (view() === 'bookmarks' || view() === 'collections')) {
   <section class="empty">
     @switch (dropboxStatus()) {
       @case ('unconfigured') {
@@ -486,15 +502,17 @@
     }
   </section>
 } @else if (view() === 'bookmarks') {
-  @if (data()) {
+  <!-- shown from the first moment of a read, so the heading, buttons and bar never jump in -->
+  @if (data() || loading()) {
     <app-work-list
       [works]="works()"
       [owner]="owner()"
       label="Bookmarks"
-      [note]="listingNote()"
+      [loading]="firstRead()"
+      [note]="listingNote() || 'List not yet loaded'"
       [selectable]="true"
     >
-      <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
+      @if (listedAt()) {<span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>}
       <div listingProgress>
         <ng-container [ngTemplateOutlet]="libraryProgress" />
       </div>
@@ -502,15 +520,16 @@
         <div listingActions><ng-container [ngTemplateOutlet]="runActions" /></div>
       }
     </app-work-list>
-  } @else if ((!isEmpty() || mode() === 'dropbox') && !loading()) {
+  } @else if ((!isEmpty() || mode() === 'dropbox') && !loading() && libraryWasRead()) {
     <p class="notice">
       No bookmarks indexed in this folder yet. Use <strong>Quick Scan</strong> above to
       fetch them - with nothing indexed yet it will read your whole listing.
     </p>
   }
-} @else if (view() === 'collections') {
-  <app-collections-view [preparing]="libraryPreparing()">
-    <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
+} @else if (view() === 'collections' && (canRun() || loading() || collections().length)) {
+  <!-- only with a library open, or being opened: with none, the panel above says how to open one -->
+  <app-collections-view [preparing]="libraryPreparing()" [loading]="firstRead()">
+    @if (listedAt()) {<span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>}
     <div listingProgress>
       <ng-container [ngTemplateOutlet]="libraryProgress" />
     </div>

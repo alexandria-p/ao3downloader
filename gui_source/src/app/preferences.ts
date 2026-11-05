@@ -25,7 +25,7 @@ export const ANSWER_DEFAULTS_KEY = 'ao3.answerDefaults';
 export const QUESTION_TIMEOUT_KEY = 'ao3.questionTimeoutMinutes';
 export const AO3_TIME_ZONE_KEY = 'ao3.ao3TimeZone';
 
-export type PromptArea = 'Your library' | 'Runs' | 'Updates';
+export type PromptArea = 'File imports' | 'Your library' | 'Runs' | 'Updates';
 
 export interface Prompt {
   key: string;
@@ -44,6 +44,13 @@ export interface Prompt {
    * defaults, just not offered as a choice there
    */
   listed?: boolean;
+  /** what its two choices are called on the tab, when 'Ask always' / 'Do not ask again' do not fit */
+  labels?: { ask: string; skip: string };
+}
+
+/** the words for a prompt's two choices on the User settings tab */
+export function promptLabels(prompt: Prompt): { ask: string; skip: string } {
+  return prompt.labels ?? { ask: 'Ask always', skip: 'Do not ask again' };
 }
 
 /** grouped by `area`, in the order the tab lists them */
@@ -62,28 +69,24 @@ export const PROMPTS: Prompt[] = [
   },
   {
     key: FOLDER_WARNING_KEY,
-    area: 'Your library',
-    name: 'Before you choose a folder',
-    description:
-      'How downloaded files are matched to your index by their file names, shown before the ' +
-      'folder picker opens.',
+    area: 'File imports',
+    name: 'When loading local files on your machine',
+    description: 'Tell the user how the application finds and identifies files.',
     dismissed: 'true',
+  },
+  {
+    key: IMPORT_OFFER_KEY,
+    area: 'File imports',
+    name: "Show 'resolve issues' window if a problem was found with your file import",
+    description:
+      'If works are missing an index, files with no date in their name or there are duplicates.',
+    dismissed: 'off',
   },
   {
     key: HIDE_WARNING_KEY,
     area: 'Your library',
     name: 'Hide a work',
     description: 'Tell me what hiding does, and how to undo it for a work.',
-    dismissed: 'off',
-  },
-  {
-    key: IMPORT_OFFER_KEY,
-    area: 'Your library',
-    name: "Show 'resolve issues' window if a problem was found with your file import",
-    description:
-      'When a library opens with downloaded works the index has no entry for, or files with ' +
-      'no date in their name: the window offering to date and import them, and the reminder ' +
-      'above the tabs. Turned off by No, never ask me again.',
     dismissed: 'off',
   },
   {
@@ -99,15 +102,16 @@ export const PROMPTS: Prompt[] = [
   {
     key: UPDATE_BANNER_KEY,
     area: 'Updates',
-    name: 'Banner when a newer version is out',
+    name: 'New app version alert banner',
     description:
       'The banner at the top of the page. With it off, the footer still says when there is ' +
       'a newer version.',
     dismissed: 'true',
+    labels: { ask: 'Show always', skip: "Don't show" },
   },
 ];
 
-export const PROMPT_AREAS: PromptArea[] = ['Your library', 'Runs', 'Updates'];
+export const PROMPT_AREAS: PromptArea[] = ['File imports', 'Your library', 'Runs', 'Updates'];
 
 /** whether the prompt is still shown - true until someone said not to ask again */
 export function promptAsks(prompt: Prompt): boolean {

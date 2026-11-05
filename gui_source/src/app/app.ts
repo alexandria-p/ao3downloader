@@ -279,9 +279,35 @@ export class App {
    */
   protected readonly progressOnTop = computed(() => {
     const view = this.view();
-    if (this.mode() === 'dropbox' && !this.canRun() && (view === 'bookmarks' || view === 'collections')) return true;
-    return view === 'bookmarks' && !this.data();
+    // Works and Collections show their headings from the first moment of a read, with the
+    // bar under them; only a Dropbox library not yet open has no heading to go under
+    return this.mode() === 'dropbox' && !this.canRun() && !this.loading() && (view === 'bookmarks' || view === 'collections');
   });
+  /**
+   * Nothing read yet - the library's first read is going, or failed: no time to say, and no
+   * 'nothing here' either, since nobody knows yet
+   */
+  protected readonly firstRead = computed(
+    () => (this.loading() || !!this.library.readFailure()) && !this.data(),
+  );
+  /** when the list was last read - none yet means nothing to refresh, so no refresh icon */
+  protected readonly listedAt = this.library.listedAt;
+  /** the open library has been read successfully, so an empty one is known to be empty */
+  protected readonly libraryWasRead = computed(() => {
+    const store = this.library.store();
+    return !!store && this.library.lastRead()?.store === store;
+  });
+  /** a failed read of the library, offered again by hand */
+  protected readonly readFailure = this.library.readFailure;
+  /** seconds before Try again can be pressed: 3, 2, 1 - or longer, when Dropbox asked */
+  protected readonly retryCountdown = signal(0);
+  private countdownTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** hide the failure and read again; a new failure brings the panel back */
+  protected tryReadAgain(): void {
+    if (this.retryCountdown() > 0) return;
+    void this.library.retryRead();
+  }
   protected readonly sourceName = this.library.sourceName;
   protected readonly folderName = this.library.folderName;
   protected readonly needsReconnect = this.library.needsReconnect;
@@ -358,6 +384,24 @@ export class App {
       const read = this.library.lastRead();
       if (read) untracked(() => void this.jobs.settleInterrupted(read.store));
     });
+    // a failed read holds its Try again button for a moment, counting down, so the reader is
+    // not invited to ask Dropbox again the instant it said to slow down
+    effect(() => {
+      const failure = this.readFailure();
+      untracked(() => {
+        if (this.countdownTimer) clearInterval(this.countdownTimer);
+        this.countdownTimer = null;
+        this.retryCountdown.set(failure?.waitSeconds ?? 0);
+        if (!failure) return;
+        this.countdownTimer = setInterval(() => {
+          this.retryCountdown.update((n) => Math.max(0, n - 1));
+          if (this.retryCountdown() === 0 && this.countdownTimer) {
+            clearInterval(this.countdownTimer);
+            this.countdownTimer = null;
+          }
+        }, 1000);
+      });
+    });
     // whenever the index changes - a read, a refresh, a run's changes taken in - the works
     // with files and no entry are worked out again: one listing of works/
     // - but only once the library is wholly read and set up: the store is set before the index
@@ -366,7 +410,10 @@ export class App {
       this.library.worksById();
       const store = this.library.store();
       const reading = this.library.loading() || this.librarySetup.state() !== 'idle';
-      untracked(() => (store && !reading ? void this.imports.check() : this.imports.forget()));
+      // a read that failed has no index to check against either: every file would look
+      // unindexed, and the window would offer to 'repair' the whole library
+      const failed = !!this.library.readFailure();
+      untracked(() => (store && !reading && !failed ? void this.imports.check() : this.imports.forget()));
     });
     // offered by itself once per library per visit, and never while a run is going: the run
     // reads and writes the library, and renaming files under it is not safe. a run ending

@@ -77,6 +77,8 @@ export class WorkList {
   readonly emptyMessage = input('This export has no works in it.');
   /** shown under the heading, above the listing */
   readonly note = input('');
+  /** the library's first read is still going: the heading shows, no filters and no 'empty' yet */
+  readonly loading = input(false);
   /** whether works can be ticked and put in a custom collection */
   readonly selectable = input(false);
   /** the collection being shown, when it is one: a custom one can have works taken out */

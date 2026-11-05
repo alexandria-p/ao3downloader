@@ -83,6 +83,24 @@
     }
   </section>
 
+  <section class="group ao3-zone">
+    <div class="group-head">
+      <h3>Your AO3 time zone</h3>
+      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+    </div>
+    <p class="hint">
+      Starts as this browser's own ({{ browserZone }}). This should match the time zone set in
+      your AO3 preferences.
+    </p>
+    <select class="zone-select" aria-label="Your AO3 time zone" (change)="setAo3Zone($any($event.target).value)">
+      @for (zone of zones; track zone) {
+        <option [value]="zone" [selected]="zone === ao3Zone()">
+          {{ zone }}{{ zone === browserZone ? ' (this browser)' : '' }}
+        </option>
+      }
+    </select>
+  </section>
+
   <!-- collapsible: the palettes are a long list, and most visits are not to change them -->
   <details class="group appearance">
     <summary class="group-head">
@@ -142,75 +160,6 @@
     </fieldset>
   </details>
 
-  <!-- collapsible: a long list, seldom changed -->
-  <details class="group prompts">
-    <summary class="group-head">
-      <h3>Prompts</h3>
-      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
-    </summary>
-    <p class="hint">
-      Every message that offers "don't ask again", whether you have seen it yet or not.
-    </p>
-    @for (group of areas; track group.area) {
-      <h4>{{ group.area }}</h4>
-      <ul class="rows">
-        @for (prompt of group.prompts; track prompt.key) {
-          <li class="row" [attr.data-prompt]="prompt.key">
-            <div class="about">
-              <span class="name">{{ prompt.name }}</span>
-              <span class="description">{{ prompt.description }}</span>
-            </div>
-            <select
-              [attr.aria-label]="prompt.name"
-              [value]="asking()[prompt.key]"
-              (change)="choose(prompt, $any($event.target).value)"
-            >
-              <option value="ask" [selected]="asking()[prompt.key] === 'ask'">Ask always</option>
-              <option value="skip" [selected]="asking()[prompt.key] === 'skip'">Do not ask again</option>
-            </select>
-          </li>
-        }
-      </ul>
-    }
-  </details>
-
-  <section class="group ao3-zone">
-    <div class="group-head">
-      <h3>Your AO3 time zone</h3>
-      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
-    </div>
-    <p class="hint">
-      The time zone AO3 shows your dates in - the one in your AO3 preferences. A scan measures
-      back to the day the last one started in this zone, so a fic AO3 dates that day is never
-      passed over. Starts as this browser's own ({{ browserZone }}).
-    </p>
-    <select aria-label="Your AO3 time zone" (change)="setAo3Zone($any($event.target).value)">
-      @for (zone of zones; track zone) {
-        <option [value]="zone" [selected]="zone === ao3Zone()">
-          {{ zone }}{{ zone === browserZone ? ' (this browser)' : '' }}
-        </option>
-      }
-    </select>
-  </section>
-
-  <section class="group import-exclusions">
-    <div class="group-head">
-      <h3>Exclusion lists for imports</h3>
-      <span class="saved-to" [title]="'In import-excluded.json at the top of ' + libraryPlace() + ' - it goes wherever the library goes'">Saved in {{ libraryPlace() }}</span>
-    </div>
-    <p class="hint">
-      When your library is read, files with no date in their name or no index entry are offered
-      in Resolve issues found in your library, except any you said not to ask about again - those
-      are kept on exclusion lists in <code>import-excluded.json</code> at the top of the library.
-    </p>
-    <button type="button" class="button reset-exclusions"
-            [disabled]="!canResetExclusions() || resettingExclusions()"
-            [title]="canResetExclusions() ? '' : 'Open a library you can write to first'"
-            (click)="resetExclusions()">
-      Reset exclusion lists for imports
-    </button>
-  </section>
-
   @if (!local) {
     <!-- collapsible: a long list, seldom changed -->
     <details class="group questions">
@@ -263,6 +212,56 @@
       </ul>
     </details>
   }
+
+  <!-- collapsible: a long list, seldom changed -->
+  <details class="group prompts">
+    <summary class="group-head">
+      <h3>'Ask again' Prompts</h3>
+      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+    </summary>
+    <p class="hint">
+      Every message that offers "don't ask again", whether you have seen it yet or not.
+    </p>
+    @for (group of areas; track group.area) {
+      <h4>{{ group.area }}</h4>
+      <ul class="rows">
+        @for (prompt of group.prompts; track prompt.key) {
+          <li class="row" [attr.data-prompt]="prompt.key">
+            <div class="about">
+              <span class="name">{{ prompt.name }}</span>
+              <span class="description">{{ prompt.description }}</span>
+            </div>
+            <select
+              [attr.aria-label]="prompt.name"
+              [value]="asking()[prompt.key]"
+              (change)="choose(prompt, $any($event.target).value)"
+            >
+              <option value="ask" [selected]="asking()[prompt.key] === 'ask'">{{ labelsOf(prompt).ask }}</option>
+              <option value="skip" [selected]="asking()[prompt.key] === 'skip'">{{ labelsOf(prompt).skip }}</option>
+            </select>
+          </li>
+        }
+      </ul>
+    }
+  </details>
+
+  <section class="group import-exclusions">
+    <div class="group-head">
+      <h3>Exclusion lists for imports</h3>
+      <span class="saved-to" [title]="'In import-excluded.json at the top of ' + libraryPlace() + ' - it goes wherever the library goes'">Saved in {{ libraryPlace() }}</span>
+    </div>
+    <p class="hint">
+      When your library is read, files with no date in their name or no index entry are offered
+      in Resolve issues found in your library, except any you said not to ask about again - those
+      are kept on exclusion lists in <code>import-excluded.json</code> at the top of the library.
+    </p>
+    <button type="button" class="button reset-exclusions"
+            [disabled]="!canResetExclusions() || resettingExclusions()"
+            [title]="canResetExclusions() ? '' : 'Open a library you can write to first'"
+            (click)="resetExclusions()">
+      Reset exclusion lists for imports
+    </button>
+  </section>
 
   @if (local && ini(); as file) {
     @if (file.editable) {

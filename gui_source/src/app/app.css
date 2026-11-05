@@ -548,6 +548,7 @@
   margin: 0 0 10px;
   font-size: 1.15rem;
   font-weight: 600;
+  color: var(--text-strong);
 }
 
 .report-bug p {
@@ -670,4 +671,19 @@
 
 @media (prefers-reduced-motion: reduce) {
   .refresh-icon.spinning svg { animation: none; }
+}
+
+/* a failed library read: what went wrong, and a way to ask again that waits a moment first */
+.read-error p {
+  margin: 0;
+}
+
+.read-error .slow-down {
+  margin-top: 6px;
+  color: var(--text);
+}
+
+.read-error .try-again {
+  margin-top: 10px;
+  min-width: 7em;
 }

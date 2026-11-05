@@ -88,7 +88,16 @@ describe('CollectionsView', () => {
 
   // region the listing
 
+  it('says nothing about having none until the folder has been read', async () => {
+    await render([]);
+    expect(element.querySelector('.notice')).toBeNull();
+  });
+
   it('says so when no collections have been indexed', async () => {
+    // a folder read successfully, with none in it
+    const store = {} as never;
+    TestBed.inject(Library).store.set(store);
+    TestBed.inject(Library).lastRead.set({ store, at: Date.now() });
     await render([]);
 
     const notice = element.querySelector('.notice')?.textContent ?? '';

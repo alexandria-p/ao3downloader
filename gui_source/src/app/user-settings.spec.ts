@@ -13,8 +13,7 @@ import {
   PROMPTS,
   SYNC_ACK_KEY,
   UPDATE_BANNER_KEY,
-  startingFiletypes,
-} from './preferences';
+  startingFiletypes, promptLabels } from './preferences';
 import { UpdateCheck } from './updates';
 import { IMPORT_EXCLUDED_FILE, LibraryImports } from './imports';
 import { Library } from './library';
@@ -202,7 +201,7 @@ describe('UserSettings', () => {
     await open();
 
     const areas = Array.from(element.querySelectorAll('.prompts h4')).map((h) => h.textContent?.trim());
-    expect(areas).toEqual(['Your library', 'Runs', 'Updates']);
+    expect(areas).toEqual(['File imports', 'Your library', 'Runs', 'Updates']);
     const rows = Array.from(element.querySelectorAll('.prompts [data-prompt]'));
     // every one but those kept off the tab (the browser notice), which are still reset
     expect(rows.map((r) => r.getAttribute('data-prompt'))).toEqual(
@@ -212,6 +211,25 @@ describe('UserSettings', () => {
     for (const row of rows) expect(row.querySelector('select')!.value).toBe('ask');
     const options = Array.from(rows[0].querySelectorAll('option')).map((o) => o.textContent?.trim());
     expect(options).toEqual(['Ask always', 'Do not ask again']);
+  });
+
+  it('puts the folder note and the Resolve issues window under File imports, worded for them', async () => {
+    await open();
+    const imports = [...element.querySelectorAll('.prompts h4')].find((h) => h.textContent?.trim() === 'File imports')!;
+    const rows = imports.nextElementSibling!;
+    expect([...rows.querySelectorAll('.name')].map((n) => n.textContent?.trim())).toEqual([
+      'When loading local files on your machine',
+      "Show 'resolve issues' window if a problem was found with your file import",
+    ]);
+    expect(rows.textContent).toContain('Tell the user how the application finds and identifies files.');
+    expect(rows.textContent).toContain('If works are missing an index, files with no date in their name or there are duplicates.');
+  });
+
+  it('calls the update banner New app version alert banner, with Show always / Don\'t show', async () => {
+    await open();
+    const row = element.querySelector(`[data-prompt="${UPDATE_BANNER_KEY}"]`)!;
+    expect(row.querySelector('.name')?.textContent?.trim()).toBe('New app version alert banner');
+    expect([...row.querySelectorAll('option')].map((o) => o.textContent?.trim())).toEqual(['Show always', "Don't show"]);
   });
 
   it('shows a prompt already turned off as "Do not ask again"', async () => {
@@ -230,7 +248,7 @@ describe('UserSettings', () => {
     choose(`[data-prompt="${FOLDER_WARNING_KEY}"] select`, 'skip');
     await settle();
     expect(localStorage.getItem(FOLDER_WARNING_KEY)).toBe('true');
-    expect(toast()).toBe('Saved: "Before you choose a folder" - do not ask again');
+    expect(toast()).toBe('Saved: "When loading local files on your machine" - do not ask again');
 
     choose(`[data-prompt="${SYNC_ACK_KEY}"] select`, 'skip');
     choose(`[data-prompt="${HIDE_WARNING_KEY}"] select`, 'ask');
@@ -424,6 +442,9 @@ describe('UserSettings', () => {
     // folded away like Prompts, saying where it is kept
     const questions = element.querySelector<HTMLDetailsElement>('details.questions')!;
     expect(questions.open).toBe(false);
+    // under Appearance, above Prompts
+    const order = [...element.querySelectorAll('.group')].map((g) => g.classList[1]);
+    expect(order.slice(0, 5)).toEqual(['formats', 'ao3-zone', 'appearance', 'questions', 'prompts']);
     expect(questions.querySelector('summary .saved-to')?.textContent?.trim()).toBe('Saved to this browser');
 
     const fichub = element.querySelector<HTMLSelectElement>('[data-question-setting="fichub"] select')!;
@@ -477,7 +498,8 @@ describe('UserSettings', () => {
       g.querySelector('.group-head .saved-to')?.textContent?.replace(/\s+/g, ' ').trim(),
     ]);
     expect(named[0]).toEqual(['Default download formats', 'Saved to this browser']);
-    expect(named[1]).toEqual(['Appearance', 'Saved to this browser']);
+    expect(named[1]).toEqual(['Your AO3 time zone', 'Saved to this browser']);
+    expect(named[2]).toEqual(['Appearance', 'Saved to this browser']);
     expect(named.at(-1)).toEqual(['Debug mode', 'Saved to this browser']);
     expect(named).toContainEqual(['Exclusion lists for imports', 'Saved in your library folder']);
     // a helper on this computer offers its settings.ini
@@ -500,7 +522,7 @@ describe('UserSettings', () => {
     await open();
     const prompts = element.querySelector<HTMLDetailsElement>('details.prompts')!;
     expect(prompts.open).toBe(false);
-    expect(prompts.querySelector('summary h3')?.textContent).toBe('Prompts');
+    expect(prompts.querySelector('summary h3')?.textContent).toBe("'Ask again' Prompts");
     expect(prompts.querySelector('summary .saved-to')?.textContent?.trim()).toBe('Saved to this browser');
   });
 
@@ -540,7 +562,7 @@ describe('UserSettings', () => {
       Array.from(r.children).map((c) => c.textContent?.replace(/\s+/g, ' ').trim()),
     );
     expect(rows).toEqual([
-      ...PROMPTS.map((p) => [`Prompts ${p.name}`, 'Do not ask again', '→ Ask always']),
+      ...PROMPTS.map((p) => [`Prompts ${p.name}`, promptLabels(p).skip, `→ ${promptLabels(p).ask}`]),
       ['Download formats Formats a run starts with', 'JSON, PDF', '→ JSON, HTML'],
       ['settings.ini ExtraWaitTime', '15', '→ 40'],
     ]);
