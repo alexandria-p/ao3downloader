@@ -169,7 +169,7 @@ describe('History', () => {
     fixture.componentInstance.resume.subscribe((id) => emitted.push(id));
 
     expect(element.textContent).toContain('Got as far as: Download or update works');
-    const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
+    const button = element.querySelector<HTMLButtonElement>('.run-corner button.retry')!;
     expect(button.disabled).toBe(false);
     button.click();
     expect(emitted).toEqual(['abc']);
@@ -179,7 +179,7 @@ describe('History', () => {
     await show([aRun({ action: 'custom', status: 'failed', progress: {},
                        options: { pages: 5, start: 1 } })]);
 
-    const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
+    const button = element.querySelector<HTMLButtonElement>('.run-corner button.retry')!;
     expect(button.textContent?.trim()).toBe('Retry');
     expect(button.disabled).toBe(false);
   });
@@ -592,9 +592,17 @@ describe('History', () => {
       (b) => b.textContent?.includes('Retry'))).toBe(true);
   });
 
+  it('puts Retry in the accent colour under the status pill, top right', async () => {
+    await show([aRun({ status: 'failed' })]);
+    const corner = element.querySelector('.run-head .run-corner')!;
+    expect(corner.firstElementChild?.classList).toContain('run-status');
+    expect(corner.lastElementChild?.classList).toContain('retry');
+    expect(corner.lastElementChild?.classList).toContain('primary');
+  });
+
   it('offers Retry on an abandoned run of any workflow', async () => {
     await show([aRun({ action: 'sync', status: 'abandoned' })]);
-    expect(element.querySelector('.run-resume button')?.textContent).toContain('Retry');
+    expect(element.querySelector('.run-corner button.retry')?.textContent).toContain('Retry');
   });
 
   it('says when a paused run in progress will be abandoned', async () => {
@@ -769,7 +777,7 @@ describe('History', () => {
                        url: 'https://archiveofourown.org/collections/x' })]);
     fixture.componentInstance.resume.subscribe((id) => emitted.push(id));
 
-    const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
+    const button = element.querySelector<HTMLButtonElement>('.run-corner button.retry')!;
     expect(button.textContent?.trim()).toBe('Retry');
     button.click();
     expect(emitted).toEqual(['abc']);

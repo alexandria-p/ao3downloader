@@ -123,8 +123,18 @@
       <article class="run" [class]="'run-' + run.status">
         <header class="run-head">
           <span class="run-name">{{ run.actionName }}</span>
-          <span class="run-status">
-            {{ outcome(run) }}@if (run.background) { &middot; background }
+          <!-- the top right corner: how it ended, and under it the way to run it again -->
+          <span class="run-corner">
+            <span class="run-status">
+              {{ outcome(run) }}@if (run.background) { &middot; background }
+            </span>
+            @if (canRetry(run)) {
+              <button type="button" class="button primary retry"
+                      title="Run it again - from the top, or carrying on from the first step that did not finish"
+                      (click)="resume.emit(run.id)">
+                Retry
+              </button>
+            }
           </span>
         </header>
 
@@ -201,15 +211,6 @@
           </p>
         }
 
-        @if (canRetry(run)) {
-          <div class="run-resume">
-            <button type="button" class="button retry"
-                    title="Run it again - from the top, or carrying on from the first step that did not finish"
-                    (click)="resume.emit(run.id)">
-              Retry
-            </button>
-          </div>
-        }
 
 
         @if (run.error) {
