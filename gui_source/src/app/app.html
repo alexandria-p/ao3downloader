@@ -86,6 +86,118 @@
   </div>
 </header>
 
+
+<!-- covers everything while a library's folders are made or its works moved -->
+<app-setup-overlay />
+
+<!-- said once, before anything else, because it decides whether any of this can work here -->
+@if (browserNotice()) {
+  <app-browser-notice (dismissed)="browserNotice.set(false)" />
+}
+
+@if (warning()) {
+  <app-folder-warning (confirmed)="warningAccepted()" (cancelled)="warningCancelled()" />
+}
+
+
+<nav class="views" aria-label="What to show">
+  <button
+    type="button"
+    [class.current]="view() === 'bookmarks'"
+    [attr.aria-current]="view() === 'bookmarks' ? 'page' : null"
+    (click)="setView('bookmarks')"
+  >
+    Works
+    @if (works().length) {
+      <span class="count">{{ works().length | number }}</span>
+    }
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'collections'"
+    [attr.aria-current]="view() === 'collections' ? 'page' : null"
+    (click)="setView('collections')"
+  >
+    Collections
+    @if (collections().length) {
+      <span class="count">{{ collections().length | number }}</span>
+    }
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'history'"
+    [attr.aria-current]="view() === 'history' ? 'page' : null"
+    (click)="setView('history')"
+  >
+    History
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'faq'"
+    [attr.aria-current]="view() === 'faq' ? 'page' : null"
+    (click)="setView('faq')"
+  >
+    FAQ
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'bug'"
+    [attr.aria-current]="view() === 'bug' ? 'page' : null"
+    (click)="setView('bug')"
+  >
+    Report a bug
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'settings'"
+    [attr.aria-current]="view() === 'settings' ? 'page' : null"
+    (click)="setView('settings')"
+  >
+    User settings
+  </button>
+  @if (debugMode.on()) {
+    <button
+      type="button"
+      class="debug-tab-button"
+      [class.current]="view() === 'debug'"
+      [attr.aria-current]="view() === 'debug' ? 'page' : null"
+      (click)="setView('debug')"
+    >
+      DEBUG
+    </button>
+  }
+</nav>
+
+<!--
+  the notices: under the tabs, above whatever the tab shows, on every tab - debug mode, a run
+  going, an update, and the library's import issues. they are part of the page, not of a tab,
+  so changing tabs never hides one
+-->
+<div class="notices">
+<!-- debug mode says so above everything else, on every tab -->
+@if (debugMode.on()) {
+  <div class="debug-banner" role="status">
+    <strong>Debug mode is on.</strong> The DEBUG tab has tools for trying the app out. Turn it off
+    in User settings.
+  </div>
+}
+
+<!-- on every tab, until resolved or dismissed for this visit - and never once
+     'No, never ask me again' is chosen -->
+@if (importReminder()) {
+  <div class="import-issues" role="status">
+    <button type="button" class="button import-issues-button"
+            [disabled]="!!activeRun() || !!dialogAction()"
+            [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
+            (click)="openImport()">
+      Resolve issues found with import
+    </button>
+    <span class="import-issues-said">{{ importIssuesSaid() }}</span>
+    <button type="button" class="import-issues-close" aria-label="Dismiss" title="Dismiss until the library is opened again"
+            (click)="dismissImportReminder()">&times;</button>
+  </div>
+}
+
 <!--
   one run at a time: while the helper has one going - in the background or in another tab -
   nothing else can start, and saying so up here beats a run window refused at its last step
@@ -160,110 +272,7 @@
     }
   }
 }
-
-<!-- covers everything while a library's folders are made or its works moved -->
-<app-setup-overlay />
-
-<!-- said once, before anything else, because it decides whether any of this can work here -->
-@if (browserNotice()) {
-  <app-browser-notice (dismissed)="browserNotice.set(false)" />
-}
-
-@if (warning()) {
-  <app-folder-warning (confirmed)="warningAccepted()" (cancelled)="warningCancelled()" />
-}
-
-<!-- debug mode says so above everything else, on every tab -->
-@if (debugMode.on()) {
-  <div class="debug-banner" role="status">
-    <strong>Debug mode is on.</strong> The DEBUG tab has tools for trying the app out. Turn it off
-    in User settings.
-  </div>
-}
-
-<!-- above the tabs, on every tab, until resolved or dismissed for this visit - and never once
-     'No, never ask me again' is chosen -->
-@if (importReminder()) {
-  <div class="import-issues" role="status">
-    <button type="button" class="button import-issues-button"
-            [disabled]="!!activeRun() || !!dialogAction()"
-            [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
-            (click)="openImport()">
-      Resolve issues found with import
-    </button>
-    <span class="import-issues-said">{{ importIssuesSaid() }}</span>
-    <button type="button" class="import-issues-close" aria-label="Dismiss" title="Dismiss until the library is opened again"
-            (click)="dismissImportReminder()">&times;</button>
-  </div>
-}
-
-<nav class="views" aria-label="What to show">
-  <button
-    type="button"
-    [class.current]="view() === 'bookmarks'"
-    [attr.aria-current]="view() === 'bookmarks' ? 'page' : null"
-    (click)="setView('bookmarks')"
-  >
-    Works
-    @if (works().length) {
-      <span class="count">{{ works().length | number }}</span>
-    }
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'collections'"
-    [attr.aria-current]="view() === 'collections' ? 'page' : null"
-    (click)="setView('collections')"
-  >
-    Collections
-    @if (collections().length) {
-      <span class="count">{{ collections().length | number }}</span>
-    }
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'history'"
-    [attr.aria-current]="view() === 'history' ? 'page' : null"
-    (click)="setView('history')"
-  >
-    History
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'faq'"
-    [attr.aria-current]="view() === 'faq' ? 'page' : null"
-    (click)="setView('faq')"
-  >
-    FAQ
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'bug'"
-    [attr.aria-current]="view() === 'bug' ? 'page' : null"
-    (click)="setView('bug')"
-  >
-    Report a bug
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'settings'"
-    [attr.aria-current]="view() === 'settings' ? 'page' : null"
-    (click)="setView('settings')"
-  >
-    User settings
-  </button>
-  @if (debugMode.on()) {
-    <button
-      type="button"
-      class="debug-tab-button"
-      [class.current]="view() === 'debug'"
-      [attr.aria-current]="view() === 'debug' ? 'page' : null"
-      (click)="setView('debug')"
-    >
-      DEBUG
-    </button>
-  }
-</nav>
+</div>
 
 
 <!--

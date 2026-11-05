@@ -212,12 +212,15 @@ export interface FontChoice {
   stack: string;
 }
 
-export const DEFAULT_FONT = 'default';
+/** what the page uses until someone picks a font: the computer's own interface font */
+export const DEFAULT_FONT = 'system';
 export const CUSTOM_FONT = 'custom';
-const DEFAULT_STACK = "'Segoe UI', Tahoma, Verdana, system-ui, sans-serif";
+const SYSTEM_STACK = "system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, sans-serif";
+/** what the page used before System became the default - kept, as Classic, for anyone who liked it */
+const CLASSIC_STACK = "'Segoe UI', Tahoma, Verdana, system-ui, sans-serif";
 
 /** a font bundled with the page (`fonts.css`), falling back to the default if it will not load */
-function bundled(id: string, name: string, family: string, group: string, fallback = DEFAULT_STACK): FontChoice {
+function bundled(id: string, name: string, family: string, group: string, fallback = SYSTEM_STACK): FontChoice {
   return { id, name, group, stack: `'${family}', ${fallback}` };
 }
 
@@ -230,10 +233,16 @@ const MONO = "ui-monospace, Consolas, Menlo, 'Courier New', monospace";
  * bundled font comes from the page's own address, only once it is chosen, and works offline.
  */
 export const FONTS: FontChoice[] = [
-  { id: DEFAULT_FONT, name: 'Default', group: 'On this computer', stack: DEFAULT_STACK },
-  { id: 'system', name: 'System', group: 'On this computer', stack: "system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, sans-serif" },
-  { id: 'serif', name: 'Book (serif)', group: 'On this computer', stack: SERIF },
-  { id: 'mono', name: 'Typewriter (monospace)', group: 'On this computer', stack: MONO },
+  // no group: the picker shows it alone, first, above every heading
+  { id: DEFAULT_FONT, name: 'System', group: '', stack: SYSTEM_STACK },
+  bundled('legible', 'Atkinson Hyperlegible', 'Atkinson Hyperlegible', 'Easy to read'),
+  bundled('lexend', 'Lexend', 'Lexend', 'Easy to read'),
+  bundled('opendyslexic', 'OpenDyslexic', 'OpenDyslexic', 'Easy to read'),
+  // 'default' is the id the page's old default font was saved under, so a browser that chose it
+  // keeps it
+  { id: 'default', name: 'Classic', group: 'On your computer', stack: CLASSIC_STACK },
+  { id: 'serif', name: 'Book (serif)', group: 'On your computer', stack: SERIF },
+  { id: 'mono', name: 'Typewriter (monospace)', group: 'On your computer', stack: MONO },
   bundled('fredoka', 'Fredoka', 'Fredoka', 'Cute and rounded'),
   bundled('rounded', 'Nunito', 'Nunito', 'Cute and rounded'),
   bundled('quicksand', 'Quicksand', 'Quicksand', 'Cute and rounded'),
@@ -245,9 +254,6 @@ export const FONTS: FontChoice[] = [
   bundled('patrick-hand', 'Patrick Hand', 'Patrick Hand', 'Handwritten'),
   bundled('gaegu', 'Gaegu', 'Gaegu', 'Handwritten'),
   bundled('short-stack', 'Short Stack', 'Short Stack', 'Handwritten'),
-  bundled('legible', 'Atkinson Hyperlegible', 'Atkinson Hyperlegible', 'Easy to read'),
-  bundled('lexend', 'Lexend', 'Lexend', 'Easy to read'),
-  bundled('opendyslexic', 'OpenDyslexic', 'OpenDyslexic', 'Easy to read'),
   bundled('inter', 'Inter', 'Inter', 'Clean'),
   bundled('poppins', 'Poppins', 'Poppins', 'Clean'),
   bundled('lora', 'Lora', 'Lora', 'Bookish', SERIF),
@@ -291,7 +297,7 @@ export function fontById(id: string | null): FontChoice {
 export function fontStack(id: string, custom: string): string {
   if (id === CUSTOM_FONT) {
     const name = cleanFontName(custom);
-    return name ? `"${name}", ${DEFAULT_STACK}` : DEFAULT_STACK;
+    return name ? `"${name}", ${SYSTEM_STACK}` : SYSTEM_STACK;
   }
   return fontById(id).stack;
 }

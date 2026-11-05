@@ -80,11 +80,17 @@
         <span>Font</span>
         <select name="font" aria-label="Font" (change)="setFont($any($event.target).value)">
           @for (group of fontGroups; track group.name) {
-            <optgroup [label]="group.name">
+            @if (group.name) {
+              <optgroup [label]="group.name">
+                @for (font of group.fonts; track font.id) {
+                  <option [value]="font.id" [selected]="font.id === appearance.font()" [style.font-family]="font.stack || null">{{ font.name }}</option>
+                }
+              </optgroup>
+            } @else {
               @for (font of group.fonts; track font.id) {
                 <option [value]="font.id" [selected]="font.id === appearance.font()" [style.font-family]="font.stack || null">{{ font.name }}</option>
               }
-            </optgroup>
+            }
           }
         </select>
       </label>

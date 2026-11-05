@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CUSTOM_FONT, FONTS, FONT_GROUPS, PALETTES, STATUS_DARK, STATUS_LIGHT, applyAppearance, cleanFontName, fontById, fontStack, logoFilter } from './appearance';
+import { CUSTOM_FONT, DEFAULT_FONT, FONTS, FONT_GROUPS, PALETTES, STATUS_DARK, STATUS_LIGHT, applyAppearance, cleanFontName, fontById, fontStack, logoFilter } from './appearance';
 
 describe('appearance', () => {
   it('gives every palette the same tokens, so none leaves a colour behind from another', () => {
@@ -78,5 +78,12 @@ describe('appearance', () => {
 
   it('starts the page with the logo tinted as the default palette tints it', () => {
     expect(logoFilter(PALETTES[0].tokens.accent)).toBe('hue-rotate(-112deg)');
+  });
+  it('offers System first, on its own, as the font a browser starts with; then Easy to read, then the computer\'s own', () => {
+    expect(DEFAULT_FONT).toBe('system');
+    expect(FONTS[0].id).toBe('system');
+    expect(FONT_GROUPS.map((g) => g.name).slice(0, 3)).toEqual(['', 'Easy to read', 'On your computer']);
+    // a browser that saved the old default keeps it, as Classic
+    expect(fontById('default').name).toBe('Classic');
   });
 });

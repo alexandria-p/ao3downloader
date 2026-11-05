@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1015 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1016 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -928,7 +928,7 @@ offers are deliberately different in kind:
 
 `debug.ts`, `debug-tab.ts`. **Debug mode** (`DebugMode`, `ao3.debugMode`, this browser's
 alone, from User settings' *Debug mode*) is not `EnableDebugTools` (settings.ini, the run
-window's panel): it shows `.debug-banner` above everything, the reminder included, and a
+window's panel): it shows `.debug-banner` first among the notices, the reminder included, and a
 **DEBUG** tab (`view` `debug`), and changes nothing else. The tab's **Mock Resolve issues**
 builds made-up files for the issues ticked, as many as asked (`mockPaths`: index issues from
 7000001, dating from 7100001, duplicates from 7200001 cycling the five cases the page tells apart - one newest, three copies, an undated copy, a shared date told apart by change time (`MemoryStore.changed`), and one that cannot be told),
@@ -2135,7 +2135,8 @@ window finishes after dating (`afterDating`). What not to break:
   `activeRun`, no run window, the library read and set up - once per library per visit
   (`offeredFor`), unless `ao3.importOfferOff` (a `PROMPTS` entry, set by *No, never ask me
   again* on the window's first page). The `.import-issues` reminder - **Resolve issues found
-  with import**, **above the tabs**, on every tab, while `LibraryImports.hasIssues`
+  with import**, **under the tabs and above whatever the tab shows** (`.notices`, with debug
+  mode, a run going and the update banners - part of the page, not of a tab), on every tab, while `LibraryImports.hasIssues`
   (`App.importReminder`) - offers it by hand, disabled with *Cannot be started while an active
   run is in progress*; its × hides it until the library is opened again
   (`reminderDismissedFor`), and `ao3.importOfferOff` hides it for good. **The first page asks
@@ -2502,7 +2503,10 @@ not to break:
   Latin Extended, 400 and 700): served from the page's own address, never a font service, and
   downloaded by the browser only once a chosen font is used - so offering them costs nothing,
   and they work offline. The old `rounded` and `legible` ids now name the bundled Nunito and
-  Atkinson Hyperlegible, so a saved choice still works. A typed font name goes through
+  Atkinson Hyperlegible, so a saved choice still works. **The font a browser starts with is System**
+  (`DEFAULT_FONT`, the computer's own interface font), alone at the top of the picker, then
+  *Easy to read*, then *On your computer* - where the old default lives on as *Classic*, under
+  its old id `default`, so a browser that chose it keeps it. A typed font name goes through
   `cleanFontName` before it reaches a style. **The header reads "Fic Fairy"** (two words, at
   the user's choice), 64px, moved down inside the bar's own 51px so the bar and its buttons
   never move; it never wraps or shrinks (`flex: none`), and the bar never wraps on a wide

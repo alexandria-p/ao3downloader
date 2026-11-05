@@ -1333,7 +1333,7 @@ describe('App', () => {
     expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 file has no date');
   });
 
-  it('puts the reminder above the tabs, on every tab, until dismissed', async () => {
+  it('puts the reminder under the tabs and above what each tab shows, on every tab, until dismissed', async () => {
     localStorage.clear();
     libraryWithFiles(['works/999 Not Indexed - Writer.html']);
     TestBed.inject(Library).data.set(exportOf(1));
@@ -1343,11 +1343,14 @@ describe('App', () => {
 
     const issues = element.querySelector('.import-issues')!;
     const tabs = element.querySelector('nav.views')!;
-    expect(issues.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    for (const name of ['Collections', 'History', 'FAQ', 'User settings']) {
+    expect(tabs.compareDocumentPosition(issues) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(issues.compareDocumentPosition(element.querySelector('app-work-list')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const [name, content] of [['Collections', 'app-collections-view'], ['History', 'app-history'], ['FAQ', 'app-faq'], ['User settings', 'app-user-settings']]) {
       tab(element, name)!.click();
       await fixture.whenStable();
-      expect(element.querySelector('.import-issues')).not.toBeNull();
+      const shown = element.querySelector('.import-issues');
+      expect(shown).not.toBeNull();
+      expect(shown!.compareDocumentPosition(element.querySelector(content)!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
 
     element.querySelector<HTMLButtonElement>('.import-issues-close')!.click();

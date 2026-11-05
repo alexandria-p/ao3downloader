@@ -65,11 +65,16 @@
   filter: var(--logo-filter, none);
 }
 
-/* :host first, so this outranks each one's own margin shorthand further down */
-:host .run-in-progress,
-:host .update-available,
-:host .debug-banner,
-:host .import-issues,
+/* the notices under the tabs start below where the fairy's book reaches */
+.notices {
+  margin-top: 16px;
+}
+
+.notices:empty {
+  display: none;
+}
+
+/* :host first, so this outranks the tabs' own margin shorthand further down */
 :host .views {
   margin-left: var(--fairy-room);
 }
@@ -78,6 +83,10 @@
 @media (max-width: 760px) {
   :host {
     --fairy-room: 0px;
+  }
+
+  .notices {
+    margin-top: 0;
   }
 
   .topbar {
