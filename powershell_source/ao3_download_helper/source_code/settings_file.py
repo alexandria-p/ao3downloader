@@ -83,7 +83,7 @@ def fresh_settings(template: str) -> str:
     return template
 
 
-DEPRECATED_NOTE = ('# DEPRECATED: {key} is no longer used by this version of ao3downloader, and '
+DEPRECATED_NOTE = ('# DEPRECATED: {key} is no longer used by this version of FicFairy, and '
                    'has no effect. Commented out rather than deleted, so you can see what it said.')
 
 

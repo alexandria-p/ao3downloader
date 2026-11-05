@@ -4,10 +4,10 @@ Get the zip for your computer from the [latest release](https://github.com/alexa
 
 | Computer | Zip | Start it by |
 | --- | --- | --- |
-| Windows | `ficfairy-ao3downloader-windows.zip` | double-clicking `ao3downloader.exe` |
-| Mac, M1 or later | `ficfairy-ao3downloader-macos-apple-silicon.zip` | double-clicking `Start ao3downloader.command` |
-| Intel Mac | `ficfairy-ao3downloader-macos-intel.zip` | double-clicking `Start ao3downloader.command` |
-| Linux (x86_64) | `ficfairy-ao3downloader-linux-x86_64.zip` | running `Start ao3downloader.sh` |
+| Windows | `ficfairy-ao3downloader-windows.zip` | double-clicking `ficfairy.exe` |
+| Mac, M1 or later | `ficfairy-ao3downloader-macos-apple-silicon.zip` | double-clicking `Start FicFairy.command` |
+| Intel Mac | `ficfairy-ao3downloader-macos-intel.zip` | double-clicking `Start FicFairy.command` |
+| Linux (x86_64) | `ficfairy-ao3downloader-linux-x86_64.zip` | running `Start FicFairy.sh` |
 
 Unzip it somewhere you'll keep it. A window opens, and your browser opens the app at `http://localhost:4200`. **Leave the window open** while you use the app; close it to stop.
 

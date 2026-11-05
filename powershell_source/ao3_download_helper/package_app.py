@@ -1,4 +1,4 @@
-"""Build the app for Windows, macOS or Linux: a zip holding the `ao3downloader` program and everything
+"""Build the app for Windows, macOS or Linux: a zip holding the `ficfairy` program and everything
 it needs.
 
 Unzipped and started, the program does what `Start-Application.ps1` does in a generated build -
@@ -36,9 +36,9 @@ from pathlib import Path
 import build_artifacts
 from build_artifacts import PACKAGE_NAME, PYTHON_HOME
 
-APP_NAME = 'ao3downloader'
-# what the release zips are named with. Only the zip: the folder, the program and the launchers
-# keep APP_NAME, which updater.kind_for and the swap scripts look for by name
+APP_NAME = 'ficfairy'
+# what the release zips are named with; the folder inside, the program and the launchers are
+# APP_NAME, which updater.kind_for and the swap scripts look for by name
 ZIP_PREFIX = 'ficfairy-ao3downloader'
 ENTRY = Path(PACKAGE_NAME) / 'desktop.py'
 # where PyInstaller puts things, under the repository root. dist/ is where the zip goes
@@ -55,23 +55,23 @@ DEFAULTS_FOLDER = 'defaults'
 # and so is every file unzipped from it; macOS asks once about this script (see MAC_README),
 # and the script then lifts the quarantine off the rest of the folder, so the program and its
 # libraries are not each refused in turn
-MAC_LAUNCHER = 'Start ao3downloader.command'
+MAC_LAUNCHER = 'Start FicFairy.command'
 MAC_LAUNCHER_SCRIPT = """#!/bin/bash
-# double-click to start ao3downloader. it opens in Terminal - leave that window open while you
+# double-click to start FicFairy. it opens in Terminal - leave that window open while you
 # use the app, and close it to stop.
 cd "$(dirname "$0")" || exit 1
 # a downloaded zip marks everything in it as quarantined; this app is opened on purpose
 xattr -dr com.apple.quarantine . 2>/dev/null
-exec ./ao3downloader
+exec ./ficfairy
 """
 
 # on Linux, what someone runs. A file manager runs a script in no terminal at all, so where
 # there is a desktop and no terminal it opens one to run itself in - the app's window is where
 # it says what it is doing, and closing it stops the app. With no desktop (a server, ssh, the
 # swap restarting it with nothing to show it in) it runs the app straight
-LINUX_LAUNCHER = 'Start ao3downloader.sh'
+LINUX_LAUNCHER = 'Start FicFairy.sh'
 LINUX_LAUNCHER_SCRIPT = """#!/bin/bash
-# start ao3downloader. it runs in a terminal window - leave that open while you use the app,
+# start FicFairy. it runs in a terminal window - leave that open while you use the app,
 # and close it to stop.
 cd "$(dirname "$0")" || exit 1
 if [ ! -t 1 ] && [ -z "$AO3DOWNLOADER_IN_TERMINAL" ] && { [ -n "$DISPLAY" ] || [ -n "$WAYLAND_DISPLAY" ]; }; then
@@ -86,7 +86,7 @@ if [ ! -t 1 ] && [ -z "$AO3DOWNLOADER_IN_TERMINAL" ] && { [ -n "$DISPLAY" ] || [
         esac
     done
 fi
-exec ./ao3downloader
+exec ./ficfairy
 """
 
 WINDOWS_README = """FicFairy (Local Ao3 downloader)
@@ -94,7 +94,7 @@ WINDOWS_README = """FicFairy (Local Ao3 downloader)
 
 Starting it
 -----------
-Double-click ao3downloader.exe. A window opens and your browser opens the app. If it
+Double-click ficfairy.exe. A window opens and your browser opens the app. If it
 does not, open any web browser to http://localhost:4200 - the window says so too. Leave the
 window open while you use the app; close it to stop. Everything the app does is shown in it.
 
@@ -122,7 +122,7 @@ it no longer uses. Nothing you set is ever changed or deleted.
 If it will not start
 --------------------
 The window says why and stays open. The usual reason is that the app is already running in
-another window: close every ao3downloader window and start it again.
+another window: close every FicFairy window and start it again.
 """
 
 # which Mac a build is for - PyInstaller builds for the chip it runs on, so each is built on its
@@ -179,7 +179,7 @@ set is ever changed or deleted.
 If it will not start
 --------------------
 The window says why and stays open. The usual reason is that the app is already running in
-another window: close every ao3downloader window in Terminal and start it again.
+another window: close every FicFairy window in Terminal and start it again.
 """
 
 
@@ -225,7 +225,7 @@ it no longer uses. Nothing you set is ever changed or deleted.
 If it will not start
 --------------------
 The window says why and stays open. The usual reason is that the app is already running in
-another window: close every ao3downloader window and start it again.
+another window: close every FicFairy window and start it again.
 """
 
 
@@ -335,13 +335,6 @@ def assemble(root: Path, platform: str | None = None, machine: str | None = None
 
 def zip_name(platform: str | None = None, machine: str | None = None) -> str:
     return f'{ZIP_PREFIX}-{system(platform, machine)}.zip'
-
-
-def legacy_zip_name(platform: str | None = None, machine: str | None = None) -> str:
-    """The name the zips had before the FicFairy rename - the one an app installed before it
-    looks for when it updates, so every release carries a copy under it too."""
-
-    return f'{APP_NAME}-{system(platform, machine)}.zip'
 
 
 def make_zip(app: Path, destination: Path) -> Path:

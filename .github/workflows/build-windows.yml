@@ -1,6 +1,6 @@
 name: build windows app
 
-# The Windows app: a zip holding ao3downloader.exe, which starts the helper, serves the page
+# The Windows app: a zip holding ficfairy.exe, which starts the helper, serves the page
 # and opens the browser - in place of Start-Application.ps1, with nothing to install first.
 # package_app.py builds it; this runs it on Windows, because PyInstaller builds for the
 # system it runs on.
@@ -109,7 +109,7 @@ jobs:
         run: |
           $place = Join-Path $env:RUNNER_TEMP 'unzipped'
           Expand-Archive -Path dist/ficfairy-ao3downloader-windows.zip -DestinationPath $place -Force
-          $exe = Join-Path $place 'ao3downloader\ao3downloader.exe'
+          $exe = Join-Path $place 'ficfairy\ficfairy.exe'
           $app = Start-Process -FilePath $exe -PassThru -WindowStyle Hidden
           try {
             $page = $null; $helper = $null
@@ -128,7 +128,7 @@ jobs:
             # Windows has no time zone database of its own: the one packed in (tzdata) has to work,
             # or every AO3 zone would be read as UTC
             if (-not ($helper.Content | ConvertFrom-Json).zoneLookup) { throw 'the helper cannot look up a time zone - tzdata was not packed in' }
-            $settings = Join-Path $place 'ao3downloader\config\settings.ini'
+            $settings = Join-Path $place 'ficfairy\config\settings.ini'
             if (-not (Test-Path $settings)) { throw "no settings.ini beside the exe at $settings" }
             # the page must be pointed at the exe's own helper, never the hosted one
             $pageConfig = Invoke-RestMethod 'http://localhost:4200/app-config.json'
@@ -154,7 +154,7 @@ jobs:
           $zip = (Resolve-Path dist/ficfairy-ao3downloader-windows.zip).Path
           $place = Join-Path $env:RUNNER_TEMP 'installed'
           Expand-Archive -Path $zip -DestinationPath $place -Force
-          $root = Join-Path $place 'ao3downloader'
+          $root = Join-Path $place 'ficfairy'
           $settings = Join-Path $root 'config\settings.ini'
           $origin = @{ Origin = 'http://localhost:4200' }
 
@@ -169,7 +169,7 @@ jobs:
           $release = Start-Process -PassThru -WindowStyle Hidden -FilePath 'uv' `
             -WorkingDirectory 'powershell_source/ao3_download_helper' `
             -ArgumentList @('run', '--no-sync', 'python', 'stand_in_release.py', "`"$zip`"", '8765')
-          $app = Start-Process -FilePath (Join-Path $root 'ao3downloader.exe') -PassThru -WindowStyle Hidden
+          $app = Start-Process -FilePath (Join-Path $root 'ficfairy.exe') -PassThru -WindowStyle Hidden
           try {
             $config = Wait-ForHelper 60
             if (-not $config.app.updatable) { throw 'the installed app does not say it can update itself' }
@@ -223,12 +223,12 @@ jobs:
               else { Write-Host "--- no $evidence ---" }
             }
             Write-Host '--- processes ---'
-            Get-Process -Name 'ao3downloader', 'powershell' -ErrorAction SilentlyContinue |
+            Get-Process -Name 'ficfairy', 'powershell' -ErrorAction SilentlyContinue |
               Format-Table Id, ProcessName, StartTime -AutoSize | Out-String | Write-Host
             throw
           }
           finally {
-            Get-Process -Name 'ao3downloader' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Get-Process -Name 'ficfairy' -ErrorAction SilentlyContinue | Stop-Process -Force
             if (-not $release.HasExited) { Stop-Process -Id $release.Id -Force }
           }
 
@@ -257,21 +257,16 @@ jobs:
               --target "$GITHUB_SHA" \
               --latest \
               --title "FicFairy $VERSION" \
-              --notes "Windows: download ficfairy-ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe. Windows may warn that the app is not signed: choose More info, then Run anyway.
+              --notes "Windows: download ficfairy-ao3downloader-windows.zip, unzip it, and double-click ficfairy.exe. Windows may warn that the app is not signed: choose More info, then Run anyway.
 
-          Mac: download ficfairy-ao3downloader-macos-apple-silicon.zip for an M1 or later, or ficfairy-ao3downloader-macos-intel.zip for an Intel Mac, open it, and double-click Start ao3downloader.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
+          Mac: download ficfairy-ao3downloader-macos-apple-silicon.zip for an M1 or later, or ficfairy-ao3downloader-macos-intel.zip for an Intel Mac, open it, and double-click Start FicFairy.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
 
-          Linux (64-bit Intel or AMD): download ficfairy-ao3downloader-linux-x86_64.zip, unzip it, and run Start ao3downloader.sh. Use Chrome or Chromium - Firefox cannot open a folder for the app.
+          Linux (64-bit Intel or AMD): download ficfairy-ao3downloader-linux-x86_64.zip, unzip it, and run Start FicFairy.sh. Use Chrome or Chromium - Firefox cannot open a folder for the app.
 
-          The README inside each zip says the rest. The zips named without ficfairy- are the same app, kept so a copy installed before the rename can still update itself." \
+          The README inside each zip says the rest." \
               || echo 'the release was made meanwhile, by another build'
           fi
           # a re-run replaces the zip
           gh release upload "$TAG" dist/ficfairy-ao3downloader-windows.zip --clobber
-          # the same zip under its name from before the FicFairy rename - an app installed then
-          # looks for that name when it updates (package_app.legacy_zip_name)
-          legacy="dist/$(basename "dist/ficfairy-ao3downloader-windows.zip" | sed 's/^ficfairy-//')"
-          cp "dist/ficfairy-ao3downloader-windows.zip" "$legacy"
-          gh release upload "$TAG" "$legacy" --clobber
           echo "published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
           echo "latest is always at: https://github.com/$GITHUB_REPOSITORY/releases/latest"

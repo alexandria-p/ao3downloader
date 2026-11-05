@@ -1,6 +1,6 @@
 """The app, for Windows, macOS and Linux: one double-click in place of Start-Application.ps1.
 
-Built into the `ao3downloader` program by `package_app.py`. It does what the PowerShell
+Built into the `ficfairy` program by `package_app.py`. It does what the PowerShell
 launcher does in a generated build - starts the local helper, serves the prebuilt page, and
 points the browser at it - with Python and every dependency inside the program's folder, so
 nothing has to be installed first.
@@ -252,7 +252,7 @@ def main() -> int:
     web = web_folder()
     port = int(os.environ.get(server.ENV_PORT) or server.DEFAULT_PORT)
 
-    print('ao3downloader')
+    print('FicFairy')
     print(f'settings and logs: {root}')
     print('leave this window open while you use the app.')
     print()
@@ -262,10 +262,10 @@ def main() -> int:
     if server.already_listening(server.HOST, port) or server.already_listening(PAGE_HOST, PAGE_PORT):
         # almost always the app already running, in another window. opening the page is
         # what the person wanted, so do that rather than only complaining
-        print('ao3downloader seems to be running already, in another window.')
+        print('FicFairy seems to be running already, in another window.')
         print(where_to_go())
         open_page()
-        return stop('if the page does not work, close every ao3downloader window and start it again.')
+        return stop('if the page does not work, close every FicFairy window and start it again.')
 
     server.Handler.updater = make_updater(root, web)
     # what the page's User settings tab calls the defaults, and puts back on Reset

@@ -23,7 +23,7 @@ What happens, in order:
 
 The swap is PowerShell on Windows (`SWAP_SCRIPT`) and bash on a Mac (`MAC_SWAP_SCRIPT`), and
 the two write the same log lines. On a Mac the app lives in a Terminal window, so the script
-starts it again by opening `Start ao3downloader.command` in a new one.
+starts it again by opening `Start FicFairy.command` in a new one.
 
 `config/` and `logs/` are never moved: they are not in the zip, and the script skips them by
 name as well. So an update never touches the user's settings.ini - the restarted app adds any
@@ -47,18 +47,17 @@ import requests
 
 ASSET_NAME = 'ficfairy-ao3downloader-windows.zip'
 # the folder the zip unpacks into: every entry has to be inside it
-ZIP_ROOT = 'ao3downloader'
-# what each release zip's name starts with (package_app.ZIP_PREFIX); the folder inside keeps
-# ZIP_ROOT, so an app installed before the rename still unpacks and swaps the same way
+ZIP_ROOT = 'ficfairy'
+# what each release zip's name starts with (package_app.ZIP_PREFIX); the folder inside is ZIP_ROOT
 ASSET_PREFIX = 'ficfairy-ao3downloader'
-EXE_NAME = 'ao3downloader.exe'
-MAC_PROGRAM = 'ao3downloader'
+EXE_NAME = 'ficfairy.exe'
+MAC_PROGRAM = 'ficfairy'
 # what a Mac is started by - the script the swap reopens in Terminal (package_app.MAC_LAUNCHER)
-MAC_LAUNCHER = 'Start ao3downloader.command'
+MAC_LAUNCHER = 'Start FicFairy.command'
 # which Mac zip is this Mac's: the same names package_app builds them under
 MAC_CHIPS = {'arm64': 'apple-silicon', 'x86_64': 'intel'}
 # what starts the app on Linux, which the swap runs again (package_app.LINUX_LAUNCHER)
-LINUX_LAUNCHER = 'Start ao3downloader.sh'
+LINUX_LAUNCHER = 'Start FicFairy.sh'
 # Linux builds, named by machine; anything else has no published build to update from
 LINUX_MACHINES = {'x86_64': 'x86_64', 'amd64': 'x86_64'}
 # left by the Mac swap for the app it starts: a Terminal window opened by `open` gets none of
@@ -576,7 +575,7 @@ finally {
     # the page is still open in the browser and reloads itself, so no second tab
     $env:AO3DOWNLOADER_NO_BROWSER = '1'
     $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
-    Start-Process -FilePath (Join-Path $AppDir 'ao3downloader.exe') -WorkingDirectory $AppDir
+    Start-Process -FilePath (Join-Path $AppDir 'ficfairy.exe') -WorkingDirectory $AppDir
     Say 'started the app again'
 }
 '''
@@ -611,15 +610,15 @@ start_again() {
         # the old app's window set AO3DOWNLOADER_IN_TERMINAL, and this script has it - left
         # set, the launcher would run the app with no window to show it in
         unset AO3DOWNLOADER_IN_TERMINAL
-        if setsid -f "$APP_DIR/Start ao3downloader.sh" > /dev/null 2>&1 < /dev/null; then
+        if setsid -f "$APP_DIR/Start FicFairy.sh" > /dev/null 2>&1 < /dev/null; then
             say 'started the app again'
         else
-            say 'could not start the app again - run Start ao3downloader.sh'
+            say 'could not start the app again - run Start FicFairy.sh'
         fi
-    elif open -a Terminal "$APP_DIR/Start ao3downloader.command"; then
+    elif open -a Terminal "$APP_DIR/Start FicFairy.command"; then
         say 'started the app again'
     else
-        say 'could not start the app again - double-click Start ao3downloader.command'
+        say 'could not start the app again - double-click Start FicFairy.command'
     fi
 }
 

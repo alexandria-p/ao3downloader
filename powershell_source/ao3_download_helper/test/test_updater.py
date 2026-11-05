@@ -46,9 +46,9 @@ class Answer:
 
 
 def app_zip(extra: dict[str, bytes] | None = None, leave_out: tuple = ()) -> bytes:
-    files = {'ao3downloader/ao3downloader.exe': b'new exe',
-             'ao3downloader/_internal/python.dll': b'new dll',
-             'ao3downloader/README.txt': b'new readme', **(extra or {})}
+    files = {'ficfairy/ficfairy.exe': b'new exe',
+             'ficfairy/_internal/python.dll': b'new dll',
+             'ficfairy/README.txt': b'new readme', **(extra or {})}
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, 'w') as archive:
         for name, data in files.items():
@@ -232,7 +232,7 @@ def test_the_new_version_is_unpacked_and_the_swap_handed_to_powershell(tmp_path)
     update, launch, leave = installed(tmp_path, github())
 
     new = tmp_path / 'update' / 'new'
-    assert (new / 'ao3downloader.exe').read_bytes() == b'new exe'
+    assert (new / 'ficfairy.exe').read_bytes() == b'new exe'
     assert (new / '_internal' / 'python.dll').read_bytes() == b'new dll'
     command = launch.call_args.args[0]
     assert command[0] == 'powershell.exe'
@@ -268,8 +268,8 @@ def test_a_detached_launch_writes_what_the_command_prints_to_the_file(tmp_path):
 
 
 def test_the_users_own_folders_in_a_zip_are_never_unpacked(tmp_path):
-    body = app_zip({'ao3downloader/config/settings.ini': b'[settings]\nExtraWaitTime=0\n',
-                    'ao3downloader/logs/log.jsonl': b'{}'})
+    body = app_zip({'ficfairy/config/settings.ini': b'[settings]\nExtraWaitTime=0\n',
+                    'ficfairy/logs/log.jsonl': b'{}'})
     installed(tmp_path, github(body=body))
 
     assert not (tmp_path / 'update' / 'new' / 'config').exists()
@@ -279,12 +279,12 @@ def test_the_users_own_folders_in_a_zip_are_never_unpacked(tmp_path):
 @pytest.mark.parametrize('change, reason', [
     ({'digest': 'sha256:' + '0' * 64}, 'checksum'),
     ({'size': 3}, 'bytes'),
-    ({'body': app_zip({'ao3downloader/../../evil.txt': b'x'})}, 'where it should not be'),
+    ({'body': app_zip({'ficfairy/../../evil.txt': b'x'})}, 'where it should not be'),
     ({'body': app_zip({'somewhere-else/evil.txt': b'x'})}, 'where it should not be'),
     # on Windows, a drive letter part would jump out of the app's folder
-    ({'body': app_zip({'ao3downloader/C:/Windows/evil.txt': b'x'})}, 'where it should not be'),
-    ({'body': app_zip(leave_out=('ao3downloader/ao3downloader.exe',))}, 'no ao3downloader.exe'),
-    ({'body': app_zip(leave_out=('ao3downloader/_internal/python.dll',))}, 'no _internal'),
+    ({'body': app_zip({'ficfairy/C:/Windows/evil.txt': b'x'})}, 'where it should not be'),
+    ({'body': app_zip(leave_out=('ficfairy/ficfairy.exe',))}, 'no ficfairy.exe'),
+    ({'body': app_zip(leave_out=('ficfairy/_internal/python.dll',))}, 'no _internal'),
 ])
 def test_a_download_that_is_not_right_is_not_installed(tmp_path, change, reason):
     update, launch, leave = installed(tmp_path, github(**change))
@@ -293,7 +293,7 @@ def test_a_download_that_is_not_right_is_not_installed(tmp_path, change, reason)
     assert state['state'] == 'failed'
     assert reason in state['error']
     assert not launch.called and not leave.called
-    assert not (tmp_path / 'update' / 'new' / 'ao3downloader.exe').exists()
+    assert not (tmp_path / 'update' / 'new' / 'ficfairy.exe').exists()
     # a failed update is over: a run may start again
     assert not update.busy()
 
@@ -329,7 +329,7 @@ def test_an_app_folder_it_cannot_write_to_is_said_before_anything_downloads(tmp_
 
 @pytest.mark.parametrize('log, failure', [
     ('', ''),
-    ('2026-01-01 swapped ao3downloader.exe, _internal\n', ''),
+    ('2026-01-01 swapped ficfairy.exe, _internal\n', ''),
     ('2026-01-01 update failed: the file is in use\n', 'the file is in use'),
     ('2026-01-01 update failed: in use\n2026-02-01 swapped _internal\n', ''),
     ('2026-01-01 swapped _internal\n2026-02-01 update failed: disk full\n', 'disk full'),
@@ -351,7 +351,7 @@ def test_the_script_never_touches_the_users_folders_and_always_starts_the_app_ag
     assert "Where-Object { $kept -notcontains $_ }" in script
     # the old files go back if any move fails, and the app starts again either way
     assert 'putting the old ones back' in script
-    assert 'finally {' in script and "Start-Process -FilePath (Join-Path $AppDir 'ao3downloader.exe')" in script
+    assert 'finally {' in script and "Start-Process -FilePath (Join-Path $AppDir 'ficfairy.exe')" in script
 
 # endregion
 

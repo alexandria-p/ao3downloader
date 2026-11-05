@@ -7,9 +7,9 @@ already cost someone a day.
 ## What this fork adds
 
 Upstream ao3downloader is a console program. This fork - **FicFairy** to the people using it:
-the page's title, header and footer, the READMEs, the repository (`alexandria-p/ficfairy`)
-and the release zips (`ficfairy-ao3downloader-<system>.zip`); the program files inside keep
-the `ao3downloader` names the updater looks for - adds:
+the page's title, header and footer, the READMEs, the repository (`alexandria-p/ficfairy`),
+the release zips (`ficfairy-ao3downloader-<system>.zip`) and the app inside them (`ficfairy/`,
+`ficfairy.exe`, `Start FicFairy.command` / `.sh`) - adds:
 
 1. **A `JSON` download type** - metadata for every work on a listing, one json file per
    work, with a version history inside each file.
@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2110 python passed; 1010 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1010 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -225,7 +225,7 @@ has none.
 
 ### The Windows app is the bundle with Python packed in
 
-`ao3downloader.exe` replaces `Start-Application.ps1` for people who should not need
+`ficfairy.exe` replaces `Start-Application.ps1` for people who should not need
 PowerShell or uv. `source_code/desktop.py` is its entry point - it does what the launcher
 does: settings and logs beside the exe (`config/`, `logs/`, through the same
 `AO3DOWNLOADER_CONFIG_FOLDER` / `_LOG_FOLDER` a build uses), the prebuilt page served from the
@@ -288,7 +288,7 @@ on Apple silicon through Rosetta, but Apple is winding Rosetta down. Each job ch
 program is the same `desktop.py`; what differs is all about getting a Mac to start it and to
 use the right browser.
 
-- **`Start ao3downloader.command` is what people double-click** (`MAC_LAUNCHER`), not the
+- **`Start FicFairy.command` is what people double-click** (`MAC_LAUNCHER`), not the
   program. A browser quarantines a download and Archive Utility quarantines every file it
   unzips, so an unsigned program would be refused, and each library it loads could be too.
   The script is the one thing macOS asks about (Privacy & Security > Open Anyway - macOS 15
@@ -325,7 +325,7 @@ runner, because a PyInstaller program needs at least the glibc it was built agai
 it to the same release (`package_app.system`: `linux-<machine>`, x86_64 only for now). The
 program is the same `desktop.py`.
 
-- **`Start ao3downloader.sh` is what people run** (`LINUX_LAUNCHER`). A file manager runs a
+- **`Start FicFairy.sh` is what people run** (`LINUX_LAUNCHER`). A file manager runs a
   script with no terminal, so where there is a desktop (`DISPLAY`/`WAYLAND_DISPLAY`) and no
   terminal it opens one to run itself in, setting `AO3DOWNLOADER_IN_TERMINAL` so the copy in
   the terminal does not open another. With no desktop it `exec`s the program where it is -
@@ -372,11 +372,11 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
 
 
 - **The zips are named `ficfairy-ao3downloader-<system>.zip`** (`package_app.ZIP_PREFIX`,
-  `updater.ASSET_PREFIX`); the folder, the program and the launchers inside keep
-  `ao3downloader`. **Every release also carries each zip under its old name**
-  (`ao3downloader-<system>.zip`, `package_app.legacy_zip_name`; each build's publish step copies
-  it), because an app installed before the rename looks for that name when it updates. Drop the
-  copies only once no such app is worth updating.
+  `updater.ASSET_PREFIX`), and hold `ficfairy/` - the program `ficfairy` (`ficfairy.exe` on
+  Windows) and `Start FicFairy.command` / `Start FicFairy.sh` (`package_app.APP_NAME`,
+  `updater.ZIP_ROOT`, `EXE_NAME`, `MAC_PROGRAM`). **Copies installed before the rename cannot
+  update** - their updater wants `ao3downloader/ao3downloader.exe` in the zip - and that was
+  accepted at the user's request: nobody depended on it yet. Download the app again by hand.
 - **One run or one update, never both.** `start_update` checks for a run and `claim`s the
   updater under `Handler.jobs_lock` - the lock a run is started under - and a run start checks
   `updater.busy()` (`checking`, `downloading`, `restarting`) under it too. A failed update is
@@ -392,7 +392,7 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   installed unchecked - which it must match (SHA-256), with its `size`. A stand-in source set by
   `AO3DOWNLOADER_UPDATE_SOURCE` is exempt from all three: it is on this computer, set up by
   whoever started the app. Then it must pass `check_zip`: every entry under
-  `ao3downloader/`, none absolute or with `..`, the exe and `_internal/` present. `unpack`
+  `ficfairy/`, none absolute or with `..`, the exe and `_internal/` present. `unpack`
   skips `config/`, `logs/` and `update/` even if a zip carried them. Any failure leaves the app
   untouched and `state: failed` with the reason.
 - **The swap is a PowerShell script** (`SWAP_SCRIPT`, written to `update/apply-update.ps1`,

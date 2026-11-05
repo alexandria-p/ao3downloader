@@ -799,12 +799,12 @@ describe('App', () => {
     expect(first?.querySelector('a')?.getAttribute('href')).toBe(
       'https://github.com/alexandria-p/ficfairy/releases/latest',
     );
-    expect(first?.textContent).toContain('ao3downloader.exe');
+    expect(first?.textContent).toContain('ficfairy.exe');
     expect(first?.textContent).toContain('ficfairy-ao3downloader-macos-apple-silicon.zip');
     expect(first?.textContent).toContain('ficfairy-ao3downloader-macos-intel.zip');
-    expect(first?.textContent).toContain('Start ao3downloader.command');
+    expect(first?.textContent).toContain('Start FicFairy.command');
     expect(first?.textContent).toContain('ficfairy-ao3downloader-linux-x86_64.zip');
-    expect(first?.textContent).toContain('Start ao3downloader.sh');
+    expect(first?.textContent).toContain('Start FicFairy.sh');
   });
 
   it('has a Report a bug tab next to the FAQ that points at the GitHub issues', async () => {

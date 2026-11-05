@@ -28,9 +28,9 @@ Keep your own copy of your AO3 bookmarks and collections on your computer or Dro
 
 Unzip it, then start it:
 
-- **Windows:** double-click `ao3downloader.exe`.
-- **Mac:** double-click `Start ao3downloader.command`.
-- **Linux:** run `Start ao3downloader.sh`.
+- **Windows:** double-click `ficfairy.exe`.
+- **Mac:** double-click `Start FicFairy.command`.
+- **Linux:** run `Start FicFairy.sh`.
 
 Blocked on first start? See `README.txt` in the zip.
 
