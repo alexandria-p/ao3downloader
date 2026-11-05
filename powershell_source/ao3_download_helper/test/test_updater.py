@@ -141,6 +141,29 @@ def test_a_download_link_off_github_is_refused(tmp_path):
         update.latest()
 
 
+def test_a_release_file_from_another_account_on_github_is_refused(tmp_path):
+    update, _, _ = updater(tmp_path, github(
+        url='https://github.com/someone-else/y/releases/download/v1.8.3/ficfairy-ao3downloader-windows.zip'))
+
+    with pytest.raises(UpdateError, match="not one of x's releases"):
+        update.latest()
+
+
+def test_a_github_link_that_is_not_a_release_file_is_refused(tmp_path):
+    update, _, _ = updater(tmp_path, github(url='https://github.com/x/y/raw/main/ficfairy-ao3downloader-windows.zip'))
+
+    with pytest.raises(UpdateError, match='releases'):
+        update.latest()
+
+
+def test_a_release_file_from_the_same_account_after_a_rename_is_still_an_update(tmp_path):
+    # an app built as x/y asks for x/y; GitHub answers for the renamed x/z with x/z's links
+    update, _, _ = updater(tmp_path, github(
+        url='https://github.com/X/z/releases/download/v1.8.3/ficfairy-ao3downloader-windows.zip'))
+
+    assert '/X/z/releases/download/' in update.latest().download
+
+
 def test_a_release_github_published_no_checksum_for_is_refused(tmp_path):
     update, _, _ = updater(tmp_path, github(digest=''))
 

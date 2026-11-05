@@ -366,6 +366,9 @@ class Updater:
                 raise UpdateError('the download is not over https - not fetching it')
             if host_of(download) != RELEASE_LINK_HOST:
                 raise UpdateError(f'the download is not on {RELEASE_LINK_HOST} - not fetching it')
+            owner = owner_of(self.repository)
+            if not released_by(download, owner):
+                raise UpdateError(f"the download is not one of {owner}'s releases on GitHub - not fetching it")
             if not digest.startswith('sha256:'):
                 raise UpdateError(f'GitHub published no checksum for {self.kind.asset} - not installing it')
         return Release(version=version, download=download,
@@ -461,6 +464,23 @@ class Updater:
 
 def host_of(url: str) -> str:
     return (urlsplit(url).hostname or '').lower()
+
+
+def owner_of(repository: str) -> str:
+    """The account a repository belongs to: `alexandria-p` of `alexandria-p/ficfairy`."""
+
+    return repository.split('/')[0].strip().lower()
+
+
+def released_by(url: str, owner: str) -> bool:
+    """Whether a link is a release file of one of `owner`'s own repositories -
+    `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>` and nothing else. The
+    repository's name is not held to the one this app was built with, so a renamed repository
+    (GitHub answers for the old name) still updates; the account is."""
+
+    parts = urlsplit(url).path.split('/')
+    return (bool(owner) and len(parts) >= 7 and parts[0] == '' and parts[1].lower() == owner
+            and bool(parts[2]) and parts[3] == 'releases' and parts[4] == 'download')
 
 
 def github_host(host: str) -> bool:

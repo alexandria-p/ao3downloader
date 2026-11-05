@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2107 python passed; 1010 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2110 python passed; 1010 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -383,7 +383,10 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   not busy, so it never blocks runs.
 - **What it installs**: `latest` reads `/repos/<repo>/releases/latest`, takes its
   `ficfairy-ao3downloader-windows.zip`, and only if newer (`is_newer`, number by number). The download
-  must be https **on `github.com`** (`RELEASE_LINK_HOST`), must **land** after GitHub's redirect
+  must be https **on `github.com`** (`RELEASE_LINK_HOST`), **a release file of the same
+  account the app was built for** (`released_by`: `/<owner>/<repo>/releases/download/...`, the
+  owner from `releasesRepo` by `owner_of`; the repository's name is not held, so a renamed one
+  still updates), must **land** after GitHub's redirect
   on `github.com` or a `*.githubusercontent.com` host (`github_host`, read off the response's
   final `url`), and must **have** a published `digest` - a release with none is refused, not
   installed unchecked - which it must match (SHA-256), with its `size`. A stand-in source set by
