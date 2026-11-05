@@ -7,7 +7,7 @@ any other way answers the update endpoints 404, and its page never shows the but
 What happens, in order:
 
 1. `latest` asks GitHub for the repository's latest release and finds this app's zip -
-   `ao3downloader-windows.zip`, on a Mac the one for its chip, or on Linux the one for its machine. It has to be newer than this
+   `ficfairy-ao3downloader-windows.zip`, on a Mac the one for its chip, or on Linux the one for its machine. It has to be newer than this
    app, or nothing happens.
 2. `install` downloads it into `update/` beside the program and checks it: against the SHA-256
    GitHub publishes for the file, and entry by entry - every file has to land inside the
@@ -44,9 +44,12 @@ from typing import Callable
 
 import requests
 
-ASSET_NAME = 'ao3downloader-windows.zip'
+ASSET_NAME = 'ficfairy-ao3downloader-windows.zip'
 # the folder the zip unpacks into: every entry has to be inside it
 ZIP_ROOT = 'ao3downloader'
+# what each release zip's name starts with (package_app.ZIP_PREFIX); the folder inside keeps
+# ZIP_ROOT, so an app installed before the rename still unpacks and swaps the same way
+ASSET_PREFIX = 'ficfairy-ao3downloader'
 EXE_NAME = 'ao3downloader.exe'
 MAC_PROGRAM = 'ao3downloader'
 # what a Mac is started by - the script the swap reopens in Terminal (package_app.MAC_LAUNCHER)
@@ -141,13 +144,13 @@ def kind_for(platform: str | None = None, machine: str | None = None) -> Kind | 
         import platform as machines
         chip = MAC_CHIPS.get(machine or machines.machine())
         if not chip: return None
-        return Kind(f'{ZIP_ROOT}-macos-{chip}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
+        return Kind(f'{ASSET_PREFIX}-macos-{chip}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
                     'macos')
     if platform.startswith('linux'):
         import platform as machines
         arch = LINUX_MACHINES.get((machine or machines.machine()).lower())
         if not arch: return None
-        return Kind(f'{ZIP_ROOT}-linux-{arch}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
+        return Kind(f'{ASSET_PREFIX}-linux-{arch}.zip', MAC_PROGRAM, MAC_SCRIPT_NAME, MAC_SWAP_SCRIPT, 'utf-8',
                     'linux')
     return None
 

@@ -45,4 +45,4 @@ The helper stopped mid-run - closed, crashed, or a deploy. **Resume** it from Hi
 
 ## Still stuck
 
-[Open an issue](https://github.com/alexandria-p/ao3downloader/issues). Say what you did, what happened, and your version (bottom of the page). If a run went wrong, attach its log: **History > Download log**.
+[Open an issue](https://github.com/alexandria-p/ficfairy/issues). Say what you did, what happened, and your version (bottom of the page). If a run went wrong, attach its log: **History > Download log**.

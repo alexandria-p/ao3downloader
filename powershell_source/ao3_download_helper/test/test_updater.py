@@ -58,7 +58,7 @@ def app_zip(extra: dict[str, bytes] | None = None, leave_out: tuple = ()) -> byt
 
 def github(tag: str = 'v1.8.3', body: bytes | None = None, digest: str | None = None,
            size: int | None = None, url: str = 'https://github.com/x/y/releases/download/v1.8.3/'
-                                                 'ao3downloader-windows.zip'):
+                                                 'ficfairy-ao3downloader-windows.zip'):
     body = app_zip() if body is None else body
     digest = 'sha256:' + hashlib.sha256(body).hexdigest() if digest is None else digest
     asked = []
@@ -103,7 +103,7 @@ def test_it_asks_for_the_latest_release_of_its_own_repository(tmp_path):
 
     assert get.asked == ['https://api.github.com/repos/x/y/releases/latest']
     assert release.version == '1.8.3'
-    assert release.download.endswith('/ao3downloader-windows.zip')
+    assert release.download.endswith('/ficfairy-ao3downloader-windows.zip')
     assert release.digest == hashlib.sha256(app_zip()).hexdigest()
 
 
@@ -123,7 +123,7 @@ def test_a_release_without_the_windows_zip_is_not_an_update(tmp_path):
         return Answer(data={'tag_name': 'v2.0.0', 'assets': []})
     update, _, _ = updater(tmp_path, get)
 
-    with pytest.raises(UpdateError, match='has no ao3downloader-windows.zip'):
+    with pytest.raises(UpdateError, match='has no ficfairy-ao3downloader-windows.zip'):
         update.latest()
 
 

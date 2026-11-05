@@ -37,6 +37,9 @@ import build_artifacts
 from build_artifacts import PACKAGE_NAME, PYTHON_HOME
 
 APP_NAME = 'ao3downloader'
+# what the release zips are named with. Only the zip: the folder, the program and the launchers
+# keep APP_NAME, which updater.kind_for and the swap scripts look for by name
+ZIP_PREFIX = 'ficfairy-ao3downloader'
 ENTRY = Path(PACKAGE_NAME) / 'desktop.py'
 # where PyInstaller puts things, under the repository root. dist/ is where the zip goes
 DIST = 'dist'
@@ -128,9 +131,9 @@ another window: close every ao3downloader window and start it again.
 MAC_CHIPS = {'arm64': 'apple-silicon', 'x86_64': 'intel'}
 MAC_FOR = {
     'apple-silicon': ('This is for Macs with Apple silicon (M1 or later). For an Intel Mac, download\n'
-                      f'{APP_NAME}-macos-intel.zip instead.'),
+                      f'{ZIP_PREFIX}-macos-intel.zip instead.'),
     'intel': ('This is for Intel Macs. For a Mac with Apple silicon (M1 or later), download\n'
-              f'{APP_NAME}-macos-apple-silicon.zip instead - this one would run there too, through\n'
+              f'{ZIP_PREFIX}-macos-apple-silicon.zip instead - this one would run there too, through\n'
               'Rosetta, but more slowly.'),
 }
 
@@ -331,6 +334,13 @@ def assemble(root: Path, platform: str | None = None, machine: str | None = None
 
 
 def zip_name(platform: str | None = None, machine: str | None = None) -> str:
+    return f'{ZIP_PREFIX}-{system(platform, machine)}.zip'
+
+
+def legacy_zip_name(platform: str | None = None, machine: str | None = None) -> str:
+    """The name the zips had before the FicFairy rename - the one an app installed before it
+    looks for when it updates, so every release carries a copy under it too."""
+
     return f'{APP_NAME}-{system(platform, machine)}.zip'
 
 

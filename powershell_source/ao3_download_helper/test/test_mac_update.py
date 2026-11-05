@@ -71,7 +71,7 @@ def github(asset: str, body: bytes):
     def get(address, **kwargs):
         if address.endswith('/releases/latest'):
             return Answer(data={'tag_name': 'v1.8.3', 'assets': [
-                {'name': 'ao3downloader-windows.zip', 'browser_download_url': 'https://x/windows'},
+                {'name': 'ficfairy-ao3downloader-windows.zip', 'browser_download_url': 'https://x/windows'},
                 {'name': asset, 'browser_download_url': f'https://x/{asset}',
                  'digest': 'sha256:' + hashlib.sha256(body).hexdigest(), 'size': len(body)}]})
         get.fetched = address
@@ -92,10 +92,10 @@ def mac_updater(tmp_path, chip='arm64', body=None, platform='darwin'):
 # region which zip, and what is in it
 
 def test_each_mac_takes_the_zip_for_its_own_chip_and_windows_keeps_its_own():
-    assert updates.kind_for('darwin', 'arm64').asset == 'ao3downloader-macos-apple-silicon.zip'
-    assert updates.kind_for('darwin', 'x86_64').asset == 'ao3downloader-macos-intel.zip'
-    assert updates.kind_for('win32').asset == 'ao3downloader-windows.zip'
-    assert updates.kind_for('linux', 'x86_64').asset == 'ao3downloader-linux-x86_64.zip'
+    assert updates.kind_for('darwin', 'arm64').asset == 'ficfairy-ao3downloader-macos-apple-silicon.zip'
+    assert updates.kind_for('darwin', 'x86_64').asset == 'ficfairy-ao3downloader-macos-intel.zip'
+    assert updates.kind_for('win32').asset == 'ficfairy-ao3downloader-windows.zip'
+    assert updates.kind_for('linux', 'x86_64').asset == 'ficfairy-ao3downloader-linux-x86_64.zip'
     # a system with no published app has nothing to update from
     assert updates.kind_for('linux', 'aarch64') is None
     assert updates.kind_for('freebsd14', 'amd64') is None
@@ -105,7 +105,7 @@ def test_a_mac_downloads_its_own_zip_from_the_release(tmp_path):
     update, get, _ = mac_updater(tmp_path, 'x86_64')
     release = update.latest()
 
-    assert release.download == 'https://x/ao3downloader-macos-intel.zip'
+    assert release.download == 'https://x/ficfairy-ao3downloader-macos-intel.zip'
 
 
 def test_a_mac_zip_must_hold_the_program_not_an_exe():
@@ -171,7 +171,7 @@ def test_a_linux_update_hands_over_to_the_same_script_told_it_is_on_linux(tmp_pa
     (tmp_path / updates.UPDATE_FOLDER).mkdir()
     update.install(update.latest())
 
-    assert get.fetched == 'https://x/ao3downloader-linux-x86_64.zip'
+    assert get.fetched == 'https://x/ficfairy-ao3downloader-linux-x86_64.zip'
     command = launch.call_args.args[0]
     assert command == ['/bin/bash', str(tmp_path / 'update' / 'apply-update.sh'), str(tmp_path),
                        str(os.getpid()), 'linux']
@@ -310,7 +310,7 @@ def test_the_packaged_mac_app_can_update_itself(monkeypatch, tmp_path):
     update = desktop.make_updater(str(tmp_path), 'web')
 
     assert update is not None
-    assert update.kind.asset == 'ao3downloader-macos-apple-silicon.zip'
+    assert update.kind.asset == 'ficfairy-ao3downloader-macos-apple-silicon.zip'
     assert update.status()['updatable'] is True
 
 
@@ -325,7 +325,7 @@ def test_the_packaged_linux_app_can_update_itself(monkeypatch, tmp_path):
     update = desktop.make_updater(str(tmp_path), 'web')
 
     assert update is not None
-    assert update.kind.asset == 'ao3downloader-linux-x86_64.zip'
+    assert update.kind.asset == 'ficfairy-ao3downloader-linux-x86_64.zip'
     assert update.status()['updatable'] is True
 
 # endregion

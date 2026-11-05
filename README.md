@@ -24,7 +24,7 @@ Keep your own copy of your AO3 bookmarks and collections on your computer or Dro
 
 | Windows | Mac (Apple silicon) | Mac (Intel) | Linux |
 | --- | --- | --- | --- |
-| [ao3downloader-windows.zip](https://github.com/alexandria-p/ao3downloader/releases/latest/download/ao3downloader-windows.zip) | [ao3downloader-macos-apple-silicon.zip](https://github.com/alexandria-p/ao3downloader/releases/latest/download/ao3downloader-macos-apple-silicon.zip) | [ao3downloader-macos-intel.zip](https://github.com/alexandria-p/ao3downloader/releases/latest/download/ao3downloader-macos-intel.zip) | [ao3downloader-linux-x86_64.zip](https://github.com/alexandria-p/ao3downloader/releases/latest/download/ao3downloader-linux-x86_64.zip) |
+| [ficfairy-ao3downloader-windows.zip](https://github.com/alexandria-p/ficfairy/releases/latest/download/ficfairy-ao3downloader-windows.zip) | [ficfairy-ao3downloader-macos-apple-silicon.zip](https://github.com/alexandria-p/ficfairy/releases/latest/download/ficfairy-ao3downloader-macos-apple-silicon.zip) | [ficfairy-ao3downloader-macos-intel.zip](https://github.com/alexandria-p/ficfairy/releases/latest/download/ficfairy-ao3downloader-macos-intel.zip) | [ficfairy-ao3downloader-linux-x86_64.zip](https://github.com/alexandria-p/ficfairy/releases/latest/download/ficfairy-ao3downloader-linux-x86_64.zip) |
 
 Unzip it, then start it:
 
@@ -34,7 +34,7 @@ Unzip it, then start it:
 
 Blocked on first start? See `README.txt` in the zip.
 
-Every version is on the [releases page](https://github.com/alexandria-p/ao3downloader/releases/latest). There is no mobile release for now, but I would eventually like to make a solution that is more portable.
+Every version is on the [releases page](https://github.com/alexandria-p/ficfairy/releases/latest). There is no mobile release for now, but I would eventually like to make a solution that is more portable.
 
 . ݁₊ ⊹ . ݁ ⟡ ݁ . ⊹ ₊ ݁.
 
@@ -95,8 +95,8 @@ Again, this tool is only for personal use and I have been militant in ensuring t
 
 ## More
 
-- [The wiki](https://github.com/alexandria-p/ao3downloader/wiki): how to use each part of the app.
-- [Report a bug](https://github.com/alexandria-p/ao3downloader/issues), or use the Feedback tab in the app.
+- [The wiki](https://github.com/alexandria-p/ficfairy/wiki): how to use each part of the app.
+- [Report a bug](https://github.com/alexandria-p/ficfairy/issues), or use the Feedback tab in the app.
 - [BlueSky @ficfairy.bsky.social](https://bsky.app/profile/ficfairy.bsky.social)
 - [Twitter/X @ficfairy_ao3](https://x.com/ficfairy_ao3)
 

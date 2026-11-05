@@ -61,7 +61,7 @@ jobs:
       contents: write
     env:
       APP_VERSION: ${{ inputs.version || '0.0.1' }}
-      ZIP: dist/ao3downloader-macos-${{ matrix.chip }}.zip
+      ZIP: dist/ficfairy-ao3downloader-macos-${{ matrix.chip }}.zip
 
     steps:
       - name: checkout
@@ -246,7 +246,7 @@ jobs:
       - name: keep the zip on this run
         uses: actions/upload-artifact@v4
         with:
-          name: ao3downloader-macos-${{ matrix.chip }}
+          name: ficfairy-ao3downloader-macos-${{ matrix.chip }}
           path: ${{ env.ZIP }}
           retention-days: 30
 
@@ -265,15 +265,20 @@ jobs:
             gh release create "$TAG" \
               --target "$GITHUB_SHA" \
               --latest \
-              --title "ao3downloader $VERSION" \
-              --notes "Windows: download ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe. Windows may warn that the app is not signed: choose More info, then Run anyway.
+              --title "FicFairy $VERSION" \
+              --notes "Windows: download ficfairy-ao3downloader-windows.zip, unzip it, and double-click ao3downloader.exe. Windows may warn that the app is not signed: choose More info, then Run anyway.
 
-          Mac: download ao3downloader-macos-apple-silicon.zip for an M1 or later, or ao3downloader-macos-intel.zip for an Intel Mac, open it, and double-click Start ao3downloader.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
+          Mac: download ficfairy-ao3downloader-macos-apple-silicon.zip for an M1 or later, or ficfairy-ao3downloader-macos-intel.zip for an Intel Mac, open it, and double-click Start ao3downloader.command. The first time, macOS says it cannot check the app: click Done, then System Settings > Privacy & Security > Open Anyway. Use Chrome, Edge, Brave or Arc - Safari and Firefox cannot open a folder for the app.
 
-          Linux (64-bit Intel or AMD): download ao3downloader-linux-x86_64.zip, unzip it, and run Start ao3downloader.sh. Use Chrome or Chromium - Firefox cannot open a folder for the app.
+          Linux (64-bit Intel or AMD): download ficfairy-ao3downloader-linux-x86_64.zip, unzip it, and run Start ao3downloader.sh. Use Chrome or Chromium - Firefox cannot open a folder for the app.
 
-          The README inside each zip says the rest." \
+          The README inside each zip says the rest. The zips named without ficfairy- are the same app, kept so a copy installed before the rename can still update itself." \
               || echo 'the release was made meanwhile, by another build'
           fi
           gh release upload "$TAG" "$ZIP" --clobber
+          # the same zip under its name from before the FicFairy rename - an app installed then
+          # looks for that name when it updates (package_app.legacy_zip_name)
+          legacy="dist/$(basename "$ZIP" | sed 's/^ficfairy-//')"
+          cp "$ZIP" "$legacy"
+          gh release upload "$TAG" "$legacy" --clobber
           echo "published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"

@@ -173,27 +173,44 @@ def test_the_zip_unzips_into_one_folder_and_holds_no_settings(tmp_path):
 
 def test_the_zip_is_named_for_the_system_it_was_built_on(monkeypatch):
     monkeypatch.setattr(package_app.sys, 'platform', 'win32')
-    assert package_app.zip_name() == 'ao3downloader-windows.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-windows.zip'
     monkeypatch.setattr(package_app.sys, 'platform', 'darwin')
     monkeypatch.setattr(package_app.machines, 'machine', lambda: 'arm64')
-    assert package_app.zip_name() == 'ao3downloader-macos-apple-silicon.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-macos-apple-silicon.zip'
     monkeypatch.setattr(package_app.machines, 'machine', lambda: 'x86_64')
-    assert package_app.zip_name() == 'ao3downloader-macos-intel.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-macos-intel.zip'
     # the names the updater looks for on each system
     monkeypatch.setattr(package_app.sys, 'platform', 'linux')
-    assert package_app.zip_name() == 'ao3downloader-linux-x86_64.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-linux-x86_64.zip'
     monkeypatch.setattr(package_app.machines, 'machine', lambda: 'aarch64')
-    assert package_app.zip_name() == 'ao3downloader-linux-aarch64.zip'
+    assert package_app.zip_name() == 'ficfairy-ao3downloader-linux-aarch64.zip'
+
+
+def test_every_zip_also_has_its_name_from_before_the_rename_for_apps_installed_then(monkeypatch):
+    # an app installed before the FicFairy rename updates by looking for these names, so each
+    # release carries a copy under them - the same zip, the name only without ficfairy-
+    for platform, machine, old in [('win32', None, 'ao3downloader-windows.zip'),
+                                   ('darwin', 'arm64', 'ao3downloader-macos-apple-silicon.zip'),
+                                   ('darwin', 'x86_64', 'ao3downloader-macos-intel.zip'),
+                                   ('linux', 'x86_64', 'ao3downloader-linux-x86_64.zip')]:
+        assert package_app.legacy_zip_name(platform, machine) == old
+        assert package_app.zip_name(platform, machine) == 'ficfairy-' + old
+
+
+def test_the_updater_looks_for_the_name_each_zip_is_built_with():
+    from source_code import updater
+    for platform, machine in [('win32', None), ('darwin', 'arm64'), ('darwin', 'x86_64'), ('linux', 'x86_64')]:
+        assert updater.kind_for(platform, machine).asset == package_app.zip_name(platform, machine)
 
 
 def test_each_mac_readme_says_which_macs_it_is_for_and_where_the_other_one_is(tmp_path):
     silicon = (package_app.assemble(app_folder(tmp_path / 'one'), 'darwin', 'arm64') / 'README.txt').read_text(encoding='utf-8')
     assert 'Apple silicon (M1 or later)' in silicon.split('Starting it')[0]
-    assert 'ao3downloader-macos-intel.zip' in silicon
+    assert 'ficfairy-ao3downloader-macos-intel.zip' in silicon
 
     intel = (package_app.assemble(app_folder(tmp_path / 'two'), 'darwin', 'x86_64') / 'README.txt').read_text(encoding='utf-8')
     assert 'This is for Intel Macs' in intel
-    assert 'ao3downloader-macos-apple-silicon.zip' in intel
+    assert 'ficfairy-ao3downloader-macos-apple-silicon.zip' in intel
 
 
 def test_the_zip_keeps_the_program_executable(tmp_path):

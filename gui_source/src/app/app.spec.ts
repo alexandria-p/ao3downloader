@@ -797,13 +797,13 @@ describe('App', () => {
     const first = element.querySelector('app-faq .faq')?.firstElementChild;
     expect(first?.classList.contains('download-app')).toBe(true);
     expect(first?.querySelector('a')?.getAttribute('href')).toBe(
-      'https://github.com/alexandria-p/ao3downloader/releases/latest',
+      'https://github.com/alexandria-p/ficfairy/releases/latest',
     );
     expect(first?.textContent).toContain('ao3downloader.exe');
-    expect(first?.textContent).toContain('ao3downloader-macos-apple-silicon.zip');
-    expect(first?.textContent).toContain('ao3downloader-macos-intel.zip');
+    expect(first?.textContent).toContain('ficfairy-ao3downloader-macos-apple-silicon.zip');
+    expect(first?.textContent).toContain('ficfairy-ao3downloader-macos-intel.zip');
     expect(first?.textContent).toContain('Start ao3downloader.command');
-    expect(first?.textContent).toContain('ao3downloader-linux-x86_64.zip');
+    expect(first?.textContent).toContain('ficfairy-ao3downloader-linux-x86_64.zip');
     expect(first?.textContent).toContain('Start ao3downloader.sh');
   });
 
@@ -817,7 +817,7 @@ describe('App', () => {
 
     const page = element.querySelector('.report-bug');
     expect(page?.querySelector('a')?.getAttribute('href')).toBe(
-      'https://github.com/alexandria-p/ao3downloader/issues',
+      'https://github.com/alexandria-p/ficfairy/issues',
     );
     // something to read, not a folder to act on - no run buttons
     expect(element.querySelector('.actions')).toBeNull();
@@ -879,7 +879,7 @@ describe('App', () => {
       const footer = element.querySelector('.app-footer');
       expect(footer?.textContent).toContain('version 1.8.2');
       expect(footer?.querySelector('a')?.getAttribute('href')).toBe(
-        'https://github.com/alexandria-p/ao3downloader',
+        'https://github.com/alexandria-p/ficfairy',
       );
     }
   });
@@ -916,7 +916,7 @@ describe('App', () => {
 
     const link = element.querySelector('.app-footer .footer-link');
     expect(link?.textContent?.trim()).toBe('up to date with latest');
-    expect(link?.getAttribute('href')).toBe('https://github.com/alexandria-p/ao3downloader/releases/latest');
+    expect(link?.getAttribute('href')).toBe('https://github.com/alexandria-p/ficfairy/releases/latest');
   });
 
   it('says nothing in the footer about being the latest until GitHub has answered', async () => {

@@ -98,7 +98,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2100 python passed; 1006 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2102 python passed; 1006 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -277,8 +277,8 @@ What not to break:
 ### The Mac app is the same app, started by a script
 
 `build-mac.yml` runs `package_app.py` twice, as a matrix: on `macos-latest` for Apple
-silicon and on `macos-15-intel` for Intel, adding `ao3downloader-macos-apple-silicon.zip` and
-`ao3downloader-macos-intel.zip` to the same release as the Windows zip (`package_app.system`
+silicon and on `macos-15-intel` for Intel, adding `ficfairy-ao3downloader-macos-apple-silicon.zip` and
+`ficfairy-ao3downloader-macos-intel.zip` to the same release as the Windows zip (`package_app.system`
 names a Mac zip by `platform.machine()`; Windows stays plain `windows`, the name the updater
 looks for). **Not one universal build**: that needs a universal Python and universal copies
 of every compiled library, and the Python uv installs is per-chip; the Intel build would run
@@ -315,11 +315,11 @@ use the right browser.
   the other's create fails harmlessly, then each uploads its zip with `--clobber`. The notes
   are the same text in both workflows, since either may write them. For the minutes between
   the release appearing and a system's zip landing, Update now there fails with "the latest
-  release has no ao3downloader-<system>.zip" - clear, and gone on the next try.
+  release has no ficfairy-ao3downloader-<system>.zip" - clear, and gone on the next try.
 
 ### The Linux app is the same app, started by a script too
 
-`build-linux.yml` builds `ao3downloader-linux-x86_64.zip` on `ubuntu-22.04` - the oldest
+`build-linux.yml` builds `ficfairy-ao3downloader-linux-x86_64.zip` on `ubuntu-22.04` - the oldest
 runner, because a PyInstaller program needs at least the glibc it was built against - and adds
 it to the same release (`package_app.system`: `linux-<machine>`, x86_64 only for now). The
 program is the same `desktop.py`.
@@ -349,7 +349,7 @@ program is the same `desktop.py`.
 Mac or Linux with a version and a repository has an `Updater` (`desktop.make_updater`, set on
 `Handler.updater`); every other helper answers 404 and its page only links the release.
 `updater.kind_for` says what an update is on each system (`Kind`): which release asset
-(`ao3downloader-windows.zip`, or `ao3downloader-macos-<chip>.zip` / `ao3downloader-linux-x86_64.zip`
+(`ficfairy-ao3downloader-windows.zip`, or `ficfairy-ao3downloader-macos-<chip>.zip` / `ficfairy-ao3downloader-linux-x86_64.zip`
 by `platform.machine()`),
 which program must be in the zip, and which swap script, started how.
 
@@ -370,12 +370,18 @@ clean swap, and a failed move rolled back, on each system. **On Linux** the same
 with `linux` as its third argument and starts the launcher with `setsid -f` instead.
 
 
+- **The zips are named `ficfairy-ao3downloader-<system>.zip`** (`package_app.ZIP_PREFIX`,
+  `updater.ASSET_PREFIX`); the folder, the program and the launchers inside keep
+  `ao3downloader`. **Every release also carries each zip under its old name**
+  (`ao3downloader-<system>.zip`, `package_app.legacy_zip_name`; each build's publish step copies
+  it), because an app installed before the rename looks for that name when it updates. Drop the
+  copies only once no such app is worth updating.
 - **One run or one update, never both.** `start_update` checks for a run and `claim`s the
   updater under `Handler.jobs_lock` - the lock a run is started under - and a run start checks
   `updater.busy()` (`checking`, `downloading`, `restarting`) under it too. A failed update is
   not busy, so it never blocks runs.
 - **What it installs**: `latest` reads `/repos/<repo>/releases/latest`, takes its
-  `ao3downloader-windows.zip`, and only if newer (`is_newer`, number by number). The download
+  `ficfairy-ao3downloader-windows.zip`, and only if newer (`is_newer`, number by number). The download
   must be https (unless `AO3DOWNLOADER_UPDATE_SOURCE` points it at a stand-in), match GitHub's
   published `digest` (SHA-256) and `size`, and pass `check_zip`: every entry under
   `ao3downloader/`, none absolute or with `..`, the exe and `_internal/` present. `unpack`
