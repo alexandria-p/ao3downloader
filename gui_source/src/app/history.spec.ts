@@ -92,6 +92,12 @@ describe('History', () => {
     expect(element.querySelector('app-progress-bar')).toBeNull();
   });
 
+  it('offers no refresh icon with no library open, or when the history could not be read', async () => {
+    await show(null);
+    expect(element.querySelector('.refresh-icon')).toBeNull();
+    expect(element.querySelector('.meta-line')).toBeNull();
+  });
+
   it('says it lists only the most recent runs, in an (i) beside the heading', async () => {
     await show([]);
     expect(element.querySelector('h2 .history-limit')?.textContent).toContain('100 most recent runs');

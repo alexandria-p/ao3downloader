@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1034 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1035 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2640,7 +2640,7 @@ that was already going at the read is not known to have been going, so its endin
 seen until a later run's record appears. **Above the listing, *List refreshed* is the only
 time shown** (a *Last indexed* beside it was removed at the user's request; `data.retrieved`,
 the newest `last_indexed`, is still worked out). It is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** is an icon beside *List refreshed* on Works and Collections (`#refreshIcon`, projected as `[noteAction]`; `.refresh-icon`, spinning and held while anything reads the list - a refresh or a full read; transparent in every
-state) - `Library.refresh` on demand; History has the same icon for its own list (`load`). There is none in the header. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and the Refresh icon are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
+state) - `Library.refresh` on demand; History has the same icon for its own list (`load`), shown only once it has read one - not with no library open, nor after a read that failed. There is none in the header. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and the Refresh icon are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
 
 **Both listings show their headings from the first moment of a read** (`App.firstRead`, the
 listing's `loading` input): *Bookmarks* / *Collections* alone while nothing is counted (still

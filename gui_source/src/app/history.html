@@ -12,8 +12,11 @@
       </span>
     </h2>
   </div>
+  <!-- only once the history has been read: with no library, or a read that failed, there is
+       nothing to refresh -->
+  @if (readAt(); as at) {
   <p class="meta-line note">
-    @if (readAt(); as at) {<span>List refreshed {{ shownTime(at) }}</span>}
+    <span>List refreshed {{ shownTime(at) }}</span>
     <button
       type="button"
       class="refresh-icon"
@@ -29,6 +32,7 @@
     </svg>
     </button>
   </p>
+  }
   <!-- reading the library: under the title, as on every tab -->
   <ng-content select="[listingProgress]" />
 
