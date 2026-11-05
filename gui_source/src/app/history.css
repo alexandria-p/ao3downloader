@@ -126,6 +126,12 @@
   margin-left: auto;
 }
 
+/* Retry's right edge meets the pill's straight edge, before its round end: in by half the
+   pill's height - 0.75rem of text at line-height 1.5, 2px padding and 1px border each side */
+.run-corner .retry {
+  margin-right: calc(0.5625rem + 3px);
+}
+
 .run-name {
   font-weight: 600;
   color: var(--text-strong);
@@ -134,6 +140,8 @@
 /* how a run ended, as a pill in its status colour - the first thing read on a card */
 .run-status {
   flex: none;
+  /* its height is set by these, so Retry can be lined up with where its round end begins */
+  line-height: 1.5;
   padding: 2px 10px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
