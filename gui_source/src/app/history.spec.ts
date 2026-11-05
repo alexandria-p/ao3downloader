@@ -109,7 +109,7 @@ describe('History', () => {
     expect(read).toHaveBeenCalledTimes(1);
     expect(element.querySelectorAll('.run:not(.run-active)').length).toBe(1);
 
-    [...element.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Refresh')!.click();
+    element.querySelector<HTMLButtonElement>('.refresh-icon')!.click();
     await show(jobs.runs);
     expect(read).toHaveBeenCalledTimes(2);
 

@@ -244,7 +244,12 @@ describe('App', () => {
     const element = await withFolder();
 
     // jsdom has no folder picker, so this is the file-input button (and no Forget)
-    const locked = ['This computer', 'Dropbox', 'Choose downloads folder', 'Refresh'].map((text) =>
+    const refresh = element.querySelector<HTMLButtonElement>('.refresh-icon');
+    if (refresh) {
+      expect(refresh.disabled).toBe(true);
+      expect(refresh.getAttribute('title')).toBe('Cannot be changed while an active run is in progress');
+    }
+    const locked = ['This computer', 'Dropbox', 'Choose downloads folder'].map((text) =>
       Array.from(element.querySelectorAll<HTMLButtonElement>('.topbar button')).find(
         (b) => b.textContent?.trim() === text,
       ),
@@ -261,14 +266,15 @@ describe('App', () => {
     expect(shownTime('sometime last week')).toBe('sometime last week');
   });
 
-  it('offers Refresh beside the library, which reads it again', async () => {
-    const element = await withFolder();
+  it('offers Refresh as an icon beside List refreshed, not in the header, which reads it again', async () => {
     const library = TestBed.inject(Library);
+    library.listedAt.set(new Date('2026-11-05T12:00:00Z'));
+    const { element } = await render(1);
     const refresh = vi.spyOn(library, 'refresh').mockResolvedValue();
 
-    const button = Array.from(element.querySelectorAll<HTMLButtonElement>('.topbar button')).find(
-      (b) => b.textContent?.trim() === 'Refresh',
-    )!;
+    expect([...element.querySelectorAll('.topbar button')].some((b) => b.textContent?.includes('Refresh'))).toBe(false);
+    const button = element.querySelector<HTMLButtonElement>('.meta-line.note .refresh-icon')!;
+    expect(button.textContent?.trim()).toBe('');
     expect(button.disabled).toBe(false);
     button.click();
 

@@ -14,7 +14,7 @@
 </p>
 
 @if (note()) {
-  <p class="meta-line note">{{ note() }}</p>
+  <p class="meta-line note">{{ note() }} <ng-content select="[noteAction]" /></p>
 }
 <!-- whatever the page puts under the heading - on the Works tab, its run buttons -->
 <ng-content select="[listingActions]" />

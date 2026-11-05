@@ -624,3 +624,40 @@
 .views .debug-tab-button {
   color: var(--danger-text);
 }
+
+/* Refresh, as an icon beside 'List refreshed': spins while the list is read again */
+.refresh-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  padding: 3px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-dim);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.refresh-icon:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--accent);
+}
+
+.refresh-icon:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.refresh-icon.spinning svg {
+  animation: refresh-spin 1s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refresh-icon.spinning svg { animation: none; }
+}

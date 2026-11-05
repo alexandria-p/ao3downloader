@@ -85,18 +85,6 @@
       }
     }
 
-    <!-- the same read the list does by itself after a run elsewhere, on demand -->
-    @if (store()) {
-      <button
-        type="button"
-        class="button subtle refresh-library"
-        [disabled]="libraryLocked() || refreshing()"
-        [attr.title]="libraryLocked() ? lockedTitle : 'Read the library again, keeping the list and its filters on screen'"
-        (click)="refreshLibrary()"
-      >
-        {{ refreshing() ? 'Refreshing...' : 'Refresh' }}
-      </button>
-    }
   </div>
 </header>
 
@@ -435,6 +423,25 @@
   reading the library: one bar, under the title of whichever tab is showing (projected into it as
   [listingProgress]) - or here, above the content, where the tab has no title to go under
 -->
+<!-- Refresh: the same read the list does by itself after a run elsewhere, on demand - an icon
+     beside 'List refreshed' on Works and Collections -->
+<ng-template #refreshIcon>
+  <button
+    type="button"
+    class="refresh-icon"
+    [class.spinning]="refreshing()"
+    [disabled]="libraryLocked() || refreshing()"
+    [attr.title]="libraryLocked() ? lockedTitle : refreshing() ? 'Refreshing...' : 'Refresh the list - read the library again'"
+    [attr.aria-label]="refreshing() ? 'Refreshing' : 'Refresh the list'"
+    (click)="refreshLibrary()"
+  >
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+      <path d="M12.4 1.6v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  </button>
+</ng-template>
+
 <!-- a background run's changes being brought in: under the Works and Collections buttons -->
 <ng-template #behindNote>
   @if (refreshing()) {
@@ -494,6 +501,7 @@
       [note]="listingNote()"
       [selectable]="true"
     >
+      <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
       <div listingProgress>
         <ng-container [ngTemplateOutlet]="behindNote" />
         <ng-container [ngTemplateOutlet]="libraryProgress" />
@@ -510,6 +518,7 @@
   }
 } @else if (view() === 'collections') {
   <app-collections-view [preparing]="libraryPreparing()">
+    <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
     <div listingProgress>
       <ng-container [ngTemplateOutlet]="behindNote" />
       <ng-container [ngTemplateOutlet]="libraryProgress" />
