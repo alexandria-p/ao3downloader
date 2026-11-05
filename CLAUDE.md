@@ -98,7 +98,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2100 python passed; 1004 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2100 python passed; 1006 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2102,7 +2102,12 @@ is needed (`needsUsername`, from `sentAction`), and a hosted page seals an empty
 `imports.ts`, `import-dialog.ts` and `run_import`. A file in `works/` named for a work number
 (`workIdFromFilename`) with no index entry is **unindexed** (`unindexedWorks`, from one
 `store.list('works')` against `Library.worksById`; `LibraryImports.check` reruns it whenever
-`worksById` changes, so a read, a refresh and a run's changes taken in all count). Undated
+`worksById` changes, so a read, a refresh and a run's changes taken in all count) - **but only
+once the library is wholly read and set up**: the store is set before the index is read, and a
+check against that empty index found every file unindexed, so while `Library.loading` or setup
+is busy `App` calls `LibraryImports.forget` instead (nothing found, a check in flight thrown
+away) and the reminder stays down. **The reminder and the window's overview count alike**, in
+files, through one `importIssueCounts` / `importIssueLines` - the reminder used to count works. Undated
 files of works the index *does* have are issues too (`undatedIndexedFiles`, `undatedIndexed`,
 the window's `undatedElsewhere`): offered on the dates page, and with nothing unindexed the
 window finishes after dating (`afterDating`). What not to break:
@@ -2129,7 +2134,7 @@ window finishes after dating (`afterDating`). What not to break:
   (`indexed_file_name`, the same pattern, truncation and invalid characters a download uses,
   with the date given), otherwise `dated_file_name` - and falls back to `datedName` when the
   helper does not answer. **Don't build names in the page**: the helper's rules would drift.
-  `dateFiles` renames through `LibraryStore.rename` (never over a file), says each failure and
+  **Continue waits until every file has a real date or a Skip tick** (`needsAnswer`; the rows left are highlighted and `.needs-answer-note` offers to skip them), so a missed box never leaves a file undated unasked. `dateFiles` renames through `LibraryStore.rename` (never over a file), says each failure and
   carries on, and stops when the window is closed (`stopped`). `takeInDating` hands the renames
   to `refreshAfterRun`. A date has to be a real day (`isFileDate`); a file with none is simply
   not dated. **Infer date** (`inferDate`, `DATE_PATTERNS`) reads a date out of a name in any of
@@ -2151,9 +2156,10 @@ window finishes after dating (`afterDating`). What not to break:
   indexed (one whose undated files brought it into the import) keeps its origin.
 - **Duplicates come first** (`duplicates`, `choose`, `removing` steps, only with some):
   `duplicateGroups` is every work number and format (`.htm` is html) with more than one file
-  in `works/`, however named. Each row is *Skip* (default: every file kept, asked again - on
+  in `works/`, however named. Each row is *Keep most recent* (the default - a set whose newest cannot be told is asked
+  about on the removing page, so nothing goes on a guess), *Skip* (every file kept, asked again - on
   the **duplicates** list only when *Don't ask this again for skipped files* is ticked,
-  `rememberSkipped` - the list's skips only; sifting asks per group), *Keep most recent* or *I'll
+  `rememberSkipped` - the list's skips only; sifting asks per group) or *I'll
   choose*; *Keep all* was folded into Skip at the user's request, being the same thing. Buttons
   *Mark all as Skip* / *Keep most recent* / *I'll choose myself* set every row, and the primary
   reads *Skip this step* with every row skipped (`allSkipped`), *Choose which to keep* with any

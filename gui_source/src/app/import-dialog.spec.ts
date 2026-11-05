@@ -152,6 +152,12 @@ function skipBox(path: string): HTMLInputElement {
   return row(path).querySelector<HTMLInputElement>('input[type="checkbox"]')!;
 }
 
+/** on the dates page: ticks Skip on every file, then goes on with none dated */
+async function skipDates() {
+  await click('Skip all');
+  await click('Skip this step');
+}
+
 function rowOrder(): string[] {
   return Array.from(element.querySelectorAll('tr[data-file]')).map((r) => r.getAttribute('data-file')!);
 }
@@ -191,7 +197,7 @@ describe('ImportDialog', () => {
     await open([], false, INDEXED_UNDATED);
     await click('Continue');
     expect(step()).toBe('dates');
-    await click('Skip this step');
+    await skipDates();
     expect(step()).toBe('formats');
   });
 
@@ -326,7 +332,7 @@ describe('ImportDialog', () => {
     ]);
   });
 
-  it('lists each work and format with more than one file, every file under it, skipped to begin with', async () => {
+  it('lists each work and format with more than one file, every file under it, kept to the most recent to begin with', async () => {
     await open([], false, [], DUPES);
     expect(element.querySelector('.overview-duplicates')?.textContent?.trim()).toBe('7 files are duplicates');
     await click('Continue');
@@ -336,7 +342,7 @@ describe('ImportDialog', () => {
     ]);
     expect(groupRow('8:epub').querySelectorAll('li')).toHaveLength(3);
     for (const key of ['7:html', '7:pdf', '8:epub']) {
-      expect(groupRow(key).querySelector('select')!.value).toBe('skip');
+      expect(groupRow(key).querySelector('select')!.value).toBe('recent');
     }
   });
 
@@ -363,8 +369,7 @@ describe('ImportDialog', () => {
   it('keeps the most recent by the date in each name, removing the rest on a page with a bar', async () => {
     await open([], false, [], DUPES);
     await click('Continue');
-    await chooseIn('7:html', 'recent');
-    await chooseIn('8:epub', 'recent');
+    await chooseIn('7:pdf', 'skip');
     expect(groupRow('7:html').querySelector('li.newest')?.textContent).toContain('7 Fic - W 2024-01-01.html');
     await click('Continue');
     await settle();
@@ -382,7 +387,8 @@ describe('ImportDialog', () => {
   it('deletes nothing for a group whose newest cannot be told, and says so', async () => {
     await open([], false, [], DUPES);
     await click('Continue');
-    await chooseIn('7:pdf', 'recent');
+    await chooseIn('7:html', 'skip');
+    await chooseIn('8:epub', 'skip');
     expect(groupRow('7:pdf').querySelector('.undecided-note')?.textContent).toContain("Can't tell which is newest");
     await click('Continue');
     await settle();
@@ -396,6 +402,8 @@ describe('ImportDialog', () => {
   it('says Skip this step with every row skipped, Choose which to keep with one to choose, else Continue', async () => {
     await open([], false, [], DUPES);
     await click('Continue');
+    expect(primary().textContent?.trim()).toBe('Continue');
+    await click('Mark all as Skip');
     expect(primary().textContent?.trim()).toBe('Skip this step');
     await chooseIn('8:epub', 'recent');
     expect(primary().textContent?.trim()).toBe('Continue');
@@ -410,6 +418,7 @@ describe('ImportDialog', () => {
     const box = element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!;
     expect(box.closest('label')!.textContent).toContain("Don't ask this again for skipped files");
     expect(box.closest('label')!.textContent).toContain('import-excluded.json');
+    await click('Mark all as Skip');
     await click('Skip this step');
     await settle();
     expect(store.deleted).toEqual([]);
@@ -420,7 +429,7 @@ describe('ImportDialog', () => {
     await open([], false, [], DUPES);
     TestBed.inject(Library).store.set(store);
     await click('Continue');
-    await chooseIn('7:html', 'recent');
+    await chooseIn('7:pdf', 'skip');
     await chooseIn('8:epub', 'choose');
     element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!.click();
     await fixture.whenStable();
@@ -521,6 +530,7 @@ describe('ImportDialog', () => {
     const noted: string[] = [];
     fixture.componentInstance.sandboxNoted.subscribe((x) => noted.push(x));
     await click('Continue');
+    await click('Mark all as Skip');
     element.querySelector<HTMLInputElement>('input[name="rememberSkipped"]')!.click();
     await fixture.whenStable();
     await click('Skip this step');
@@ -866,7 +876,7 @@ describe('ImportDialog', () => {
     expect(element.querySelector('.long-run-note')).toBeNull();
   });
 
-  it('lists the undated files by name, and offers to skip the step while none has a date', async () => {
+  it('lists the undated files by name, with Skip this step while none has a date', async () => {
     await open();
     await click('Continue');
     expect(rowOrder()).toEqual(['works/2 C - D.html', 'works/2 C - D.pdf', 'works/3 E - F.epub']);
@@ -908,9 +918,11 @@ describe('ImportDialog', () => {
 
     row('works/2 C - D.pdf').querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
     row('works/3 E - F.epub').querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
+    await type(dateBox('works/2 C - D.html'), '2024-05-06');
     box.click();
     await fixture.whenStable();
-    await click('Skip this step');
+    await click('Date 1 file and continue');
+    await settle();
 
     const written = JSON.parse(store.written.get(IMPORT_EXCLUDED_FILE)!);
     expect(written.excluded.map((x: { id: string; kind: string; files: string[] }) => [x.id, x.kind, x.files])).toEqual([
@@ -923,10 +935,35 @@ describe('ImportDialog', () => {
     await open();
     TestBed.inject(Library).store.set(store);
     await click('Continue');
-    row('works/2 C - D.pdf').querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
-    await fixture.whenStable();
+    await click('Skip all');
     await click('Skip this step');
+    expect(step()).toBe('index');
     expect(store.written.size).toBe(0);
+  });
+
+  it('holds Continue while a file has neither a date nor a Skip tick, highlighting it and saying why', async () => {
+    await open();
+    await click('Continue');
+    expect(primary().disabled).toBe(true);
+    expect(primary().getAttribute('title')).toBe('Give every file a date, or tick Skip');
+    expect(element.querySelectorAll('tr.needs-answer')).toHaveLength(3);
+    expect(element.querySelector('.needs-answer-note')?.textContent).toContain('3 files have no date and no Skip tick');
+
+    await type(dateBox('works/2 C - D.html'), '2024-05-06');
+    skipBox('works/2 C - D.pdf').click();
+    await fixture.whenStable();
+    expect(row('works/2 C - D.html').classList).not.toContain('needs-answer');
+    expect(row('works/2 C - D.pdf').classList).not.toContain('needs-answer');
+    expect(element.querySelector('.needs-answer-note')?.textContent).toContain('1 file has no date and no Skip tick');
+    expect(primary().disabled).toBe(true);
+
+    // the note's own button skips what is left, keeping the date given
+    await click('Skip it');
+    expect(element.querySelector('.needs-answer-note')).toBeNull();
+    expect(skipBox('works/3 E - F.epub').checked).toBe(true);
+    expect(dateBox('works/2 C - D.html').value).toBe('2024-05-06');
+    expect(primary().disabled).toBe(false);
+    expect(primary().textContent?.trim()).toBe('Date 1 file and continue');
   });
 
   it('greys a skipped row and its date, without striking it through', async () => {
@@ -1056,6 +1093,8 @@ describe('ImportDialog', () => {
     expect(element.querySelector('.button.infer .spinner')).not.toBeNull();
     expect(primary().disabled).toBe(true);
     await settle();
+    expect(element.querySelector<HTMLButtonElement>('.button.infer')!.disabled).toBe(false);
+    await click('Skip all');
     expect(primary().disabled).toBe(false);
   });
 
@@ -1068,6 +1107,8 @@ describe('ImportDialog', () => {
     await click('Continue');
     await type(dateBox('works/2 C - D.html'), '2024-05-06');
     await type(dateBox('works/3 E - F.epub'), '2024-07-08');
+    skipBox('works/2 C - D.pdf').click();
+    await fixture.whenStable();
     store.refuse.add('works/3 E - F.epub');
     let letGo!: () => void;
     store.hold = new Promise<void>((resolve) => (letGo = resolve));
@@ -1175,7 +1216,7 @@ describe('ImportDialog', () => {
   it('takes in the indexed works whose files were undated, for their formats and outdated copies', async () => {
     await open(ALL_DATED, false, INDEXED_UNDATED);
     await click('Continue');
-    await click('Skip this step');
+    await skipDates();
     await click('Continue');
     await tick('replaceOutdated');
     await click('Continue');
@@ -1201,7 +1242,7 @@ describe('ImportDialog', () => {
     // skipping the dates goes straight there too
     await open([], false, INDEXED_UNDATED);
     await click('Continue');
-    await click('Skip this step');
+    await skipDates();
     expect(step()).toBe('formats');
   });
 
@@ -1209,7 +1250,7 @@ describe('ImportDialog', () => {
     const left: FoundFile = { ...INDEXED_UNDATED[0], id: '9', path: 'works/9 x.html', name: '9 x.html', unindexed: true };
     await open([], false, [left, ...INDEXED_UNDATED]);
     await click('Continue');
-    await click('Skip this step');
+    await skipDates();
     expect(step()).toBe('formats');
     // work 7 only: work 9 has no index entry and is never looked up
     expect(element.querySelector('input[name="updateScope"][value="all"]')!.closest('label')!.textContent).toContain('(1)');
@@ -1226,7 +1267,7 @@ describe('ImportDialog', () => {
 
     await open(SOME);
     await click('Continue');
-    await click('Skip this step');
+    await skipDates();
     await click('Continue');
     expect(radio('updateScope', 'dates')).toBeTruthy();
     expect(radio('updateScope', 'index')).toBeTruthy();
@@ -1235,7 +1276,7 @@ describe('ImportDialog', () => {
   it('downloads only for the works with date issues when told, still looking up the rest', async () => {
     await open(SOME);
     await click('Continue');
-    await click('Skip this step');
+    await skipDates();
     await click('Continue');
     await choose('updateScope', 'dates');
     await tick('format-EPUB');
@@ -1281,7 +1322,7 @@ describe('ImportDialog', () => {
   it('is done without a run when an update is chosen with nothing to download or replace', async () => {
     await open(ALL_DATED, false, INDEXED_UNDATED);
     await click('Continue');
-    await click('Skip this step');
+    await skipDates();
     await choose('lookup', 'later');
     await click('Continue');
     expect(primary().textContent?.trim()).toBe('Done');

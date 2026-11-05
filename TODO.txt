@@ -10,3 +10,30 @@ if login has expired midrun....prompt the user to login and continue, or end run
 when displaying fics, if multiple indexes for a fic exist in its json file, display the one that has a title that is not null or empty string (as may happen for anonymous fics, etc)
 
 Question: what if there were files matching accepted formats in your folder that could not have the ID found (since they do not match naming structure?)
+
+Let’s unify where settings are coming from.Settings.ini vs browser?  Helper vs local?
+
+“One import takes up to 5,000 works.” - is this always true ? Have it written somewhere if so .
+
+When I reindex series bookmarks, I want it to reindex each work in the series too in case any non-bookmarked works were updated.(?)
+
+Change logic for index From series to be a little better.
+
+Do collection runs ask about series encountered?(compared to quick scan etc)
+
+Do we need to check all series bookmarks for updates? What about all encountered series?
+
+For me to add in readme
+Dropbox security (optional, only has access to a folder it creates in Dropbox/app, cannot read or modify any other Dropbox files, uses Dropbox’s own api, sends requests directly from your computer to Dropbox’s service).
+That this tool is computer only for now, with mobile to come.
+- the only thing this tool is built to do is read your user bookmarks, page by page, for your bookmarked fics.
+- If you have the fic IDs or URLs of individual fics, you can also download them that way too
+- It does not read, search, download or scrape the wider ao3 in bulk, and you cannot make it do so either. That is not the intent of this tool.
+
+Change wording for unindexed series under works
+
+If index failed earlier this run, skip download/update for that fic.
+
+When attempted fichub for a fic that failed either the index or download, attempt to both re-index & download using fichub info.
+
+Fixup retry/resume for broken runs….make it tight.

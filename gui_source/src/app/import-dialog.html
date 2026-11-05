@@ -13,20 +13,8 @@
       @if (duplicates().length || undated().length || works().length) {
         <p class="overview-heading"><strong>Issues found in import:</strong></p>
         <ul class="overview-issues">
-          @if (duplicates().length) {
-            <li class="overview-duplicates">
-              {{ duplicateFiles() | number }} {{ duplicateFiles() === 1 ? 'file is a duplicate' : 'files are duplicates' }}
-            </li>
-          }
-          @if (undated().length) {
-            <li class="overview-undated">
-              {{ undated().length | number }} {{ undated().length === 1 ? 'file has' : 'files have' }} no date
-            </li>
-          }
-          @if (works().length) {
-            <li class="overview-unindexed">
-              {{ unindexedFiles() | number }} {{ unindexedFiles() === 1 ? 'file belongs to a work that has' : 'files belong to works that have' }} no index
-            </li>
+          @for (line of issueLines(); track line.kind) {
+            <li [class]="'overview-' + line.kind">{{ line.text }}</li>
           }
         </ul>
       }
@@ -389,8 +377,8 @@
         your copy is outdated.
       </p>
       <p class="hint">
-        Not sure? Leave it empty, or skip it. A file with no date keeps its name, and the
-        import leaves it alone.
+        Not sure? Tick Skip. A skipped file keeps its name, and the import leaves it alone.
+        Every file needs a date or a tick before you can continue.
       </p>
       <div class="bulk">
         <label>
@@ -430,7 +418,7 @@
           <tbody>
             @for (file of shownRows(); track file.path) {
               <tr [attr.data-file]="file.path" [class.skipped]="isSkipped(file)"
-                  [class.inferred]="isInferred(file)">
+                  [class.inferred]="isInferred(file)" [class.needs-answer]="needsAnswerFor(file)">
                 <td class="file-name" [title]="file.name">{{ file.name }}</td>
                 <td>
                   <input type="date" [attr.aria-label]="'Date for ' + file.name"
@@ -454,6 +442,17 @@
           <button type="button" class="button subtle" [disabled]="page() >= pages() - 1" (click)="page.set(page() + 1)">Next</button>
         </div>
       }
+      @if (needsAnswer().length; as left) {
+        <div class="needs-answer-note" role="alert">
+          <span>
+            {{ left | number }} {{ left === 1 ? 'file has' : 'files have' }} no date and no Skip tick
+            (highlighted). Give {{ left === 1 ? 'it' : 'each' }} a date or tick Skip to continue.
+          </span>
+          <button type="button" class="button" (click)="skipUndatedRows()">
+            Skip {{ left === 1 ? 'it' : 'all ' + (left | number) }}
+          </button>
+        </div>
+      }
       <label class="check remember-skips">
         <input type="checkbox" name="rememberSkips" [checked]="rememberSkips()"
                (change)="rememberSkips.set($any($event.target).checked)" />
@@ -469,7 +468,8 @@
     </section>
     <footer>
       <button type="button" class="button subtle" (click)="backFrom('dates')">Back</button>
-      <button type="button" class="button primary" [disabled]="inferring() || busy()" (click)="fromDates()">
+      <button type="button" class="button primary" [disabled]="inferring() || busy() || needsAnswer().length > 0"
+              [attr.title]="needsAnswer().length ? 'Give every file a date, or tick Skip' : null" (click)="fromDates()">
         {{ toDate().length ? 'Date ' + (toDate().length | number) + (toDate().length === 1 ? ' file' : ' files') + ' and continue' : 'Skip this step' }}
       </button>
     </footer>
