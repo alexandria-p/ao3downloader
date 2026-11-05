@@ -2503,7 +2503,10 @@ not to break:
   downloaded by the browser only once a chosen font is used - so offering them costs nothing,
   and they work offline. The old `rounded` and `legible` ids now name the bundled Nunito and
   Atkinson Hyperlegible, so a saved choice still works. A typed font name goes through
-  `cleanFontName` before it reaches a style. `main.ts` applies the saved choice before
+  `cleanFontName` before it reaches a style. **The header title is never in that font**: it is
+  always Doomsdays Dragons (`src/fonts/doomsdays-dragons.otf`, `@font-face` in `styles.css`), by
+  GraphicSauce, Freeware Non-Commercial - fine for an app given away free, at the user's
+  decision, and credited in the README. Don't use it anywhere that sells something. `main.ts` applies the saved choice before
   bootstrap, so a palette never flashes the default first. Kept in `ao3.palette` / `ao3.font` /
   `ao3.customFont`; Reset to defaults puts them back.
 - **Every "don't ask again" lives in `preferences.PROMPTS`**, with its localStorage key and the

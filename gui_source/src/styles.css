@@ -1,3 +1,15 @@
+/*
+  The title font: "FicFairy" in the header is always set in it, whatever font User settings
+  picks for the rest of the page. Doomsdays Dragons by GraphicSauce, Freeware, Non-Commercial
+  (https://www.fontspace.com/doomsdays-dragons-elegant-business-font-f161455) - fine for an app
+  given away free; credited in the README. Bundled with the page, never fetched from elsewhere.
+*/
+@font-face {
+  font-family: 'Doomsdays Dragons';
+  src: url('./fonts/doomsdays-dragons.otf') format('opentype');
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
 

@@ -25,8 +25,10 @@
 
 .topbar h1 {
   margin: 0;
-  font-size: 2.2rem;
-  font-weight: 600;
+  /* the title's own font, never the one chosen in User settings (styles.css) */
+  font-family: 'Doomsdays Dragons', var(--font-body);
+  font-size: 2.4rem;
+  font-weight: normal;
   line-height: 1.1;
   color: var(--text-strong);
 }

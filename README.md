@@ -103,6 +103,7 @@ Again, this tool is only for personal use and I have been militant in ensuring t
 - [Twitter/X @ficfairy_ao3](https://x.com/ficfairy_ao3)
 
 Logo drawn by me using Procreate on my iPad.
+Title font: [Doomsdays Dragons](https://www.fontspace.com/doomsdays-dragons-elegant-business-font-f161455) by GraphicSauce (Freeware, Non-Commercial).
 Forked from [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader)
 
 . ݁₊ ⊹ . ݁ ⟡ ݁ . ⊹ ₊ ݁.
