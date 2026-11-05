@@ -2565,9 +2565,9 @@ not to break:
   on this computer each have their own), *Saved in your library folder* / *your Dropbox library*
   for the import exclusion lists (`import-excluded.json`, `libraryPlace`), and *Saved to
   `settings.ini`* for the helper's file (a helper on this computer only; a hosted one's comes from
-  its deployment and is not shown). Order: Default download formats first, Appearance (a
-  `details`, closed to begin with, Font above Palette), Questions (hosted; a `details` too), Prompts (a `details` too),
-  AO3 time zone, exclusion lists, settings.ini (local), and **Debug mode always last**. A prompt
+  its deployment and is not shown). Order: Default download formats first, AO3 time zone, Appearance
+  (a `details`, closed to begin with, Font above Palette), Questions (hosted; a `details` too),
+  'Ask again' Prompts (a `details` too), exclusion lists, settings.ini (local), and **Debug mode always last**. A prompt
   with `listed: false` (the browser notice) is kept off the tab but still reset.
 - **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)
   writes an empty `import-excluded.json` - all three lists - and checks the library again, so

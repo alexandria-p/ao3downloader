@@ -444,7 +444,7 @@ describe('UserSettings', () => {
     expect(questions.open).toBe(false);
     // under Appearance, above Prompts
     const order = [...element.querySelectorAll('.group')].map((g) => g.classList[1]);
-    expect(order.slice(0, 4)).toEqual(['formats', 'appearance', 'questions', 'prompts']);
+    expect(order.slice(0, 5)).toEqual(['formats', 'ao3-zone', 'appearance', 'questions', 'prompts']);
     expect(questions.querySelector('summary .saved-to')?.textContent?.trim()).toBe('Saved to this browser');
 
     const fichub = element.querySelector<HTMLSelectElement>('[data-question-setting="fichub"] select')!;
@@ -498,7 +498,8 @@ describe('UserSettings', () => {
       g.querySelector('.group-head .saved-to')?.textContent?.replace(/\s+/g, ' ').trim(),
     ]);
     expect(named[0]).toEqual(['Default download formats', 'Saved to this browser']);
-    expect(named[1]).toEqual(['Appearance', 'Saved to this browser']);
+    expect(named[1]).toEqual(['Your AO3 time zone', 'Saved to this browser']);
+    expect(named[2]).toEqual(['Appearance', 'Saved to this browser']);
     expect(named.at(-1)).toEqual(['Debug mode', 'Saved to this browser']);
     expect(named).toContainEqual(['Exclusion lists for imports', 'Saved in your library folder']);
     // a helper on this computer offers its settings.ini
