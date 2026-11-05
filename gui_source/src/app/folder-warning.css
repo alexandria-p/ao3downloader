@@ -148,3 +148,34 @@ footer {
   opacity: 0.5;
   cursor: default;
 }
+
+/* the ideal name, each part marked, and what each part is under it */
+.ideal {
+  margin: 8px 0 12px;
+}
+
+.ideal code {
+  font-size: 0.95em;
+}
+
+.ideal .part {
+  padding: 0 2px;
+  border-bottom: 2px solid var(--accent-line);
+}
+
+.ideal .part.date {
+  border-bottom-color: var(--accent);
+  font-weight: 700;
+}
+
+.parts-key {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+/* a format written out, never broken across lines */
+code.whole {
+  white-space: nowrap;
+}

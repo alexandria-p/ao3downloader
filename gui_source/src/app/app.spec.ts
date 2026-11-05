@@ -1257,6 +1257,10 @@ describe('App', () => {
 
     expect(element.querySelector('app-folder-warning')).toBeTruthy();
     expect(element.querySelector('app-folder-warning')?.textContent).toContain('work ID at the start');
+    // and where the date goes in the ideal name, and how it is written
+    const ideal = element.querySelector('app-folder-warning .ideal')?.textContent?.replace(/\s+/g, ' ');
+    expect(ideal).toContain('34816549 No Paths Are Bound - Cal 2024-12-14.html');
+    expect(element.querySelector('app-folder-warning')?.textContent).toContain('YYYY-MM-DD');
     expect(opened).not.toHaveBeenCalled();
   });
 
