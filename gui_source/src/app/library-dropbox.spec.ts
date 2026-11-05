@@ -540,4 +540,37 @@ describe('Library, switching between a local folder and Dropbox', () => {
     expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
     expect(library.store()?.label).toBe('Dropbox app folder');
   });
+
+  it('is not left reading when it switches away from a Dropbox read still going', async () => {
+    // Dropbox, this computer, Dropbox, this computer: the last switch lands while Dropbox is
+    // still reading, and this computer has nothing to read - it was left saying 'Reading
+    // files...' for ever, because only the read it replaced would have said it was done
+    let finishListing: () => void = () => {};
+    const listing = new Promise<void>((resolve) => (finishListing = resolve));
+    const dropbox = new FakeDropbox();
+    dropbox.files = { '/indexing/111 One.json': record('111', 1) };
+    const list = dropbox.listFiles.bind(dropbox);
+    dropbox.listFiles = (async (...args: Parameters<FakeDropbox['listFiles']>) => {
+      await listing;
+      return list(...args);
+    }) as FakeDropbox['listFiles'];
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: DropboxSession, useValue: dropbox },
+        { provide: FolderStore, useValue: { supported: () => true, recall: async () => null } },
+      ],
+    });
+    const library = TestBed.inject(Library);
+
+    const reading = library.showDropbox();
+    await until(() => library.loading());
+    await library.showLocal();
+    expect(library.loading()).toBe(false);
+    expect(library.readProgress()).toBeNull();
+
+    finishListing();
+    await reading;
+    expect(library.loading()).toBe(false);
+    expect(library.data()).toBeNull();
+  });
 });

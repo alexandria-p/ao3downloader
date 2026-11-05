@@ -211,17 +211,19 @@
     {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
   </p>
   @if (listedAt(); as at) {
-    <p class="meta-line note">List refreshed {{ shownTime(at) }}.</p>
+    <p class="meta-line note">List refreshed {{ shownTime(at) }}<ng-content select="[noteAction]" /></p>
   }
-  <!-- reading the library: under the title, as on every tab -->
-  <ng-content select="[listingProgress]" />
   <!-- under the heading, one row: the page's run buttons (projected), then making your own -->
   <div class="listing-actions">
     <ng-content select="[listingActions]" />
     @if (writable()) {
-      <button type="button" class="button primary" (click)="editing.set('new')">+ New collection</button>
+      <button type="button" class="button primary" [disabled]="preparing()"
+              [attr.title]="preparing() ? 'Wait until your library has finished loading' : null"
+              (click)="editing.set('new')">+ New collection</button>
     }
   </div>
+  <!-- reading the library: under the title and its buttons, as on the Works tab -->
+  <ng-content select="[listingProgress]" />
 
   <ol class="collections">
     @for (collection of visible(); track collection.name) {

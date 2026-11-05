@@ -109,7 +109,7 @@ describe('History', () => {
     expect(read).toHaveBeenCalledTimes(1);
     expect(element.querySelectorAll('.run:not(.run-active)').length).toBe(1);
 
-    [...element.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Refresh')!.click();
+    element.querySelector<HTMLButtonElement>('.refresh-icon')!.click();
     await show(jobs.runs);
     expect(read).toHaveBeenCalledTimes(2);
 
@@ -180,7 +180,7 @@ describe('History', () => {
                        options: { pages: 5, start: 1 } })]);
 
     const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
-    expect(button.textContent?.trim()).toBe('Retry [EXPERIMENTAL]');
+    expect(button.textContent?.trim()).toBe('Retry');
     expect(button.disabled).toBe(false);
   });
 
@@ -770,7 +770,7 @@ describe('History', () => {
     fixture.componentInstance.resume.subscribe((id) => emitted.push(id));
 
     const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
-    expect(button.textContent?.trim()).toBe('Retry [EXPERIMENTAL]');
+    expect(button.textContent?.trim()).toBe('Retry');
     button.click();
     expect(emitted).toEqual(['abc']);
   });

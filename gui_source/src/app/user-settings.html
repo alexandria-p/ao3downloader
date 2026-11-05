@@ -5,11 +5,6 @@
   </div>
   <!-- reading the library: under the title, as on every tab -->
   <ng-content select="[listingProgress]" />
-  <p class="browser-note" role="note">
-    The palette and font, 'Do not ask again' options and any changes to your default file formats
-    are saved to this browser. Changing browsers on your device will use a different set of settings that are saved
-    to <strong>that</strong> browser.
-  </p>
   <p class="hint">Every change is saved as you make it.</p>
 
   @if (confirmingReset()) {
@@ -54,29 +49,46 @@
     </div>
   }
 
-  <section class="group appearance">
-    <h3>Appearance</h3>
-    <p class="hint">How this page looks. Saved to this browser.</p>
-    <fieldset class="palettes">
-      <legend>Palette</legend>
-      @for (group of paletteGroups; track group.mode) {
-      <p class="palette-group">{{ group.name }}</p>
-      @for (palette of group.palettes; track palette.id) {
-        <label class="palette" [attr.data-palette]="palette.id" [class.chosen]="palette.id === appearance.palette()"
-               [style.background]="palette.tokens.bg" [style.border-color]="palette.id === appearance.palette() ? palette.tokens['accent-line'] : palette.tokens['border']">
-          <input type="radio" name="palette" [value]="palette.id" [checked]="palette.id === appearance.palette()"
-                 (change)="setPalette(palette.id)" />
-          <span class="swatches" aria-hidden="true">
-            <span [style.background]="palette.tokens.surface"></span>
-            <span [style.background]="palette.tokens['accent-fill']"></span>
-            <span [style.background]="palette.tokens.accent"></span>
-            <span [style.background]="palette.tokens.text"></span>
-          </span>
-          <span class="palette-name" [style.color]="palette.tokens['text-strong']">{{ palette.name }}</span>
-        </label>
-      }
-      }
-    </fieldset>
+  <section class="group formats">
+    <div class="group-head">
+      <h3>Default download formats</h3>
+      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+    </div>
+    @if (config(); as config) {
+      <p class="hint">
+        Ticked at the start of every run. You can still change them in a run's own window.
+      </p>
+      <div class="format-list">
+        @for (filetype of config.filetypes; track filetype) {
+          <label class="check">
+            <input
+              type="checkbox"
+              [attr.name]="'format-' + filetype"
+              [checked]="formats().includes(filetype)"
+              [disabled]="isForced(filetype)"
+              (change)="toggleFormat(filetype, $any($event.target).checked)"
+            />
+            <span>{{ filetype }}</span>
+            @if (isForced(filetype)) {
+              <span class="note">(always - it is the index)</span>
+            }
+          </label>
+        }
+      </div>
+      <button type="button" class="button subtle reset-formats" (click)="resetFormats()">
+        Use the app's defaults
+      </button>
+    } @else if (!helperAnswered()) {
+      <p class="hint">Start the helper to choose which formats a run starts with.</p>
+    }
+  </section>
+
+  <!-- collapsible: the palettes are a long list, and most visits are not to change them -->
+  <details class="group appearance">
+    <summary class="group-head">
+      <h3>Appearance</h3>
+      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+    </summary>
     <div class="font-choice">
       <label class="field">
         <span>Font</span>
@@ -108,10 +120,34 @@
       }
       <p class="font-preview" [style.font-family]="fontPreview()">The quick brown fox bookmarks the lazy dog's fic.</p>
     </div>
-  </section>
+    <fieldset class="palettes">
+      <legend>Palette</legend>
+      @for (group of paletteGroups; track group.mode) {
+      <p class="palette-group">{{ group.name }}</p>
+      @for (palette of group.palettes; track palette.id) {
+        <label class="palette" [attr.data-palette]="palette.id" [class.chosen]="palette.id === appearance.palette()"
+               [style.background]="palette.tokens.bg" [style.border-color]="palette.id === appearance.palette() ? palette.tokens['accent-line'] : palette.tokens['border']">
+          <input type="radio" name="palette" [value]="palette.id" [checked]="palette.id === appearance.palette()"
+                 (change)="setPalette(palette.id)" />
+          <span class="swatches" aria-hidden="true">
+            <span [style.background]="palette.tokens.surface"></span>
+            <span [style.background]="palette.tokens['accent-fill']"></span>
+            <span [style.background]="palette.tokens.accent"></span>
+            <span [style.background]="palette.tokens.text"></span>
+          </span>
+          <span class="palette-name" [style.color]="palette.tokens['text-strong']">{{ palette.name }}</span>
+        </label>
+      }
+      }
+    </fieldset>
+  </details>
 
-  <section class="group prompts">
-    <h3>Prompts</h3>
+  <!-- collapsible: a long list, seldom changed -->
+  <details class="group prompts">
+    <summary class="group-head">
+      <h3>Prompts</h3>
+      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+    </summary>
     <p class="hint">
       Every message that offers "don't ask again", whether you have seen it yet or not.
     </p>
@@ -136,45 +172,17 @@
         }
       </ul>
     }
-  </section>
-
-  <section class="group formats">
-    <h3>Default download formats</h3>
-    @if (config(); as config) {
-      <p class="hint">
-        Ticked at the start of every run. You can still change them in a run's own window.
-      </p>
-      <div class="format-list">
-        @for (filetype of config.filetypes; track filetype) {
-          <label class="check">
-            <input
-              type="checkbox"
-              [attr.name]="'format-' + filetype"
-              [checked]="formats().includes(filetype)"
-              [disabled]="isForced(filetype)"
-              (change)="toggleFormat(filetype, $any($event.target).checked)"
-            />
-            <span>{{ filetype }}</span>
-            @if (isForced(filetype)) {
-              <span class="note">(always - it is the index)</span>
-            }
-          </label>
-        }
-      </div>
-      <button type="button" class="button subtle reset-formats" (click)="resetFormats()">
-        Use the app's defaults
-      </button>
-    } @else if (!helperAnswered()) {
-      <p class="hint">Start the helper to choose which formats a run starts with.</p>
-    }
-  </section>
+  </details>
 
   <section class="group ao3-zone">
-    <h3>Your AO3 time zone</h3>
+    <div class="group-head">
+      <h3>Your AO3 time zone</h3>
+      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+    </div>
     <p class="hint">
       The time zone AO3 shows your dates in - the one in your AO3 preferences. A scan measures
       back to the day the last one started in this zone, so a fic AO3 dates that day is never
-      passed over. Starts as this browser's own ({{ browserZone }}). Saved to this browser.
+      passed over. Starts as this browser's own ({{ browserZone }}).
     </p>
     <select aria-label="Your AO3 time zone" (change)="setAo3Zone($any($event.target).value)">
       @for (zone of zones; track zone) {
@@ -185,20 +193,11 @@
     </select>
   </section>
 
-  <section class="group debug-mode">
-    <h3>Debug mode</h3>
-    <label class="check">
-      <input type="checkbox" name="debugMode" [checked]="debugMode.on()"
-             (change)="setDebugMode($any($event.target).checked)" />
-      <span>
-        Turn on debug mode
-        <span class="hint">Shows a banner at the top and a DEBUG tab with tools for trying the app out - such as a mock of Resolve issues found in your library that touches no real files. This browser only.</span>
-      </span>
-    </label>
-  </section>
-
   <section class="group import-exclusions">
-    <h3>Exclusion lists for imports</h3>
+    <div class="group-head">
+      <h3>Exclusion lists for imports</h3>
+      <span class="saved-to" [title]="'In import-excluded.json at the top of ' + libraryPlace() + ' - it goes wherever the library goes'">Saved in {{ libraryPlace() }}</span>
+    </div>
     <p class="hint">
       When your library is read, files with no date in their name or no index entry are offered
       in Resolve issues found in your library, except any you said not to ask about again - those
@@ -213,12 +212,15 @@
   </section>
 
   @if (!local) {
-    <section class="group questions">
-      <h3>Questions a run may ask</h3>
+    <!-- collapsible: a long list, seldom changed -->
+    <details class="group questions">
+      <summary class="group-head">
+        <h3>Questions a run may ask</h3>
+        <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+      </summary>
       <p class="hint">
         What a run takes when nobody answers a question in time. A background run starts with
-        these as its answers, and you can still change them in the run's own window. Saved to
-        this browser, like the choices above.
+        these as its answers, and you can still change them in the run's own window.
       </p>
       <ul class="rows">
         <li class="row" data-question-setting="timeout">
@@ -259,13 +261,16 @@
           </li>
         }
       </ul>
-    </section>
+    </details>
   }
 
   @if (local && ini(); as file) {
     @if (file.editable) {
       <section class="group ini">
-        <h3>settings.ini</h3>
+        <div class="group-head">
+          <h3>settings.ini</h3>
+          <span class="saved-to" [title]="'In ' + file.file + ' on this computer, which the helper reads at the start of every run'">Saved to <code>settings.ini</code></span>
+        </div>
         <p class="hint">
           The helper's own settings, saved in <code>{{ file.file }}</code> as soon as you leave a
           box. A change takes effect from the next run.
@@ -327,6 +332,22 @@
       </section>
     }
   }
+
+  <!-- always the last section on the page -->
+  <section class="group debug-mode">
+    <div class="group-head">
+      <h3>Debug mode</h3>
+      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+    </div>
+    <label class="check">
+      <input type="checkbox" name="debugMode" [checked]="debugMode.on()"
+             (change)="setDebugMode($any($event.target).checked)" />
+      <span>
+        Turn on debug mode
+        <span class="hint">Shows a banner at the top and a DEBUG tab with tools for trying the app out - such as a mock of Resolve issues found in your library that touches no real files.</span>
+      </span>
+    </label>
+  </section>
 
   @if (toast(); as toast) {
     <div class="toast" [class.problem]="toast.kind === 'problem'" [attr.role]="toast.kind === 'problem' ? 'alert' : 'status'">

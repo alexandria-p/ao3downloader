@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1023 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1032 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -534,14 +534,15 @@ unauthenticated), no release yet - is treated as nothing newer. GitHub's api sen
 headers, which is what lets a page on `localhost` ask at all.
 
 **Every tab shows the version** in `.app-footer`, `position: sticky` at the bottom of the
-window so a long listing never hides it, with a link to `releasesRepo` on GitHub - or says
+window so a long listing never hides it - and on a short tab too: everything above it is in
+`.page-body`, at least the window's height less the footer (`--app-footer-height`) - with a link to `releasesRepo` on GitHub - or says
 `(built on this computer)` for a page with no version.
 
 **The FAQ pins a download panel first** (`.download-app`): the latest release's page
 (`releases/latest`, from `releasesRepo`, which defaults to this repository for a page with no
 config), what to do with the zip, and this page's version when it has one. **Not on the hosted
 copy** (`Faq.hosted`, `!HelperConnection.isLocal()`): there it is one line in the footer instead,
-`.run-locally` above the version line - *Run this on your own computer - download the latest
+`.run-locally` under the version line - *Run this on your own computer - download the latest
 version from GitHub*.
 
 ### A run can carry on in the background
@@ -1094,7 +1095,10 @@ first batch the helper finds a floor in) in the background; the window works fro
 page already has, or `BUILT_IN_CONFIG`, meanwhile. **Interrupted runs are marked in the
 background** whenever a library is read or refreshed (an effect on `Library.lastRead`), when
 History reads its list, and when a workflow opens - nothing in starting a run depends on it, since the
-helper refuses a second run itself (409). **Start waits on the run page** (`readyToStart`,
+helper refuses a second run itself (409). **A quick scan's first page says it will do a full index** (`.first-scan`, `firstScan`) only
+while no scan is on record to measure back to (`newestFloorRead() === null`). **Start is held,
+visibly, until the login is filled in** (`credentialsReady`, titled with what is missing).
+**Start waits on the run page** (`readyToStart`,
 `.run-waiting`): for the helper's answer, then for a quick scan measuring back to its last run,
 the floor - whose warning (`missingDownloads`) is shown there, before anything starts, with
 *Use it as the floor* / *Choose a different scan*. It gives up after `START_WAIT_MS` (2 minutes:
@@ -2129,7 +2133,9 @@ is needed (`needsUsername`, from `sentAction`), and a hosted page seals an empty
 once the library is wholly read and set up**: the store is set before the index is read, and a
 check against that empty index found every file unindexed, so while `Library.loading` or setup
 is busy `App` calls `LibraryImports.forget` instead (nothing found, a check in flight thrown
-away) and the reminder stays down. **The reminder and the window's overview count alike**, in
+away) and the reminder stays down. **The run buttons and + New collection wait for the same
+thing** (`App.libraryPreparing`: reading, setup, or `LibraryImports.checking`, titled *Wait until
+your library has finished loading*), so they come back as the offer does. **The reminder and the window's overview count alike**, in
 files, through one `importIssueCounts` / `importIssueLines` - the reminder used to count works. Undated
 files of works the index *does* have are issues too (`undatedIndexedFiles`, `undatedIndexed`,
 the window's `undatedElsewhere`): offered on the dates page, and with nothing unindexed the
@@ -2144,7 +2150,7 @@ window finishes after dating (`afterDating`). What not to break:
   (`App.importReminder`) - offers it by hand, disabled with *Cannot be started while an active
   run is in progress*; its × hides it until the library is opened again
   (`reminderDismissedFor`), and `ao3.importOfferOff` hides it for good. **The first page asks
-  what to do** (`firstChoice`, Continue held until chosen): *Repair now (recommended)*; *Not
+  what to do** (`firstChoice`, *Repair now* ticked to begin with): *Repair now (recommended)*; *Not
   now, remind me again next time I open my library* (*Remind me later*, closes); *No, do not ask
   me again for these files* (*Done*: `LibraryImports.excludeFiles` puts every file found on the
   **files** list); *No, never
@@ -2228,7 +2234,7 @@ window finishes after dating (`afterDating`). What not to break:
   time*) are offered again next time; guesses are listed (`guessed`). Then the dialog filters
   what it removed out of every later page (`removedPaths` -> `works`, `undatedElsewhere`, and so
   every count, the dating rows and the index question) and `refreshAfterRun` + `check` bring the
-  listing and reminder up to date. Lists in the window page **7** at a time
+  listing and reminder up to date. The reminder's text wraps in `.import-issues-body`, so its × stays in the top right corner. Lists in the window page **7** at a time
   (`DUPLICATES_PAGE_SIZE`, `DATES_PAGE_SIZE`). **The run window alone warns of a long import**
   (`.long-run-note`, above its bullets, not on a background run): over `LONG_IMPORT_REQUESTS`
   (20) by `importRequests` - lookups, plus other formats times works updated, plus the files it
@@ -2403,11 +2409,22 @@ dropping them would show fewer works than the collection's own count promises.
 `Library.showDropbox` lists the folder, downloads the index as one zip per folder
 (`INDEX_FOLDERS`, falling back to a file at a time when Dropbox refuses the zip), then parses
 every entry. It publishes each stage as `Library.readProgress` (`ReadProgress`), and
-`describeReadProgress` turns that into the bar and caption (`app-progress-bar`, in the palette's
-`--accent`, as History's *Reading past runs* and the run window's bar are), **under the title of
+`describeReadProgress` turns that into the bar and caption (`app-progress-bar`: a transparent
+panel with a dashed `--accent-line` outline, the bar in `--accent`, and an optional `note` line
+above it - *A run has finished since this library was read...* when `freshness.behind` is why it
+reads; as History's *Reading past runs* and the run window's bar are), **under the title of
 whichever tab is showing**: `#libraryProgress` in `app.html` is projected into each tab as
-`[listingProgress]`, and goes above the content only where there is no title (`progressOnTop`:
-the FAQ, Works before a read, Dropbox's sign-in panel). **A percentage
+`[listingProgress]` - on Works and Collections under the title **and its buttons**, on the FAQ
+under *About downloading from AO3* - and goes above the content only where there is no title
+(`progressOnTop`: Works before a read, Dropbox's sign-in panel). Held buttons are dimmed
+(`.button:disabled`).
+
+**Setting a library up is said in that same bar, step by step** (`LibrarySetup.caption`):
+*Checking the folders in `Dropbox/Apps/FicFairy`...*, *Creating folder `.../works` (2 of 4)*,
+*Moving your works into `.../works/`* (with a percentage). It runs before every full read -
+opening, switching, Refresh - and only its one question (move loose top-level works into
+`works/`?) covers the page (`app-setup-overlay`, `state === 'asking'`). The run buttons wait
+throughout (`libraryPreparing`). **A percentage
 only where there is a real total**: a listing comes a page at a time with no total, and
 Dropbox builds a folder's zip as it sends it, so it usually gives no `Content-Length` - those
 stages count what has arrived (files found, bytes so far, folder N of M) with an
@@ -2543,8 +2560,15 @@ not to break:
   sent on `change` (left, or Enter), never on `input`, so a half-typed number is not written;
   only a value that differs is sent, and one the helper refuses is put back as the file has it.
   The update banner reads its flag once, so choosing it sets `UpdateCheck.dismissed` too.
-- **The tab says first that "do not ask again" choices and default formats are this browser's**
-  (`.browser-note`) - kept short at the user's request.
+- **Every section says at its top right where it is saved** (`.group-head .saved-to`): *Saved to
+  this browser* (localStorage - per browser and per address, so the GitHub Pages copy and an app
+  on this computer each have their own), *Saved in your library folder* / *your Dropbox library*
+  for the import exclusion lists (`import-excluded.json`, `libraryPlace`), and *Saved to
+  `settings.ini`* for the helper's file (a helper on this computer only; a hosted one's comes from
+  its deployment and is not shown). Order: Default download formats first, Appearance (a
+  `details`, closed to begin with, Font above Palette), Prompts (a `details` too), AO3 time zone,
+  exclusion lists, Questions (hosted; a `details` too), settings.ini (local), and **Debug mode always last**. A prompt
+  with `listed: false` (the browser notice) is kept off the tab but still reset.
 - **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)
   writes an empty `import-excluded.json` - all three lists - and checks the library again, so
   everything passed over is offered again. It needs a library open (`Library.store`), is not
@@ -2615,7 +2639,13 @@ until the new read replaces them, with a notice while it reads. A run from anoth
 that was already going at the read is not known to have been going, so its ending is not
 seen until a later run's record appears. **Above the listing, *List refreshed* is the only
 time shown** (a *Last indexed* beside it was removed at the user's request; `data.retrieved`,
-the newest `last_indexed`, is still worked out). It is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** in the top bar is `Library.refresh` on demand. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and Refresh are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
+the newest `last_indexed`, is still worked out). It is `Library.listedAt`, set in `publish` - so by a full read, a refresh, and `refreshAfterRun` alike - and cleared with the library (`App.listingNote`, through `shownTime`: the reader's zone, to the minute; an old free-text value as written). **Refresh** is an icon beside *List refreshed* on Works and Collections (`#refreshIcon`, projected as `[noteAction]`; `.refresh-icon`, spinning and held while anything reads the list - a refresh or a full read; transparent in every
+state) - `Library.refresh` on demand; History has the same icon for its own list (`load`). There is none in the header. **While a run is going the library is locked** (`App.libraryLocked`, from `Jobs.activeRuns`): the storage switch, Change folder, Forget, Dropbox sign in/out and the Refresh icon are disabled with the title *Cannot be changed while an active run is in progress*, and their handlers refuse too - a run reads and writes through the library open now.
+
+**A switch of library starts from nothing being read** (`Library.notReading`, from `showLocal`
+and `showDropbox`): a read it replaces stops at its generation check without saying it is done,
+so switching Dropbox -> this computer -> Dropbox -> this computer while Dropbox still read, to a
+folder with nothing to read yet, left *Reading files...* up for ever.
 
 ### Every downloaded format has a button beside the title
 
@@ -2680,7 +2710,7 @@ to its right, and the *From FicHub* badge beneath them at the far right; `.blurb
 - **A work is in a custom collection once**, by its number. `add` filters out what the
   collection holds already and answers `Added` (`added`, `already`), so the page can say how
   many were already there; `documentOf` dedupes on every save, so a hand-edited file heals.
-- **One window makes and edits them** (`collection-editor.ts`), opened from **+ New
+- **One window makes and edits them** (`collection-editor.ts`; a new one opens with `.ficfairy-only`: *This collection will only exist in FicFairy. It will not be synced back to AO3.*), opened from **+ New
   collection**, from **+ A new collection...** in the add panel (with the ticked works as
   `items`), and from **Update collection details**. **Nothing is written until Create/Save**: Cancel,
   the cross, Escape and the backdrop all emit `cancelled`, the opener drops its
@@ -2755,6 +2785,8 @@ Three rules worth keeping:
 
 ## Conventions
 
+- **A folder or file location shown to the reader is code-styled** - `<code>` in a template,
+  or between backticks in an `app-progress-bar` caption, which renders them as code.
 - Comments say **why**, not what. Several in here exist to stop a "simplification" that
   would reintroduce a fixed bug - `allow_reuse_address`, the cancel-raises behaviour, and
   the `dt`/`dd` document-order pairing especially.

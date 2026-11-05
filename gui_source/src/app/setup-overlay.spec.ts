@@ -36,23 +36,23 @@ describe('SetupOverlay', () => {
     expect(element.querySelector('.cover')).toBeNull();
   });
 
-  it('covers the page with a spinner and says what it is making', async () => {
+  it('does not cover the page while it works, and says each step as it happens', async () => {
     const setup = TestBed.inject(LibrarySetup);
     const library = target(['indexing']) as SetupTarget & { made: string[]; release: () => void };
-    const preparing = setup.prepare(library, '/Apps/FicFairy');
+    const preparing = setup.prepare(library, 'Dropbox/Apps/FicFairy');
     const { fixture, element } = await render();
     fixture.detectChanges();
 
-    expect(element.querySelector('.cover')).toBeTruthy();
-    expect(element.querySelector('.spinner')).toBeTruthy();
-    expect(element.textContent).toContain('Setting up /Apps/FicFairy');
-    expect(element.textContent).toContain('collections, images, runs, works');
-    expect(element.querySelector('.cover')?.getAttribute('aria-busy')).toBe('true');
+    expect(element.querySelector('.cover')).toBeNull();
+    expect(setup.state()).toBe('working');
+    expect(setup.caption()).toBe('Creating folder `Dropbox/Apps/FicFairy/collections` (1 of 4)');
+    expect(setup.percent()).toBeNull();
 
     library.release();
     await preparing;
-    fixture.detectChanges();
-    expect(element.querySelector('.cover')).toBeNull();
+    expect(library.made).toEqual(['collections', 'images', 'runs', 'works']);
+    expect(setup.state()).toBe('idle');
+    expect(setup.caption()).toBe('');
   });
 
   it('asks about top-level works, and moves them on the answer', async () => {

@@ -104,3 +104,9 @@ p {
   background: transparent;
   color: var(--text-dim);
 }
+
+/* a held button looks held */
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

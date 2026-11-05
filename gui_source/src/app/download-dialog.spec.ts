@@ -2288,14 +2288,58 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('input[name="acknowledge"]')).toBeTruthy();
   });
 
-  it('warns that a quick scan does a full index the first time', async () => {
+  it('warns on its first page that a quick scan with no scan on record does a full index', async () => {
     // there is nothing to measure back to until a run has completed, so the first one
     // walks the whole listing - which on a large library is hours, not minutes
-    await toNote('quick');
+    jobs.floorAhead = Promise.resolve(null);
+    await open('quick');
+    await settled();
+    expect(currentStep()).toBe('options');
+    const note = element.querySelector('.first-scan')?.textContent ?? '';
+    expect(note).toContain('this will perform a full index');
+    expect(note).toContain('may take several hours');
 
-    const said = element.querySelector('.dialog .body')?.textContent ?? '';
-    expect(said).toContain('this will perform a full index');
-    expect(said).toContain('may take several hours');
+    // and not on the acknowledgement page any more
+    await walkToNote();
+    expect(element.querySelector('.dialog .body')?.textContent).not.toContain('this will perform a full index');
+  });
+
+  it('says nothing about a full index when a scan is on record', async () => {
+    jobs.floorAhead = Promise.resolve(scanOnRecord('a', '2026-09-02T12:00:00'));
+    await open('quick');
+    await settled();
+    expect(element.querySelector('.first-scan')).toBeNull();
+  });
+
+  it('holds Start, visibly, until the login is filled in', async () => {
+    jobs.floorAhead = Promise.resolve(scanOnRecord('a', '2026-09-02T12:00:00'));
+    await open('quick');
+    await settled();
+    await advanceTo('options');
+    for (let i = 0; i < 6 && currentStep() !== 'credentials'; i++) {
+      if (currentStep() === 'acknowledge') {
+        element.querySelector<HTMLInputElement>('input[name="acknowledge"]')!.click();
+        await fixture.whenStable();
+      }
+      (button('Continue') ?? button('Use it as the floor'))?.click();
+      await fixture.whenStable();
+    }
+    expect(currentStep()).toBe('credentials');
+    const name = element.querySelector<HTMLInputElement>('input[name="username"]')!;
+    name.value = '';
+    name.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    const start = button('Start download')!;
+    expect(start.disabled).toBe(true);
+    expect(start.getAttribute('title')).toBe('Enter your AO3 username and password first');
+
+    name.value = 'Someone';
+    name.dispatchEvent(new Event('input'));
+    const password = element.querySelector<HTMLInputElement>('input[name="password"]')!;
+    password.value = 'a-password';
+    password.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    expect(button('Start download')!.disabled).toBe(false);
   });
 
   it('gives a quick scan its own caveat rather than the combined run’s', async () => {

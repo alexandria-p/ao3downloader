@@ -799,8 +799,8 @@ export class ImportDialog {
 
   // region moving between pages
 
-  /** the first page's answer: repair now, later, never for these files, or never at all */
-  protected readonly firstChoice = signal<'repair' | 'later' | 'exclude' | 'never' | null>(null);
+  /** the first page's answer: repair now (ticked to begin with), later, never for these files, or never at all */
+  protected readonly firstChoice = signal<'repair' | 'later' | 'exclude' | 'never' | null>('repair');
 
   protected async fromOverview(): Promise<void> {
     switch (this.firstChoice()) {

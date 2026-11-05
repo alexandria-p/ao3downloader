@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library } from './library';
 import { shownTime } from './preferences';
@@ -36,6 +36,8 @@ type Tab = 'works' | 'bookmarks';
 })
 export class CollectionsView {
   private readonly library = inject(Library);
+  /** the library is still being read or checked: making a collection waits, as the run buttons do */
+  readonly preparing = input(false);
   /** 'List refreshed', as the Works tab says it: when the library was last read into the page */
   protected readonly listedAt = this.library.listedAt;
   protected readonly shownTime = shownTime;

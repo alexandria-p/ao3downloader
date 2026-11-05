@@ -1,3 +1,5 @@
+import { LibrarySetup } from './library-setup';
+import { LibraryImports } from './imports';
 import { DebugMode } from './debug';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -242,7 +244,12 @@ describe('App', () => {
     const element = await withFolder();
 
     // jsdom has no folder picker, so this is the file-input button (and no Forget)
-    const locked = ['This computer', 'Dropbox', 'Choose downloads folder', 'Refresh'].map((text) =>
+    const refresh = element.querySelector<HTMLButtonElement>('.refresh-icon');
+    if (refresh) {
+      expect(refresh.disabled).toBe(true);
+      expect(refresh.getAttribute('title')).toBe('Cannot be changed while an active run is in progress');
+    }
+    const locked = ['This computer', 'Dropbox', 'Choose downloads folder'].map((text) =>
       Array.from(element.querySelectorAll<HTMLButtonElement>('.topbar button')).find(
         (b) => b.textContent?.trim() === text,
       ),
@@ -259,14 +266,28 @@ describe('App', () => {
     expect(shownTime('sometime last week')).toBe('sometime last week');
   });
 
-  it('offers Refresh beside the library, which reads it again', async () => {
-    const element = await withFolder();
+  it('holds the refresh icon and spins it while the list is read again', async () => {
     const library = TestBed.inject(Library);
+    library.listedAt.set(new Date('2026-11-05T12:00:00Z'));
+    const { fixture, element } = await render(1);
+    library.refreshing.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const icon = element.querySelector<HTMLButtonElement>('.refresh-icon')!;
+    expect(icon.disabled).toBe(true);
+    expect(icon.classList).toContain('spinning');
+    library.refreshing.set(false);
+  });
+
+  it('offers Refresh as an icon beside List refreshed, not in the header, which reads it again', async () => {
+    const library = TestBed.inject(Library);
+    library.listedAt.set(new Date('2026-11-05T12:00:00Z'));
+    const { element } = await render(1);
     const refresh = vi.spyOn(library, 'refresh').mockResolvedValue();
 
-    const button = Array.from(element.querySelectorAll<HTMLButtonElement>('.topbar button')).find(
-      (b) => b.textContent?.trim() === 'Refresh',
-    )!;
+    expect([...element.querySelectorAll('.topbar button')].some((b) => b.textContent?.includes('Refresh'))).toBe(false);
+    const button = element.querySelector<HTMLButtonElement>('.meta-line.note .refresh-icon')!;
+    expect(button.textContent?.trim()).toBe('');
     expect(button.disabled).toBe(false);
     button.click();
 
@@ -354,9 +375,11 @@ describe('App', () => {
   it('shows a bar while a Dropbox library is read, with a number only once there is one', async () => {
     TestBed.inject(StorageChoice).mode.set('dropbox');
     const library = TestBed.inject(Library);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    // a read under way: set once the page has opened, since opening a library starts afresh
     library.loading.set(true);
     library.readProgress.set({ stage: 'listing', found: 0 });
-    const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
 
@@ -867,11 +890,41 @@ describe('App', () => {
       'Run this on your own computer - download the latest version from GitHub',
     );
     expect(panel?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/alexandria-p/ficfairy/releases/latest');
-    expect(element.querySelector('.app-footer')?.firstElementChild).toBe(panel);
+    expect(element.querySelector('.app-footer')?.lastElementChild).toBe(panel);
 
     tab(element, 'FAQ')!.click();
     await fixture.whenStable();
     expect(element.querySelector('app-faq .download-app')).toBeNull();
+  });
+
+  it('holds the run buttons while the library is still being checked for issues', async () => {
+    const { fixture, element } = await render(1);
+    const quick = () => [...element.querySelectorAll('button')].find((b) => b.textContent?.includes('Quick Scan'))!;
+    expect(quick().disabled).toBe(false);
+
+    TestBed.inject(LibraryImports).checking.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(quick().disabled).toBe(true);
+    expect(quick().getAttribute('title')).toBe('Wait until your library has finished loading');
+
+    TestBed.inject(LibraryImports).checking.set(false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(quick().disabled).toBe(false);
+  });
+
+  it('says what setting the library up is doing in the loading bar, not over the page', async () => {
+    const { fixture, element } = await render(1);
+    const setup = TestBed.inject(LibrarySetup);
+    setup.state.set('working');
+    setup.caption.set('Creating folder `Dropbox/Apps/FicFairy/runs`');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(element.querySelector('app-progress-bar')?.textContent).toContain('Creating folder Dropbox/Apps/FicFairy/runs');
+    expect(element.querySelector('app-progress-bar code')?.textContent).toBe('Dropbox/Apps/FicFairy/runs');
+    expect(element.querySelector('app-setup-overlay .cover')).toBeNull();
+    setup.state.set('idle');
   });
 
   it('highlights the storage chosen, and only that one', async () => {
@@ -1301,6 +1354,8 @@ describe('App', () => {
     localStorage.clear();
     libraryWithFiles(['works/1 Work 1 - Writer 2024-01-01.html']);
     const library = TestBed.inject(Library);
+    // a read under way, which opening the page would otherwise start afresh
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
     library.loading.set(true);
     // the store is set before the index is read: against an empty index, work 1 looks unindexed
     const fixture = TestBed.createComponent(App);

@@ -275,11 +275,10 @@ export class App {
   });
   /**
    * Where the library's reading bar goes when the tab showing has no title to put it under:
-   * the FAQ, Works before anything is read, and Dropbox's sign-in panel
+   * Works before anything is read, and Dropbox's sign-in panel
    */
   protected readonly progressOnTop = computed(() => {
     const view = this.view();
-    if (view === 'faq') return true;
     if (this.mode() === 'dropbox' && !this.canRun() && (view === 'bookmarks' || view === 'collections')) return true;
     return view === 'bookmarks' && !this.data();
   });
@@ -296,6 +295,16 @@ export class App {
   /** what setting a library up could not do - files it could not move, say */
   private readonly librarySetup = inject(LibrarySetup);
   protected readonly setupReport = this.librarySetup.report;
+  /** setting the library up, said in the loading bar rather than over the page */
+  protected readonly setupWorking = computed(() => this.librarySetup.state() === 'working');
+  /** said in the loading panel when a run elsewhere is what it is reading for */
+  protected readonly behindNote = computed(() =>
+    this.refreshing() && this.freshness.behind()
+      ? 'A run has finished since this library was read - bringing the list up to date...'
+      : '',
+  );
+  protected readonly setupCaption = this.librarySetup.caption;
+  protected readonly setupPercent = this.librarySetup.percent;
   /** where the library is in Dropbox - always the app folder, so there is nothing to pick */
   protected readonly appFolderPath = APP_FOLDER_PATH;
 
@@ -455,7 +464,7 @@ export class App {
    */
   protected readonly listingNote = computed(() => {
     const listed = this.library.listedAt();
-    return listed ? `List refreshed ${shownTime(listed)}.` : '';
+    return listed ? `List refreshed ${shownTime(listed)}` : '';
   });
 
   /** a folder with nothing in it at all is what the getting-started panel is for */
@@ -531,6 +540,16 @@ export class App {
    */
   protected readonly libraryLocked = computed(() => !!this.activeRun());
   protected readonly lockedTitle = 'Cannot be changed while an active run is in progress';
+  /**
+   * The library is still being read, set up or checked for issues: the Works and Collections
+   * buttons wait, and come back as the Resolve issues offer does
+   */
+  protected readonly libraryPreparing = computed(
+    () => this.library.loading() || this.librarySetup.state() !== 'idle' || this.imports.checking(),
+  );
+  protected readonly preparingTitle = 'Wait until your library has finished loading';
+  /** a run cannot start: one is going, or the library is not ready yet */
+  protected readonly runsHeld = computed(() => !!this.activeRun() || this.libraryPreparing());
   protected readonly store = this.library.store;
 
   protected setMode(mode: StorageMode): void {

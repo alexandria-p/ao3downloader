@@ -267,7 +267,20 @@ export class Library {
       this.store.set(null);
     }
     this.showing = 'local';
-    await this.restore(++this.generation);
+    const generation = ++this.generation;
+    this.notReading();
+    await this.restore(generation);
+  }
+
+  /**
+   * A switch of library starts from nothing being read. A read it replaces stops at its next
+   * generation check without saying it is done - only the current read may - so when the new
+   * library has nothing to read (no folder remembered, or permission to ask for again) the
+   * page was left on 'Reading files...' for ever.
+   */
+  private notReading(): void {
+    this.loading.set(false);
+    this.readProgress.set(null);
   }
 
   /**
@@ -280,6 +293,7 @@ export class Library {
   async showDropbox(keep = false): Promise<void> {
     this.showing = 'dropbox';
     const generation = ++this.generation;
+    this.notReading();
     // a refresh keeps what is on screen until the new read replaces it, so the listing and its
     // filters stay put; opening the library starts from nothing
     if (!keep) this.clearLibrary();
@@ -299,7 +313,7 @@ export class Library {
       if (generation === this.generation) this.readProgress.set(progress);
     };
     try {
-      await this.setup.prepare(this.dropboxTarget(), APP_FOLDER_PATH);
+      await this.setup.prepare(this.dropboxTarget(), `Dropbox${APP_FOLDER_PATH}`);
       if (generation !== this.generation) return;
       this.store.set(new DropboxLibraryStore(this.dropbox));
       note({ stage: 'listing', found: 0 });

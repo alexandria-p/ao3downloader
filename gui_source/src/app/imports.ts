@@ -591,6 +591,8 @@ export class LibraryImports {
   );
   /** the store the last check was of, so a check of a library since closed is dropped */
   readonly checkedStore = signal<LibraryStore | null>(null);
+  /** a check is going: the Works and Collections buttons wait for it, as the offer does */
+  readonly checking = signal(false);
   /**
    * the excluded file's lines, as each library has them - read once per listing, so a run that
    * renamed files (and so changed the file) is read again once the page takes its changes in
@@ -738,6 +740,7 @@ export class LibraryImports {
     this.undatedIndexed.set([]);
     this.duplicates.set([]);
     this.checkedStore.set(null);
+    this.checking.set(false);
   }
 
   async check(): Promise<void> {
@@ -751,6 +754,7 @@ export class LibraryImports {
       return;
     }
     const indexed = new Set(this.library.worksById().keys());
+    this.checking.set(true);
     try {
       const listed = await store.list(WORKS_FOLDER, false);
       const excluded = excludedOf(await this.entries(store));
@@ -775,6 +779,9 @@ export class LibraryImports {
       this.checkedStore.set(store);
     } catch {
       // the library could not be listed: whatever was found before is kept until it can
+    } finally {
+      // only the newest check says it is over - an older one thrown away says nothing
+      if (generation === this.generation) this.checking.set(false);
     }
   }
 }

@@ -1633,10 +1633,26 @@ export class DownloadDialog implements OnDestroy {
     this.remember.set(value);
   }
 
+  /**
+   * What the login page needs filled in before the run can start - the Start button is held
+   * until it is, rather than pressed and quietly refusing
+   */
+  protected readonly credentialsReady = computed(() => {
+    if (this.logsIn() && (!this.username().trim() || !this.password())) return false;
+    return !(this.needsUsername() && !this.username().trim());
+  });
+
+  /**
+   * A quick scan with no earlier scan on record to measure back to: it will read the whole
+   * listing, which the first page says. Unknown (still being looked for) says nothing.
+   */
+  protected readonly firstScan = computed(
+    () => this.action() === 'quick' && !this.resuming() && this.newestFloorRead() === null,
+  );
+
   protected async submit(event: Event): Promise<void> {
     event.preventDefault();
-    if (this.logsIn() && (!this.username().trim() || !this.password())) return;
-    if (this.needsUsername() && !this.username().trim()) return;
+    if (!this.credentialsReady()) return;
 
     // only the username is ours to keep. the password is left to the browser's own
     // password manager, which stores it in the OS keychain rather than in page storage.

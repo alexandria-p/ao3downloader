@@ -39,6 +39,11 @@ export interface Prompt {
    * for the rest: they ask until someone ticks their box, so *Ask always* only removes the key.
    */
   always?: string;
+  /**
+   * false keeps it off the User settings tab - still tracked, saved, and put back by Reset to
+   * defaults, just not offered as a choice there
+   */
+  listed?: boolean;
 }
 
 /** grouped by `area`, in the order the tab lists them */
@@ -53,6 +58,7 @@ export const PROMPTS: Prompt[] = [
       'ask always.',
     dismissed: 'true',
     always: 'always',
+    listed: false,
   },
   {
     key: FOLDER_WARNING_KEY,
@@ -66,14 +72,14 @@ export const PROMPTS: Prompt[] = [
   {
     key: HIDE_WARNING_KEY,
     area: 'Your library',
-    name: 'Before hiding a work',
-    description: 'What hiding does, and how to bring a hidden work back.',
+    name: 'Hide a work',
+    description: 'Tell me what hiding does, and how to undo it for a work.',
     dismissed: 'off',
   },
   {
     key: IMPORT_OFFER_KEY,
     area: 'Your library',
-    name: 'Offer to resolve issues found in your library',
+    name: "Show 'resolve issues' window if a problem was found with your file import",
     description:
       'When a library opens with downloaded works the index has no entry for, or files with ' +
       'no date in their name: the window offering to date and import them, and the reminder ' +
@@ -83,10 +89,11 @@ export const PROMPTS: Prompt[] = [
   {
     key: SYNC_ACK_KEY,
     area: 'Runs',
-    name: 'What a quick scan will not pick up',
+    name: 'Quick Scan acknowledgement',
     description:
-      'The note you tick before a quick scan (and the combined run) starts, saying what it ' +
-      'does not check.',
+      'A warning that a Quick Scan will not restore any files missing from earlier runs due ' +
+      'to an incomplete or damaged index - for example, if an earlier run was interrupted, or ' +
+      'files were deleted.',
     dismissed: 'true',
   },
   {

@@ -6,7 +6,14 @@
   --fairy-room: 150px;
   max-width: 1000px;
   margin: 0 auto;
-  padding: 16px 20px 60px;
+  /* nothing under the footer: it sits on the window's bottom edge */
+  padding: 16px 20px 0;
+}
+
+/* at least the window's height less the footer, so a short tab still has the footer at the
+   bottom - its height is measured (--app-footer-height), since it wraps on a narrow window */
+.page-body {
+  min-height: calc(100vh - 16px - 24px - var(--app-footer-height, 34px));
 }
 
 /* region top bar */
@@ -294,6 +301,12 @@
   user-select: none;
 }
 
+/* held - a run going, or the library still loading - and looking it */
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .button:hover {
   background: var(--surface-hover);
 }
@@ -484,10 +497,10 @@
   color: var(--text-dim);
 }
 
-/* the hosted copy's pointer to the app, a panel above the version line */
+/* the hosted copy's pointer to the app, a panel under the version line */
 .app-footer .run-locally {
   flex: 1 0 100%;
-  margin: 0 0 4px;
+  margin: 4px 0 0;
   padding: 7px 11px;
   border: 1px solid var(--accent-line);
   border-radius: 3px;
@@ -546,19 +559,10 @@
   font-size: 0.88rem;
 }
 
-/* the works list is behind a run that finished elsewhere - said beside the way to catch up */
-.notice.library-behind {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-}
-
 /* the Works tab's first line while the library has works or files to sort out */
 .import-issues {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   margin: 0 0 16px;
   padding: 10px 12px;
@@ -567,14 +571,25 @@
   background: var(--warn-bg);
 }
 
+.import-issues-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .import-issues-said {
   color: var(--text-dim);
   font-size: 0.88rem;
 }
 
-/* the far right of the reminder */
+/* the top right of the reminder, however its text wraps */
 .import-issues-close {
+  flex: none;
   margin-left: auto;
+  padding: 0 2px;
   border: 0;
   background: none;
   color: var(--text-dim);
@@ -600,4 +615,59 @@
 
 .views .debug-tab-button {
   color: var(--danger-text);
+}
+
+/* Refresh, as an icon beside 'List refreshed': spins while the list is read again */
+.refresh-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* the gap is all margin, with no space before it in any template, so it is the same on every tab */
+  margin-left: 6px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  /* transparent in every state - hover only colours the arrow */
+  background: transparent;
+  appearance: none;
+  color: var(--text-dim);
+  /* sat on the text's baseline and a pixel below it: the arrow's middle then meets the middle
+     of the capitals and digits beside it, which is where the eye lines it up */
+  vertical-align: -1px;
+  cursor: pointer;
+}
+
+.refresh-icon svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+  transform-origin: 50% 50%;
+}
+
+.refresh-icon:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.refresh-icon:disabled {
+  background: transparent;
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* spinning is the point while it reads: not faded with the rest of a held button */
+.refresh-icon.spinning:disabled {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.refresh-icon.spinning svg {
+  animation: refresh-spin 1s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refresh-icon.spinning svg { animation: none; }
 }
