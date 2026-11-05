@@ -331,7 +331,8 @@ export class UserSettings implements OnDestroy {
     setPromptAsks(prompt, asks);
     // the banner reads its flag once, when the page opens - tell it now
     if (prompt.key === UPDATE_BANNER_KEY) this.updates.dismissed.set(!asks);
-    this.say(`Saved: "${prompt.name}" - ${asks ? 'ask always' : 'do not ask again'}`);
+    const labels = promptLabels(prompt);
+    this.say(`Saved: "${prompt.name}" - ${(asks ? labels.ask : labels.skip).toLowerCase()}`);
   }
 
   protected setAnswer(question: QuestionDefault, value: string): void {

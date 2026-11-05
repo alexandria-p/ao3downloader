@@ -201,7 +201,7 @@ describe('UserSettings', () => {
     await open();
 
     const areas = Array.from(element.querySelectorAll('.prompts h4')).map((h) => h.textContent?.trim());
-    expect(areas).toEqual(['Your library', 'Runs', 'Updates']);
+    expect(areas).toEqual(['File imports', 'Your library', 'Runs', 'Updates']);
     const rows = Array.from(element.querySelectorAll('.prompts [data-prompt]'));
     // every one but those kept off the tab (the browser notice), which are still reset
     expect(rows.map((r) => r.getAttribute('data-prompt'))).toEqual(
@@ -211,6 +211,18 @@ describe('UserSettings', () => {
     for (const row of rows) expect(row.querySelector('select')!.value).toBe('ask');
     const options = Array.from(rows[0].querySelectorAll('option')).map((o) => o.textContent?.trim());
     expect(options).toEqual(['Ask always', 'Do not ask again']);
+  });
+
+  it('puts the folder note and the Resolve issues window under File imports, worded for them', async () => {
+    await open();
+    const imports = [...element.querySelectorAll('.prompts h4')].find((h) => h.textContent?.trim() === 'File imports')!;
+    const rows = imports.nextElementSibling!;
+    expect([...rows.querySelectorAll('.name')].map((n) => n.textContent?.trim())).toEqual([
+      'When loading local files on your machine',
+      "Show 'resolve issues' window if a problem was found with your file import",
+    ]);
+    expect(rows.textContent).toContain('Tell the user how the application finds and identifies files.');
+    expect(rows.textContent).toContain('If works are missing an index, files with no date in their name or there are duplicates.');
   });
 
   it('calls the update banner New app version alert banner, with Show always / Don\'t show', async () => {
@@ -236,7 +248,7 @@ describe('UserSettings', () => {
     choose(`[data-prompt="${FOLDER_WARNING_KEY}"] select`, 'skip');
     await settle();
     expect(localStorage.getItem(FOLDER_WARNING_KEY)).toBe('true');
-    expect(toast()).toBe('Saved: "Before you choose a folder" - do not ask again');
+    expect(toast()).toBe('Saved: "When loading local files on your machine" - do not ask again');
 
     choose(`[data-prompt="${SYNC_ACK_KEY}"] select`, 'skip');
     choose(`[data-prompt="${HIDE_WARNING_KEY}"] select`, 'ask');
@@ -509,7 +521,7 @@ describe('UserSettings', () => {
     await open();
     const prompts = element.querySelector<HTMLDetailsElement>('details.prompts')!;
     expect(prompts.open).toBe(false);
-    expect(prompts.querySelector('summary h3')?.textContent).toBe('Prompts');
+    expect(prompts.querySelector('summary h3')?.textContent).toBe("'Ask again' Prompts");
     expect(prompts.querySelector('summary .saved-to')?.textContent?.trim()).toBe('Saved to this browser');
   });
 

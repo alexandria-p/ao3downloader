@@ -25,7 +25,7 @@ export const ANSWER_DEFAULTS_KEY = 'ao3.answerDefaults';
 export const QUESTION_TIMEOUT_KEY = 'ao3.questionTimeoutMinutes';
 export const AO3_TIME_ZONE_KEY = 'ao3.ao3TimeZone';
 
-export type PromptArea = 'Your library' | 'Runs' | 'Updates';
+export type PromptArea = 'File imports' | 'Your library' | 'Runs' | 'Updates';
 
 export interface Prompt {
   key: string;
@@ -69,28 +69,24 @@ export const PROMPTS: Prompt[] = [
   },
   {
     key: FOLDER_WARNING_KEY,
-    area: 'Your library',
-    name: 'Before you choose a folder',
-    description:
-      'How downloaded files are matched to your index by their file names, shown before the ' +
-      'folder picker opens.',
+    area: 'File imports',
+    name: 'When loading local files on your machine',
+    description: 'Tell the user how the application finds and identifies files.',
     dismissed: 'true',
+  },
+  {
+    key: IMPORT_OFFER_KEY,
+    area: 'File imports',
+    name: "Show 'resolve issues' window if a problem was found with your file import",
+    description:
+      'If works are missing an index, files with no date in their name or there are duplicates.',
+    dismissed: 'off',
   },
   {
     key: HIDE_WARNING_KEY,
     area: 'Your library',
     name: 'Hide a work',
     description: 'Tell me what hiding does, and how to undo it for a work.',
-    dismissed: 'off',
-  },
-  {
-    key: IMPORT_OFFER_KEY,
-    area: 'Your library',
-    name: "Show 'resolve issues' window if a problem was found with your file import",
-    description:
-      'When a library opens with downloaded works the index has no entry for, or files with ' +
-      'no date in their name: the window offering to date and import them, and the reminder ' +
-      'above the tabs. Turned off by No, never ask me again.',
     dismissed: 'off',
   },
   {
@@ -115,7 +111,7 @@ export const PROMPTS: Prompt[] = [
   },
 ];
 
-export const PROMPT_AREAS: PromptArea[] = ['Your library', 'Runs', 'Updates'];
+export const PROMPT_AREAS: PromptArea[] = ['File imports', 'Your library', 'Runs', 'Updates'];
 
 /** whether the prompt is still shown - true until someone said not to ask again */
 export function promptAsks(prompt: Prompt): boolean {
