@@ -1445,6 +1445,22 @@ describe('App', () => {
     expect(element.querySelector('.import-issues')).toBeNull();
   });
 
+  it('offers the window and the reminder for duplicates alone, with nothing undated or unindexed', async () => {
+    localStorage.clear();
+    // work 1 is indexed and both copies are dated: the only issue is that there are two
+    libraryWithFiles(['works/1 Work 1 - Writer 2024-01-01.html', 'works/1 Work 1 - Writer 2024-02-01.html']);
+    TestBed.inject(Library).data.set(exportOf(1));
+    TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+
+    const offered = element.querySelector('app-import-dialog');
+    const bullets = [...offered!.querySelectorAll('.overview-issues li')].map((li) => li.textContent!.trim());
+    expect(bullets).toEqual(['2 files are duplicates']);
+    expect(element.querySelector('.import-issues-said')?.textContent?.trim()).toBe('2 files are duplicates');
+  });
+
   it('offers to import works whose files have no index entry, once, when the library opens', async () => {
     localStorage.clear();
     libraryWithFiles(['works/1 Work 1 - Writer.html', 'works/999 Not Indexed - Writer.html']);
