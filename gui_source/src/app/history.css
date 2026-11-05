@@ -126,10 +126,11 @@
   margin-left: auto;
 }
 
-/* Retry's right edge meets the pill's straight edge, before its round end: in by half the
-   pill's height - 0.75rem of text at line-height 1.5, 2px padding and 1px border each side */
+/* Retry's straight top edge ends where the pill's straight bottom edge does, each going into
+   its curve at the same point: in by the pill's corner (half its height - 0.75rem of text at
+   line-height 1.5, 2px padding and 1px border each side) less the button's own 3px corner */
 .run-corner .retry {
-  margin-right: calc(0.5625rem + 3px);
+  margin-right: calc(0.5625rem + 3px - 3px);
 }
 
 .run-name {
