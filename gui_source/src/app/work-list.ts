@@ -276,11 +276,6 @@ export class WorkList {
   protected readonly rangeEnd = computed(() => Math.min(this.page() * PER_PAGE, this.total()));
 
   /** how many of the listed works actually have a downloaded html file alongside them */
-  readonly linkedCount = computed(() => {
-    const files = this.htmlFiles();
-    return this.filtered().filter((work) => isWorkEntry(work) && work.id && files.has(work.id)).length;
-  });
-
   // region where a work came from, and hiding works
 
   protected readonly origins = ORIGINS;

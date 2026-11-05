@@ -667,7 +667,8 @@ describe('App', () => {
 
     const title = element.querySelector('.heading a.title');
     expect(title?.classList.contains('local')).toBe(false);
-    expect(element.querySelector('.meta-line.linked')?.textContent).toContain('No downloaded work files');
+    // and the listing no longer counts downloaded copies in a sentence of its own
+    expect(element.querySelector('.meta-line.linked')).toBeNull();
   });
 
   it('links a title to its downloaded copy when the folder has one', async () => {
@@ -680,7 +681,6 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.heading a.title')?.classList.contains('local')).toBe(true);
-    expect(element.querySelector('.meta-line.linked')?.textContent).toContain('1 of 1 works');
   });
 
   // region the history tab

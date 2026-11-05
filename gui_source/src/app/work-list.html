@@ -20,15 +20,6 @@
 <!-- whatever the page puts under the heading - on the Works tab, its run buttons -->
 <ng-content select="[listingActions]" />
 
-<p class="meta-line linked">
-  @if (linkedCount() > 0) {
-    {{ linkedCount() | number }} of {{ total() | number }} works have a downloaded copy in this
-    folder - click a title to open one.
-  } @else {
-    No downloaded work files in this folder, so titles open on AO3 instead.
-  }
-</p>
-
 <!--
   narrowing the listing, not searching ao3: everything here is filtered from what the folder
   already holds, so it costs no requests and works with the helper stopped
