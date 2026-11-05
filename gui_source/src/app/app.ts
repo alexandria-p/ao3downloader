@@ -279,9 +279,12 @@ export class App {
    */
   protected readonly progressOnTop = computed(() => {
     const view = this.view();
-    if (this.mode() === 'dropbox' && !this.canRun() && (view === 'bookmarks' || view === 'collections')) return true;
-    return view === 'bookmarks' && !this.data();
+    // Works and Collections show their headings from the first moment of a read, with the
+    // bar under them; only a Dropbox library not yet open has no heading to go under
+    return this.mode() === 'dropbox' && !this.canRun() && !this.loading() && (view === 'bookmarks' || view === 'collections');
   });
+  /** the library's first read since it was opened: nothing to list yet, and no time to say */
+  protected readonly firstRead = computed(() => this.loading() && !this.data());
   protected readonly sourceName = this.library.sourceName;
   protected readonly folderName = this.library.folderName;
   protected readonly needsReconnect = this.library.needsReconnect;

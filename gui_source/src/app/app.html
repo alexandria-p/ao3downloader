@@ -351,7 +351,7 @@
   'List refreshed' (projected into app-work-list); everywhere else, here above the content
 -->
 @if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && view() !== 'debug' && canRun()) {
-  @if (!(view() === 'bookmarks' && data()) && view() !== 'collections') {
+  @if (!(view() === 'bookmarks' && (data() || loading())) && view() !== 'collections') {
     <ng-container [ngTemplateOutlet]="runActions" />
   }
 }
@@ -462,7 +462,7 @@
   <div class="progress-top"><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
 }
 
-@if (mode() === 'dropbox' && !canRun() && (view() === 'bookmarks' || view() === 'collections')) {
+@if (mode() === 'dropbox' && !canRun() && !loading() && (view() === 'bookmarks' || view() === 'collections')) {
   <section class="empty">
     @switch (dropboxStatus()) {
       @case ('unconfigured') {
@@ -486,12 +486,14 @@
     }
   </section>
 } @else if (view() === 'bookmarks') {
-  @if (data()) {
+  <!-- shown from the first moment of a read, so the heading, buttons and bar never jump in -->
+  @if (data() || loading()) {
     <app-work-list
       [works]="works()"
       [owner]="owner()"
       label="Bookmarks"
-      [note]="listingNote()"
+      [loading]="firstRead()"
+      [note]="listingNote() || 'List not yet loaded'"
       [selectable]="true"
     >
       <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
@@ -509,7 +511,7 @@
     </p>
   }
 } @else if (view() === 'collections') {
-  <app-collections-view [preparing]="libraryPreparing()">
+  <app-collections-view [preparing]="libraryPreparing()" [loading]="firstRead()">
     <span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>
     <div listingProgress>
       <ng-container [ngTemplateOutlet]="libraryProgress" />

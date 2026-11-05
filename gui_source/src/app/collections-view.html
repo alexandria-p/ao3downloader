@@ -208,11 +208,16 @@
 } @else {
   <!-- the listing of collections -->
   <p class="listing-heading">
-    {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
+    <!-- nothing counted yet (still loading, or none at all): just what is listed -->
+    @if (total()) {
+      {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
+    } @else {
+      Collections
+    }
   </p>
-  @if (listedAt(); as at) {
-    <p class="meta-line note">List refreshed {{ shownTime(at) }}<ng-content select="[noteAction]" /></p>
-  }
+  <p class="meta-line note">
+    @if (listedAt(); as at) {<span>List refreshed {{ shownTime(at) }}</span>} @else {<span>List not yet loaded</span>}<ng-content select="[noteAction]" />
+  </p>
   <!-- under the heading, one row: the page's run buttons (projected), then making your own -->
   <div class="listing-actions">
     <ng-content select="[listingActions]" />
@@ -289,11 +294,13 @@
         </dl>
       </li>
     } @empty {
+      @if (!loading()) {
       <li class="notice">
         No collections in this folder yet. Use <strong>Index my collections</strong> above to
         fetch your own, or <strong>Index collection by URL</strong> for any other. To make one
         of your own, tick works on the Bookmarks tab and choose <strong>Add to a collection</strong>.
       </li>
+      }
     }
   </ol>
 

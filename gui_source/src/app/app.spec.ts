@@ -927,6 +927,29 @@ describe('App', () => {
     setup.state.set('idle');
   });
 
+  it('shows both listings\' headings while the library is first read, with nothing counted yet', async () => {
+    const library = TestBed.inject(Library);
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
+    const fixture = TestBed.createComponent(App);
+    const element = fixture.nativeElement as HTMLElement;
+    library.loading.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-work-list .listing-heading')?.textContent?.trim()).toBe('Bookmarks');
+    expect(element.querySelector('app-work-list .meta-line.note')?.textContent).toContain('List not yet loaded');
+    expect(element.querySelector<HTMLElement>('app-work-list details.filters')?.hidden).toBe(true);
+    expect(element.querySelector('app-work-list .index .notice')).toBeNull();
+
+    tab(element, 'Collections')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(element.querySelector('app-collections-view .listing-heading')?.textContent?.trim()).toBe('Collections');
+    expect(element.querySelector('app-collections-view .meta-line.note')?.textContent).toContain('List not yet loaded');
+    expect(element.querySelector('app-collections-view .collections .notice')).toBeNull();
+    library.loading.set(false);
+  });
+
   it('highlights the storage chosen, and only that one', async () => {
     const { element } = await render(1);
     const buttons = [...element.querySelectorAll('.storage button')];

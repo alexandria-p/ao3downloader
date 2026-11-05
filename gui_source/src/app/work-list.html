@@ -1,5 +1,10 @@
 <p class="listing-heading">
-  {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} {{ label() }}
+  <!-- nothing counted yet (still loading, or none at all): just what is listed -->
+  @if (totalUnfiltered() || filtering()) {
+    {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} {{ label() }}
+  } @else {
+    {{ label() }}
+  }
   @if (filtering()) {
     <span class="filtered-note">(filtered from {{ totalUnfiltered() | number }})</span>
   }
@@ -26,7 +31,7 @@
   narrowing the listing, not searching ao3: everything here is filtered from what the folder
   already holds, so it costs no requests and works with the helper stopped
 -->
-<details class="filters" (toggle)="filtersOpen.set($any($event.target).open)">
+<details class="filters" [hidden]="loading()" (toggle)="filtersOpen.set($any($event.target).open)">
   <summary>
     Filter
     @if (filtering()) {
@@ -638,7 +643,9 @@
       }
     </li>
   } @empty {
-    <li class="notice">{{ emptyMessage() }}</li>
+    @if (!loading()) {
+      <li class="notice">{{ emptyMessage() }}</li>
+    }
   }
 </ol>
 

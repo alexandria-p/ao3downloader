@@ -38,6 +38,8 @@ export class CollectionsView {
   private readonly library = inject(Library);
   /** the library is still being read or checked: making a collection waits, as the run buttons do */
   readonly preparing = input(false);
+  /** the library's first read is still going: no 'no collections yet' until it is known */
+  readonly loading = input(false);
   /** 'List refreshed', as the Works tab says it: when the library was last read into the page */
   protected readonly listedAt = this.library.listedAt;
   protected readonly shownTime = shownTime;
