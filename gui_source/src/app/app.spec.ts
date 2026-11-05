@@ -789,6 +789,16 @@ describe('App', () => {
     ).toBe('https://archiveofourown.org/faq/downloading-fanworks');
   });
 
+  it('shows the logo beside the name, from the page itself, without reading it out twice', async () => {
+    const { element } = await render(1);
+
+    const heading = element.querySelector('.topbar h1');
+    const logo = heading?.querySelector('img.logo');
+    expect(logo?.getAttribute('src')).toBe('ficfairy-logo.png');
+    expect(logo?.getAttribute('alt')).toBe('');
+    expect(heading?.textContent?.trim()).toBe('FicFairy');
+  });
+
   it('pins where to download the app to the top of the FAQ', async () => {
     const { fixture, element } = await render(1);
     tab(element, 'FAQ')!.click();

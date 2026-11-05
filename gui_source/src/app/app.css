@@ -18,10 +18,21 @@
 }
 
 .topbar h1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--text-strong);
+}
+
+/* the logo is a transparent picture, so it sits on every palette, light or dark; the name
+   beside it is what is read out, so the picture itself has empty alt text */
+.topbar h1 .logo {
+  width: 44px;
+  height: 44px;
+  flex: none;
 }
 
 .picker {

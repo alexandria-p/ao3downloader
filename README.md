@@ -1,5 +1,7 @@
 # FicFairy ଘ( ･ω･)_/ﾟ･:*:･｡☆
 
+<p align="center"><img src="docs/logos/ficfairy.png" alt="FicFairy: a fairy with a wand over an open book" width="240"></p>
+
 Keep your own copy of your AO3 bookmarks and collections on your computer or Dropbox.
 
 **This app works best in Chrome web browser.**
