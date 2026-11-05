@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1035 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1039 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2646,6 +2646,13 @@ state) - `Library.refresh` on demand; History has the same icon for its own list
 listing's `loading` input): *Bookmarks* / *Collections* alone while nothing is counted (still
 loading, or none), *List not yet loaded* (with no refresh icon) until the first read lands, the buttons and the bar under
 them - no filters and no 'empty' message yet.
+
+**A failed read offers Try again, never retries by itself** (`Library.readFailure`,
+`retryRead`): the button counts 3, 2, 1 - or from Dropbox's own `Retry-After`, if longer
+(`DropboxError.retryAfter`, `READ_RETRY_SECONDS`) - before it can be pressed, and a 429 adds a
+line asking the reader to slow down. Pressing it clears the panel and reads again; a new failure
+brings it back. **No import check runs after a failed read** - against no index, every file
+looked unindexed and the Resolve issues window offered to 'repair' the whole library.
 
 **A switch of library starts from nothing being read** (`Library.notReading`, from `showLocal`
 and `showDropbox`): a read it replaces stops at its generation check without saying it is done,

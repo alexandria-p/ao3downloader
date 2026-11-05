@@ -44,6 +44,13 @@ export interface Prompt {
    * defaults, just not offered as a choice there
    */
   listed?: boolean;
+  /** what its two choices are called on the tab, when 'Ask always' / 'Do not ask again' do not fit */
+  labels?: { ask: string; skip: string };
+}
+
+/** the words for a prompt's two choices on the User settings tab */
+export function promptLabels(prompt: Prompt): { ask: string; skip: string } {
+  return prompt.labels ?? { ask: 'Ask always', skip: 'Do not ask again' };
 }
 
 /** grouped by `area`, in the order the tab lists them */
@@ -99,11 +106,12 @@ export const PROMPTS: Prompt[] = [
   {
     key: UPDATE_BANNER_KEY,
     area: 'Updates',
-    name: 'Banner when a newer version is out',
+    name: 'New app version alert banner',
     description:
       'The banner at the top of the page. With it off, the footer still says when there is ' +
       'a newer version.',
     dismissed: 'true',
+    labels: { ask: 'Show always', skip: "Don't show" },
   },
 ];
 

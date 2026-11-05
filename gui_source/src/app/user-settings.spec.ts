@@ -13,8 +13,7 @@ import {
   PROMPTS,
   SYNC_ACK_KEY,
   UPDATE_BANNER_KEY,
-  startingFiletypes,
-} from './preferences';
+  startingFiletypes, promptLabels } from './preferences';
 import { UpdateCheck } from './updates';
 import { IMPORT_EXCLUDED_FILE, LibraryImports } from './imports';
 import { Library } from './library';
@@ -212,6 +211,13 @@ describe('UserSettings', () => {
     for (const row of rows) expect(row.querySelector('select')!.value).toBe('ask');
     const options = Array.from(rows[0].querySelectorAll('option')).map((o) => o.textContent?.trim());
     expect(options).toEqual(['Ask always', 'Do not ask again']);
+  });
+
+  it('calls the update banner New app version alert banner, with Show always / Don\'t show', async () => {
+    await open();
+    const row = element.querySelector(`[data-prompt="${UPDATE_BANNER_KEY}"]`)!;
+    expect(row.querySelector('.name')?.textContent?.trim()).toBe('New app version alert banner');
+    expect([...row.querySelectorAll('option')].map((o) => o.textContent?.trim())).toEqual(['Show always', "Don't show"]);
   });
 
   it('shows a prompt already turned off as "Do not ask again"', async () => {
@@ -543,7 +549,7 @@ describe('UserSettings', () => {
       Array.from(r.children).map((c) => c.textContent?.replace(/\s+/g, ' ').trim()),
     );
     expect(rows).toEqual([
-      ...PROMPTS.map((p) => [`Prompts ${p.name}`, 'Do not ask again', '→ Ask always']),
+      ...PROMPTS.map((p) => [`Prompts ${p.name}`, promptLabels(p).skip, `→ ${promptLabels(p).ask}`]),
       ['Download formats Formats a run starts with', 'JSON, PDF', '→ JSON, HTML'],
       ['settings.ini ExtraWaitTime', '15', '→ 40'],
     ]);

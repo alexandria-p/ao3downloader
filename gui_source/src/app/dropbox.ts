@@ -103,6 +103,8 @@ export class DropboxError extends Error {
     message: string,
     readonly status: number,
     readonly summary = '',
+    /** on a 429, how many seconds Dropbox asked us to wait, when it said */
+    readonly retryAfter: number | null = null,
   ) {
     super(message);
   }
@@ -725,6 +727,7 @@ async function errorFrom(response: Response): Promise<DropboxError> {
       `Dropbox asked us to slow down${wait ? ` - try again in ${wait} seconds` : ''}.`,
       429,
       summary,
+      wait && Number.isFinite(Number(wait)) ? Number(wait) : null,
     );
   }
   return new DropboxError(detail || `Dropbox answered ${response.status}.`, response.status, summary);

@@ -11,7 +11,7 @@ import {
   workIdFromFilename,
 } from './bookmarks';
 import { Collection, flattenCollection, isCollectionRecord } from './collections';
-import { APP_FOLDER_PATH, DropboxFile, DropboxSession } from './dropbox';
+import { APP_FOLDER_PATH, DropboxError, DropboxFile, DropboxSession } from './dropbox';
 import { DirectoryHandle, FolderStore } from './folder-store';
 import { isRunRecord } from './jobs';
 import { LibrarySetup, SetupTarget, WORKS_FOLDER } from './library-setup';
@@ -80,6 +80,9 @@ export function copyName(copy: LocalCopy): string {
 const INDEX_FOLDERS = ['indexing', 'collections'];
 /** how many files to fetch at once when a folder is too big to come as one zip */
 const PARALLEL_DOWNLOADS = 6;
+
+/** the least a Try again button waits after a failed read: 3, 2, 1 - asking straight away again is what gets a library rate-limited */
+export const READ_RETRY_SECONDS = 3;
 
 /**
  * How far reading a Dropbox library has got, for the bar shown while it loads.
@@ -258,6 +261,11 @@ export class Library {
   readonly listedAt = signal<Date | null>(null);
   /** a full read again, with the listing kept on screen meanwhile (`refresh`) */
   readonly refreshing = signal(false);
+  /**
+   * A read of the library failed and can be asked again (`retryRead`): how long to hold the
+   * Try again button first, and whether Dropbox asked us to slow down. Never retried by itself.
+   */
+  readonly readFailure = signal<{ waitSeconds: number; slowDown: boolean } | null>(null);
 
   /** Show the folder on this computer: reopen the remembered one if it can still be read. */
   async showLocal(): Promise<void> {
@@ -281,6 +289,19 @@ export class Library {
   private notReading(): void {
     this.loading.set(false);
     this.readProgress.set(null);
+    this.readFailure.set(null);
+  }
+
+  /**
+   * Read the library again after a read failed - only ever from the reader's own click (the
+   * Try again button), never by itself. The failure is cleared first, and a new one shows it
+   * again.
+   */
+  async retryRead(): Promise<void> {
+    this.error.set('');
+    this.readFailure.set(null);
+    if (this.showing === 'dropbox') await this.showDropbox(true);
+    else if (this.localHandle) await this.readHandle(this.localHandle, ++this.generation);
   }
 
   /**
@@ -300,6 +321,7 @@ export class Library {
     // the local folder is not what a run would write to now; Dropbox's replaces it once open
     this.store.set(null);
     this.error.set('');
+    this.readFailure.set(null);
 
     const folder = this.dropbox.folder();
     if (!folder || this.dropbox.status() !== 'signed-in') {
@@ -344,6 +366,11 @@ export class Library {
         `Could not read ${APP_FOLDER_PATH} from Dropbox. ` +
           (error instanceof Error ? error.message : ''),
       );
+      const slowDown = error instanceof DropboxError && error.status === 429;
+      this.readFailure.set({
+        waitSeconds: Math.max(READ_RETRY_SECONDS, slowDown ? (error.retryAfter ?? 0) : 0),
+        slowDown,
+      });
     } finally {
       if (generation === this.generation) {
         this.loading.set(false);
@@ -514,6 +541,7 @@ export class Library {
   private async readHandle(handle: DirectoryHandle, generation: number): Promise<void> {
     const current = () => generation === this.generation;
     this.loading.set(true);
+    this.readFailure.set(null);
     try {
       try {
         await this.setup.prepare(this.localTarget(handle), handle.name);
@@ -538,7 +566,10 @@ export class Library {
       await this.readHidden(generation);
       if (current() && this.store()) this.lastRead.set({ store: this.store()!, at: Date.now() });
     } catch {
-      if (current()) this.error.set(`Could not read ${handle.name}.`);
+      if (current()) {
+        this.error.set(`Could not read ${handle.name || 'your library folder'}.`);
+        this.readFailure.set({ waitSeconds: READ_RETRY_SECONDS, slowDown: false });
+      }
     } finally {
       if (current()) this.loading.set(false);
     }

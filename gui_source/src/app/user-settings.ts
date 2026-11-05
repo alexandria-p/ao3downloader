@@ -7,6 +7,7 @@ import {
   QUESTION_DEFAULTS,
   QuestionDefault,
   PROMPTS,
+  promptLabels,
   PROMPT_AREAS,
   Prompt,
   UPDATE_BANNER_KEY,
@@ -166,6 +167,7 @@ export class UserSettings implements OnDestroy {
     }
   }
 
+  protected readonly labelsOf = promptLabels;
   protected readonly areas = PROMPT_AREAS.map((area) => ({
     area,
     prompts: PROMPTS.filter((p) => p.area === area && p.listed !== false),
@@ -235,7 +237,7 @@ export class UserSettings implements OnDestroy {
     const askingNow = this.asking();
     for (const prompt of PROMPTS) {
       if (askingNow[prompt.key] === 'skip') {
-        changes.push({ group: 'Prompts', name: prompt.name, current: 'Do not ask again', default: 'Ask always' });
+        changes.push({ group: 'Prompts', name: prompt.name, current: promptLabels(prompt).skip, default: promptLabels(prompt).ask });
       }
     }
     const config = this.config();

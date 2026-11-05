@@ -409,7 +409,21 @@
 }
 
 @if (error()) {
-  <p class="error">{{ error() }}</p>
+  <div class="error read-error" role="alert">
+    <p>{{ error() }}</p>
+    <!-- a failed read can be asked again, but only by hand, and only after a pause -->
+    @if (readFailure(); as failure) {
+      @if (failure.slowDown) {
+        <p class="slow-down">
+          Dropbox is asking for a breather. Give it a moment before trying again - asking again
+          straight away only makes it wait longer.
+        </p>
+      }
+      <button type="button" class="button try-again" [disabled]="retryCountdown() > 0" (click)="tryReadAgain()">
+        {{ retryCountdown() > 0 ? retryCountdown() + '...' : 'Try again' }}
+      </button>
+    }
+  </div>
 }
 
 @if (setupReport()) {

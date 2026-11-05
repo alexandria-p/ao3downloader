@@ -218,8 +218,8 @@
               [value]="asking()[prompt.key]"
               (change)="choose(prompt, $any($event.target).value)"
             >
-              <option value="ask" [selected]="asking()[prompt.key] === 'ask'">Ask always</option>
-              <option value="skip" [selected]="asking()[prompt.key] === 'skip'">Do not ask again</option>
+              <option value="ask" [selected]="asking()[prompt.key] === 'ask'">{{ labelsOf(prompt).ask }}</option>
+              <option value="skip" [selected]="asking()[prompt.key] === 'skip'">{{ labelsOf(prompt).skip }}</option>
             </select>
           </li>
         }

@@ -952,6 +952,39 @@ describe('App', () => {
     library.loading.set(false);
   });
 
+  it('holds Try again on a failed read for 3, 2, 1, then reads again only when pressed', async () => {
+    vi.useFakeTimers();
+    try {
+      const library = TestBed.inject(Library);
+      vi.spyOn(library, 'showLocal').mockResolvedValue();
+      const retry = vi.spyOn(library, 'retryRead').mockResolvedValue();
+      const fixture = TestBed.createComponent(App);
+      const element = fixture.nativeElement as HTMLElement;
+      library.error.set('Could not read /Apps/FicFairy from Dropbox. Dropbox asked us to slow down.');
+      library.readFailure.set({ waitSeconds: 3, slowDown: true });
+      fixture.detectChanges();
+      const button = () => element.querySelector<HTMLButtonElement>('.read-error .try-again')!;
+      expect(element.querySelector('.read-error .slow-down')?.textContent).toContain('asking for a breather');
+      expect(button().disabled).toBe(true);
+      expect(button().textContent?.trim()).toBe('3...');
+
+      vi.advanceTimersByTime(1000);
+      fixture.detectChanges();
+      expect(button().textContent?.trim()).toBe('2...');
+      vi.advanceTimersByTime(2000);
+      fixture.detectChanges();
+      expect(button().disabled).toBe(false);
+      expect(button().textContent?.trim()).toBe('Try again');
+      // never by itself
+      expect(retry).not.toHaveBeenCalled();
+
+      button().click();
+      expect(retry).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('highlights the storage chosen, and only that one', async () => {
     const { element } = await render(1);
     const buttons = [...element.querySelectorAll('.storage button')];
@@ -1374,6 +1407,21 @@ describe('App', () => {
       await fixture.whenStable();
     }
   }
+
+  it('neither checks nor offers anything when the library could not be read', async () => {
+    localStorage.clear();
+    libraryWithFiles(['works/1 Work 1 - Writer 2024-01-01.html']);
+    const library = TestBed.inject(Library);
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
+    library.error.set('Could not read downloads.');
+    library.readFailure.set({ waitSeconds: 3, slowDown: false });
+    const fixture = TestBed.createComponent(App);
+    await settled(fixture);
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('app-import-dialog')).toBeNull();
+    expect(element.querySelector('.import-issues')).toBeNull();
+    library.readFailure.set(null);
+  });
 
   it('neither checks nor offers anything while the library is still being read', async () => {
     localStorage.clear();

@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { DropboxFile, DropboxFolder, DropboxSession, DropboxStatus } from './dropbox';
+import { DropboxError, DropboxFile, DropboxFolder, DropboxSession, DropboxStatus } from './dropbox';
 import { FolderStore } from './folder-store';
 import { DropboxCopy, Library, ReadProgress, describeReadProgress } from './library';
 import { LibrarySetup } from './library-setup';
@@ -572,5 +572,33 @@ describe('Library, switching between a local folder and Dropbox', () => {
     await reading;
     expect(library.loading()).toBe(false);
     expect(library.data()).toBeNull();
+  });
+
+  it('offers a read that Dropbox slowed down again - by hand, after the wait it asked for', async () => {
+    const dropbox = new FakeDropbox();
+    dropbox.files = { '/indexing/111 One.json': record('111', 1) };
+    const list = dropbox.listFiles.bind(dropbox);
+    let limited = true;
+    dropbox.listFiles = (async (...args: Parameters<FakeDropbox['listFiles']>) => {
+      if (limited) throw new DropboxError('Dropbox asked us to slow down - try again in 10 seconds.', 429, '', 10);
+      return list(...args);
+    }) as FakeDropbox['listFiles'];
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: DropboxSession, useValue: dropbox },
+        { provide: FolderStore, useValue: { supported: () => true, recall: async () => null } },
+      ],
+    });
+    const library = TestBed.inject(Library);
+
+    await library.showDropbox();
+    expect(library.error()).toContain('Dropbox asked us to slow down');
+    expect(library.readFailure()).toEqual({ waitSeconds: 10, slowDown: true });
+
+    limited = false;
+    await library.retryRead();
+    expect(library.error()).toBe('');
+    expect(library.readFailure()).toBeNull();
+    expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
   });
 });
