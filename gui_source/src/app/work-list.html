@@ -17,6 +17,9 @@
   <p class="meta-line note">{{ note() }}</p>
 }
 
+<!-- whatever the page puts under the heading - on the Works tab, its run buttons -->
+<ng-content select="[listingActions]" />
+
 <p class="meta-line linked">
   @if (linkedCount() > 0) {
     {{ linkedCount() | number }} of {{ total() | number }} works have a downloaded copy in this

@@ -11,7 +11,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { BrowserNotice, browserNoticeSeen } from './browser-notice';
 import { CollectionsView } from './collections-view';
 import { DownloadDialog } from './download-dialog';
@@ -47,7 +47,7 @@ export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug' | 'se
 
 @Component({
   selector: 'app-root',
-  imports: [DebugTab, DecimalPipe, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
+  imports: [DebugTab, DecimalPipe, NgTemplateOutlet, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
     CollectionsView, Feedback, PasscodeGate, SetupOverlay, UserSettings, ImportDialog],
   styleUrl: './app.css',
   templateUrl: './app.html',

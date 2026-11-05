@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1014 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1015 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2503,7 +2503,14 @@ not to break:
   downloaded by the browser only once a chosen font is used - so offering them costs nothing,
   and they work offline. The old `rounded` and `legible` ids now name the bundled Nunito and
   Atkinson Hyperlegible, so a saved choice still works. A typed font name goes through
-  `cleanFontName` before it reaches a style. **The header title is never in that font**: it is
+  `cleanFontName` before it reaches a style. **The header reads "Fic Fairy"** (two words, at
+  the user's choice), 64px, moved down inside the bar's own 51px so the bar and its buttons
+  never move; it never wraps or shrinks (`flex: none`), and the bar never wraps on a wide
+  window - with a wide font the buttons wrap among themselves on the right. **On the Works
+  tab the run buttons sit inside the listing, under its heading and *List refreshed***
+  (`<ng-template #runActions>`, projected into `app-work-list` through
+  `<ng-content select="[listingActions]">`); with no listing, and on Collections, they stay
+  above the content. **The header title is never in that font**: it is
   always Doomsdays Dragons (`src/fonts/doomsdays-dragons.otf`, `@font-face` in `styles.css`), by
   GraphicSauce, Freeware Non-Commercial - fine for an app given away free, at the user's
   decision, and credited in the README. Don't use it anywhere that sells something. `main.ts` applies the saved choice before

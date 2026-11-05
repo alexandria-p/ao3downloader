@@ -13,7 +13,9 @@
 
 .topbar {
   display: flex;
-  flex-wrap: wrap;
+  /* the name and the buttons always share the row: with a wide font chosen the buttons wrap
+     among themselves on the right rather than dropping under the name */
+  flex-wrap: nowrap;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
@@ -33,6 +35,9 @@
      and the buttons, centred in it - stay exactly where they were however large the name is */
   line-height: 51px;
   height: 51px;
+  /* the name never wraps or shrinks; the buttons beside it give way instead */
+  flex: none;
+  white-space: nowrap;
   color: var(--text-strong);
 }
 
@@ -75,6 +80,14 @@
     --fairy-room: 0px;
   }
 
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .picker {
+    justify-content: flex-start;
+  }
+
   .topbar h1 {
     display: flex;
     align-items: center;
@@ -99,8 +112,10 @@
 .picker {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
   align-items: center;
+  min-width: 0;
 }
 
 /* where the library lives: two halves of one control, so it reads as a choice of one */

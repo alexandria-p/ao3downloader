@@ -560,6 +560,23 @@ describe('App', () => {
     expect(text).not.toContain('Last indexed');
   });
 
+  it('puts the run buttons under the listing heading and List refreshed, not above the listing', async () => {
+    const { fixture, element } = await render(1);
+    TestBed.inject(Library).listedAt.set(new Date('2026-11-03T10:00:00Z'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const list = element.querySelector('app-work-list')!;
+    const heading = list.querySelector('.listing-heading')!;
+    const note = list.querySelector('.meta-line.note')!;
+    const quick = [...list.querySelectorAll('.actions button')].find((b) => b.textContent?.includes('Quick Scan'));
+    expect(quick).toBeTruthy();
+    expect(heading.compareDocumentPosition(quick!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(note.compareDocumentPosition(quick!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // and only once on the page
+    expect([...element.querySelectorAll('.actions button')].filter((b) => b.textContent?.includes('Quick Scan')).length).toBe(1);
+  });
+
   it('counts what each page holds on its tab', async () => {
     const library = TestBed.inject(Library);
     library.data.set(exportOf(3));
@@ -796,7 +813,7 @@ describe('App', () => {
     const logo = heading?.querySelector('img.logo');
     expect(logo?.getAttribute('src')).toBe('ficfairy-logo.png');
     expect(logo?.getAttribute('alt')).toBe('');
-    expect(heading?.textContent?.trim()).toBe('FicFairy');
+    expect(heading?.textContent?.trim()).toBe('Fic Fairy');
   });
 
   it('pins where to download the app to the top of the FAQ', async () => {
