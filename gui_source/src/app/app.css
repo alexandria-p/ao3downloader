@@ -1,5 +1,9 @@
 :host {
   display: block;
+  /* the fairy is placed against the page itself, so she can fly down past the header */
+  position: relative;
+  /* how far everything near her starts from the left, to leave her room */
+  --fairy-room: 150px;
   max-width: 1000px;
   margin: 0 auto;
   padding: 16px 20px 60px;
@@ -13,28 +17,64 @@
   gap: 12px;
   align-items: center;
   justify-content: space-between;
+  min-height: 64px;
   padding-bottom: 12px;
+  padding-left: var(--fairy-room);
   border-bottom: 1px solid var(--border);
 }
 
 .topbar h1 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 2.2rem;
   font-weight: 600;
+  line-height: 1.1;
   color: var(--text-strong);
 }
 
-/* the logo is a transparent picture, so it sits on every palette, light or dark; the name
-   beside it is what is read out, so the picture itself has empty alt text */
+/* the fairy flying in over the tabs: large, tilted, and hanging below the header line, beside
+   the tabs and any banner under it, which start --fairy-room in to make space for her. She is
+   a transparent picture, tinted to the palette (appearance.logoFilter), never in the way of a
+   click, and her alt text is empty because the name beside her is what is read out */
 .topbar h1 .logo {
-  width: 44px;
-  height: 44px;
-  flex: none;
-  /* turned to the palette's accent colour (appearance.logoFilter) */
+  position: absolute;
+  top: 2px;
+  left: 14px;
+  z-index: 1;
+  width: 150px;
+  height: 150px;
+  transform: rotate(-6deg);
+  pointer-events: none;
   filter: var(--logo-filter, none);
+}
+
+/* :host first, so this outranks each one's own margin shorthand further down */
+:host .run-in-progress,
+:host .update-available,
+:host .debug-banner,
+:host .import-issues,
+:host .views {
+  margin-left: var(--fairy-room);
+}
+
+/* too narrow to give her room beside the tabs: she sits in the bar beside the name instead */
+@media (max-width: 760px) {
+  :host {
+    --fairy-room: 0px;
+  }
+
+  .topbar h1 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1.6rem;
+  }
+
+  .topbar h1 .logo {
+    position: static;
+    width: 64px;
+    height: 64px;
+    transform: none;
+  }
 }
 
 .picker {

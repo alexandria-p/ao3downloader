@@ -2491,8 +2491,10 @@ not to break:
   `--warn-*`, `--ok-*`, `--note-*`, `--backdrop`) and sets `color-scheme`. The components read
   those tokens, never a hard-coded grey, status tint or accent, so **a component that hard-codes
   a colour will not follow the palette** - and on a light palette will likely be unreadable.
-  AO3's own rating, warning and category tiles keep AO3's colours on purpose. **The header logo
-  follows the palette** (`--logo-filter`, `logoFilter`): drawn in one pink (`LOGO_HUE`, measured
+  AO3's own rating, warning and category tiles keep AO3's colours on purpose. **The header logo flies over the tabs** (`.topbar h1 .logo`: 150px, tilted, placed against
+  `:host`, below the header line; the header, the tabs and every banner between them start
+  `--fairy-room` in to make space, and under 760px wide she sits in the bar at 64px instead). It
+  **follows the palette** (`--logo-filter`, `logoFilter`): drawn in one pink (`LOGO_HUE`, measured
   off the file), it is hue-rotated to the accent's hue, left as drawn when the accent is within
   `LOGO_KEEP_WITHIN` of that pink, and greyed for a grey accent - so a new palette tints it with
   no change here. Swapping the logo for one in another colour means measuring `LOGO_HUE` again. **Fonts are the
