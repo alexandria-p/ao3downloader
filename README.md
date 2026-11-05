@@ -1,7 +1,5 @@
 # FicFairy ଘ( ･ω･)_/ﾟ･:*:･｡☆
 
-<p align="center"><img src="docs/logos/ficfairy.png" alt="FicFairy: a fairy with a wand over an open book" width="240"></p>
-
 Keep your own copy of your AO3 bookmarks and collections on your computer or Dropbox.
 
 **This app works best in Chrome web browser.**
@@ -20,7 +18,7 @@ Keep your own copy of your AO3 bookmarks and collections on your computer or Dro
   into your library.
 - **Browse and search your library in the browser**, and open downloaded works in a new tab.
 - **Logging in is optional.** Skip it to fetch only what anyone can see, or log in to access your private bookmarks and fics restricted to AO3 users. Your ao3 login is never saved, and is passed straight to ao3.
-- **Keep your fics in your Dropbox** so you can access your downloads from any device - sync up your bookmarks on your computer, and read fic on the go from your phone using Dropbox
+- **Keep your fics in your Dropbox** so you can access your downloads from any device - sync up your bookmarks on your computer, and read fic on the go from your phone using Dropbox.
 
 ## Download
 
@@ -64,7 +62,7 @@ If you *do* wish to login to access more works, then this app logs in to ao3 for
 
 Because this runs on your machine, it means you don't have to send that request through any server I am hosting - instead, the HTTPS request goes directly from your computer to ao3's site.
 
-**Dropbox** You can optionally download your fics to Dropbox, instead of a file location on your computer. Once you grant it access, the app creates a folder inside `dropbox/apps` that it saves everything to. This is the **only** location it has access to - it cannot read from, nor write to, any other locations in your Dropbox. All requests are sent directly from your computer to Dropbox servers, using the Dropbox API.
+**Dropbox**: You can optionally download your fics to Dropbox, instead of a file location on your computer. Once you grant it access, the app creates a folder inside `dropbox/apps` that it saves everything to. This is the **only** location it has access to - it cannot read from, nor write to, any other locations in your Dropbox. All requests are sent directly from your computer to Dropbox servers, using the Dropbox API.
 
 Note: If lots of users opt-into the Dropbox integration (above 500), I will need to upgrade my app registration with Dropbox - I am happy to do this.
 
@@ -102,9 +100,10 @@ Again, this tool is only for personal use and I have been militant in ensuring t
 - [BlueSky @ficfairy.bsky.social](https://bsky.app/profile/ficfairy.bsky.social)
 - [Twitter/X @ficfairy_ao3](https://x.com/ficfairy_ao3)
 
-Logo drawn by me using Procreate on my iPad.
-Title font: [Doomsdays Dragons](https://www.fontspace.com/doomsdays-dragons-elegant-business-font-f161455) by GraphicSauce (Freeware, Non-Commercial).
+Title font is [Doomsdays Dragons by GraphicSauce](https://www.fontspace.com/doomsdays-dragons-elegant-business-font-f161455)  (Freeware, Non-Commercial)<br>
 Forked from [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader)
+
+Logo drawn by me using Procreate on my iPad.
 
 . ݁₊ ⊹ . ݁ ⟡ ݁ . ⊹ ₊ ݁.
 
