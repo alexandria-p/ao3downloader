@@ -89,11 +89,10 @@
       <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
     </div>
     <p class="hint">
-      The time zone AO3 shows your dates in - the one in your AO3 preferences. A scan measures
-      back to the day the last one started in this zone, so a fic AO3 dates that day is never
-      passed over. Starts as this browser's own ({{ browserZone }}).
+      Starts as this browser's own ({{ browserZone }}). This should match the time zone set in
+      your AO3 preferences.
     </p>
-    <select aria-label="Your AO3 time zone" (change)="setAo3Zone($any($event.target).value)">
+    <select class="zone-select" aria-label="Your AO3 time zone" (change)="setAo3Zone($any($event.target).value)">
       @for (zone of zones; track zone) {
         <option [value]="zone" [selected]="zone === ao3Zone()">
           {{ zone }}{{ zone === browserZone ? ' (this browser)' : '' }}

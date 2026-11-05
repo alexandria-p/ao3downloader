@@ -451,3 +451,11 @@ input[type='text'] {
 .font-choice select {
   width: 240px;
 }
+
+/* the zone's names run long, '(this browser)' longer still: as wide as the longest needs,
+   never narrower than the other boxes and never wider than the section */
+select.zone-select {
+  width: auto;
+  min-width: 170px;
+  max-width: 100%;
+}
