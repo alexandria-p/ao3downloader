@@ -92,7 +92,7 @@ the same thing in conversation.
 ## Your library
 
 - **Library** [downloads folder, library folder] - the folder everything lives in: a folder on this computer, or the Dropbox app folder.
-- **Dropbox app folder** - `/Apps/ao3-downloader` in Dropbox; the only Dropbox folder the app can see.
+- **Dropbox app folder** - `/Apps/FicFairy` in Dropbox; the only Dropbox folder the app can see.
 - **Library folders** - `indexing`, `collections`, `images`, `runs` and `works`, created when a library is opened.
 - **Index** - the `indexing` folder: one JSON file per work, plus `series/` and `external/` subfolders.
 - **Run history** [run record, history file] - one JSON file per run in `runs/`, saying what it did - including the AO3 account it logged in as (`username`, never the password), which History shows as *AO3 account*.

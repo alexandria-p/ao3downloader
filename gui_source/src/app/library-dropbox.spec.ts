@@ -104,7 +104,7 @@ function collection(name: string): string {
 class FakeDropbox {
   readonly status = signal<DropboxStatus>('signed-in');
   // the app folder, as the real session hands it out; paths below it are rooted at ''
-  readonly folder = signal<DropboxFolder | null>({ id: '', path: '', name: 'ao3-downloader' });
+  readonly folder = signal<DropboxFolder | null>({ id: '', path: '', name: 'FicFairy' });
   files: Record<string, string> = {};
   zips: string[] = [];
   downloads: string[] = [];
@@ -369,7 +369,7 @@ describe('Library, reading a Dropbox folder', () => {
       throw new Error('Dropbox asked us to slow down.');
     };
     await library.showDropbox();
-    expect(library.error()).toContain('/Apps/ao3-downloader');
+    expect(library.error()).toContain('/Apps/FicFairy');
     expect(library.error()).toContain('slow down');
   });
 

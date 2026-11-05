@@ -25,4 +25,4 @@ export const DROPBOX_APP_KEY = '31mktq7zn2ydrxy';
  * `/Apps/<this>/` in Dropbox. Only used to tell people where to look; the api never needs
  * it, because every path an App folder app uses is already inside that folder.
  */
-export const DROPBOX_APP_FOLDER = 'ao3-downloader';
+export const DROPBOX_APP_FOLDER = 'FicFairy';

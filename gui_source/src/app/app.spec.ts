@@ -1162,7 +1162,7 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     const source = element.querySelector('.topbar .source');
-    expect(source?.textContent).toContain('/Apps/ao3-downloader');
+    expect(source?.textContent).toContain('/Apps/FicFairy');
     expect(source?.getAttribute('title')).toContain('me@example.com');
     // the library is open, which is everything a run needs
     expect(actionLabels(element)).toContain('Quick Scan');
@@ -1180,7 +1180,7 @@ describe('App', () => {
     await fixture.whenStable();
     const element = fixture.nativeElement as HTMLElement;
 
-    expect(element.querySelector('.empty')?.textContent).toContain('/Apps/ao3-downloader');
+    expect(element.querySelector('.empty')?.textContent).toContain('/Apps/FicFairy');
     expect(actionLabels(element)).toEqual([]);
   });
 

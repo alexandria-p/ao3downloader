@@ -1,4 +1,4 @@
-Your library is one folder - on your computer, or `/Apps/ao3-downloader` in Dropbox. The app never keeps a copy anywhere else.
+Your library is one folder - on your computer, or `/Apps/FicFairy` in Dropbox. The app never keeps a copy anywhere else.
 
 ## Folders
 
