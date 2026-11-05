@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library } from './library';
+import { shownTime } from './preferences';
 import { WorkList } from './work-list';
 import { CollectionEditor } from './collection-editor';
 import { CustomCollections } from './custom-collections';
@@ -35,6 +36,9 @@ type Tab = 'works' | 'bookmarks';
 })
 export class CollectionsView {
   private readonly library = inject(Library);
+  /** 'List refreshed', as the Works tab says it: when the library was last read into the page */
+  protected readonly listedAt = this.library.listedAt;
+  protected readonly shownTime = shownTime;
 
   protected readonly collections = this.library.collections;
   /** whether collections of your own can be made or changed: a library the page can write to */

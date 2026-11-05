@@ -596,6 +596,12 @@ describe('making and editing collections from the Collections tab', () => {
     expect(store.files.size).toBe(0);
   });
 
+  it('says when the list was refreshed, as the Works tab does', async () => {
+    library.listedAt.set(new Date('2026-11-05T10:00:00Z'));
+    await settle();
+    expect(element.querySelector('.meta-line')?.textContent).toContain('List refreshed');
+  });
+
   it('offers no new collection where nothing can be saved', async () => {
     library.store.set(null);
     await settle();
@@ -608,7 +614,7 @@ describe('making and editing collections from the Collections tab', () => {
     button('Mine').click();
     await settle();
 
-    button('Edit collection').click();
+    button('Update collection details').click();
     await settle();
     expect(element.querySelector('app-collection-editor [name="maintainers"]')).toBeNull();
     expect((element.querySelector<HTMLInputElement>('app-collection-editor [name="title"]'))!.value).toBe('Mine');
@@ -630,11 +636,11 @@ describe('making and editing collections from the Collections tab', () => {
     expect(element.querySelector('.pencil')).toBeNull();
     button('Yuletide 2024').click();
     await settle();
-    expect(button('Edit collection')).toBeUndefined();
+    expect(button('Update collection details')).toBeUndefined();
     expect(element.querySelector('.pencil')).toBeNull();
   });
 
-  it('puts Edit collection on the name line, and a pencil by the name that opens the same window', async () => {
+  it('puts Update collection details on the name line, and a pencil by the name that opens the same window', async () => {
     await custom.create('Mine', { works: ['1'], externals: [] });
     await settle();
     // in the listing, beside the name
@@ -648,7 +654,7 @@ describe('making and editing collections from the Collections tab', () => {
     await settle();
     const row = element.querySelector('.collection-head .title-row')!;
     expect(row.querySelector('h2')!.textContent).toContain('Mine');
-    expect(row.querySelector('.edit-collection')!.textContent).toContain('Edit collection');
+    expect(row.querySelector('.edit-collection')!.textContent).toContain('Update collection details');
     row.querySelector<HTMLButtonElement>('.pencil')!.click();
     await settle();
     expect(element.querySelector<HTMLInputElement>('app-collection-editor [name="title"]')!.value).toBe('Mine');

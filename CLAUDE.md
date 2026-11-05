@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1018 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1020 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1090,7 +1090,7 @@ config (`Jobs.connecting`) and, for a quick scan, the newest floor (`Jobs.floorA
 first batch the helper finds a floor in) in the background; the window works from the config the
 page already has, or `BUILT_IN_CONFIG`, meanwhile. **Interrupted runs are marked in the
 background** whenever a library is read or refreshed (an effect on `Library.lastRead`), when
-History opens, and when a workflow opens - nothing in starting a run depends on it, since the
+History reads its list, and when a workflow opens - nothing in starting a run depends on it, since the
 helper refuses a second run itself (409). **Start waits on the run page** (`readyToStart`,
 `.run-waiting`): for the helper's answer, then for a quick scan measuring back to its last run,
 the floor - whose warning (`missingDownloads`) is shown there, before anything starts, with
@@ -1101,7 +1101,7 @@ window, nothing started. *Choose which earlier scan to measure back to* reads th
 (`newestFloor`, `floorRuns`), never read twice. **Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
 history before every run window opens, and in Dropbox each record is a download of its own, so
 one after another a long history held the window for most of a minute. A record that will not
-read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many. The History tab says it shows only that many (`.history-limit`); older records stay in `runs/`. **The helper reads records lazily too** (`runs.iter_runs`): `last_successful` stops at
+read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many. The History tab says it shows only that many, in an (i) beside its heading (`.history-limit`), and *List refreshed* under it (`readAt`) as Works and Collections do. **It is read once, not on every visit**: the list is kept in `Jobs.historyRead` (with `at`) and shown again when the tab opens; only Refresh, a run starting (`Jobs.start`) or ending (`finishUp`, or a run leaving `activeRuns`) - `forgetHistory` - make it read again. Every tab's content starts 20px under the tabs, under a title of 1.15rem/600. Older records stay in `runs/`. **The helper reads records lazily too** (`runs.iter_runs`): `last_successful` stops at
 the first floor, usually the newest record, rather than reading 100 first; `find_run` (a
 retry, a chosen floor's `chosen_floor_at`) reads only the file whose name ends with the id's
 first 8, falling back to the rest only for a hand-renamed file. History marks interrupted runs
@@ -2675,7 +2675,7 @@ to its right, and the *From FicHub* badge beneath them at the far right; `.blurb
   many were already there; `documentOf` dedupes on every save, so a hand-edited file heals.
 - **One window makes and edits them** (`collection-editor.ts`), opened from **+ New
   collection**, from **+ A new collection...** in the add panel (with the ticked works as
-  `items`), and from **Edit collection**. **Nothing is written until Create/Save**: Cancel,
+  `items`), and from **Update collection details**. **Nothing is written until Create/Save**: Cancel,
   the cross, Escape and the backdrop all emit `cancelled`, the opener drops its
   `creatingWith`/`editing` and changes nothing else - so the works stay ticked and the add
   panel stays open. Bare by default (name, description, tags); **Show every field** adds the

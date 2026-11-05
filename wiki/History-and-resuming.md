@@ -1,4 +1,4 @@
-Every run is written into the **History** tab (`runs/` in your library) the moment it logs in, and kept up to date as it goes. Each entry names the **AO3 account** it logged in as (never the password) and offers **Download log** (every line timestamped in UTC, under the run's links, file types, options and settings), and **Download issues** when there is anything to report. The tab lists your 100 most recent runs; older ones stay in `runs/` but are not shown.
+Every run is written into the **History** tab (`runs/` in your library) the moment it logs in, and kept up to date as it goes. Each entry names the **AO3 account** it logged in as (never the password) and offers **Download log** (every line timestamped in UTC, under the run's links, file types, options and settings), and **Download issues** when there is anything to report. The tab lists your 100 most recent runs (the (i) beside its heading says so); older ones stay in `runs/` but are not shown. It reads the list once and shows it again each time you come back - **Refresh** reads it anew, as does a run starting or ending; *List refreshed* says when.
 
 ## What the status means
 

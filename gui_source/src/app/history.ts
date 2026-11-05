@@ -1,4 +1,4 @@
-import { inAo3Zone } from './preferences';
+import { inAo3Zone, shownTime } from './preferences';
 import { Component, effect, inject, signal, untracked, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
@@ -28,15 +28,31 @@ export class History {
   /** the most runs the tab reads and lists - older ones stay in runs/, just not shown */
   protected readonly historyLimit = HISTORY_LIMIT;
   protected readonly loading = signal(true);
+  /** when the list shown was read from the library, for 'List refreshed' */
+  protected readonly readAt = signal<Date | null>(null);
+  protected readonly shownTime = shownTime;
   /** true when the helper could not be reached at all, which is not the same as no runs */
   protected readonly unavailable = signal(false);
 
   constructor() {
     // the history lives in the library, so it is read again whenever the library changes -
-    // switching to Dropbox while looking at this page shows Dropbox's runs
+    // switching to Dropbox while looking at this page shows Dropbox's runs. Opening the tab
+    // shows the list last read for this library rather than reading it again (a long history
+    // in Dropbox is a download per record); Refresh, or a run starting or ending, reads anew
     effect(() => {
-      this.library.store();
-      untracked(() => void this.load());
+      const store = this.library.store();
+      untracked(() => {
+        const kept = this.jobs.historyRead;
+        if (store && kept?.store === store) {
+          this.runs.set(kept.runs);
+          this.readAt.set(kept.at);
+          this.unavailable.set(false);
+          this.loading.set(false);
+          void this.jobs.refreshActiveRuns();
+        } else {
+          void this.load();
+        }
+      });
     });
   }
 
@@ -121,7 +137,9 @@ export class History {
     this.runs.set(found ?? []);
     // a retry started from here opens on its run using this list, rather than reading it again
     const store = this.library.store();
-    this.jobs.historyRead = found && store ? { store, runs: found } : null;
+    const at = new Date();
+    this.jobs.historyRead = found && store ? { store, runs: found, at } : null;
+    this.readAt.set(found ? at : null);
     this.loading.set(false);
   }
 

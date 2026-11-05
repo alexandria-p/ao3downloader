@@ -73,9 +73,31 @@ describe('History', () => {
     TestBed.configureTestingModule({ providers: [{ provide: Jobs, useValue: jobs }] });
   });
 
-  it('says it lists only the most recent runs', async () => {
+  it('says it lists only the most recent runs, in an (i) beside the heading', async () => {
     await show([]);
-    expect(element.querySelector('.history-limit')?.textContent).toContain('100 most recent runs');
+    expect(element.querySelector('h2 .history-limit')?.textContent).toContain('100 most recent runs');
+  });
+
+  it('shows the list it read last when opened again, and reads anew only on Refresh or a run', async () => {
+    TestBed.inject(Library).store.set({} as never);
+    const read = vi.spyOn(jobs, 'loadRuns');
+    await show([aRun()]);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(element.querySelector('.meta-line')?.textContent).toContain('List refreshed');
+
+    fixture.destroy();
+    await show([aRun(), aRun({ id: 'def', file: 'b.json' })]);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(element.querySelectorAll('.run:not(.run-active)').length).toBe(1);
+
+    [...element.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Refresh')!.click();
+    await show(jobs.runs);
+    expect(read).toHaveBeenCalledTimes(2);
+
+    jobs.forgetHistory();
+    fixture.destroy();
+    await show(jobs.runs);
+    expect(read).toHaveBeenCalledTimes(3);
   });
 
   it('says so plainly when nothing has been recorded yet', async () => {

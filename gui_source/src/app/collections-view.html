@@ -7,12 +7,12 @@
   @if (isCustom(collection)) {
   <!-- one of your own: made here, so there is no ao3 page, reading history or challenge -->
   <header class="collection-head">
-    <!-- the name, its pencil, and Edit collection at the right of the same line -->
+    <!-- the name, its pencil, and Update collection details at the right of the same line -->
     <div class="title-row">
       <h2>{{ collection.title }}</h2>
       @if (writable()) {
         <ng-container [ngTemplateOutlet]="pencil" [ngTemplateOutletContext]="{ $implicit: collection }" />
-        <button type="button" class="button edit-collection" (click)="editing.set(collection)">Edit collection</button>
+        <button type="button" class="button edit-collection" (click)="editing.set(collection)">Update collection details</button>
       }
     </div>
     <p class="flags">
@@ -210,6 +210,9 @@
   <p class="listing-heading">
     {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
   </p>
+  @if (listedAt(); as at) {
+    <p class="meta-line note">List refreshed {{ shownTime(at) }}.</p>
+  }
   <!-- under the heading, one row: the page's run buttons (projected), then making your own -->
   <div class="listing-actions">
     <ng-content select="[listingActions]" />
@@ -317,9 +320,9 @@
   }
 }
 
-<!-- the pencil beside a collection made in Fic Fairy: opens the same window as Edit collection -->
+<!-- the pencil beside a collection made in Fic Fairy: opens the same window as Update collection details -->
 <ng-template #pencil let-collection>
-  <button type="button" class="pencil" title="Edit collection" aria-label="Edit collection"
+  <button type="button" class="pencil" title="Update collection details" aria-label="Update collection details"
           (click)="editing.set(collection)">
     <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
       <path d="M11.3 1.7a1.5 1.5 0 0 1 2.1 0l.9.9a1.5 1.5 0 0 1 0 2.1L5.6 13.4 2 14l.6-3.6 8.7-8.7z"

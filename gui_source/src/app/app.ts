@@ -1,4 +1,5 @@
-import { inAo3Zone } from './preferences';
+import { inAo3Zone, shownTime } from './preferences';
+export { shownTime } from './preferences';
 import {
   Component,
   DestroyRef,
@@ -550,14 +551,5 @@ export class App {
   }
 }
 
-/**
- * A time as the listing shows it: the reader's own time zone, date and time to the minute. A
- * value that will not parse (an old file's free-text retrieval time) is shown as it was written.
- */
 /** what openRun does before a window opens, in the order its notice names them */
 
-export function shownTime(value: string | Date): string {
-  const at = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(at.getTime())) return String(value);
-  return at.toLocaleString([], inAo3Zone({ dateStyle: 'medium', timeStyle: 'short' }));
-}

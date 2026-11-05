@@ -516,12 +516,13 @@
 /* a short page, not a document: a link and what to put in the issue */
 .report-bug {
   max-width: 640px;
-  margin: 8px 0 24px;
+  margin: 20px 0 24px;
 }
 
 .report-bug h2 {
   margin: 0 0 10px;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
+  font-weight: 600;
 }
 
 .report-bug p {

@@ -316,3 +316,13 @@ export function utcToZonedDay(stamp: unknown): string {
   // en-CA writes YYYY-MM-DD
   return at.toLocaleDateString('en-CA', { timeZone: usableZone() });
 }
+
+/**
+ * A time as a listing shows it, in 'List refreshed': the reader's AO3 time zone, date and time
+ * to the minute. A value that will not parse (an old file's free-text time) is shown as written.
+ */
+export function shownTime(value: string | Date): string {
+  const at = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(at.getTime())) return String(value);
+  return at.toLocaleString([], inAo3Zone({ dateStyle: 'medium', timeStyle: 'short' }));
+}
