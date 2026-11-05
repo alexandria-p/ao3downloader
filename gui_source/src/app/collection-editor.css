@@ -200,3 +200,14 @@ footer {
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+
+/* a new collection is the page's alone: said first, in the warning colour */
+.ficfairy-only {
+  margin: 0 0 12px;
+  padding: 8px 11px;
+  border: 1px solid var(--warn-border);
+  border-radius: 3px;
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: 0.86rem;
+}

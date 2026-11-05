@@ -7,6 +7,11 @@
   </header>
 
   <section class="body">
+    @if (!editing()) {
+      <p class="ficfairy-only" role="note">
+        This collection will only exist in FicFairy. It will not be synced back to AO3.
+      </p>
+    }
     @if (!editing() && holding()) {
       <p class="holding">
         It will start with the {{ holding() }} {{ holding() === 1 ? 'work' : 'works' }} you ticked.

@@ -25,9 +25,13 @@ import { Component, input } from '@angular/core';
     </div>
   `,
   styles: `
+    :host {
+      display: block;
+    }
+
+    /* the full width of the page (or of the tab's column) */
     .read-progress {
       margin: 0 0 14px;
-      max-width: 640px;
     }
 
     .notice {

@@ -55,7 +55,7 @@ quick scan measures back to an earlier complete run, and nothing beyond the brea
 
 ## Where to find it
 
-- **History tab → Retry [EXPERIMENTAL]** on any ended run's card opens a custom run with that run
+- **History tab → Retry** on any ended run's card opens a custom run with that run
   chosen and its default way of retrying picked.
 - **Custom run → What this run covers → [EXPERIMENTAL] Retry an earlier run** lists every ended
   run to choose from.

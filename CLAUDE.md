@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1023 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1024 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -534,14 +534,15 @@ unauthenticated), no release yet - is treated as nothing newer. GitHub's api sen
 headers, which is what lets a page on `localhost` ask at all.
 
 **Every tab shows the version** in `.app-footer`, `position: sticky` at the bottom of the
-window so a long listing never hides it, with a link to `releasesRepo` on GitHub - or says
+window so a long listing never hides it - and on a short tab too: everything above it is in
+`.page-body`, at least the window's height less the footer (`--app-footer-height`) - with a link to `releasesRepo` on GitHub - or says
 `(built on this computer)` for a page with no version.
 
 **The FAQ pins a download panel first** (`.download-app`): the latest release's page
 (`releases/latest`, from `releasesRepo`, which defaults to this repository for a page with no
 config), what to do with the zip, and this page's version when it has one. **Not on the hosted
 copy** (`Faq.hosted`, `!HelperConnection.isLocal()`): there it is one line in the footer instead,
-`.run-locally` above the version line - *Run this on your own computer - download the latest
+`.run-locally` under the version line - *Run this on your own computer - download the latest
 version from GitHub*.
 
 ### A run can carry on in the background
@@ -2228,7 +2229,7 @@ window finishes after dating (`afterDating`). What not to break:
   time*) are offered again next time; guesses are listed (`guessed`). Then the dialog filters
   what it removed out of every later page (`removedPaths` -> `works`, `undatedElsewhere`, and so
   every count, the dating rows and the index question) and `refreshAfterRun` + `check` bring the
-  listing and reminder up to date. Lists in the window page **7** at a time
+  listing and reminder up to date. The reminder's text wraps in `.import-issues-body`, so its × stays in the top right corner. Lists in the window page **7** at a time
   (`DUPLICATES_PAGE_SIZE`, `DATES_PAGE_SIZE`). **The run window alone warns of a long import**
   (`.long-run-note`, above its bullets, not on a background run): over `LONG_IMPORT_REQUESTS`
   (20) by `importRequests` - lookups, plus other formats times works updated, plus the files it
@@ -2680,7 +2681,7 @@ to its right, and the *From FicHub* badge beneath them at the far right; `.blurb
 - **A work is in a custom collection once**, by its number. `add` filters out what the
   collection holds already and answers `Added` (`added`, `already`), so the page can say how
   many were already there; `documentOf` dedupes on every save, so a hand-edited file heals.
-- **One window makes and edits them** (`collection-editor.ts`), opened from **+ New
+- **One window makes and edits them** (`collection-editor.ts`; a new one opens with `.ficfairy-only`: *This collection will only exist in FicFairy. It will not be synced back to AO3.*), opened from **+ New
   collection**, from **+ A new collection...** in the add panel (with the ticked works as
   `items`), and from **Update collection details**. **Nothing is written until Create/Save**: Cancel,
   the cross, Escape and the backdrop all emit `cancelled`, the opener drops its

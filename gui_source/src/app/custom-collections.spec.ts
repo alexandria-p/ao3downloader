@@ -584,6 +584,24 @@ describe('making and editing collections from the Collections tab', () => {
     expect(element.querySelector('h2')?.textContent).toContain('To read');
   });
 
+  it('says a new collection lives only in FicFairy, and not when editing one', async () => {
+    button('New collection').click();
+    await settle();
+    expect(element.querySelector('app-collection-editor .ficfairy-only')?.textContent).toContain(
+      'This collection will only exist in FicFairy. It will not be synced back to AO3.',
+    );
+    button('Cancel').click();
+    await settle();
+
+    await custom.create('Mine', { works: ['1'], externals: [] });
+    await settle();
+    button('Mine').click();
+    await settle();
+    button('Update collection details').click();
+    await settle();
+    expect(element.querySelector('app-collection-editor .ficfairy-only')).toBeNull();
+  });
+
   it('makes nothing when the window is cancelled', async () => {
     button('New collection').click();
     await settle();

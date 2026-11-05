@@ -867,7 +867,7 @@ describe('App', () => {
       'Run this on your own computer - download the latest version from GitHub',
     );
     expect(panel?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/alexandria-p/ficfairy/releases/latest');
-    expect(element.querySelector('.app-footer')?.firstElementChild).toBe(panel);
+    expect(element.querySelector('.app-footer')?.lastElementChild).toBe(panel);
 
     tab(element, 'FAQ')!.click();
     await fixture.whenStable();

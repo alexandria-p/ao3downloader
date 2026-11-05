@@ -6,7 +6,14 @@
   --fairy-room: 150px;
   max-width: 1000px;
   margin: 0 auto;
-  padding: 16px 20px 60px;
+  /* nothing under the footer: it sits on the window's bottom edge */
+  padding: 16px 20px 0;
+}
+
+/* at least the window's height less the footer, so a short tab still has the footer at the
+   bottom - its height is measured (--app-footer-height), since it wraps on a narrow window */
+.page-body {
+  min-height: calc(100vh - 16px - 24px - var(--app-footer-height, 34px));
 }
 
 /* region top bar */
@@ -484,10 +491,10 @@
   color: var(--text-dim);
 }
 
-/* the hosted copy's pointer to the app, a panel above the version line */
+/* the hosted copy's pointer to the app, a panel under the version line */
 .app-footer .run-locally {
   flex: 1 0 100%;
-  margin: 0 0 4px;
+  margin: 4px 0 0;
   padding: 7px 11px;
   border: 1px solid var(--accent-line);
   border-radius: 3px;
@@ -557,8 +564,7 @@
 /* the Works tab's first line while the library has works or files to sort out */
 .import-issues {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   margin: 0 0 16px;
   padding: 10px 12px;
@@ -567,14 +573,25 @@
   background: var(--warn-bg);
 }
 
+.import-issues-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .import-issues-said {
   color: var(--text-dim);
   font-size: 0.88rem;
 }
 
-/* the far right of the reminder */
+/* the top right of the reminder, however its text wraps */
 .import-issues-close {
+  flex: none;
   margin-left: auto;
+  padding: 0 2px;
   border: 0;
   background: none;
   color: var(--text-dim);

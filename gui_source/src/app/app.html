@@ -1,3 +1,5 @@
+<!-- everything above the footer, tall enough to put it at the bottom of the window -->
+<div class="page-body">
 <header class="topbar">
   <h1><img class="logo" src="ficfairy-logo.png" alt="" width="44" height="44" /><span class="name">Fic Fairy</span></h1>
   <div class="picker">
@@ -198,6 +200,8 @@
      'No, never ask me again' is chosen -->
 @if (importReminder()) {
   <div class="import-issues" role="status">
+    <!-- what wraps is this half; the cross beside it stays in the top corner -->
+    <div class="import-issues-body">
     <button type="button" class="button import-issues-button"
             [disabled]="!!activeRun() || !!dialogAction()"
             [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
@@ -205,6 +209,7 @@
       Resolve issues found with import
     </button>
     <span class="import-issues-said">{{ importIssuesSaid() }}</span>
+    </div>
     <button type="button" class="import-issues-close" aria-label="Dismiss" title="Dismiss until the library is opened again"
             (click)="dismissImportReminder()">&times;</button>
   </div>
@@ -546,15 +551,10 @@
   <app-faq />
 }
 
+</div>
+
 <!-- on every tab, and pinned to the bottom of the window while a long listing scrolls -->
 <footer class="app-footer" #appFooter>
-  <!-- the hosted copy (GitHub Pages) points at the app, here rather than in the FAQ -->
-  @if (hosted) {
-    <p class="run-locally" role="note">
-      Run this on your own computer -
-      <a [href]="latestReleaseUrl()" target="_blank" rel="noopener">download the latest version from GitHub</a>
-    </p>
-  }
   <!--
     always says whether this is the latest, so someone who dismissed the banner still sees
     a newer one is out - as underlined text rather than a button, quieter than the banner
@@ -577,6 +577,13 @@
     }
   </span>
   <a [href]="repositoryUrl()" target="_blank" rel="noopener">{{ repositoryName() }} on GitHub</a>
+  <!-- the hosted copy (GitHub Pages) points at the app, under the version line, rather than in the FAQ -->
+  @if (hosted) {
+    <p class="run-locally" role="note">
+      Run this on your own computer -
+      <a [href]="latestReleaseUrl()" target="_blank" rel="noopener">download the latest version from GitHub</a>
+    </p>
+  }
 </footer>
 
 @if (passcodeWanted()) {

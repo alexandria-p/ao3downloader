@@ -180,7 +180,7 @@ describe('History', () => {
                        options: { pages: 5, start: 1 } })]);
 
     const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
-    expect(button.textContent?.trim()).toBe('Retry [EXPERIMENTAL]');
+    expect(button.textContent?.trim()).toBe('Retry');
     expect(button.disabled).toBe(false);
   });
 
@@ -770,7 +770,7 @@ describe('History', () => {
     fixture.componentInstance.resume.subscribe((id) => emitted.push(id));
 
     const button = element.querySelector<HTMLButtonElement>('.run-resume button')!;
-    expect(button.textContent?.trim()).toBe('Retry [EXPERIMENTAL]');
+    expect(button.textContent?.trim()).toBe('Retry');
     button.click();
     expect(emitted).toEqual(['abc']);
   });
