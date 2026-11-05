@@ -104,3 +104,9 @@ Logo drawn by me using Procreate on my iPad.
 Forked from [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader)
 
 𓍊𓋼𓍊𖡼.𖤣𖥧𖡼.𖤣𖥧𓋼𓍊𓋼
+
+Developed under the GNU GENERAL PUBLIC LICENSE. This work is, and should remain, free to use. 
+
+Do not copy, modify or transform this work into any service you plan to charge money for. If you do fork this, please link back to this repository and [nianeyna's](https://github.com/nianeyna/ao3downloader), to credit any work that has been used.
+
+Do not repost this work with the intent to pass it off as your own, and do not use this work in any software for profit or with the intent to harm users. 🫵🫵🫵
