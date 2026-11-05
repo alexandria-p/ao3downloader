@@ -70,7 +70,7 @@ Note: If lots of users opt-into the Dropbox integration (above 500), I will need
 
 This project has been developed over 3 months, and 100+ hours of (my own) human time. The code has been hand-architected - implementation has been part manual, part AI-assisted. 
 
-What does this mean? As a senior software engineer and architect, I have mapped out and designed every feature, and how every feature works, on paper and in endless todo lists across my phone and PC. Every new feature I implement, I consider 'happy-paths', edge-cases, usability, UI design on paper prototypes and graceful error-handling.
+What does this mean? As a senior software engineer and architect, I have mapped out and designed every feature, and how every feature works, on paper and in endless lists across my phone and PC. Every new feature I implement, I consider 'happy-paths', edge-cases, usability, UI design on paper prototypes and graceful error-handling.
 
 How is AI involved?
 - only in the generation of the application's CODE, to replace what would be my own busy-work
@@ -103,10 +103,12 @@ Again, this tool is only for personal use and I have been militant in ensuring t
 Logo drawn by me using Procreate on my iPad.
 Forked from [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader)
 
-𓍊𓋼𓍊𖡼.𖤣𖥧𖡼.𖤣𖥧𓋼𓍊𓋼
+. ݁₊ ⊹ . ݁ ⟡ ݁ . ⊹ ₊ ݁.
 
 Developed under the GNU GENERAL PUBLIC LICENSE. This work is, and should remain, free to use. 
 
 Do not copy, modify or transform this work into any service you plan to charge money for. If you do fork this, please link back to this repository and [nianeyna's](https://github.com/nianeyna/ao3downloader), to credit any work that has been used.
 
-Do not repost this work with the intent to pass it off as your own, and do not use this work in any software for profit or with the intent to harm users. 🫵🫵🫵
+Do not repost this work with the intent to pass it off as your own, and do not use this work in any software for profit or with the intent to harm users. You have been warned 🫵🫵🫵
+
+𓍊𓋼𓍊𖡼.𖤣𖥧𖡼.𖤣𖥧𓋼𓍊𓋼
