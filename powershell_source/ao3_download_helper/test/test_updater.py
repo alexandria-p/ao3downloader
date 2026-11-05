@@ -134,6 +134,56 @@ def test_a_download_that_is_not_https_is_refused(tmp_path):
         update.latest()
 
 
+def test_a_download_link_off_github_is_refused(tmp_path):
+    update, _, _ = updater(tmp_path, github(url='https://example.com/ficfairy-ao3downloader-windows.zip'))
+
+    with pytest.raises(UpdateError, match='not on github.com'):
+        update.latest()
+
+
+def test_a_release_github_published_no_checksum_for_is_refused(tmp_path):
+    update, _, _ = updater(tmp_path, github(digest=''))
+
+    with pytest.raises(UpdateError, match='no checksum'):
+        update.latest()
+
+
+def redirected_to(landing: str):
+    """GitHub's answer, with the download sent on to `landing` as GitHub's redirect would."""
+
+    get = github()
+
+    def follow(address, **kwargs):
+        answer = get(address, **kwargs)
+        if not address.endswith('/releases/latest'): answer.url = landing
+        return answer
+    return follow
+
+
+def test_a_download_redirected_to_githubs_own_file_host_installs(tmp_path):
+    _, launch, _ = installed(tmp_path, redirected_to(
+        'https://release-assets.githubusercontent.com/github-production-release-asset/1/abc'))
+
+    assert launch.called
+
+
+def test_a_download_redirected_off_github_is_not_installed(tmp_path):
+    update, launch, _ = installed(tmp_path, redirected_to('https://example.com/elsewhere.zip'))
+
+    assert not launch.called
+    assert update.state['state'] == 'failed'
+    assert 'other than GitHub' in update.state['error']
+
+
+def test_a_stand_in_source_on_this_computer_is_not_held_to_githubs_hosts(tmp_path, monkeypatch):
+    # the build workflows update the app from stand_in_release.py on 127.0.0.1
+    monkeypatch.setenv(updates.ENV_UPDATE_SOURCE, 'http://127.0.0.1:8765')
+    update, _, _ = updater(tmp_path, github(url='http://127.0.0.1:8765/ficfairy-ao3downloader-windows.zip',
+                                            digest=''))
+
+    assert update.latest().download.startswith('http://127.0.0.1')
+
+
 def test_github_not_answering_is_said_plainly(tmp_path):
     def get(address, **kwargs):
         return Answer(status=403)

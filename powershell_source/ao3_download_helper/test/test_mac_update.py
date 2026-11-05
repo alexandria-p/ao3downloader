@@ -71,8 +71,8 @@ def github(asset: str, body: bytes):
     def get(address, **kwargs):
         if address.endswith('/releases/latest'):
             return Answer(data={'tag_name': 'v1.8.3', 'assets': [
-                {'name': 'ficfairy-ao3downloader-windows.zip', 'browser_download_url': 'https://x/windows'},
-                {'name': asset, 'browser_download_url': f'https://x/{asset}',
+                {'name': 'ficfairy-ao3downloader-windows.zip', 'browser_download_url': 'https://github.com/x/y/releases/download/v1.8.3/windows'},
+                {'name': asset, 'browser_download_url': f'https://github.com/x/y/releases/download/v1.8.3/{asset}',
                  'digest': 'sha256:' + hashlib.sha256(body).hexdigest(), 'size': len(body)}]})
         get.fetched = address
         return Answer(body=body)
@@ -105,7 +105,7 @@ def test_a_mac_downloads_its_own_zip_from_the_release(tmp_path):
     update, get, _ = mac_updater(tmp_path, 'x86_64')
     release = update.latest()
 
-    assert release.download == 'https://x/ficfairy-ao3downloader-macos-intel.zip'
+    assert release.download == 'https://github.com/x/y/releases/download/v1.8.3/ficfairy-ao3downloader-macos-intel.zip'
 
 
 def test_a_mac_zip_must_hold_the_program_not_an_exe():
@@ -171,7 +171,7 @@ def test_a_linux_update_hands_over_to_the_same_script_told_it_is_on_linux(tmp_pa
     (tmp_path / updates.UPDATE_FOLDER).mkdir()
     update.install(update.latest())
 
-    assert get.fetched == 'https://x/ficfairy-ao3downloader-linux-x86_64.zip'
+    assert get.fetched == 'https://github.com/x/y/releases/download/v1.8.3/ficfairy-ao3downloader-linux-x86_64.zip'
     command = launch.call_args.args[0]
     assert command == ['/bin/bash', str(tmp_path / 'update' / 'apply-update.sh'), str(tmp_path),
                        str(os.getpid()), 'linux']

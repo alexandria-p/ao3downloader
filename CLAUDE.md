@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2102 python passed; 1010 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2107 python passed; 1010 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -383,8 +383,12 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   not busy, so it never blocks runs.
 - **What it installs**: `latest` reads `/repos/<repo>/releases/latest`, takes its
   `ficfairy-ao3downloader-windows.zip`, and only if newer (`is_newer`, number by number). The download
-  must be https (unless `AO3DOWNLOADER_UPDATE_SOURCE` points it at a stand-in), match GitHub's
-  published `digest` (SHA-256) and `size`, and pass `check_zip`: every entry under
+  must be https **on `github.com`** (`RELEASE_LINK_HOST`), must **land** after GitHub's redirect
+  on `github.com` or a `*.githubusercontent.com` host (`github_host`, read off the response's
+  final `url`), and must **have** a published `digest` - a release with none is refused, not
+  installed unchecked - which it must match (SHA-256), with its `size`. A stand-in source set by
+  `AO3DOWNLOADER_UPDATE_SOURCE` is exempt from all three: it is on this computer, set up by
+  whoever started the app. Then it must pass `check_zip`: every entry under
   `ao3downloader/`, none absolute or with `..`, the exe and `_internal/` present. `unpack`
   skips `config/`, `logs/` and `update/` even if a zip carried them. Any failure leaves the app
   untouched and `state: failed` with the reason.
