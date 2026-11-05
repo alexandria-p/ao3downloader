@@ -7,8 +7,9 @@ already cost someone a day.
 ## What this fork adds
 
 Upstream ao3downloader is a console program. This fork - **FicFairy** to the people using it:
-the page's title, header and footer, the READMEs; the program files and zips keep the
-`ao3downloader` names the updater looks for - adds:
+the page's title, header and footer, the READMEs, the repository (`alexandria-p/ficfairy`)
+and the release zips (`ficfairy-ao3downloader-<system>.zip`); the program files inside keep
+the `ao3downloader` names the updater looks for - adds:
 
 1. **A `JSON` download type** - metadata for every work on a listing, one json file per
    work, with a version history inside each file.
