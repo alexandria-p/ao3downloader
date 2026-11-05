@@ -203,10 +203,12 @@
   }
 } @else {
   <!-- the listing of collections -->
-  <div class="listing-top">
-    <p class="listing-heading">
-      {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
-    </p>
+  <p class="listing-heading">
+    {{ rangeStart() | number }} - {{ rangeEnd() | number }} of {{ total() | number }} Collections
+  </p>
+  <!-- under the heading, one row: the page's run buttons (projected), then making your own -->
+  <div class="listing-actions">
+    <ng-content select="[listingActions]" />
     @if (writable()) {
       <button type="button" class="button primary" (click)="editing.set('new')">+ New collection</button>
     }

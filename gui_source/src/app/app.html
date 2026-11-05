@@ -346,7 +346,7 @@
   'List refreshed' (projected into app-work-list); everywhere else, here above the content
 -->
 @if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && view() !== 'debug' && canRun()) {
-  @if (!(view() === 'bookmarks' && data())) {
+  @if (!(view() === 'bookmarks' && data()) && view() !== 'collections') {
     <ng-container [ngTemplateOutlet]="runActions" />
   }
 }
@@ -493,7 +493,12 @@
       A run has finished since this library was read - bringing the list up to date...
     </p>
   }
-  <app-collections-view />
+  <app-collections-view>
+    @if (canRun()) {
+      <!-- the buttons join the collections view's own row, so they wrap with its New collection -->
+      <div listingActions class="joined-actions"><ng-container [ngTemplateOutlet]="runActions" /></div>
+    }
+  </app-collections-view>
 } @else if (view() === 'history') {
   <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)" />
 } @else if (view() === 'bug') {

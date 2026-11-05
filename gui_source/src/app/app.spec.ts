@@ -539,6 +539,18 @@ describe('App', () => {
     ]);
   });
 
+  it('puts the collections jobs under the collections heading, in one row with New collection', async () => {
+    const { fixture, element } = await render(1);
+    await showCollections(fixture, element);
+
+    const view = element.querySelector('app-collections-view')!;
+    const heading = view.querySelector('.listing-heading')!;
+    const row = view.querySelector('.listing-actions')!;
+    expect(heading.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const labels = Array.from(row.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(labels.slice(0, 2)).toEqual(['Index my collections', 'Index collection by URL']);
+  });
+
   it('switches between the two listings', async () => {
     const { fixture, element } = await render(3);
     expect(element.querySelectorAll('.blurb').length).toBe(3);
