@@ -204,7 +204,10 @@ describe('UserSettings', () => {
     const areas = Array.from(element.querySelectorAll('.prompts h4')).map((h) => h.textContent?.trim());
     expect(areas).toEqual(['Your library', 'Runs', 'Updates']);
     const rows = Array.from(element.querySelectorAll('.prompts [data-prompt]'));
-    expect(rows.map((r) => r.getAttribute('data-prompt'))).toEqual(PROMPTS.map((p) => p.key));
+    // every one but those kept off the tab (the browser notice), which are still reset
+    expect(rows.map((r) => r.getAttribute('data-prompt'))).toEqual(
+      PROMPTS.filter((p) => p.listed !== false).map((p) => p.key),
+    );
     // nothing stored yet: every one still asks
     for (const row of rows) expect(row.querySelector('select')!.value).toBe('ask');
     const options = Array.from(rows[0].querySelectorAll('option')).map((o) => o.textContent?.trim());
@@ -255,18 +258,17 @@ describe('UserSettings', () => {
     }
   });
 
-  it('lists the notice about saving to Dropbox or this device, which otherwise shows only once', async () => {
+  it('keeps the notice about saving to Dropbox or this device off the tab, and still resets it', async () => {
+    localStorage.setItem(BROWSER_NOTICE_KEY, 'true');
     await open();
-    expect(element.querySelector(`[data-prompt="${BROWSER_NOTICE_KEY}"]`)?.textContent).toContain('Chromium');
+    expect(element.querySelector(`[data-prompt="${BROWSER_NOTICE_KEY}"]`)).toBeNull();
 
-    choose(`[data-prompt="${BROWSER_NOTICE_KEY}"] select`, 'ask');
+    element.querySelector<HTMLButtonElement>('button.reset-all')!.click();
+    await settle();
+    element.querySelector<HTMLButtonElement>('.confirm-reset button.confirm')!.click();
     await settle();
     // shown on every visit from now on - not merely once more
     expect(localStorage.getItem(BROWSER_NOTICE_KEY)).toBe('always');
-
-    choose(`[data-prompt="${BROWSER_NOTICE_KEY}"] select`, 'skip');
-    await settle();
-    expect(localStorage.getItem(BROWSER_NOTICE_KEY)).toBe('true');
   });
 
   it('turns the update banner off and on at once, not only on the next visit', async () => {
@@ -462,15 +464,32 @@ describe('UserSettings', () => {
   // endregion
   // region where it is kept, and putting it all back
 
-  it('says up front that "do not ask again" choices and formats are kept by this browser', async () => {
+  it('says at the top right of every section where it is saved, Debug mode always last', async () => {
     await open();
 
-    const note = (element.querySelector('.browser-note')?.textContent ?? '').replace(/\s+/g, ' ').trim();
-    expect(note).toBe(
-      "The palette and font, 'Do not ask again' options and any changes to your default file formats are saved to this browser. " +
-        'Changing browsers on your device will use a different set of settings that are saved to that browser.',
-    );
-    expect(element.querySelector('.browser-note strong')?.textContent).toBe('that');
+    const sections = [...element.querySelectorAll('.group')];
+    const named = sections.map((g) => [
+      g.querySelector('h3')?.textContent?.trim(),
+      g.querySelector('.group-head .saved-to')?.textContent?.replace(/\s+/g, ' ').trim(),
+    ]);
+    expect(named[0]).toEqual(['Default download formats', 'Saved to this browser']);
+    expect(named[1]).toEqual(['Appearance', 'Saved to this browser']);
+    expect(named.at(-1)).toEqual(['Debug mode', 'Saved to this browser']);
+    expect(named).toContainEqual(['Exclusion lists for imports', 'Saved in your library folder']);
+    // a helper on this computer offers its settings.ini
+    expect(named).toContainEqual(['settings.ini', 'Saved to settings.ini']);
+    expect(element.querySelector('.browser-note')).toBeNull();
+  });
+
+  it('folds Appearance away, with the font above the palettes and no note under its title', async () => {
+    await open();
+    const appearance = element.querySelector<HTMLDetailsElement>('details.appearance')!;
+    expect(appearance.open).toBe(false);
+    expect(appearance.querySelector('summary h3')?.textContent).toBe('Appearance');
+    expect(appearance.textContent).not.toContain('How this page looks');
+    const font = appearance.querySelector('.font-choice')!;
+    const palettes = appearance.querySelector('.palettes')!;
+    expect(font.compareDocumentPosition(palettes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('shows each setting\'s default beside it', async () => {

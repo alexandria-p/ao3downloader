@@ -26,6 +26,7 @@ import {
 import { UpdateCheck } from './updates';
 import { LibraryImports } from './imports';
 import { Library } from './library';
+import { StorageChoice } from './storage-choice';
 import { DebugMode } from './debug';
 import { Appearance, CUSTOM_FONT, DEFAULT_FONT, DEFAULT_PALETTE, FONTS, FONT_GROUPS, PALETTES, fontById, fontStack, paletteById } from './appearance';
 
@@ -93,6 +94,14 @@ export class UserSettings implements OnDestroy {
   private readonly imports = inject(LibraryImports);
   private readonly library = inject(Library);
   protected readonly debugMode = inject(DebugMode);
+  /**
+   * Where the exclusion lists are kept: in the library itself, so they follow it - in Dropbox,
+   * or in the folder on this computer - whichever this page has open
+   */
+  private readonly storage = inject(StorageChoice);
+  protected readonly libraryPlace = computed(() =>
+    this.storage.mode() === 'dropbox' ? 'your Dropbox library' : 'your library folder',
+  );
 
   protected readonly appearance = inject(Appearance);
   protected readonly palettes = PALETTES;
@@ -159,7 +168,7 @@ export class UserSettings implements OnDestroy {
 
   protected readonly areas = PROMPT_AREAS.map((area) => ({
     area,
-    prompts: PROMPTS.filter((p) => p.area === area),
+    prompts: PROMPTS.filter((p) => p.area === area && p.listed !== false),
   }));
   protected readonly asking = signal<Record<string, Asking>>(
     Object.fromEntries(PROMPTS.map((p) => [p.key, promptAsks(p) ? 'ask' : 'skip'])),

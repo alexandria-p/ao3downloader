@@ -156,3 +156,9 @@ footer .check {
   margin-right: auto;
   font-size: 0.88rem;
 }
+
+/* a held button looks held */
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

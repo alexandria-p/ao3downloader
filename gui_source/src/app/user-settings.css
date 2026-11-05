@@ -163,6 +163,73 @@ h4 {
   background: var(--surface);
 }
 
+/* a section's title, and at its top right where what it holds is saved */
+.group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin: 0 0 6px;
+}
+
+.group-head h3 {
+  margin: 0;
+}
+
+.saved-to {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 9px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  color: var(--accent-text);
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.saved-to code {
+  font-size: 0.95em;
+}
+
+/* Appearance folds away: its title row is the toggle, with a marker that turns */
+details.group > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+details.group > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.group > summary h3::before {
+  content: '\25B8';
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--text-dim);
+  transition: transform 0.15s;
+}
+
+details.group[open] > summary h3::before {
+  transform: rotate(90deg);
+}
+
+details.group:not([open]) > summary {
+  margin-bottom: 0;
+}
+
+details.group[open] > summary {
+  margin-bottom: 10px;
+}
+
+/* held - nothing to reset, or no library open - and looking it */
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .rows {
   list-style: none;
   margin: 0;

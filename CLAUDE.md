@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1028 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1031 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1095,7 +1095,10 @@ first batch the helper finds a floor in) in the background; the window works fro
 page already has, or `BUILT_IN_CONFIG`, meanwhile. **Interrupted runs are marked in the
 background** whenever a library is read or refreshed (an effect on `Library.lastRead`), when
 History reads its list, and when a workflow opens - nothing in starting a run depends on it, since the
-helper refuses a second run itself (409). **Start waits on the run page** (`readyToStart`,
+helper refuses a second run itself (409). **A quick scan's first page says it will do a full index** (`.first-scan`, `firstScan`) only
+while no scan is on record to measure back to (`newestFloorRead() === null`). **Start is held,
+visibly, until the login is filled in** (`credentialsReady`, titled with what is missing).
+**Start waits on the run page** (`readyToStart`,
 `.run-waiting`): for the helper's answer, then for a quick scan measuring back to its last run,
 the floor - whose warning (`missingDownloads`) is shown there, before anything starts, with
 *Use it as the floor* / *Choose a different scan*. It gives up after `START_WAIT_MS` (2 minutes:
@@ -2557,8 +2560,15 @@ not to break:
   sent on `change` (left, or Enter), never on `input`, so a half-typed number is not written;
   only a value that differs is sent, and one the helper refuses is put back as the file has it.
   The update banner reads its flag once, so choosing it sets `UpdateCheck.dismissed` too.
-- **The tab says first that "do not ask again" choices and default formats are this browser's**
-  (`.browser-note`) - kept short at the user's request.
+- **Every section says at its top right where it is saved** (`.group-head .saved-to`): *Saved to
+  this browser* (localStorage - per browser and per address, so the GitHub Pages copy and an app
+  on this computer each have their own), *Saved in your library folder* / *your Dropbox library*
+  for the import exclusion lists (`import-excluded.json`, `libraryPlace`), and *Saved to
+  `settings.ini`* for the helper's file (a helper on this computer only; a hosted one's comes from
+  its deployment and is not shown). Order: Default download formats first, Appearance (a
+  `details`, closed to begin with, Font above Palette), Prompts, AO3 time zone, exclusion
+  lists, Questions (hosted), settings.ini (local), and **Debug mode always last**. A prompt
+  with `listed: false` (the browser notice) is kept off the tab but still reset.
 - **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)
   writes an empty `import-excluded.json` - all three lists - and checks the library again, so
   everything passed over is offered again. It needs a library open (`Library.store`), is not

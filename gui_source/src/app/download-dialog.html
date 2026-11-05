@@ -215,6 +215,14 @@
     <!-- step 2: the questions the console menu asks -->
     @if (step() === 'options') {
       <section class="body">
+        <!-- a quick scan's first page, only while no earlier scan is on record to measure back to -->
+        @if (firstScan()) {
+          <p class="warning first-scan">
+            If you've never completed a successful scan using this website, this will
+            perform a full index. Please be aware that for a large library, the first
+            run may take several hours.
+          </p>
+        }
 
         <!--
           the two are alternatives, not settings that combine: one picks works by where
@@ -947,12 +955,6 @@
               </p>
 
               <p class="warning">
-                If you've never completed a successful scan using this website, this will
-                perform a full index. Please be aware that for a large library, the first
-                run may take several hours.
-              </p>
-
-              <p class="warning">
                 Files missing from earlier runs due to an incomplete or damaged index - for
                 example, if an earlier run was interrupted, or files were deleted - will not
                 be restored by this Quick Scan.
@@ -1359,7 +1361,8 @@
         <button type="button" class="button subtle" (click)="backFrom('credentials')">
           {{ hasStepBefore('credentials') ? 'Back' : 'Cancel' }}
         </button>
-        <button type="button" class="button primary" [disabled]="!backgroundAnswersReady()"
+        <button type="button" class="button primary" [disabled]="!backgroundAnswersReady() || !credentialsReady()"
+                [attr.title]="credentialsReady() ? null : 'Enter your AO3 username' + (logsIn() ? ' and password' : '') + ' first'"
                 (click)="submit($event)">
           @if (action() === 'import') {
             {{ background() ? 'Start repair in the background' : 'Start repair' }}
