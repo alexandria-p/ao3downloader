@@ -23,12 +23,6 @@ Do collection runs ask about series encountered?(compared to quick scan etc)
 
 Do we need to check all series bookmarks for updates? What about all encountered series?
 
-For me to add in readme
-Dropbox security (optional, only has access to a folder it creates in Dropbox/app, cannot read or modify any other Dropbox files, uses Dropbox’s own api, sends requests directly from your computer to Dropbox’s service).
-That this tool is computer only for now, with mobile to come.
-- the only thing this tool is built to do is read your user bookmarks, page by page, for your bookmarked fics.
-- If you have the fic IDs or URLs of individual fics, you can also download them that way too
-- It does not read, search, download or scrape the wider ao3 in bulk, and you cannot make it do so either. That is not the intent of this tool.
 
 Change wording for unindexed series under works
 

@@ -34,7 +34,7 @@ Unzip it, then start it:
 
 Blocked on first start? See `README.txt` in the zip.
 
-Every version is on the [releases page](https://github.com/alexandria-p/ao3downloader/releases/latest).
+Every version is on the [releases page](https://github.com/alexandria-p/ao3downloader/releases/latest). There is no mobile release for now, but I would eventually like to make a solution that is more portable.
 
 . ݁₊ ⊹ . ݁ ⟡ ݁ . ⊹ ₊ ݁.
 
@@ -45,6 +45,10 @@ I'm a senior software engineer from Australia, and I have been employed and prog
 The intent is not to 'scrape' ao3 or contribute to any large Google Drives I know are floating round. This is just for personal use to access your own bookmarks and favorite fics. It uses ao3's own built-in download system that they maintain and offer (P.S. - this is why the HTML downloads look the way they do!)
 
 This tool also rests between requests, so as not to overwhelm ao3. As a result, downloading a user's entire bookmark collection can takes upwards of 10 hours to complete. This is the same as if you were manually opening each page and hitting the 'download' button - this tool just does that for you.
+
+- The only thing this tool is built to do is read your user bookmarks, page by page, for your favorite fics.
+- If you have the fic IDs or URLs of individual fics, you can also download them that way too.
+- It does not read, search, download or scrape the wider ao3 in bulk, and you cannot make it do so either. That is not the intent of this tool.
 
 I forked [nianeyna's excellent tool](https://github.com/nianeyna/ao3downloader), because I loved it but I wanted to add more functionality. A web application, so I could kick off runs without having to open command line tools. 'Indexing', so that I could update only what had changed since my last scan, to make my scans smaller and more efficient for ao3. Some little bugs I found that I knew I could fix up.
 
@@ -57,6 +61,10 @@ Logging in is optional. If you wish, you do not have to log in at all. Tick “S
 If you *do* wish to login to access more works, then this app logs in to ao3 for you the same way your browser would. It opens ao3’s own login page and sends your username and password to archiveofourown.org over an encrypted (HTTPS) connection. 
 
 Because this runs on your machine, it means you don't have to send that request through any server I am hosting - instead, the HTTPS request goes directly from your computer to ao3's site.
+
+**Dropbox** You can optionally download your fics to Dropbox, instead of a file location on your computer. Once you grant it access, the app creates a folder inside `dropbox/apps` that it saves everything to. This is the **only** location it has access to - it cannot read from, nor write to, any other locations in your Dropbox. All requests are sent directly from your computer to Dropbox servers, using the Dropbox API.
+
+Note: If lots of users opt-into the Dropbox integration (above 500), I will need to upgrade my app registration with Dropbox - I am happy to do this.
 
 ## AI Use and Disclosure
 
@@ -89,7 +97,10 @@ Again, this tool is only for personal use and I have been militant in ensuring t
 
 - [The wiki](https://github.com/alexandria-p/ao3downloader/wiki): how to use each part of the app.
 - [Report a bug](https://github.com/alexandria-p/ao3downloader/issues), or use the Feedback tab in the app.
-  
+- [BlueSky @ficfairy.bsky.social](https://bsky.app/profile/ficfairy.bsky.social)
+- [Twitter/X @ficfairy_ao3](https://x.com/ficfairy_ao3)
+
+Logo drawn by me using Procreate on my iPad.
 Forked from [nianeyna/ao3downloader](https://github.com/nianeyna/ao3downloader)
 
 𓍊𓋼𓍊𖡼.𖤣𖥧𖡼.𖤣𖥧𓋼𓍊𓋼
