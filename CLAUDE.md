@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1024 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1025 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2130,7 +2130,9 @@ is needed (`needsUsername`, from `sentAction`), and a hosted page seals an empty
 once the library is wholly read and set up**: the store is set before the index is read, and a
 check against that empty index found every file unindexed, so while `Library.loading` or setup
 is busy `App` calls `LibraryImports.forget` instead (nothing found, a check in flight thrown
-away) and the reminder stays down. **The reminder and the window's overview count alike**, in
+away) and the reminder stays down. **The run buttons and + New collection wait for the same
+thing** (`App.libraryPreparing`: reading, setup, or `LibraryImports.checking`, titled *Wait until
+your library has finished loading*), so they come back as the offer does. **The reminder and the window's overview count alike**, in
 files, through one `importIssueCounts` / `importIssueLines` - the reminder used to count works. Undated
 files of works the index *does* have are issues too (`undatedIndexedFiles`, `undatedIndexed`,
 the window's `undatedElsewhere`): offered on the dates page, and with nothing unindexed the
@@ -2145,7 +2147,7 @@ window finishes after dating (`afterDating`). What not to break:
   (`App.importReminder`) - offers it by hand, disabled with *Cannot be started while an active
   run is in progress*; its × hides it until the library is opened again
   (`reminderDismissedFor`), and `ao3.importOfferOff` hides it for good. **The first page asks
-  what to do** (`firstChoice`, Continue held until chosen): *Repair now (recommended)*; *Not
+  what to do** (`firstChoice`, *Repair now* ticked to begin with): *Repair now (recommended)*; *Not
   now, remind me again next time I open my library* (*Remind me later*, closes); *No, do not ask
   me again for these files* (*Done*: `LibraryImports.excludeFiles` puts every file found on the
   **files** list); *No, never

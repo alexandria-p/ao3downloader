@@ -531,6 +531,16 @@ export class App {
    */
   protected readonly libraryLocked = computed(() => !!this.activeRun());
   protected readonly lockedTitle = 'Cannot be changed while an active run is in progress';
+  /**
+   * The library is still being read, set up or checked for issues: the Works and Collections
+   * buttons wait, and come back as the Resolve issues offer does
+   */
+  protected readonly libraryPreparing = computed(
+    () => this.library.loading() || this.librarySetup.state() !== 'idle' || this.imports.checking(),
+  );
+  protected readonly preparingTitle = 'Wait until your library has finished loading';
+  /** a run cannot start: one is going, or the library is not ready yet */
+  protected readonly runsHeld = computed(() => !!this.activeRun() || this.libraryPreparing());
   protected readonly store = this.library.store;
 
   protected setMode(mode: StorageMode): void {

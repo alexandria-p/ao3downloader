@@ -207,11 +207,13 @@ describe('ImportDialog', () => {
     expect(button('Continue')!.disabled).toBe(true);
   });
 
-  it('asks what to do first, holding Continue until something is chosen', async () => {
+  it('asks what to do first, with Repair now ticked to begin with', async () => {
     await open();
     expect(button('Not now')).toBeUndefined();
     expect(element.querySelector('.dont-ask')).toBeNull();
-    expect(primary().disabled).toBe(true);
+    expect(element.querySelector<HTMLInputElement>('input[name="firstChoice"][value="repair"]')!.checked).toBe(true);
+    expect(primary().textContent?.trim()).toBe('Continue');
+    expect(primary().disabled).toBe(false);
     const labels = [...element.querySelectorAll('input[name="firstChoice"]')].map(
       (x) => x.closest('label')!.querySelector('span')!.childNodes[0].textContent!.trim(),
     );

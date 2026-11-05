@@ -1,3 +1,4 @@
+import { LibraryImports } from './imports';
 import { DebugMode } from './debug';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -872,6 +873,23 @@ describe('App', () => {
     tab(element, 'FAQ')!.click();
     await fixture.whenStable();
     expect(element.querySelector('app-faq .download-app')).toBeNull();
+  });
+
+  it('holds the run buttons while the library is still being checked for issues', async () => {
+    const { fixture, element } = await render(1);
+    const quick = () => [...element.querySelectorAll('button')].find((b) => b.textContent?.includes('Quick Scan'))!;
+    expect(quick().disabled).toBe(false);
+
+    TestBed.inject(LibraryImports).checking.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(quick().disabled).toBe(true);
+    expect(quick().getAttribute('title')).toBe('Wait until your library has finished loading');
+
+    TestBed.inject(LibraryImports).checking.set(false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(quick().disabled).toBe(false);
   });
 
   it('highlights the storage chosen, and only that one', async () => {

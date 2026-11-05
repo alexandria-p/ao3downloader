@@ -415,6 +415,11 @@
   background: var(--surface-hover);
 }
 
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .button.primary {
   border-color: var(--accent-line);
   background: var(--accent-fill);

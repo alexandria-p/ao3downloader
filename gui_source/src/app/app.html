@@ -307,21 +307,21 @@
       they should be reached for. the rest are each useful for one job and confusing as a
       default, so they wait behind a disclosure rather than sitting in the way
     -->
-    <button type="button" class="button primary" [disabled]="!!activeRun()" (click)="openRun('quick')">
+    <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('quick')">
       Quick Scan
     </button>
-    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('bookmarks')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('bookmarks')">
       (Full scan) Reindex &amp; Update All
     </button>
 
     <!-- the runs for one job each, beside the two everyday ones rather than hidden away -->
-    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('work')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('work')">
       Download/update a specific fic
     </button>
-    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('works')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('works')">
       Download/update several fics
     </button>
-    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('custom')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('custom')">
       Custom run
     </button>
 
@@ -335,23 +335,23 @@
       <details class="advanced">
         <summary>Advanced options</summary>
         <div class="advanced-actions">
-          <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('sync')">
+          <button type="button" class="button debug" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('sync')">
             [DEBUG] Download new bookmarks and update incomplete fics
           </button>
-          <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('update')">
+          <button type="button" class="button debug" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('update')">
             [DEBUG] Just update any bookmarks marked as incomplete
           </button>
-          <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('new')">
+          <button type="button" class="button debug" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('new')">
             [DEBUG] Just download newly added bookmarks
           </button>
         </div>
       </details>
     }
   } @else {
-    <button type="button" class="button primary" [disabled]="!!activeRun()" (click)="openRun('collections')">
+    <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('collections')">
       Index my collections
     </button>
-    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('collection')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('collection')">
       Index collection by URL
     </button>
   }
@@ -504,7 +504,7 @@
       A run has finished since this library was read - bringing the list up to date...
     </p>
   }
-  <app-collections-view>
+  <app-collections-view [preparing]="libraryPreparing()">
     <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
     @if (canRun()) {
       <!-- the buttons join the collections view's own row, so they wrap with its New collection -->

@@ -219,7 +219,9 @@
   <div class="listing-actions">
     <ng-content select="[listingActions]" />
     @if (writable()) {
-      <button type="button" class="button primary" (click)="editing.set('new')">+ New collection</button>
+      <button type="button" class="button primary" [disabled]="preparing()"
+              [attr.title]="preparing() ? 'Wait until your library has finished loading' : null"
+              (click)="editing.set('new')">+ New collection</button>
     }
   </div>
 
