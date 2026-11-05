@@ -9,6 +9,7 @@
 .faq h2 {
   margin: 0 0 10px;
   font-size: 1.15rem;
+  font-weight: 600;
   color: var(--text-strong);
 }
 

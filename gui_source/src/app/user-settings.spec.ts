@@ -424,6 +424,9 @@ describe('UserSettings', () => {
     // folded away like Prompts, saying where it is kept
     const questions = element.querySelector<HTMLDetailsElement>('details.questions')!;
     expect(questions.open).toBe(false);
+    // under Appearance, above Prompts
+    const order = [...element.querySelectorAll('.group')].map((g) => g.classList[1]);
+    expect(order.slice(0, 4)).toEqual(['formats', 'appearance', 'questions', 'prompts']);
     expect(questions.querySelector('summary .saved-to')?.textContent?.trim()).toBe('Saved to this browser');
 
     const fichub = element.querySelector<HTMLSelectElement>('[data-question-setting="fichub"] select')!;

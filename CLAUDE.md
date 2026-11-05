@@ -1108,7 +1108,7 @@ window, nothing started. *Choose which earlier scan to measure back to* reads th
 (`newestFloor`, `floorRuns`), never read twice. **Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
 history before every run window opens, and in Dropbox each record is a download of its own, so
 one after another a long history held the window for most of a minute. A record that will not
-read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many. The History tab says it shows only that many, in an (i) beside its heading (`.history-limit`), and *List refreshed* under it (`readAt`) as Works and Collections do. **It is read once, not on every visit**: the list is kept in `Jobs.historyRead` (with `at`) and shown again when the tab opens; only Refresh, a run starting (`Jobs.start`) or ending (`finishUp`, or a run leaving `activeRuns`) - `forgetHistory` - make it read again. Every tab's content starts 20px under the tabs, under a title of 1.15rem/600. Older records stay in `runs/`. **The helper reads records lazily too** (`runs.iter_runs`): `last_successful` stops at
+read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many. The History tab says it shows only that many, in an (i) beside its heading (`.history-limit`), and *List refreshed* under it (`readAt`) as Works and Collections do. **It is read once, not on every visit**: the list is kept in `Jobs.historyRead` (with `at`) and shown again when the tab opens; only Refresh, a run starting (`Jobs.start`) or ending (`finishUp`, or a run leaving `activeRuns`) - `forgetHistory` - make it read again. Every tab's content starts 20px under the tabs, under a title of 1.15rem/600 in `--text-strong`. Older records stay in `runs/`. **The helper reads records lazily too** (`runs.iter_runs`): `last_successful` stops at
 the first floor, usually the newest record, rather than reading 100 first; `find_run` (a
 retry, a chosen floor's `chosen_floor_at`) reads only the file whose name ends with the id's
 first 8, falling back to the rest only for a hand-renamed file. History marks interrupted runs
@@ -2566,8 +2566,8 @@ not to break:
   for the import exclusion lists (`import-excluded.json`, `libraryPlace`), and *Saved to
   `settings.ini`* for the helper's file (a helper on this computer only; a hosted one's comes from
   its deployment and is not shown). Order: Default download formats first, Appearance (a
-  `details`, closed to begin with, Font above Palette), Prompts (a `details` too), AO3 time zone,
-  exclusion lists, Questions (hosted; a `details` too), settings.ini (local), and **Debug mode always last**. A prompt
+  `details`, closed to begin with, Font above Palette), Questions (hosted; a `details` too), Prompts (a `details` too),
+  AO3 time zone, exclusion lists, settings.ini (local), and **Debug mode always last**. A prompt
   with `listed: false` (the browser notice) is kept off the tab but still reset.
 - **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)
   writes an empty `import-excluded.json` - all three lists - and checks the library again, so

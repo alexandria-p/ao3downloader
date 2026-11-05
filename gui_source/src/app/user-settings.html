@@ -142,6 +142,59 @@
     </fieldset>
   </details>
 
+  @if (!local) {
+    <!-- collapsible: a long list, seldom changed -->
+    <details class="group questions">
+      <summary class="group-head">
+        <h3>Questions a run may ask</h3>
+        <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+      </summary>
+      <p class="hint">
+        What a run takes when nobody answers a question in time. A background run starts with
+        these as its answers, and you can still change them in the run's own window.
+      </p>
+      <ul class="rows">
+        <li class="row" data-question-setting="timeout">
+          <div class="about">
+            <span class="name">
+              Minutes a question waits for you
+              <span class="default">default: {{ helperTimeout() }}</span>
+            </span>
+            <span class="description">0 takes the default answer at once, without asking.</span>
+          </div>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            aria-label="Minutes a question waits for you"
+            [value]="questionTimeout()"
+            (change)="setQuestionTimeout($any($event.target).value, $any($event.target))"
+          />
+        </li>
+        @for (question of questions; track question.name) {
+          <li class="row" [attr.data-question-setting]="question.name">
+            <div class="about">
+              <span class="name">
+                {{ question.label }}
+                <span class="default">default: {{ choiceLabel(question, helperAnswer(question.name)) }}</span>
+              </span>
+            </div>
+            <select
+              [attr.aria-label]="question.label"
+              (change)="setAnswer(question, $any($event.target).value)"
+            >
+              @for (choice of question.choices; track choice.value) {
+                <option [value]="choice.value" [selected]="answer(question.name) === choice.value">
+                  {{ choice.label }}
+                </option>
+              }
+            </select>
+          </li>
+        }
+      </ul>
+    </details>
+  }
+
   <!-- collapsible: a long list, seldom changed -->
   <details class="group prompts">
     <summary class="group-head">
@@ -211,58 +264,6 @@
     </button>
   </section>
 
-  @if (!local) {
-    <!-- collapsible: a long list, seldom changed -->
-    <details class="group questions">
-      <summary class="group-head">
-        <h3>Questions a run may ask</h3>
-        <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
-      </summary>
-      <p class="hint">
-        What a run takes when nobody answers a question in time. A background run starts with
-        these as its answers, and you can still change them in the run's own window.
-      </p>
-      <ul class="rows">
-        <li class="row" data-question-setting="timeout">
-          <div class="about">
-            <span class="name">
-              Minutes a question waits for you
-              <span class="default">default: {{ helperTimeout() }}</span>
-            </span>
-            <span class="description">0 takes the default answer at once, without asking.</span>
-          </div>
-          <input
-            type="number"
-            min="0"
-            step="1"
-            aria-label="Minutes a question waits for you"
-            [value]="questionTimeout()"
-            (change)="setQuestionTimeout($any($event.target).value, $any($event.target))"
-          />
-        </li>
-        @for (question of questions; track question.name) {
-          <li class="row" [attr.data-question-setting]="question.name">
-            <div class="about">
-              <span class="name">
-                {{ question.label }}
-                <span class="default">default: {{ choiceLabel(question, helperAnswer(question.name)) }}</span>
-              </span>
-            </div>
-            <select
-              [attr.aria-label]="question.label"
-              (change)="setAnswer(question, $any($event.target).value)"
-            >
-              @for (choice of question.choices; track choice.value) {
-                <option [value]="choice.value" [selected]="answer(question.name) === choice.value">
-                  {{ choice.label }}
-                </option>
-              }
-            </select>
-          </li>
-        }
-      </ul>
-    </details>
-  }
 
   @if (local && ini(); as file) {
     @if (file.editable) {
