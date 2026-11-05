@@ -294,7 +294,8 @@
         </dl>
       </li>
     } @empty {
-      @if (!loading()) {
+      <!-- only once this folder has been read: until then nobody knows it has none -->
+      @if (!loading() && wasRead()) {
       <li class="notice">
         No collections in this folder yet. Use <strong>Index my collections</strong> above to
         fetch your own, or <strong>Index collection by URL</strong> for any other. To make one

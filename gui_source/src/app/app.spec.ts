@@ -638,6 +638,11 @@ describe('App', () => {
     // collections only ever load out of a folder that was opened, so this state comes with
     // one - and without it the buttons are gated and the gate's own notice is what shows
     library.folderName.set('downloads');
+    // read successfully - so 'no bookmarks' is known, not a guess
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
+    const store = {} as never;
+    library.store.set(store);
+    library.lastRead.set({ store, at: Date.now() });
 
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();

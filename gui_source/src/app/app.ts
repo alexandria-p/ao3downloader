@@ -292,6 +292,11 @@ export class App {
   );
   /** when the list was last read - none yet means nothing to refresh, so no refresh icon */
   protected readonly listedAt = this.library.listedAt;
+  /** the open library has been read successfully, so an empty one is known to be empty */
+  protected readonly libraryWasRead = computed(() => {
+    const store = this.library.store();
+    return !!store && this.library.lastRead()?.store === store;
+  });
   /** a failed read of the library, offered again by hand */
   protected readonly readFailure = this.library.readFailure;
   /** seconds before Try again can be pressed: 3, 2, 1 - or longer, when Dropbox asked */

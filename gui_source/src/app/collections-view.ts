@@ -40,6 +40,11 @@ export class CollectionsView {
   readonly preparing = input(false);
   /** the library's first read is still going: no 'no collections yet' until it is known */
   readonly loading = input(false);
+  /** this library has been read successfully at least once, so 'none yet' is known to be true */
+  protected readonly wasRead = computed(() => {
+    const store = this.library.store();
+    return !!store && this.library.lastRead()?.store === store;
+  });
   /** 'List refreshed', as the Works tab says it: when the library was last read into the page */
   protected readonly listedAt = this.library.listedAt;
   protected readonly shownTime = shownTime;

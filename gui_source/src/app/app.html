@@ -520,7 +520,7 @@
         <div listingActions><ng-container [ngTemplateOutlet]="runActions" /></div>
       }
     </app-work-list>
-  } @else if ((!isEmpty() || mode() === 'dropbox') && !loading() && !readFailure()) {
+  } @else if ((!isEmpty() || mode() === 'dropbox') && !loading() && libraryWasRead()) {
     <p class="notice">
       No bookmarks indexed in this folder yet. Use <strong>Quick Scan</strong> above to
       fetch them - with nothing indexed yet it will read your whole listing.
