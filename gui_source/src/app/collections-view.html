@@ -7,11 +7,13 @@
   @if (isCustom(collection)) {
   <!-- one of your own: made here, so there is no ao3 page, reading history or challenge -->
   <header class="collection-head">
-    <h2>
-      <span class="custom-mark" aria-hidden="true">&#9733;</span>
-      {{ collection.title }}
-    </h2>
-    <p class="flags"><span class="badge custom">Your collection</span></p>
+    <h2>{{ collection.title }}</h2>
+    <p class="flags">
+      <span class="badge custom">Collection made in Fic Fairy</span>
+      @for (badge of badges(collection); track badge) {
+        <span class="badge">{{ badge }}</span>
+      }
+    </p>
     @if (writable()) {
       <p class="head-actions">
         <button type="button" class="button" (click)="editing.set(collection)">Edit collection</button>
@@ -218,9 +220,6 @@
     @for (collection of visible(); track collection.name) {
       <li class="collection" [class.custom]="isCustom(collection)">
         <h4 class="heading">
-          @if (isCustom(collection)) {
-            <span class="custom-mark" title="Your own collection, made in this app">&#9733;</span>
-          }
           <button type="button" class="title linklike" (click)="show(collection)">
             {{ collection.title }}
           </button>
@@ -234,7 +233,11 @@
 
         <p class="flags">
           @if (isCustom(collection)) {
-            <span class="badge custom">Your collection</span>
+            <!-- always the first pill, ahead of any others the collection has -->
+            <span class="badge custom">Collection made in Fic Fairy</span>
+            @for (badge of badges(collection); track badge) {
+              <span class="badge">{{ badge }}</span>
+            }
           } @else {
             <span class="badge challenge">{{ collection.challenge_type }}</span>
             @for (badge of badges(collection); track badge) {

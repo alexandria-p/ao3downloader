@@ -348,21 +348,7 @@
   }
 }
 
-/* a collection made in this app: a gold star and its own badge, so it never reads as ao3's */
-.custom-mark {
-  margin-right: 6px;
-  color: var(--warn-text);
-}
-
-.collection.custom {
-  border-left: 3px solid var(--warn-text);
-}
-
-.badge.custom {
-  border-color: var(--warn-border);
-  background: var(--warn-bg);
-  color: var(--warn-text);
-}
+/* a collection made in this app looks like any other; its first pill says where it came from */
 
 .listing-actions {
   display: flex;

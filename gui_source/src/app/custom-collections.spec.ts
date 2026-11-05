@@ -517,7 +517,7 @@ describe('ticking works in the listing', () => {
 });
 
 describe('the collections page', () => {
-  it('marks a custom collection with a star and its own badge, and an ao3 one without', async () => {
+  it('marks a custom collection only by its first pill, Collection made in Fic Fairy, ahead of any others', async () => {
     await custom.create('Mine', { works: ['1'], externals: [] });
     const fixture = TestBed.createComponent(CollectionsView);
     await fixture.whenStable();
@@ -526,10 +526,10 @@ describe('the collections page', () => {
     const cards = [...element.querySelectorAll('li.collection')];
     const mine = cards.find((c) => c.textContent?.includes('Mine'))!;
     const ao3 = cards.find((c) => c.textContent?.includes('Yuletide'))!;
-    expect(mine.classList).toContain('custom');
-    expect(mine.querySelector('.custom-mark')).not.toBeNull();
-    expect(mine.textContent).toContain('Your collection');
-    expect(ao3.querySelector('.custom-mark')).toBeNull();
+    // no star and no colour of its own
+    expect(mine.textContent).not.toContain('\u2605');
+    expect(mine.querySelector('.flags .badge')?.textContent?.trim()).toBe('Collection made in Fic Fairy');
+    expect(ao3.textContent).not.toContain('Collection made in Fic Fairy');
   });
 });
 
