@@ -9,6 +9,12 @@
         [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null"
         (click)="setMode('local')"
       >
+        @if (mode() === 'local') {
+          <svg class="highlight" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 5 20 C 28 17, 62 23, 95 18" stroke-width="22" />
+            <path d="M 9 24 C 36 22, 64 26, 91 23" stroke-width="14" />
+          </svg>
+        }
         This computer
       </button>
       <button
@@ -18,6 +24,12 @@
         [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null"
         (click)="setMode('dropbox')"
       >
+        @if (mode() === 'dropbox') {
+          <svg class="highlight" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 5 20 C 28 17, 62 23, 95 18" stroke-width="22" />
+            <path d="M 9 24 C 36 22, 64 26, 91 23" stroke-width="14" />
+          </svg>
+        }
         Dropbox
       </button>
     </div>
@@ -85,6 +97,118 @@
     }
   </div>
 </header>
+
+
+<!-- covers everything while a library's folders are made or its works moved -->
+<app-setup-overlay />
+
+<!-- said once, before anything else, because it decides whether any of this can work here -->
+@if (browserNotice()) {
+  <app-browser-notice (dismissed)="browserNotice.set(false)" />
+}
+
+@if (warning()) {
+  <app-folder-warning (confirmed)="warningAccepted()" (cancelled)="warningCancelled()" />
+}
+
+
+<nav class="views" aria-label="What to show">
+  <button
+    type="button"
+    [class.current]="view() === 'bookmarks'"
+    [attr.aria-current]="view() === 'bookmarks' ? 'page' : null"
+    (click)="setView('bookmarks')"
+  >
+    Works
+    @if (works().length) {
+      <span class="count">{{ works().length | number }}</span>
+    }
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'collections'"
+    [attr.aria-current]="view() === 'collections' ? 'page' : null"
+    (click)="setView('collections')"
+  >
+    Collections
+    @if (collections().length) {
+      <span class="count">{{ collections().length | number }}</span>
+    }
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'history'"
+    [attr.aria-current]="view() === 'history' ? 'page' : null"
+    (click)="setView('history')"
+  >
+    History
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'faq'"
+    [attr.aria-current]="view() === 'faq' ? 'page' : null"
+    (click)="setView('faq')"
+  >
+    FAQ
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'bug'"
+    [attr.aria-current]="view() === 'bug' ? 'page' : null"
+    (click)="setView('bug')"
+  >
+    Report a bug
+  </button>
+  <button
+    type="button"
+    [class.current]="view() === 'settings'"
+    [attr.aria-current]="view() === 'settings' ? 'page' : null"
+    (click)="setView('settings')"
+  >
+    User settings
+  </button>
+  @if (debugMode.on()) {
+    <button
+      type="button"
+      class="debug-tab-button"
+      [class.current]="view() === 'debug'"
+      [attr.aria-current]="view() === 'debug' ? 'page' : null"
+      (click)="setView('debug')"
+    >
+      DEBUG
+    </button>
+  }
+</nav>
+
+<!--
+  the notices: under the tabs, above whatever the tab shows, on every tab - debug mode, a run
+  going, an update, and the library's import issues. they are part of the page, not of a tab,
+  so changing tabs never hides one
+-->
+<div class="notices">
+<!-- debug mode says so above everything else, on every tab -->
+@if (debugMode.on()) {
+  <div class="debug-banner" role="status">
+    <strong>Debug mode is on.</strong> The DEBUG tab has tools for trying the app out. Turn it off
+    in User settings.
+  </div>
+}
+
+<!-- on every tab, until resolved or dismissed for this visit - and never once
+     'No, never ask me again' is chosen -->
+@if (importReminder()) {
+  <div class="import-issues" role="status">
+    <button type="button" class="button import-issues-button"
+            [disabled]="!!activeRun() || !!dialogAction()"
+            [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
+            (click)="openImport()">
+      Resolve issues found with import
+    </button>
+    <span class="import-issues-said">{{ importIssuesSaid() }}</span>
+    <button type="button" class="import-issues-close" aria-label="Dismiss" title="Dismiss until the library is opened again"
+            (click)="dismissImportReminder()">&times;</button>
+  </div>
+}
 
 <!--
   one run at a time: while the helper has one going - in the background or in another tab -
@@ -160,110 +284,7 @@
     }
   }
 }
-
-<!-- covers everything while a library's folders are made or its works moved -->
-<app-setup-overlay />
-
-<!-- said once, before anything else, because it decides whether any of this can work here -->
-@if (browserNotice()) {
-  <app-browser-notice (dismissed)="browserNotice.set(false)" />
-}
-
-@if (warning()) {
-  <app-folder-warning (confirmed)="warningAccepted()" (cancelled)="warningCancelled()" />
-}
-
-<!-- debug mode says so above everything else, on every tab -->
-@if (debugMode.on()) {
-  <div class="debug-banner" role="status">
-    <strong>Debug mode is on.</strong> The DEBUG tab has tools for trying the app out. Turn it off
-    in User settings.
-  </div>
-}
-
-<!-- above the tabs, on every tab, until resolved or dismissed for this visit - and never once
-     'No, never ask me again' is chosen -->
-@if (importReminder()) {
-  <div class="import-issues" role="status">
-    <button type="button" class="button import-issues-button"
-            [disabled]="!!activeRun() || !!dialogAction()"
-            [title]="activeRun() ? 'Cannot be started while an active run is in progress' : ''"
-            (click)="openImport()">
-      Resolve issues found with import
-    </button>
-    <span class="import-issues-said">{{ importIssuesSaid() }}</span>
-    <button type="button" class="import-issues-close" aria-label="Dismiss" title="Dismiss until the library is opened again"
-            (click)="dismissImportReminder()">&times;</button>
-  </div>
-}
-
-<nav class="views" aria-label="What to show">
-  <button
-    type="button"
-    [class.current]="view() === 'bookmarks'"
-    [attr.aria-current]="view() === 'bookmarks' ? 'page' : null"
-    (click)="setView('bookmarks')"
-  >
-    Works
-    @if (works().length) {
-      <span class="count">{{ works().length | number }}</span>
-    }
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'collections'"
-    [attr.aria-current]="view() === 'collections' ? 'page' : null"
-    (click)="setView('collections')"
-  >
-    Collections
-    @if (collections().length) {
-      <span class="count">{{ collections().length | number }}</span>
-    }
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'history'"
-    [attr.aria-current]="view() === 'history' ? 'page' : null"
-    (click)="setView('history')"
-  >
-    History
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'faq'"
-    [attr.aria-current]="view() === 'faq' ? 'page' : null"
-    (click)="setView('faq')"
-  >
-    FAQ
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'bug'"
-    [attr.aria-current]="view() === 'bug' ? 'page' : null"
-    (click)="setView('bug')"
-  >
-    Report a bug
-  </button>
-  <button
-    type="button"
-    [class.current]="view() === 'settings'"
-    [attr.aria-current]="view() === 'settings' ? 'page' : null"
-    (click)="setView('settings')"
-  >
-    User settings
-  </button>
-  @if (debugMode.on()) {
-    <button
-      type="button"
-      class="debug-tab-button"
-      [class.current]="view() === 'debug'"
-      [attr.aria-current]="view() === 'debug' ? 'page' : null"
-      (click)="setView('debug')"
-    >
-      DEBUG
-    </button>
-  }
-</nav>
+</div>
 
 
 <!--
@@ -288,16 +309,27 @@
       (Full scan) Reindex &amp; Update All
     </button>
 
-    <details class="advanced">
-      <summary>Advanced options</summary>
-      <div class="advanced-actions">
-        <!--
-          the passes the two runs above are built from, each usable on its own. kept for
-          working on the app rather than for using it, so they appear only when
-          settings.ini turns the debug tools on - and wear the same colour as every other
-          debug control, so nobody reaches for one by habit
-        -->
-        @if (debugTools()) {
+    <!-- the runs for one job each, beside the two everyday ones rather than hidden away -->
+    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('work')">
+      Download/update a specific fic
+    </button>
+    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('works')">
+      Download/update several fics
+    </button>
+    <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('custom')">
+      Custom run
+    </button>
+
+    <!--
+      the passes the two scans are built from, each usable on its own. kept for working on the
+      app rather than for using it, so they appear only when settings.ini turns the debug tools
+      on - and wear the same colour as every other debug control, so nobody reaches for one by
+      habit. with nothing in it, the disclosure is not shown at all
+    -->
+    @if (debugTools()) {
+      <details class="advanced">
+        <summary>Advanced options</summary>
+        <div class="advanced-actions">
           <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('sync')">
             [DEBUG] Download new bookmarks and update incomplete fics
           </button>
@@ -307,18 +339,9 @@
           <button type="button" class="button debug" [disabled]="!!activeRun()" (click)="openRun('new')">
             [DEBUG] Just download newly added bookmarks
           </button>
-        }
-        <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('work')">
-          Download/update a specific fic
-        </button>
-        <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('works')">
-          Download/update several fics
-        </button>
-        <button type="button" class="button" [disabled]="!!activeRun()" (click)="openRun('custom')">
-          Custom run
-        </button>
-      </div>
-    </details>
+        </div>
+      </details>
+    }
   } @else {
     <button type="button" class="button primary" [disabled]="!!activeRun()" (click)="openRun('collections')">
       Index my collections
@@ -335,7 +358,7 @@
   'List refreshed' (projected into app-work-list); everywhere else, here above the content
 -->
 @if (view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && view() !== 'debug' && canRun()) {
-  @if (!(view() === 'bookmarks' && data())) {
+  @if (!(view() === 'bookmarks' && data()) && view() !== 'collections') {
     <ng-container [ngTemplateOutlet]="runActions" />
   }
 }
@@ -403,30 +426,23 @@
   </p>
 }
 
-@if (loading()) {
-  @if (mode() === 'dropbox' && reading(); as reading) {
-    <div class="read-progress">
-      <div
-        class="bar"
-        role="progressbar"
-        aria-label="Reading your library from Dropbox"
-        [attr.aria-valuenow]="reading.percent"
-        aria-valuemin="0"
-        aria-valuemax="100"
-      >
-        <div
-          class="fill"
-          [class.indeterminate]="reading.percent === null"
-          [style.width.%]="reading.percent ?? 100"
-        ></div>
-      </div>
-      <p class="notice" role="status">
-        {{ reading.caption }}@if (reading.percent !== null) {<span class="percent"> - {{ reading.percent }}%</span>}
-      </p>
-    </div>
-  } @else {
-    <p class="notice">{{ mode() === 'dropbox' ? 'Reading your library from Dropbox...' : 'Reading files...' }}</p>
+<!--
+  reading the library: one bar, under the title of whichever tab is showing (projected into it as
+  [listingProgress]) - or here, above the content, where the tab has no title to go under
+-->
+<ng-template #libraryProgress>
+  @if (loading()) {
+    @if (mode() === 'dropbox' && reading(); as reading) {
+      <app-progress-bar [percent]="reading.percent" [caption]="reading.caption"
+                        label="Reading your library from Dropbox" />
+    } @else {
+      <app-progress-bar [caption]="mode() === 'dropbox' ? 'Reading your library from Dropbox...' : 'Reading files...'" />
+    }
   }
+</ng-template>
+
+@if (progressOnTop()) {
+  <div class="progress-top"><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
 }
 
 @if (mode() === 'dropbox' && !canRun() && (view() === 'bookmarks' || view() === 'collections')) {
@@ -466,6 +482,7 @@
       [note]="listingNote()"
       [selectable]="true"
     >
+      <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
       @if (canRun()) {
         <div listingActions><ng-container [ngTemplateOutlet]="runActions" /></div>
       }
@@ -482,12 +499,21 @@
       A run has finished since this library was read - bringing the list up to date...
     </p>
   }
-  <app-collections-view />
+  <app-collections-view>
+    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+    @if (canRun()) {
+      <!-- the buttons join the collections view's own row, so they wrap with its New collection -->
+      <div listingActions class="joined-actions"><ng-container [ngTemplateOutlet]="runActions" /></div>
+    }
+  </app-collections-view>
 } @else if (view() === 'history') {
-  <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)" />
+  <app-history (resume)="resumeRun($event)" (viewProgress)="viewProgress($event)">
+    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+  </app-history>
 } @else if (view() === 'bug') {
   <section class="report-bug">
     <h2>Report a bug</h2>
+    <ng-container [ngTemplateOutlet]="libraryProgress" />
     <p>
       Something not working? Open an issue on
       <a [href]="issuesUrl()" target="_blank" rel="noopener">GitHub</a>.
@@ -509,15 +535,26 @@
     }
   </section>
 } @else if (view() === 'settings') {
-  <app-user-settings />
+  <app-user-settings>
+    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+  </app-user-settings>
 } @else if (view() === 'debug' && debugMode.on()) {
-  <app-debug-tab [formats]="importFormats()" />
+  <app-debug-tab [formats]="importFormats()">
+    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+  </app-debug-tab>
 } @else {
   <app-faq />
 }
 
 <!-- on every tab, and pinned to the bottom of the window while a long listing scrolls -->
 <footer class="app-footer" #appFooter>
+  <!-- the hosted copy (GitHub Pages) points at the app, here rather than in the FAQ -->
+  @if (hosted) {
+    <p class="run-locally" role="note">
+      Run this on your own computer -
+      <a [href]="latestReleaseUrl()" target="_blank" rel="noopener">download the latest version from GitHub</a>
+    </p>
+  }
   <!--
     always says whether this is the latest, so someone who dismissed the banner still sees
     a newer one is out - as underlined text rather than a button, quieter than the banner

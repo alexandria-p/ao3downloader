@@ -13,8 +13,8 @@ settings come from its deployment, so the tab does not offer them there.
 
 - **Appearance** - a **palette**, dark (Charcoal, Fairy dust, Midnight, Forest, Ember, Deep sea,
   Mocha, Synthwave, Nightshade, Ink and gold, High contrast) or light (Strawberry milk, Paper,
-  Old book, Mint, Lavender, Sky, Peach), and a **font**: the ones on your computer, more than
-  twenty that come with the app (cute and rounded, handwritten, easy to read - OpenDyslexic
+  Old book, Mint, Lavender, Sky, Peach), and a **font**: **System** (your computer's own, and what the page uses until you
+  pick one), the ones on your computer, more than twenty that come with the app (cute and rounded, handwritten, easy to read - OpenDyslexic
   among them - clean, bookish and typewriter), or **Another font...**, which takes the name of
   any font installed on your computer. The fonts that come with the app are downloaded from the
   app itself, only when you pick one, and work offline. Both are saved to this browser, and

@@ -1,6 +1,6 @@
 .history {
   max-width: 820px;
-  margin: 14px 0 40px;
+  margin: 20px 0 40px;
 }
 
 .history-head {
@@ -11,15 +11,73 @@
   margin-bottom: 12px;
 }
 
-.history-limit {
-  margin: -6px 0 12px;
+.meta-line {
+  margin: -6px 0 16px;
   color: var(--text-dim);
   font-size: 0.82rem;
+}
+
+/* an (i) beside the heading whose text shows on hover or keyboard focus */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: middle;
+  font-size: 0.8rem;
+  font-weight: 400;
+  cursor: help;
+  outline: none;
+}
+
+.info-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid var(--accent-line);
+  border-radius: 50%;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-style: italic;
+  font-family: Georgia, serif;
+}
+
+.info-tip:hover .info-mark,
+.info-tip:focus-visible .info-mark {
+  background: var(--accent-bg);
+}
+
+.info-text {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -8px;
+  z-index: 20;
+  width: max-content;
+  max-width: min(340px, 80vw);
+  padding: 8px 10px;
+  border: 1px solid var(--accent-line);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+  line-height: 1.45;
+  box-shadow: 0 4px 14px var(--backdrop);
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.info-tip:hover .info-text,
+.info-tip:focus .info-text {
+  visibility: visible;
+  opacity: 1;
 }
 
 .history-head h2 {
   margin: 0;
   font-size: 1.15rem;
+  font-weight: 600;
   color: var(--text-strong);
 }
 
@@ -41,11 +99,15 @@
 
 /* the outcome is the first thing worth seeing, so it colours the whole card's edge */
 .run-success { border-left-color: var(--ok-text); }
-.run-stopped { border-left-color: var(--warn-border); }
+.run-partial { border-left-color: var(--warn-text); }
+.run-stopped,
+.run-interrupted { border-left-color: var(--warn-border); }
 /* ended by the helper, not by anything going wrong - the colour of a stop */
 .run-abandoned { border-left-color: var(--warn-border); }
-.run-failed { border-left-color: var(--danger-border); }
-.run-running { border-left-color: var(--accent-line); }
+.run-failed { border-left-color: var(--danger); }
+.run-running,
+.run-active { border-left-color: var(--accent); }
+.run { border-left-width: 5px; }
 
 .run-head {
   display: flex;
@@ -60,12 +122,46 @@
   color: var(--text-strong);
 }
 
+/* how a run ended, as a pill in its status colour - the first thing read on a card */
 .run-status {
   flex: none;
-  font-size: 0.8rem;
-  color: var(--text-dim);
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.run-success .run-status {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.run-partial .run-status,
+.run-stopped .run-status,
+.run-interrupted .run-status,
+.run-abandoned .run-status {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.run-failed .run-status {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.run-running .run-status,
+.run-active .run-status {
+  border-color: var(--accent-line);
+  background: var(--accent-bg);
+  color: var(--accent-text);
 }
 
 .run-when {
@@ -223,6 +319,37 @@
   gap: 8px;
 }
 
+/* the tab's buttons, styled as on the other tabs - without these they were the browser's own */
+.button {
+  display: inline-block;
+  font-family: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button.primary {
+  border-color: var(--accent-line);
+  background: var(--accent-fill);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--accent-fill-hover);
+}
+
 .button.danger {
   border-color: var(--danger-border);
   background: var(--danger-bg);
@@ -249,6 +376,4 @@
   margin: 0 0 6px;
 }
 
-.run-partial .run-status {
-  color: var(--warn-text);
-}
+

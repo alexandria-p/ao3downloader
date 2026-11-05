@@ -240,6 +240,7 @@ describe('Jobs.loadRetryableRun', () => {
     jobs.historyRead = {
       store,
       runs: [{ ...run('b', 'success'), file: 'b.json' }, { ...run('a', 'stopped'), file: 'a.json' }] as unknown as RunHistory[],
+      at: new Date(),
     };
 
     const found = await jobs.loadRetryableRun(store, 'a');

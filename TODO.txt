@@ -33,3 +33,9 @@ When attempted fichub for a fic that failed either the index or download, attemp
 Fixup retry/resume for broken runs….make it tight.
 
 screenshots to readme that show off customisation (specifically, Doomsdays Dragons: Strawberry milk, Charcoal with the Typewriter font, Lavender with Gaegu, and a narrow window)
+
+check that self-update now works
+
+move 'refresh' button out of the header....not sure where to put it though
+
+look at, and decide how to style, topbar when using local storage

@@ -3,6 +3,8 @@
     <h2>User settings</h2>
     <button type="button" class="button reset-all" (click)="openReset()">Reset to defaults</button>
   </div>
+  <!-- reading the library: under the title, as on every tab -->
+  <ng-content select="[listingProgress]" />
   <p class="browser-note" role="note">
     The palette and font, 'Do not ask again' options and any changes to your default file formats
     are saved to this browser. Changing browsers on your device will use a different set of settings that are saved
@@ -80,11 +82,19 @@
         <span>Font</span>
         <select name="font" aria-label="Font" (change)="setFont($any($event.target).value)">
           @for (group of fontGroups; track group.name) {
-            <optgroup [label]="group.name">
+            @if (group.name) {
+              <optgroup [label]="group.name">
+                @for (font of group.fonts; track font.id) {
+                  <option [value]="font.id" [selected]="font.id === appearance.font()" [style.font-family]="font.stack || null">{{ font.name }}</option>
+                }
+              </optgroup>
+            } @else {
               @for (font of group.fonts; track font.id) {
                 <option [value]="font.id" [selected]="font.id === appearance.font()" [style.font-family]="font.stack || null">{{ font.name }}</option>
               }
-            </optgroup>
+              <!-- a line under System, in browsers that draw one inside a list; others skip it -->
+              <hr />
+            }
           }
         </select>
       </label>

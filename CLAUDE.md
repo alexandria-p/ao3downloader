@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1015 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1023 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -539,7 +539,10 @@ window so a long listing never hides it, with a link to `releasesRepo` on GitHub
 
 **The FAQ pins a download panel first** (`.download-app`): the latest release's page
 (`releases/latest`, from `releasesRepo`, which defaults to this repository for a page with no
-config), what to do with the zip, and this page's version when it has one.
+config), what to do with the zip, and this page's version when it has one. **Not on the hosted
+copy** (`Faq.hosted`, `!HelperConnection.isLocal()`): there it is one line in the footer instead,
+`.run-locally` above the version line - *Run this on your own computer - download the latest
+version from GitHub*.
 
 ### A run can carry on in the background
 
@@ -910,7 +913,8 @@ the combined run, 'just update incomplete' and 'just download new bookmarks'. Th
 passes the quick scan and the full scan are built from, each usable alone, and offering them
 beside the two runs people should reach for invites picking a part when the whole was wanted.
 They carry a `[DEBUG]` prefix and the red `.button.debug` treatment so they never read as
-part of the ordinary set. `App` reads the flag off `Jobs.config`, loading it as the page
+part of the ordinary set. They are all **Advanced options** holds, and it is not shown at all without them;
+*Download/update a specific fic*, *several fics* and *Custom run* sit beside the two scans. `App` reads the flag off `Jobs.config`, loading it as the page
 opens rather than waiting for a dialog to need it.
 
 The panel itself is for working on the app rather than for using it, and the two things it
@@ -928,7 +932,7 @@ offers are deliberately different in kind:
 
 `debug.ts`, `debug-tab.ts`. **Debug mode** (`DebugMode`, `ao3.debugMode`, this browser's
 alone, from User settings' *Debug mode*) is not `EnableDebugTools` (settings.ini, the run
-window's panel): it shows `.debug-banner` above everything, the reminder included, and a
+window's panel): it shows `.debug-banner` first among the notices, the reminder included, and a
 **DEBUG** tab (`view` `debug`), and changes nothing else. The tab's **Mock Resolve issues**
 builds made-up files for the issues ticked, as many as asked (`mockPaths`: index issues from
 7000001, dating from 7100001, duplicates from 7200001 cycling the five cases the page tells apart - one newest, three copies, an undated copy, a shared date told apart by change time (`MemoryStore.changed`), and one that cannot be told),
@@ -1089,7 +1093,7 @@ config (`Jobs.connecting`) and, for a quick scan, the newest floor (`Jobs.floorA
 first batch the helper finds a floor in) in the background; the window works from the config the
 page already has, or `BUILT_IN_CONFIG`, meanwhile. **Interrupted runs are marked in the
 background** whenever a library is read or refreshed (an effect on `Library.lastRead`), when
-History opens, and when a workflow opens - nothing in starting a run depends on it, since the
+History reads its list, and when a workflow opens - nothing in starting a run depends on it, since the
 helper refuses a second run itself (409). **Start waits on the run page** (`readyToStart`,
 `.run-waiting`): for the helper's answer, then for a quick scan measuring back to its last run,
 the floor - whose warning (`missingDownloads`) is shown there, before anything starts, with
@@ -1100,7 +1104,7 @@ window, nothing started. *Choose which earlier scan to measure back to* reads th
 (`newestFloor`, `floorRuns`), never read twice. **Records are read `PARALLEL_READS` (6) at a time**, in order: `settleInterrupted` reads the
 history before every run window opens, and in Dropbox each record is a download of its own, so
 one after another a long history held the window for most of a minute. A record that will not
-read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many. The History tab says it shows only that many (`.history-limit`); older records stay in `runs/`. **The helper reads records lazily too** (`runs.iter_runs`): `last_successful` stops at
+read is replaced by the next, so the listing still holds `HISTORY_LIMIT` when there are that many. The History tab says it shows only that many, in an (i) beside its heading (`.history-limit`), and *List refreshed* under it (`readAt`) as Works and Collections do. **It is read once, not on every visit**: the list is kept in `Jobs.historyRead` (with `at`) and shown again when the tab opens; only Refresh, a run starting (`Jobs.start`) or ending (`finishUp`, or a run leaving `activeRuns`) - `forgetHistory` - make it read again. Every tab's content starts 20px under the tabs, under a title of 1.15rem/600. Older records stay in `runs/`. **The helper reads records lazily too** (`runs.iter_runs`): `last_successful` stops at
 the first floor, usually the newest record, rather than reading 100 first; `find_run` (a
 retry, a chosen floor's `chosen_floor_at`) reads only the file whose name ends with the id's
 first 8, falling back to the rest only for a hand-renamed file. History marks interrupted runs
@@ -2135,7 +2139,8 @@ window finishes after dating (`afterDating`). What not to break:
   `activeRun`, no run window, the library read and set up - once per library per visit
   (`offeredFor`), unless `ao3.importOfferOff` (a `PROMPTS` entry, set by *No, never ask me
   again* on the window's first page). The `.import-issues` reminder - **Resolve issues found
-  with import**, **above the tabs**, on every tab, while `LibraryImports.hasIssues`
+  with import**, **under the tabs and above whatever the tab shows** (`.notices`, with debug
+  mode, a run going and the update banners - part of the page, not of a tab), on every tab, while `LibraryImports.hasIssues`
   (`App.importReminder`) - offers it by hand, disabled with *Cannot be started while an active
   run is in progress*; its × hides it until the library is opened again
   (`reminderDismissedFor`), and `ao3.importOfferOff` hides it for good. **The first page asks
@@ -2398,7 +2403,11 @@ dropping them would show fewer works than the collection's own count promises.
 `Library.showDropbox` lists the folder, downloads the index as one zip per folder
 (`INDEX_FOLDERS`, falling back to a file at a time when Dropbox refuses the zip), then parses
 every entry. It publishes each stage as `Library.readProgress` (`ReadProgress`), and
-`describeReadProgress` turns that into the bar and caption above the listing. **A percentage
+`describeReadProgress` turns that into the bar and caption (`app-progress-bar`, in the palette's
+`--accent`, as History's *Reading past runs* and the run window's bar are), **under the title of
+whichever tab is showing**: `#libraryProgress` in `app.html` is projected into each tab as
+`[listingProgress]`, and goes above the content only where there is no title (`progressOnTop`:
+the FAQ, Works before a read, Dropbox's sign-in panel). **A percentage
 only where there is a real total**: a listing comes a page at a time with no total, and
 Dropbox builds a folder's zip as it sends it, so it usually gives no `Content-Length` - those
 stages count what has arrived (files found, bytes so far, folder N of M) with an
@@ -2502,15 +2511,19 @@ not to break:
   Latin Extended, 400 and 700): served from the page's own address, never a font service, and
   downloaded by the browser only once a chosen font is used - so offering them costs nothing,
   and they work offline. The old `rounded` and `legible` ids now name the bundled Nunito and
-  Atkinson Hyperlegible, so a saved choice still works. A typed font name goes through
+  Atkinson Hyperlegible, so a saved choice still works. **The font a browser starts with is System**
+  (`DEFAULT_FONT`, the computer's own interface font), alone at the top of the picker, then
+  *Easy to read*, then *On your computer* - where the old default lives on as *Classic*, under
+  its old id `default`, so a browser that chose it keeps it. A typed font name goes through
   `cleanFontName` before it reaches a style. **The header reads "Fic Fairy"** (two words, at
   the user's choice), 64px, moved down inside the bar's own 51px so the bar and its buttons
   never move; it never wraps or shrinks (`flex: none`), and the bar never wraps on a wide
   window - with a wide font the buttons wrap among themselves on the right. **On the Works
   tab the run buttons sit inside the listing, under its heading and *List refreshed***
   (`<ng-template #runActions>`, projected into `app-work-list` through
-  `<ng-content select="[listingActions]">`); with no listing, and on Collections, they stay
-  above the content. **The header title is never in that font**: it is
+  `<ng-content select="[listingActions]">`); on Collections they go under its heading, in one
+  row with *+ New collection* (`.listing-actions`; `.joined-actions` lets them join that row);
+  with no listing they stay above the content. **The header title is never in that font**: it is
   always Doomsdays Dragons (`src/fonts/doomsdays-dragons.otf`, `@font-face` in `styles.css`), by
   GraphicSauce, Freeware Non-Commercial - fine for an app given away free, at the user's
   decision, and credited in the README. Don't use it anywhere that sells something. `main.ts` applies the saved choice before
@@ -2669,7 +2682,7 @@ to its right, and the *From FicHub* badge beneath them at the far right; `.blurb
   many were already there; `documentOf` dedupes on every save, so a hand-edited file heals.
 - **One window makes and edits them** (`collection-editor.ts`), opened from **+ New
   collection**, from **+ A new collection...** in the add panel (with the ticked works as
-  `items`), and from **Edit collection**. **Nothing is written until Create/Save**: Cancel,
+  `items`), and from **Update collection details**. **Nothing is written until Create/Save**: Cancel,
   the cross, Escape and the backdrop all emit `cancelled`, the opener drops its
   `creatingWith`/`editing` and changes nothing else - so the works stay ticked and the add
   panel stays open. Bare by default (name, description, tags); **Show every field** adds the

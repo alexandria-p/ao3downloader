@@ -52,7 +52,7 @@
 
   /* the Charcoal palette's blue - `appearance.ts` sets it for the palette chosen */
   --logo-filter: hue-rotate(-112deg);
-  --font-body: 'Segoe UI', Tahoma, Verdana, system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, sans-serif;
 }
 
 * {

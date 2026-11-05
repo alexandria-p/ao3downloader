@@ -348,32 +348,56 @@
   }
 }
 
-/* a collection made in this app: a gold star and its own badge, so it never reads as ao3's */
-.custom-mark {
-  margin-right: 6px;
-  color: var(--warn-text);
+.meta-line {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.82rem;
 }
 
-.collection.custom {
-  border-left: 3px solid var(--warn-text);
-}
+/* a collection made in this app looks like any other; its first pill says where it came from */
 
-.badge.custom {
-  border-color: var(--warn-border);
-  background: var(--warn-bg);
-  color: var(--warn-text);
-}
-
-.listing-top {
+.listing-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 12px;
 }
 
-.head-actions {
-  margin: 8px 0 0;
+/* the pill naming a collection made here wears the accent, as ao3's challenge pill does */
+.badge.custom {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+/* an opened collection made here: name and pencil on the left, Update collection details on the right */
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.title-row .edit-collection {
+  margin-left: auto;
+  flex: none;
+}
+
+.pencil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-dim);
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.pencil:hover {
+  background: var(--surface-hover);
+  color: var(--accent);
 }
 
 .button {

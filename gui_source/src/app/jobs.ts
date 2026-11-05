@@ -671,6 +671,9 @@ export class Jobs {
       const response = await this.helper.call(`/api/jobs`);
       if (!response.ok) throw new Error(String(response.status));
       const runs = ((await response.json()) as { jobs?: ActiveRun[] }).jobs ?? [];
+      // a run that has left the list has ended, and its record says how - History reads again
+      const going = new Set(runs.map((run) => run.id));
+      if (this.activeRuns().some((run) => !going.has(run.id))) this.forgetHistory();
       this.activeRuns.set(runs);
       return runs;
     } catch {
@@ -757,9 +760,16 @@ export class Jobs {
   /**
    * The run history the History tab last read, for the library it read it from. A retry
    * started from History opens on that run straight away, judged against this list rather
-   * than the whole history read again (`loadRetryableRun`).
+   * than the whole history read again (`loadRetryableRun`). History itself shows this list
+   * again when it is opened, rather than reading the library each time; only its Refresh, a
+   * run starting, and a run ending (`forgetHistory`) make it read again.
    */
-  historyRead: { store: LibraryStore; runs: RunHistory[] } | null = null;
+  historyRead: { store: LibraryStore; runs: RunHistory[]; at: Date } | null = null;
+
+  /** the history last read is behind: a run started or ended since, and wrote its record */
+  forgetHistory(): void {
+    this.historyRead = null;
+  }
 
   /**
    * The helper's answer to the config asked for as a run window opened (`App.openRun`) - in
@@ -901,6 +911,7 @@ export class Jobs {
       );
     }
     if (!response.ok) throw new Error(answer?.error ?? `request failed (${response.status})`);
+    this.forgetHistory();
     return answer.jobId as string;
   }
 

@@ -1,4 +1,6 @@
-import { inAo3Zone } from './preferences';
+import { ProgressBar } from './progress-bar';
+import { inAo3Zone, shownTime } from './preferences';
+export { shownTime } from './preferences';
 import {
   Component,
   DestroyRef,
@@ -47,7 +49,7 @@ export type View = 'bookmarks' | 'collections' | 'history' | 'faq' | 'bug' | 'se
 
 @Component({
   selector: 'app-root',
-  imports: [DebugTab, DecimalPipe, NgTemplateOutlet, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
+  imports: [ProgressBar, DebugTab, DecimalPipe, NgTemplateOutlet, BrowserNotice, DownloadDialog, Faq, FolderWarning, History, WorkList,
     CollectionsView, Feedback, PasscodeGate, SetupOverlay, UserSettings, ImportDialog],
   styleUrl: './app.css',
   templateUrl: './app.html',
@@ -62,6 +64,8 @@ export class App {
   private readonly storage = inject(StorageChoice);
   private readonly dropbox = inject(DropboxSession);
   private readonly helper = inject(HelperConnection);
+  /** the hosted copy, on GitHub Pages: its helper is not on this computer */
+  protected readonly hosted = !this.helper.isLocal();
   private readonly updates = inject(UpdateCheck);
 
   /** a newer release than this page's own, once GitHub has said so - the footer says it always */
@@ -268,6 +272,16 @@ export class App {
   protected readonly reading = computed(() => {
     const progress = this.library.readProgress();
     return progress ? describeReadProgress(progress) : null;
+  });
+  /**
+   * Where the library's reading bar goes when the tab showing has no title to put it under:
+   * the FAQ, Works before anything is read, and Dropbox's sign-in panel
+   */
+  protected readonly progressOnTop = computed(() => {
+    const view = this.view();
+    if (view === 'faq') return true;
+    if (this.mode() === 'dropbox' && !this.canRun() && (view === 'bookmarks' || view === 'collections')) return true;
+    return view === 'bookmarks' && !this.data();
   });
   protected readonly sourceName = this.library.sourceName;
   protected readonly folderName = this.library.folderName;
@@ -550,14 +564,5 @@ export class App {
   }
 }
 
-/**
- * A time as the listing shows it: the reader's own time zone, date and time to the minute. A
- * value that will not parse (an old file's free-text retrieval time) is shown as it was written.
- */
 /** what openRun does before a window opens, in the order its notice names them */
 
-export function shownTime(value: string | Date): string {
-  const at = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(at.getTime())) return String(value);
-  return at.toLocaleString([], inAo3Zone({ dateStyle: 'medium', timeStyle: 'short' }));
-}

@@ -517,7 +517,7 @@ describe('ticking works in the listing', () => {
 });
 
 describe('the collections page', () => {
-  it('marks a custom collection with a star and its own badge, and an ao3 one without', async () => {
+  it('marks a custom collection only by its first pill, Collection made in Fic Fairy, ahead of any others', async () => {
     await custom.create('Mine', { works: ['1'], externals: [] });
     const fixture = TestBed.createComponent(CollectionsView);
     await fixture.whenStable();
@@ -526,10 +526,10 @@ describe('the collections page', () => {
     const cards = [...element.querySelectorAll('li.collection')];
     const mine = cards.find((c) => c.textContent?.includes('Mine'))!;
     const ao3 = cards.find((c) => c.textContent?.includes('Yuletide'))!;
-    expect(mine.classList).toContain('custom');
-    expect(mine.querySelector('.custom-mark')).not.toBeNull();
-    expect(mine.textContent).toContain('Your collection');
-    expect(ao3.querySelector('.custom-mark')).toBeNull();
+    // no star and no colour of its own
+    expect(mine.textContent).not.toContain('\u2605');
+    expect(mine.querySelector('.flags .badge')?.textContent?.trim()).toBe('Collection made in Fic Fairy');
+    expect(ao3.textContent).not.toContain('Collection made in Fic Fairy');
   });
 });
 
@@ -596,6 +596,12 @@ describe('making and editing collections from the Collections tab', () => {
     expect(store.files.size).toBe(0);
   });
 
+  it('says when the list was refreshed, as the Works tab does', async () => {
+    library.listedAt.set(new Date('2026-11-05T10:00:00Z'));
+    await settle();
+    expect(element.querySelector('.meta-line')?.textContent).toContain('List refreshed');
+  });
+
   it('offers no new collection where nothing can be saved', async () => {
     library.store.set(null);
     await settle();
@@ -608,7 +614,7 @@ describe('making and editing collections from the Collections tab', () => {
     button('Mine').click();
     await settle();
 
-    button('Edit collection').click();
+    button('Update collection details').click();
     await settle();
     expect(element.querySelector('app-collection-editor [name="maintainers"]')).toBeNull();
     expect((element.querySelector<HTMLInputElement>('app-collection-editor [name="title"]'))!.value).toBe('Mine');
@@ -627,8 +633,30 @@ describe('making and editing collections from the Collections tab', () => {
   });
 
   it('offers no edit on a collection from ao3', async () => {
+    expect(element.querySelector('.pencil')).toBeNull();
     button('Yuletide 2024').click();
     await settle();
-    expect(button('Edit collection')).toBeUndefined();
+    expect(button('Update collection details')).toBeUndefined();
+    expect(element.querySelector('.pencil')).toBeNull();
+  });
+
+  it('puts Update collection details on the name line, and a pencil by the name that opens the same window', async () => {
+    await custom.create('Mine', { works: ['1'], externals: [] });
+    await settle();
+    // in the listing, beside the name
+    element.querySelector<HTMLButtonElement>('.collection .heading .pencil')!.click();
+    await settle();
+    expect(element.querySelector<HTMLInputElement>('app-collection-editor [name="title"]')!.value).toBe('Mine');
+    button('Cancel').click();
+    await settle();
+
+    button('Mine').click();
+    await settle();
+    const row = element.querySelector('.collection-head .title-row')!;
+    expect(row.querySelector('h2')!.textContent).toContain('Mine');
+    expect(row.querySelector('.edit-collection')!.textContent).toContain('Update collection details');
+    row.querySelector<HTMLButtonElement>('.pencil')!.click();
+    await settle();
+    expect(element.querySelector<HTMLInputElement>('app-collection-editor [name="title"]')!.value).toBe('Mine');
   });
 });

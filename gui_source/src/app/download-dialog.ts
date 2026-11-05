@@ -2178,6 +2178,8 @@ export class DownloadDialog implements OnDestroy {
   }
 
   private finishUp(): void {
+    // the run's record now says how it ended, so History reads it again when next opened
+    this.jobs.forgetHistory();
     this.paused.set(null);
     // a finished run is not a paused one, whatever it was when it reached the end
     this.held.set(false);

@@ -1,5 +1,6 @@
 <section class="faq">
   <!-- pinned first: the one thing on this page that is not about AO3 itself -->
+  @if (!hosted) {
   <div class="download-app" role="note">
     <p>
       <strong>Run it on your own computer.</strong>
@@ -28,6 +29,7 @@
       <p>This page is version {{ version }}.</p>
     }
   </div>
+  }
 
   <h2>About downloading from AO3</h2>
 

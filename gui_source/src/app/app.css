@@ -65,11 +65,16 @@
   filter: var(--logo-filter, none);
 }
 
-/* :host first, so this outranks each one's own margin shorthand further down */
-:host .run-in-progress,
-:host .update-available,
-:host .debug-banner,
-:host .import-issues,
+/* the notices under the tabs start below where the fairy's book reaches */
+.notices {
+  margin-top: 16px;
+}
+
+.notices:empty {
+  display: none;
+}
+
+/* :host first, so this outranks the tabs' own margin shorthand further down */
 :host .views {
   margin-left: var(--fairy-room);
 }
@@ -78,6 +83,10 @@
 @media (max-width: 760px) {
   :host {
     --fairy-room: 0px;
+  }
+
+  .notices {
+    margin-top: 0;
   }
 
   .topbar {
@@ -123,7 +132,6 @@
   display: inline-flex;
   border: 1px solid var(--border-strong);
   border-radius: 3px;
-  overflow: hidden;
 }
 
 .storage button {
@@ -145,8 +153,42 @@
 }
 
 .storage button.current {
-  background: var(--accent-fill);
+  position: relative;
   color: var(--text-strong);
+}
+
+/* the one chosen has a chunky highlighter swipe behind its name, in the palette's accent. It
+   is drawn in each time it appears - on load, and on switching - left to right like a pen */
+.storage button.current {
+  isolation: isolate;
+}
+
+.storage .highlight {
+  position: absolute;
+  inset: 0 -4px;
+  z-index: -1;
+  width: calc(100% + 8px);
+  height: 100%;
+  overflow: visible;
+  opacity: 0.45;
+  pointer-events: none;
+  animation: swipe-in 0.45s cubic-bezier(0.3, 0.7, 0.4, 1) both;
+}
+
+.storage .highlight path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+@keyframes swipe-in {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .storage .highlight { animation: none; }
 }
 
 .source {
@@ -162,7 +204,13 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 14px 0 4px;
+  margin: 14px 0 12px;
+}
+
+/* run buttons handed into another component's row take part in that row directly */
+.joined-actions,
+.joined-actions .actions {
+  display: contents;
 }
 
 /* the runs that are each right for one job, kept out of the way of the two that are not */
@@ -273,46 +321,9 @@
   color: var(--text-dim);
 }
 
-/* reading a Dropbox library: the same bar as a run's progress window */
-.read-progress {
-  margin: 16px 0;
-  max-width: 640px;
-}
-
-.read-progress .notice {
-  margin: 4px 0 0;
-}
-
-.read-progress .bar {
-  height: 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  background: var(--bg);
-  overflow: hidden;
-}
-
-.read-progress .fill {
-  height: 100%;
-  background: var(--ok-fill);
-  transition: width 0.3s ease;
-}
-
-/* no total to divide by - a listing, or a zip Dropbox builds as it sends - so show motion
-   rather than a false number */
-.read-progress .fill.indeterminate {
-  background: linear-gradient(90deg, transparent, var(--ok-fill), transparent);
-  background-size: 40% 100%;
-  background-repeat: no-repeat;
-  animation: read-sweep 1.4s ease-in-out infinite;
-}
-
-@keyframes read-sweep {
-  from { background-position: -40% 0; }
-  to { background-position: 140% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .read-progress .fill.indeterminate { animation: none; opacity: 0.5; }
+/* the library's reading bar, where a tab has no title to put it under */
+.progress-top {
+  margin: 20px 0 0;
 }
 
 .empty {
@@ -473,6 +484,22 @@
   color: var(--text-dim);
 }
 
+/* the hosted copy's pointer to the app, a panel above the version line */
+.app-footer .run-locally {
+  flex: 1 0 100%;
+  margin: 0 0 4px;
+  padding: 7px 11px;
+  border: 1px solid var(--accent-line);
+  border-radius: 3px;
+  background: var(--accent-bg);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.app-footer .run-locally a {
+  color: var(--link);
+}
+
 /* whether this is the latest version: underlined text, never a button - the banner is the
    loud way to say it, this is the one that is always there */
 .footer-link {
@@ -501,12 +528,13 @@
 /* a short page, not a document: a link and what to put in the issue */
 .report-bug {
   max-width: 640px;
-  margin: 8px 0 24px;
+  margin: 20px 0 24px;
 }
 
 .report-bug h2 {
   margin: 0 0 10px;
-  font-size: 1.1rem;
+  font-size: 1.15rem;
+  font-weight: 600;
 }
 
 .report-bug p {

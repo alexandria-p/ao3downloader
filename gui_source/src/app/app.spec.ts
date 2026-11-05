@@ -166,16 +166,18 @@ describe('App', () => {
     ]);
   });
 
-  it('keeps the single-purpose runs behind advanced options', async () => {
-    // each is right for exactly one job and confusing as a default, so none of them sits
-    // in the way of the two that are not
+  it('offers the single-purpose runs beside the two scans, and no Advanced options without debug tools', async () => {
     const element = await withFolder();
 
-    const advanced = element.querySelector('.advanced');
-    expect(advanced?.querySelector('summary')?.textContent?.trim()).toBe('Advanced options');
-    expect(
-      Array.from(advanced!.querySelectorAll('button')).map((b) => b.textContent?.trim()),
-    ).toEqual(['Download/update a specific fic', 'Download/update several fics', 'Custom run']);
+    expect(actionLabels(element).slice(0, 5)).toEqual([
+      'Quick Scan',
+      '(Full scan) Reindex & Update All',
+      'Download/update a specific fic',
+      'Download/update several fics',
+      'Custom run',
+    ]);
+    // nothing anyone can use would be in it, so it is not there at all
+    expect(element.querySelector('.advanced')).toBeNull();
   });
 
   // they are the passes the two runs above are built from, kept for working on the app
@@ -220,6 +222,10 @@ describe('App', () => {
       '[DEBUG] Just update any bookmarks marked as incomplete',
       '[DEBUG] Just download newly added bookmarks',
     ]);
+    // the debug runs, and only they, are behind Advanced options
+    const advanced = element.querySelector('.advanced');
+    expect(advanced?.querySelector('summary')?.textContent?.trim()).toBe('Advanced options');
+    expect(Array.from(advanced!.querySelectorAll('button')).every((b) => b.classList.contains('debug'))).toBe(true);
   });
 
   // writing into a folder you chose needs an API only Chromium has, and the moment it bites
@@ -533,6 +539,18 @@ describe('App', () => {
     ]);
   });
 
+  it('puts the collections jobs under the collections heading, in one row with New collection', async () => {
+    const { fixture, element } = await render(1);
+    await showCollections(fixture, element);
+
+    const view = element.querySelector('app-collections-view')!;
+    const heading = view.querySelector('.listing-heading')!;
+    const row = view.querySelector('.listing-actions')!;
+    expect(heading.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const labels = Array.from(row.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(labels.slice(0, 2)).toEqual(['Index my collections', 'Index collection by URL']);
+  });
+
   it('switches between the two listings', async () => {
     const { fixture, element } = await render(3);
     expect(element.querySelectorAll('.blurb').length).toBe(3);
@@ -661,7 +679,8 @@ describe('App', () => {
 
     const title = element.querySelector('.heading a.title');
     expect(title?.classList.contains('local')).toBe(false);
-    expect(element.querySelector('.meta-line.linked')?.textContent).toContain('No downloaded work files');
+    // and the listing no longer counts downloaded copies in a sentence of its own
+    expect(element.querySelector('.meta-line.linked')).toBeNull();
   });
 
   it('links a title to its downloaded copy when the folder has one', async () => {
@@ -674,7 +693,6 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
 
     expect(element.querySelector('.heading a.title')?.classList.contains('local')).toBe(true);
-    expect(element.querySelector('.meta-line.linked')?.textContent).toContain('1 of 1 works');
   });
 
   // region the history tab
@@ -832,6 +850,36 @@ describe('App', () => {
     expect(first?.textContent).toContain('Start FicFairy.command');
     expect(first?.textContent).toContain('ficfairy-ao3downloader-linux-x86_64.zip');
     expect(first?.textContent).toContain('Start FicFairy.sh');
+  });
+
+  it('on the hosted copy, says where to get the app in the footer instead of the FAQ', async () => {
+    const { element: local } = await render(1);
+    expect(local.querySelector('.app-footer .run-locally')).toBeNull();
+
+    TestBed.inject(HelperConnection).settings.update((c) => ({
+      ...c, helperUrl: 'https://ao3-helper.onrender.com',
+    }));
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    const panel = element.querySelector('.app-footer .run-locally');
+    expect(panel?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Run this on your own computer - download the latest version from GitHub',
+    );
+    expect(panel?.querySelector('a')?.getAttribute('href')).toBe('https://github.com/alexandria-p/ficfairy/releases/latest');
+    expect(element.querySelector('.app-footer')?.firstElementChild).toBe(panel);
+
+    tab(element, 'FAQ')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('app-faq .download-app')).toBeNull();
+  });
+
+  it('highlights the storage chosen, and only that one', async () => {
+    const { element } = await render(1);
+    const buttons = [...element.querySelectorAll('.storage button')];
+    const circled = buttons.filter((b) => b.querySelector('svg.highlight'));
+    expect(circled.length).toBe(1);
+    expect(circled[0].classList.contains('current')).toBe(true);
   });
 
   it('has a Report a bug tab next to the FAQ that points at the GitHub issues', async () => {
@@ -1333,7 +1381,7 @@ describe('App', () => {
     expect(element.querySelector('app-import-dialog')?.textContent).toContain('1 file has no date');
   });
 
-  it('puts the reminder above the tabs, on every tab, until dismissed', async () => {
+  it('puts the reminder under the tabs and above what each tab shows, on every tab, until dismissed', async () => {
     localStorage.clear();
     libraryWithFiles(['works/999 Not Indexed - Writer.html']);
     TestBed.inject(Library).data.set(exportOf(1));
@@ -1343,11 +1391,14 @@ describe('App', () => {
 
     const issues = element.querySelector('.import-issues')!;
     const tabs = element.querySelector('nav.views')!;
-    expect(issues.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    for (const name of ['Collections', 'History', 'FAQ', 'User settings']) {
+    expect(tabs.compareDocumentPosition(issues) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(issues.compareDocumentPosition(element.querySelector('app-work-list')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const [name, content] of [['Collections', 'app-collections-view'], ['History', 'app-history'], ['FAQ', 'app-faq'], ['User settings', 'app-user-settings']]) {
       tab(element, name)!.click();
       await fixture.whenStable();
-      expect(element.querySelector('.import-issues')).not.toBeNull();
+      const shown = element.querySelector('.import-issues');
+      expect(shown).not.toBeNull();
+      expect(shown!.compareDocumentPosition(element.querySelector(content)!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
 
     element.querySelector<HTMLButtonElement>('.import-issues-close')!.click();
