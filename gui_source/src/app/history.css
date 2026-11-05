@@ -382,8 +382,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* no space before it in the template, so the gap the other tabs get from one is margin here */
-  margin-left: 5px;
+  /* the gap is all margin, with no space before it in any template, so it is the same on every tab */
+  margin-left: 6px;
   padding: 0 2px;
   border: 0;
   border-radius: 3px;

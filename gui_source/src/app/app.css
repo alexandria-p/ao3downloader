@@ -622,7 +622,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 2px;
+  /* the gap is all margin, with no space before it in any template, so it is the same on every tab */
+  margin-left: 6px;
   padding: 0 2px;
   border: 0;
   border-radius: 3px;
