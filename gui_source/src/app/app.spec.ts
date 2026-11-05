@@ -874,10 +874,10 @@ describe('App', () => {
     expect(element.querySelector('app-faq .download-app')).toBeNull();
   });
 
-  it('circles the storage chosen, and only that one', async () => {
+  it('highlights the storage chosen, and only that one', async () => {
     const { element } = await render(1);
     const buttons = [...element.querySelectorAll('.storage button')];
-    const circled = buttons.filter((b) => b.querySelector('svg.pen-circle'));
+    const circled = buttons.filter((b) => b.querySelector('svg.highlight'));
     expect(circled.length).toBe(1);
     expect(circled[0].classList.contains('current')).toBe(true);
   });

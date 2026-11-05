@@ -99,11 +99,15 @@
 
 /* the outcome is the first thing worth seeing, so it colours the whole card's edge */
 .run-success { border-left-color: var(--ok-text); }
-.run-stopped { border-left-color: var(--warn-border); }
+.run-partial { border-left-color: var(--warn-text); }
+.run-stopped,
+.run-interrupted { border-left-color: var(--warn-border); }
 /* ended by the helper, not by anything going wrong - the colour of a stop */
 .run-abandoned { border-left-color: var(--warn-border); }
-.run-failed { border-left-color: var(--danger-border); }
-.run-running { border-left-color: var(--accent-line); }
+.run-failed { border-left-color: var(--danger); }
+.run-running,
+.run-active { border-left-color: var(--accent); }
+.run { border-left-width: 5px; }
 
 .run-head {
   display: flex;
@@ -118,12 +122,46 @@
   color: var(--text-strong);
 }
 
+/* how a run ended, as a pill in its status colour - the first thing read on a card */
 .run-status {
   flex: none;
-  font-size: 0.8rem;
-  color: var(--text-dim);
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.run-success .run-status {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.run-partial .run-status,
+.run-stopped .run-status,
+.run-interrupted .run-status,
+.run-abandoned .run-status {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.run-failed .run-status {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.run-running .run-status,
+.run-active .run-status {
+  border-color: var(--accent-line);
+  background: var(--accent-bg);
+  color: var(--accent-text);
 }
 
 .run-when {
@@ -338,6 +376,4 @@
   margin: 0 0 6px;
 }
 
-.run-partial .run-status {
-  color: var(--warn-text);
-}
+

@@ -157,16 +157,38 @@
   color: var(--text-strong);
 }
 
-/* the one chosen is circled, as if by pen, in the palette's link colour - drawn over the
-   control and past its edges, so the control itself no longer clips */
-.storage .pen-circle {
+/* the one chosen has a chunky highlighter swipe behind its name, in the palette's accent. It
+   is drawn in each time it appears - on load, and on switching - left to right like a pen */
+.storage button.current {
+  isolation: isolate;
+}
+
+.storage .highlight {
   position: absolute;
-  inset: -7px -9px;
-  width: calc(100% + 18px);
-  height: calc(100% + 14px);
+  inset: 0 -4px;
+  z-index: -1;
+  width: calc(100% + 8px);
+  height: 100%;
   overflow: visible;
-  color: var(--link);
+  opacity: 0.45;
   pointer-events: none;
+  animation: swipe-in 0.45s cubic-bezier(0.3, 0.7, 0.4, 1) both;
+}
+
+.storage .highlight path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+@keyframes swipe-in {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .storage .highlight { animation: none; }
 }
 
 .source {
