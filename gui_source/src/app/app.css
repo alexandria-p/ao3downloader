@@ -27,10 +27,21 @@
   margin: 0;
   /* the title's own font, never the one chosen in User settings (styles.css) */
   font-family: 'Doomsdays Dragons', var(--font-body);
-  font-size: 2.4rem;
+  font-size: 64px;
   font-weight: normal;
-  line-height: 1.1;
+  /* no taller than the bar's 51px of content (64px less its padding and line), so the bar -
+     and the buttons, centred in it - stay exactly where they were however large the name is */
+  line-height: 51px;
+  height: 51px;
   color: var(--text-strong);
+}
+
+/* the name's capitals start 12px below the top of the bar and end just above its line: moved
+   down within the bar rather than making it taller. The span moves, not the h1, which would
+   otherwise become what the fairy is placed against */
+.topbar h1 .name {
+  position: relative;
+  top: 9.5px;
 }
 
 /* the fairy flying in over the tabs: large, tilted, and hanging below the header line, beside
@@ -68,7 +79,13 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 1.6rem;
+    font-size: 2.6rem;
+    line-height: 1;
+    height: auto;
+  }
+
+  .topbar h1 .name {
+    top: 0;
   }
 
   .topbar h1 .logo {
