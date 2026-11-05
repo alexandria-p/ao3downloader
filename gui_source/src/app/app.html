@@ -435,6 +435,15 @@
   reading the library: one bar, under the title of whichever tab is showing (projected into it as
   [listingProgress]) - or here, above the content, where the tab has no title to go under
 -->
+<!-- a background run's changes being brought in: under the Works and Collections buttons -->
+<ng-template #behindNote>
+  @if (refreshing()) {
+    <p class="notice library-behind" role="status">
+      A run has finished since this library was read - bringing the list up to date...
+    </p>
+  }
+</ng-template>
+
 <ng-template #libraryProgress>
   @if (setupWorking()) {
     <!-- setting the library up, said step by step: a question alone gets a window -->
@@ -477,11 +486,6 @@
     }
   </section>
 } @else if (view() === 'bookmarks') {
-  @if (refreshing()) {
-    <p class="notice library-behind" role="status">
-      A run has finished since this library was read - bringing the list up to date...
-    </p>
-  }
   @if (data()) {
     <app-work-list
       [works]="works()"
@@ -490,7 +494,10 @@
       [note]="listingNote()"
       [selectable]="true"
     >
-      <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+      <div listingProgress>
+        <ng-container [ngTemplateOutlet]="behindNote" />
+        <ng-container [ngTemplateOutlet]="libraryProgress" />
+      </div>
       @if (canRun()) {
         <div listingActions><ng-container [ngTemplateOutlet]="runActions" /></div>
       }
@@ -502,13 +509,11 @@
     </p>
   }
 } @else if (view() === 'collections') {
-  @if (refreshing()) {
-    <p class="notice library-behind" role="status">
-      A run has finished since this library was read - bringing the list up to date...
-    </p>
-  }
   <app-collections-view [preparing]="libraryPreparing()">
-    <div listingProgress><ng-container [ngTemplateOutlet]="libraryProgress" /></div>
+    <div listingProgress>
+      <ng-container [ngTemplateOutlet]="behindNote" />
+      <ng-container [ngTemplateOutlet]="libraryProgress" />
+    </div>
     @if (canRun()) {
       <!-- the buttons join the collections view's own row, so they wrap with its New collection -->
       <div listingActions class="joined-actions"><ng-container [ngTemplateOutlet]="runActions" /></div>
