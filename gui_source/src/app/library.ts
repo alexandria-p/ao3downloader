@@ -290,6 +290,8 @@ export class Library {
     this.loading.set(false);
     this.readProgress.set(null);
     this.readFailure.set(null);
+    // a failure belongs to the library it happened in: switching away leaves it behind
+    this.error.set('');
   }
 
   /**

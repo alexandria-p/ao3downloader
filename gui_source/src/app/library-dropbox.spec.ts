@@ -601,4 +601,24 @@ describe('Library, switching between a local folder and Dropbox', () => {
     expect(library.readFailure()).toBeNull();
     expect(library.data()?.works.map((w) => w.id)).toEqual(['111']);
   });
+
+  it('leaves a Dropbox read\'s failure behind on switching to this computer', async () => {
+    const dropbox = new FakeDropbox();
+    dropbox.listFiles = (async () => {
+      throw new DropboxError('Dropbox asked us to slow down.', 429);
+    }) as unknown as FakeDropbox['listFiles'];
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: DropboxSession, useValue: dropbox },
+        { provide: FolderStore, useValue: { supported: () => true, recall: async () => null } },
+      ],
+    });
+    const library = TestBed.inject(Library);
+    await library.showDropbox();
+    expect(library.error()).toContain('Could not read');
+
+    await library.showLocal();
+    expect(library.error()).toBe('');
+    expect(library.readFailure()).toBeNull();
+  });
 });

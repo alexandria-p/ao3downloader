@@ -283,8 +283,13 @@ export class App {
     // bar under them; only a Dropbox library not yet open has no heading to go under
     return this.mode() === 'dropbox' && !this.canRun() && !this.loading() && (view === 'bookmarks' || view === 'collections');
   });
-  /** the library's first read since it was opened: nothing to list yet, and no time to say */
-  protected readonly firstRead = computed(() => this.loading() && !this.data());
+  /**
+   * Nothing read yet - the library's first read is going, or failed: no time to say, and no
+   * 'nothing here' either, since nobody knows yet
+   */
+  protected readonly firstRead = computed(
+    () => (this.loading() || !!this.library.readFailure()) && !this.data(),
+  );
   /** when the list was last read - none yet means nothing to refresh, so no refresh icon */
   protected readonly listedAt = this.library.listedAt;
   /** a failed read of the library, offered again by hand */

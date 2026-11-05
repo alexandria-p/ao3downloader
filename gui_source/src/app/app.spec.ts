@@ -985,6 +985,19 @@ describe('App', () => {
     }
   });
 
+  it('lists no collections with no library open - the panel above says how to open one', async () => {
+    const library = TestBed.inject(Library);
+    vi.spyOn(library, 'showLocal').mockResolvedValue();
+    library.store.set(null);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    tab(element, 'Collections')!.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(element.querySelector('app-collections-view')).toBeNull();
+  });
+
   it('highlights the storage chosen, and only that one', async () => {
     const { element } = await render(1);
     const buttons = [...element.querySelectorAll('.storage button')];

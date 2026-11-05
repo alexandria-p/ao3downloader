@@ -370,6 +370,25 @@
 }
 
 
+<!-- above anything the tab shows, so it is in the same place on every tab -->
+@if (error()) {
+  <div class="error read-error" role="alert">
+    <p>{{ error() }}</p>
+    <!-- a failed read can be asked again, but only by hand, and only after a pause -->
+    @if (readFailure(); as failure) {
+      @if (failure.slowDown) {
+        <p class="slow-down">
+          Dropbox is asking for a breather. Give it a moment before trying again - asking again
+          straight away only makes it wait longer.
+        </p>
+      }
+      <button type="button" class="button try-again" [disabled]="retryCountdown() > 0" (click)="tryReadAgain()">
+        {{ retryCountdown() > 0 ? retryCountdown() + '...' : 'Try again' }}
+      </button>
+    }
+  </div>
+}
+
 @if (mode() === 'local') {
   @if (needsReconnect()) {
     <p class="reconnect">
@@ -408,23 +427,6 @@
   }
 }
 
-@if (error()) {
-  <div class="error read-error" role="alert">
-    <p>{{ error() }}</p>
-    <!-- a failed read can be asked again, but only by hand, and only after a pause -->
-    @if (readFailure(); as failure) {
-      @if (failure.slowDown) {
-        <p class="slow-down">
-          Dropbox is asking for a breather. Give it a moment before trying again - asking again
-          straight away only makes it wait longer.
-        </p>
-      }
-      <button type="button" class="button try-again" [disabled]="retryCountdown() > 0" (click)="tryReadAgain()">
-        {{ retryCountdown() > 0 ? retryCountdown() + '...' : 'Try again' }}
-      </button>
-    }
-  </div>
-}
 
 @if (setupReport()) {
   <p class="reconnect">
@@ -518,13 +520,14 @@
         <div listingActions><ng-container [ngTemplateOutlet]="runActions" /></div>
       }
     </app-work-list>
-  } @else if ((!isEmpty() || mode() === 'dropbox') && !loading()) {
+  } @else if ((!isEmpty() || mode() === 'dropbox') && !loading() && !readFailure()) {
     <p class="notice">
       No bookmarks indexed in this folder yet. Use <strong>Quick Scan</strong> above to
       fetch them - with nothing indexed yet it will read your whole listing.
     </p>
   }
-} @else if (view() === 'collections') {
+} @else if (view() === 'collections' && (canRun() || loading() || collections().length)) {
+  <!-- only with a library open, or being opened: with none, the panel above says how to open one -->
   <app-collections-view [preparing]="libraryPreparing()" [loading]="firstRead()">
     @if (listedAt()) {<span noteAction><ng-container [ngTemplateOutlet]="refreshIcon" /></span>}
     <div listingProgress>

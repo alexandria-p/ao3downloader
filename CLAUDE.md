@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1041 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1043 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2654,8 +2654,10 @@ line asking the reader to slow down. Pressing it clears the panel and reads agai
 brings it back. **No import check runs after a failed read** - against no index, every file
 looked unindexed and the Resolve issues window offered to 'repair' the whole library.
 
-**A switch of library starts from nothing being read** (`Library.notReading`, from `showLocal`
-and `showDropbox`): a read it replaces stops at its generation check without saying it is done,
+**A switch of library starts from nothing being read, and with no error** (`Library.notReading`,
+from `showLocal` and `showDropbox` - a Dropbox read's failure is not this computer's). The
+error panel sits above whatever the tab shows, so it is in one place on every tab, and the
+Collections listing shows only with a library open or opening. From the switch: a read it replaces stops at its generation check without saying it is done,
 so switching Dropbox -> this computer -> Dropbox -> this computer while Dropbox still read, to a
 folder with nothing to read yet, left *Reading files...* up for ever.
 
