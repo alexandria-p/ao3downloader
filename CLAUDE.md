@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1031 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1032 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2566,8 +2566,8 @@ not to break:
   for the import exclusion lists (`import-excluded.json`, `libraryPlace`), and *Saved to
   `settings.ini`* for the helper's file (a helper on this computer only; a hosted one's comes from
   its deployment and is not shown). Order: Default download formats first, Appearance (a
-  `details`, closed to begin with, Font above Palette), Prompts, AO3 time zone, exclusion
-  lists, Questions (hosted), settings.ini (local), and **Debug mode always last**. A prompt
+  `details`, closed to begin with, Font above Palette), Prompts (a `details` too), AO3 time zone,
+  exclusion lists, Questions (hosted; a `details` too), settings.ini (local), and **Debug mode always last**. A prompt
   with `listed: false` (the browser notice) is kept off the tab but still reset.
 - **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)
   writes an empty `import-excluded.json` - all three lists - and checks the library again, so

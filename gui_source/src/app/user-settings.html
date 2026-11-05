@@ -142,11 +142,12 @@
     </fieldset>
   </details>
 
-  <section class="group prompts">
-    <div class="group-head">
+  <!-- collapsible: a long list, seldom changed -->
+  <details class="group prompts">
+    <summary class="group-head">
       <h3>Prompts</h3>
       <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
-    </div>
+    </summary>
     <p class="hint">
       Every message that offers "don't ask again", whether you have seen it yet or not.
     </p>
@@ -171,7 +172,7 @@
         }
       </ul>
     }
-  </section>
+  </details>
 
   <section class="group ao3-zone">
     <div class="group-head">
@@ -211,11 +212,12 @@
   </section>
 
   @if (!local) {
-    <section class="group questions">
-      <div class="group-head">
+    <!-- collapsible: a long list, seldom changed -->
+    <details class="group questions">
+      <summary class="group-head">
         <h3>Questions a run may ask</h3>
         <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
-      </div>
+      </summary>
       <p class="hint">
         What a run takes when nobody answers a question in time. A background run starts with
         these as its answers, and you can still change them in the run's own window.
@@ -259,7 +261,7 @@
           </li>
         }
       </ul>
-    </section>
+    </details>
   }
 
   @if (local && ini(); as file) {

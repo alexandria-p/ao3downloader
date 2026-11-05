@@ -421,6 +421,10 @@ describe('UserSettings', () => {
     TestBed.inject(Jobs).config.set({ ...CONFIG, settings: { ...CONFIG.settings!,
       answerDefaults: { fichub: 'no' }, questionTimeoutMinutes: 20 } });
     await open();
+    // folded away like Prompts, saying where it is kept
+    const questions = element.querySelector<HTMLDetailsElement>('details.questions')!;
+    expect(questions.open).toBe(false);
+    expect(questions.querySelector('summary .saved-to')?.textContent?.trim()).toBe('Saved to this browser');
 
     const fichub = element.querySelector<HTMLSelectElement>('[data-question-setting="fichub"] select')!;
     expect(fichub.value).toBe('no');
@@ -490,6 +494,14 @@ describe('UserSettings', () => {
     const font = appearance.querySelector('.font-choice')!;
     const palettes = appearance.querySelector('.palettes')!;
     expect(font.compareDocumentPosition(palettes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('folds Prompts away too, with its pill still in its title row', async () => {
+    await open();
+    const prompts = element.querySelector<HTMLDetailsElement>('details.prompts')!;
+    expect(prompts.open).toBe(false);
+    expect(prompts.querySelector('summary h3')?.textContent).toBe('Prompts');
+    expect(prompts.querySelector('summary .saved-to')?.textContent?.trim()).toBe('Saved to this browser');
   });
 
   it('shows each setting\'s default beside it', async () => {
