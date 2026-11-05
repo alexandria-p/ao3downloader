@@ -57,7 +57,7 @@ h4 {
 .backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--backdrop);
 }
 
 .dialog {
@@ -263,9 +263,9 @@ input[type='text'] {
   z-index: 900;
   max-width: min(560px, calc(100vw - 32px));
   padding: 10px 16px;
-  border: 1px solid #4f7a58;
+  border: 1px solid var(--ok-border);
   border-radius: 5px;
-  background: #23362a;
+  background: var(--ok-bg);
   color: var(--text-strong);
   font-size: 0.88rem;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
@@ -273,8 +273,8 @@ input[type='text'] {
 }
 
 .toast.problem {
-  border-color: #8a4040;
-  background: #3a2020;
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
 }
 
 @media (max-width: 560px) {
@@ -298,6 +298,13 @@ input[type='text'] {
   margin: 0 0 14px;
   padding: 0;
   border: none;
+}
+
+.palette-group {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 0.85rem;
 }
 
 .palettes legend {
@@ -337,7 +344,7 @@ input[type='text'] {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--border-strong);
 }
 
 .palette-name {

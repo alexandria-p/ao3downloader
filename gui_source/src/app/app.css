@@ -117,17 +117,17 @@
   part of the ordinary set, and reads that way at a glance beside the buttons that are
 */
 .button.debug {
-  border-color: #8a4040;
-  background: #4a2020;
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
   color: var(--text-strong);
 }
 
 .button.debug:hover {
-  background: #5d2828;
+  background: var(--danger-bg-hover);
 }
 
 .remembered {
-  color: #7fb069;
+  color: var(--ok-text);
   font-size: 0.7em;
   vertical-align: middle;
 }
@@ -140,9 +140,9 @@
   justify-content: space-between;
   margin: 16px 0;
   padding: 10px 12px;
-  border: 1px solid #5a5230;
+  border: 1px solid var(--warn-border);
   border-radius: 3px;
-  background: #2b2820;
+  background: var(--warn-bg);
   font-size: 0.88rem;
 }
 
@@ -175,9 +175,9 @@
 .error {
   margin: 16px 0;
   padding: 10px 12px;
-  border: 1px solid #6b3a3a;
+  border: 1px solid var(--danger-border);
   border-radius: 3px;
-  background: #2e2020;
+  background: var(--danger-bg);
   color: var(--danger);
 }
 
@@ -206,14 +206,14 @@
 
 .read-progress .fill {
   height: 100%;
-  background: #5a8f6a;
+  background: var(--ok-fill);
   transition: width 0.3s ease;
 }
 
 /* no total to divide by - a listing, or a zip Dropbox builds as it sends - so show motion
    rather than a false number */
 .read-progress .fill.indeterminate {
-  background: linear-gradient(90deg, transparent, #5a8f6a, transparent);
+  background: linear-gradient(90deg, transparent, var(--ok-fill), transparent);
   background-size: 40% 100%;
   background-repeat: no-repeat;
   animation: read-sweep 1.4s ease-in-out infinite;
@@ -360,8 +360,8 @@
 
 /* the one thing an update banner says that is a problem - amber, as a copy to check is */
 .update-available.update-failed {
-  border-color: #9a7a3d;
-  background: #3a3222;
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
 }
 
 /* what this page is and where it comes from - on every tab, and kept in view at the bottom
@@ -447,9 +447,9 @@
   gap: 10px;
   margin: 0 0 16px;
   padding: 10px 12px;
-  border: 1px solid #8a6d3b;
+  border: 1px solid var(--warn-border);
   border-radius: 5px;
-  background: #33291a;
+  background: var(--warn-bg);
 }
 
 .import-issues-said {
@@ -476,13 +476,13 @@
 .debug-banner {
   margin: 0 0 12px;
   padding: 8px 12px;
-  border: 1px solid #a04646;
+  border: 1px solid var(--danger-border);
   border-radius: 5px;
-  background: #3a1e1e;
-  color: #f0c0c0;
+  background: var(--danger-bg);
+  color: var(--danger-text);
   font-size: 0.9rem;
 }
 
 .views .debug-tab-button {
-  color: #f08a8a;
+  color: var(--danger-text);
 }

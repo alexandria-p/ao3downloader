@@ -130,12 +130,12 @@
 }
 
 .examples .yes {
-  color: #7fb37f;
+  color: var(--ok-text);
   font-weight: 700;
 }
 
 .examples .no {
-  color: #d08b8b;
+  color: var(--danger-text);
   font-weight: 700;
 }
 

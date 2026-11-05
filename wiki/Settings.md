@@ -11,11 +11,14 @@ settings come from its deployment, so the tab does not offer them there.
 
 ## The User settings tab
 
-- **Appearance** - a **palette** (Charcoal, Fairy dust, Midnight, Forest or Ember - all dark)
-  and a **font**: Default, System, Book (serif), Rounded, Easy to read, Typewriter, or
-  **Another font...**, which takes the name of any font installed on your computer. A font
-  your computer does not have shows as the default. Both are saved to this browser, and Reset
-  to defaults puts them back.
+- **Appearance** - a **palette**, dark (Charcoal, Fairy dust, Midnight, Forest, Ember, Deep sea,
+  Mocha, Synthwave, Nightshade, Ink and gold, High contrast) or light (Strawberry milk, Paper,
+  Old book, Mint, Lavender, Sky, Peach), and a **font**: the ones on your computer, more than
+  twenty that come with the app (cute and rounded, handwritten, easy to read - OpenDyslexic
+  among them - clean, bookish and typewriter), or **Another font...**, which takes the name of
+  any font installed on your computer. The fonts that come with the app are downloaded from the
+  app itself, only when you pick one, and work offline. Both are saved to this browser, and
+  Reset to defaults puts them back.
 - **Prompts** - every message that offers "don't ask again", grouped by where it appears,
   each set to **Ask always** or **Do not ask again**, including ones you have not seen yet.
   That includes the first-visit notice about saving to Dropbox or this device (with its

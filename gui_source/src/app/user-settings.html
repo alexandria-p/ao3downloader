@@ -57,7 +57,9 @@
     <p class="hint">How this page looks. Saved to this browser.</p>
     <fieldset class="palettes">
       <legend>Palette</legend>
-      @for (palette of palettes; track palette.id) {
+      @for (group of paletteGroups; track group.mode) {
+      <p class="palette-group">{{ group.name }}</p>
+      @for (palette of group.palettes; track palette.id) {
         <label class="palette" [attr.data-palette]="palette.id" [class.chosen]="palette.id === appearance.palette()"
                [style.background]="palette.tokens.bg" [style.border-color]="palette.id === appearance.palette() ? palette.tokens['accent-line'] : palette.tokens['border']">
           <input type="radio" name="palette" [value]="palette.id" [checked]="palette.id === appearance.palette()"
@@ -71,13 +73,18 @@
           <span class="palette-name" [style.color]="palette.tokens['text-strong']">{{ palette.name }}</span>
         </label>
       }
+      }
     </fieldset>
     <div class="font-choice">
       <label class="field">
         <span>Font</span>
         <select name="font" aria-label="Font" (change)="setFont($any($event.target).value)">
-          @for (font of fonts; track font.id) {
-            <option [value]="font.id" [selected]="font.id === appearance.font()">{{ font.name }}</option>
+          @for (group of fontGroups; track group.name) {
+            <optgroup [label]="group.name">
+              @for (font of group.fonts; track font.id) {
+                <option [value]="font.id" [selected]="font.id === appearance.font()" [style.font-family]="font.stack || null">{{ font.name }}</option>
+              }
+            </optgroup>
           }
         </select>
       </label>

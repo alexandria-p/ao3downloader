@@ -11,7 +11,7 @@
 .backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--backdrop);
 }
 
 .dialog {
@@ -120,9 +120,9 @@ footer {
 
 .problem {
   padding: 10px 12px;
-  border: 1px solid #6b4a4a;
+  border: 1px solid var(--danger-border);
   border-radius: 3px;
-  background: #2f1e1e;
+  background: var(--danger-bg);
 }
 
 .button:disabled {

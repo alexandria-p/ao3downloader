@@ -18,7 +18,25 @@
   --accent-fill-hover: #3d6580;
   --accent-bg: #22303a;
   --accent-text: #9fc4dc;
+  /* the status colours, for a dark palette - `appearance.ts` swaps in STATUS_LIGHT for a
+     light one. failures red, copies to check amber, rescued and done green, notes violet */
   --danger: #d97b7b;
+  --danger-text: #d08b8b;
+  --danger-border: #6b3a3a;
+  --danger-bg: #2e2020;
+  --danger-bg-hover: #4c2f2f;
+  --warn-text: #e0c97a;
+  --warn-text-dim: #a8995c;
+  --warn-border: #8a6d2f;
+  --warn-bg: #2d2616;
+  --warn-bg-strong: #4a3f12;
+  --ok-text: #8fc58a;
+  --ok-border: #4f7a58;
+  --ok-bg: #1f2a21;
+  --ok-fill: #5a8f6a;
+  --note-text: #c9b8ea;
+  --note-border: #6b5a8a;
+  --backdrop: rgba(0, 0, 0, 0.6);
 
   --font-body: 'Segoe UI', Tahoma, Verdana, system-ui, sans-serif;
 }

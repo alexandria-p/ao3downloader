@@ -40,11 +40,11 @@
 }
 
 /* the outcome is the first thing worth seeing, so it colours the whole card's edge */
-.run-success { border-left-color: #7fb37f; }
-.run-stopped { border-left-color: #6b5330; }
+.run-success { border-left-color: var(--ok-text); }
+.run-stopped { border-left-color: var(--warn-border); }
 /* ended by the helper, not by anything going wrong - the colour of a stop */
-.run-abandoned { border-left-color: #6b5330; }
-.run-failed { border-left-color: #6b3a3a; }
+.run-abandoned { border-left-color: var(--warn-border); }
+.run-failed { border-left-color: var(--danger-border); }
 .run-running { border-left-color: var(--accent-line); }
 
 .run-head {
@@ -76,7 +76,7 @@
 
 .run-error {
   margin: 0 0 8px;
-  color: #d08b8b;
+  color: var(--danger-text);
 }
 
 .hint {
@@ -135,7 +135,7 @@
 }
 
 .ids.failed summary {
-  color: #d08b8b;
+  color: var(--danger-text);
 }
 
 /* work numbers wrap as a dense block - a long column of them would be unreadable */
@@ -208,9 +208,9 @@
 .force-stop-confirm {
   margin-top: 10px;
   padding: 10px 12px;
-  border: 1px solid #7a4444;
+  border: 1px solid var(--danger-border);
   border-radius: 3px;
-  background: #2a1d1d;
+  background: var(--danger-bg);
 }
 
 .force-stop-confirm p {
@@ -224,13 +224,13 @@
 }
 
 .button.danger {
-  border-color: #7a4444;
-  background: #3b2626;
-  color: #e6b3b3;
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-text);
 }
 
 .button.danger:hover:not(:disabled) {
-  background: #4c2f2f;
+  background: var(--danger-bg-hover);
 }
 
 /* a run whose indexing broke off: amber, as a copy to check is - something did not happen,
@@ -238,9 +238,9 @@
 .index-gaps {
   margin: 8px 0;
   padding: 8px 12px;
-  border: 1px solid #9a7a3d;
+  border: 1px solid var(--warn-border);
   border-radius: 4px;
-  background: #3a3222;
+  background: var(--warn-bg);
   font-size: 0.88rem;
 }
 
@@ -250,5 +250,5 @@
 }
 
 .run-partial .run-status {
-  color: #d9b56a;
+  color: var(--warn-text);
 }
