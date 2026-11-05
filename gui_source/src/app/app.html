@@ -366,7 +366,8 @@
                      [store]="library.store()"
                      [formats]="importFormats()" [busy]="!!activeRun()"
                      (askAgainChanged)="setImportOffered($event)"
-                     (closed)="importClosed($event)" (start)="importStart($event)" />
+                     (closed)="importClosed($event)" (start)="importStart($event)"
+                     (remindLater)="dismissImportReminder()" />
 }
 
 

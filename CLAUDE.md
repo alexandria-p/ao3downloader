@@ -2151,7 +2151,8 @@ window finishes after dating (`afterDating`). What not to break:
   run is in progress*; its × hides it until the library is opened again
   (`reminderDismissedFor`), and `ao3.importOfferOff` hides it for good. **The first page asks
   what to do** (`firstChoice`, *Repair now* ticked to begin with): *Repair now (recommended)*; *Not
-  now, remind me again next time I open my library* (*Remind me later*, closes); *No, do not ask
+  now, remind me again next time I open my library* (*Remind me later*, closes, and hides the
+  reminder until the library is opened again - `remindLater`); *No, do not ask
   me again for these files* (*Done*: `LibraryImports.excludeFiles` puts every file found on the
   **files** list); *No, never
   ask me again* (*Done*: `ao3.importOfferOff`). The window itself refuses to rename or start while `busy`. A run ending
@@ -2416,7 +2417,9 @@ reads; as History's *Reading past runs* and the run window's bar are), **under t
 whichever tab is showing**: `#libraryProgress` in `app.html` is projected into each tab as
 `[listingProgress]` - on Works and Collections under the title **and its buttons**, on the FAQ
 under *About downloading from AO3* - and goes above the content only where there is no title
-(`progressOnTop`: Works before a read, Dropbox's sign-in panel). Held buttons are dimmed
+(`progressOnTop`: Works before a read, Dropbox's sign-in panel). It is the page's full width
+on every tab (`width: 100cqw` against `.page-body`, a container) - the FAQ, Report a bug and User
+settings keep their text narrower, and it sat in that column. Held buttons are dimmed
 (`.button:disabled`).
 
 **Setting a library up is said in that same bar, step by step** (`LibrarySetup.caption`):

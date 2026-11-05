@@ -14,6 +14,15 @@
    bottom - its height is measured (--app-footer-height), since it wraps on a narrow window */
 .page-body {
   min-height: calc(100vh - 16px - 24px - var(--app-footer-height, 34px));
+  /* the library's loading panel measures itself against this, not the tab's own column */
+  container-type: inline-size;
+}
+
+/* the library's loading panel is the page's full width on every tab - the FAQ, Report a bug
+   and User settings keep their text to a narrower column, and it sat inside that */
+app-progress-bar {
+  width: 100cqw;
+  max-width: 100cqw;
 }
 
 /* region top bar */

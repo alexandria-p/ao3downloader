@@ -122,6 +122,8 @@ export class ImportDialog {
   readonly start = output<{ request: ImportRequest; dated: DatingResult | null }>();
   /** 'No, never ask me again' chosen: neither this window nor the reminder, from now on */
   readonly askAgainChanged = output<boolean>();
+  /** 'Not now, remind me again next time I open my library': the reminder goes too, until then */
+  readonly remindLater = output<void>();
 
   protected readonly step = signal<Step>('overview');
 
@@ -828,6 +830,7 @@ export class ImportDialog {
         this.closed.emit(null);
         return;
       case 'later':
+        this.remindLater.emit();
         this.closed.emit(null);
         return;
     }
