@@ -782,7 +782,7 @@ describe('History', () => {
       error: 'the page would not load',
     }] })]);
 
-    expect(element.querySelector('.run-status')?.textContent).toContain('Partly finished');
+    expect(element.querySelector('.run-status')?.textContent?.trim()).toBe('Partly Finished');
     const said = (element.querySelector('.index-gaps')?.textContent ?? '').replace(/\s+/g, ' ');
     expect(said).toContain('Indexing did not finish');
     expect(said).toContain('Your bookmarks stopped at page 13 of 80: the page would not load.');

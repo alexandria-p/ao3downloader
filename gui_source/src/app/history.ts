@@ -155,9 +155,8 @@ export class History {
       case 'success':
         return 'Finished';
       case 'partial':
-        return (run.indexFailures?.length ?? 0) > 0
-          ? 'Partly finished - some indexing failed'
-          : 'Partly finished - some fics or formats could not be downloaded';
+        // short, as a pill: what went wrong is listed on the card itself
+        return 'Partly Finished';
       case 'stopped':
         return 'Stopped';
       case 'failed':
