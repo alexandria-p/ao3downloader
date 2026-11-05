@@ -152,7 +152,9 @@ export class ImportDialog {
   protected readonly duplicateFiles = computed(() => this.duplicates().reduce((n, g) => n + g.files.length, 0));
 
   protected choiceOf(group: DuplicateGroup): DuplicateChoice {
-    return this.dupChoices()[group.key] ?? 'skip';
+    // keep most recent unless told otherwise - a set whose newest cannot be told is asked about
+    // on the removing page, so nothing is deleted on a guess
+    return this.dupChoices()[group.key] ?? 'recent';
   }
 
   protected setChoice(group: DuplicateGroup, choice: DuplicateChoice): void {
@@ -673,6 +675,23 @@ export class ImportDialog {
     this.undated().filter((f) => !this.skipped()[f.path] && isFileDate(this.dates()[f.path] ?? '')),
   );
   protected readonly bulkValid = computed(() => isFileDate(this.bulkDate()));
+  /**
+   * Rows neither given a date nor ticked Skip. Continue waits on them, so a file is never left
+   * undated by a date box someone missed: each has to be dated or skipped on purpose.
+   */
+  protected readonly needsAnswer = computed(() =>
+    this.undated().filter((f) => !this.skipped()[f.path] && !isFileDate(this.dates()[f.path] ?? '')),
+  );
+
+  protected needsAnswerFor(file: FoundFile): boolean {
+    return !this.isSkipped(file) && !isFileDate(this.dateOf(file));
+  }
+
+  /** ticks Skip on every row still without a date, leaving the dated ones as they are */
+  protected skipUndatedRows(): void {
+    const left = this.needsAnswer();
+    this.skipped.update((s) => ({ ...s, ...Object.fromEntries(left.map((f) => [f.path, true])) }));
+  }
 
   protected setPaged(paged: boolean): void {
     this.paged.set(paged);
@@ -818,6 +837,7 @@ export class ImportDialog {
 
   /** rename the files given a date, on a page of its own; none to rename goes straight on */
   protected async fromDates(): Promise<void> {
+    if (this.needsAnswer().length) return;
     const store = this.store();
     const chosen = this.toDate();
     const skipped = this.undated().filter((f) => this.skipped()[f.path]);

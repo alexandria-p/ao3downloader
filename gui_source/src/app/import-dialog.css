@@ -599,3 +599,30 @@ footer.with-bulk {
   margin: 8px 0;
 }
 
+
+/* a row with no date and no Skip tick: Continue waits on it */
+.dating tr.needs-answer td {
+  background: #3a3020;
+}
+
+.dating tr.needs-answer td:first-child {
+  box-shadow: inset 3px 0 0 #e2b45a;
+}
+
+.needs-answer-note {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid #8a6d2f;
+  border-radius: 4px;
+  background: #2d2616;
+  color: #f0d79c;
+}
+
+.needs-answer-note .button {
+  flex: none;
+  white-space: nowrap;
+}
