@@ -495,22 +495,6 @@
           </p>
         }
 
-        @if (picksOverwrite()) {
-          <label class="check">
-            <input
-              type="checkbox"
-              name="overwrite"
-              [checked]="overwrite()"
-              (change)="overwrite.set($any($event.target).checked)"
-            />
-            <span>Overwrite existing downloads, even if there has been no update</span>
-          </label>
-          <p class="hint">
-            Check this if you are concerned about file integrity issues and would like to
-            re-download each file again, in the formats you ask for.
-          </p>
-        }
-
         @if (picksCollectionWorks()) {
           <label class="check">
             <input
@@ -602,6 +586,23 @@
             This option will check: any works that were added by URL or id, any works that were
             imported, any works indexed from a collection, and any works that <i>aren't</i>
             bookmarked but <i>are</i> a part of a series you have indexed previously.
+          </p>
+        }
+
+        <!-- after series and non-bookmarks: the last choice on a full scan; a custom run's images follow it -->
+        @if (picksOverwrite()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="overwrite"
+              [checked]="overwrite()"
+              (change)="overwrite.set($any($event.target).checked)"
+            />
+            <span>Overwrite existing downloads, even if there has been no update</span>
+          </label>
+          <p class="hint">
+            Check this if you are concerned about file integrity issues and would like to
+            re-download each file again, in the formats you ask for.
           </p>
         }
 

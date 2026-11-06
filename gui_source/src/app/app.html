@@ -306,7 +306,8 @@
     <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('quick')">
       Quick Scan
     </button>
-    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('bookmarks')">
+    <!-- the two scans are the runs people should reach for, so both wear the accent -->
+    <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('bookmarks')">
       (Full scan) Reindex &amp; Update All
     </button>
 
