@@ -207,7 +207,7 @@ describe('Feedback', () => {
     });
     const link = element.querySelector('a[href="https://github.com/o/r/issues/12"]');
     expect(link?.textContent).toContain('issue #12');
-    expect(element.textContent).toContain('within a minute');
+    expect(element.textContent).toContain('It may take up to a minute to');
     expect(element.querySelector('a[href*="label%3Afeedback"]')).not.toBeNull();
   });
 

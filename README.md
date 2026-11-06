@@ -97,6 +97,10 @@ Again, this tool is only for personal use and I have been militant in ensuring t
 
 ![Importing files you already had](docs/screenshots/import.png)
 
+![Your collections, from AO3 and your own](docs/screenshots/collections.png)
+
+![Run history](docs/screenshots/history.png)
+
 ## More
 
 - [The wiki](https://github.com/alexandria-p/ficfairy/wiki): how to use each part of the app.
