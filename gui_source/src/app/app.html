@@ -410,8 +410,9 @@
   }
 
   <!-- the faq is worth reading before a folder is chosen, so it is not held behind one - nor
-       are the user settings, which belong to this browser and not to any folder -->
-  @if (isEmpty() && view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings') {
+       are the user settings, which belong to this browser and not to any folder, nor the DEBUG
+       tab, which is where dummy data is turned off with no folder open -->
+  @if (isEmpty() && view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && view() !== 'debug') {
     <section class="empty">
       <h2>Choose your downloads folder</h2>
       <p>

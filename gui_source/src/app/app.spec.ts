@@ -1073,6 +1073,22 @@ describe('App', () => {
     expect(element.textContent).not.toContain('Choose your downloads folder');
   });
 
+  it('never asks for a folder on the DEBUG tab, where dummy data is turned off with none open', async () => {
+    TestBed.inject(Jobs).config.set({ ...BUILT_IN_CONFIG, settings: { debugTools: true } } as ServerConfig);
+    TestBed.inject(DebugMode).set(true);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(TestBed.inject(Library).data()).toBeNull();
+
+    tab(element, 'DEBUG')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-debug-tab')).not.toBeNull();
+    expect(element.textContent).not.toContain('Choose your downloads folder');
+    TestBed.inject(DebugMode).set(false);
+  });
+
   it('says its version and links the repository on every tab', async () => {
     const { fixture, element } = await render(1);
     TestBed.inject(HelperConnection).settings.update((c) => ({ ...c, version: '1.8.2' }));

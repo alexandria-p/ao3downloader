@@ -1,5 +1,13 @@
+/* every tab's content starts 20px under the tabs, under a title of 1.15rem/600 */
+.debug-tab {
+  margin: 20px 0 40px;
+}
+
 .debug-tab h2 {
   margin: 0 0 6px;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-strong);
 }
 
 .hint {

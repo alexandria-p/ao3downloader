@@ -38,3 +38,6 @@ check that self-update now works
 
 look at, and decide how to style, topbar when using local storage
 
+
+
+Let people looking at the GitHub page 'continue as a guest in read-only mode': serve them dummy data, and let them run pretend scans that go through all their steps in under a minute.
