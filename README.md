@@ -1,13 +1,10 @@
-# FicFairy ଘ( ･ω･)_/ﾟ･:*:･｡☆
+# FicFairy ଘ( ･ω･)_/ﾟ･:*:･｡☆ [![Downloads](https://img.shields.io/github/downloads/alexandria-p/ficfairy/total)](https://github.com/alexandria-p/ficfairy/releases/latest)
 
 Keep your own copy of your AO3 bookmarks and collections on your computer or Dropbox.
-
-[![Downloads](https://img.shields.io/github/downloads/alexandria-p/ficfairy/total)](https://github.com/alexandria-p/ficfairy/releases/latest)
 
 **This app works best in Chrome web browser.**
 
 ![The works list](docs/screenshots/works.png)
-
 
 𓍊𓋼𓍊𖡼.𖤣𖥧𖡼.𖤣𖥧𓋼𓍊𓋼
 
@@ -66,9 +63,9 @@ Because this runs on your machine, it means you don't have to send that request 
 
 **Dropbox**: You can optionally download your fics to Dropbox, instead of a file location on your computer. Once you grant it access, the app creates a folder inside `dropbox/apps` that it saves everything to. This is the **only** location it has access to - it cannot read from, nor write to, any other locations in your Dropbox. All requests are sent directly from your computer to Dropbox servers, using the Dropbox API.
 
-Note: If lots of users opt-into the Dropbox integration (above 500), I will need to upgrade my app registration with Dropbox - I am happy to do this.
+Note: If lots of users opt-into the Dropbox integration (above 500), it may take up to 30 days for Dropbox to review and approve my application and upgrade the approved user-count.
 
-**Privacy**: FicFairy collects no personal information. Read the full [privacy policy](docs/privacy/FicFairy_Privacy-Policy.docx) (a Word document) for what the optional feedback form sends, and where.
+**Privacy**: FicFairy collects no personal information. Read the full [privacy policy](docs/privacy/FicFairy_Privacy-Policy.docx) for more details on how any optional Feedback is logged.
 
 ## AI Use and Disclosure
 
@@ -91,23 +88,21 @@ Again, this tool is only for personal use and I have been militant in ensuring t
 
 . ݁₊ ⊹ . ݁ ⟡ ݁ . ⊹ ₊ ݁.
 
+### Make it yours
+
+Pick a colour palette and a font in **User settings**.
+
+![Strawberry milk, Charcoal with the Typewriter font, and Lavender with Gaegu](docs/screenshots/customisation.png)
+
 ## Screenshots
 
 ![Starting a Quick Scan](docs/screenshots/quick-scan.png)
 
-![Importing files you already had](docs/screenshots/import.png)
-
-![Your collections, from AO3 and your own](docs/screenshots/collections.png)
-
 ![Run history](docs/screenshots/history.png)
 
-### Make it yours
+![Your AO3 collections](docs/screenshots/collections.png)
 
-Pick a colour palette and a font in **User settings**, and it fits a narrow window too.
-
-![Strawberry milk, Charcoal with the Typewriter font, and Lavender with Gaegu](docs/screenshots/customisation.png)
-
-<img src="docs/screenshots/custom-narrow.png" alt="FicFairy in a narrow window" width="220">
+![Importing files you already have](docs/screenshots/import.png)
 
 ## More
 
