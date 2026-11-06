@@ -33,7 +33,7 @@ Each run asks its options, then which file types, then your login.
 
 - **File types** - JSON is the index and always on. HTML starts ticked. Untick everything else for a metadata-only run, about a twentieth of the requests.
 - **Get all works from encountered series** - also downloads the rest of each series.
-- **Check all non-bookmarks for updates too** - re-checks works you have indexed but not bookmarked: works added by URL or id, imported works, and works in a series you have indexed. Their series are read first; it is not limited by a date range.
+- **Check all non-bookmarks for updates too** - re-checks works you have indexed but not bookmarked: works added by URL or id, imported works, works indexed from a collection (with *Index and download encountered works*), and works in a series you have indexed. Their series are read first; it is not limited by a date range.
 - **Overwrite existing downloads** - full scan and custom run only. Fetches every format again, for when you suspect a damaged file. If a file you have is **newer** than the version it would be replaced with, the run asks first (no, keep it, if you don't answer). The fic runs, which always replace, ask the same.
 - **Save embedded images separately** - custom run only. Usually unnecessary: images are already inside the downloaded work.
 - **Index and download encountered works** - collection runs only. Off: just records which works the collection holds. On: indexes and downloads them too.

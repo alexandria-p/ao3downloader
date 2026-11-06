@@ -38,5 +38,3 @@ check that self-update now works
 
 look at, and decide how to style, topbar when using local storage
 
-
-Does 'check all non-bookmarks for updates too' also check any works that were added by a collection?
