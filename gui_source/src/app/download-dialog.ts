@@ -33,6 +33,7 @@ import {
 } from './jobs';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
+import { VisitLog } from './visit-log';
 import { LibraryFreshness } from './freshness';
 import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
@@ -154,6 +155,12 @@ const MAX_LOG = 200;
 export class DownloadDialog implements OnDestroy {
   private readonly jobs = inject(Jobs);
   private readonly library = inject(Library);
+  private readonly visit = inject(VisitLog);
+  /**
+   * What the window opened with - its file types and every option as it would send them - so
+   * the visit log can say which were left as they were and which were changed (`noteStart`).
+   */
+  private openedWith: { filetypes: string[]; options: Record<string, unknown> } | null = null;
   private readonly dropbox = inject(DropboxSession);
   private readonly helper = inject(HelperConnection);
   private readonly freshness = inject(LibraryFreshness);
@@ -1306,7 +1313,11 @@ export class DownloadDialog implements OnDestroy {
     // for whatever has not been chosen yet
     void this.helperAnswer.then((answer) => {
       if (!answer || known) return;
-      if (!this.filetypesTouched) this.selected.set(startingFiletypes(answer));
+      if (!this.filetypesTouched) {
+        this.selected.set(startingFiletypes(answer));
+        // the helper's own defaults are what the window opened with, for the visit log
+        if (this.openedWith) this.openedWith.filetypes = this.chosenFiletypes();
+      }
       // the up-front answers are chosen on the login step: until then they are the defaults
       if (this.step() !== 'credentials' && this.step() !== 'background') {
         this.startFromDefaults({ ...(answer.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
@@ -1329,6 +1340,38 @@ export class DownloadDialog implements OnDestroy {
     this.remember.set(remembered);
     // the saved username can come from the browser or from ao3downloader's own data.json
     this.username.set((remembered ? safeGet(USERNAME_KEY) : '') || config.username || '');
+    this.openedWith = this.settingsNow();
+  }
+
+  /** the file types and options as a start request would carry them now */
+  private settingsNow(): { filetypes: string[]; options: Record<string, unknown> } | null {
+    try {
+      const request = this.startRequest(null);
+      return { filetypes: [...request.filetypes], options: { ...(request.options as unknown as Record<string, unknown>) } };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Note in the visit log what this run was started with: every option and the file types,
+   * each said to be left as the window opened with it or changed from that. Never the login.
+   */
+  private noteStart(background: boolean): void {
+    const now = this.settingsNow();
+    const shown = (value: unknown) => (Array.isArray(value) ? value.join(', ') || '(none)' : JSON.stringify(value ?? null));
+    const lines = [`Run started: ${this.title()} (${this.sentAction()})${background ? ', in the background' : ''}`];
+    if (now) {
+      const first = this.openedWith;
+      const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+      const says = (value: unknown, was: unknown) =>
+        first === null ? '' : same(value, was) ? ' (left as the default)' : ` (changed from ${shown(was)})`;
+      lines.push(`  file types: ${shown(now.filetypes)}${says(now.filetypes, first?.filetypes)}`);
+      for (const [key, value] of Object.entries(now.options)) {
+        lines.push(`  ${key}: ${shown(value)}${says(value, first?.options[key])}`);
+      }
+    }
+    this.visit.note(lines.join('\n'));
   }
 
   ngOnDestroy(): void {
@@ -1789,6 +1832,7 @@ export class DownloadDialog implements OnDestroy {
       const background = this.background() && !this.backgroundBlocked();
       // an ordinary run sends nothing about the background at all - in particular never the
       // Dropbox sign-in, which only a background run has any use for
+      this.noteStart(background);
       jobId = await this.jobs.start(
         background
           ? {
@@ -1802,6 +1846,7 @@ export class DownloadDialog implements OnDestroy {
       );
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
+      this.visit.note(`Run did not start: ${this.error()}`);
       this.step.set('failed');
       // the page's idea of what is running is out of date, so it is asked again
       if (e instanceof RunInProgressError) void this.jobs.refreshActiveRuns();
@@ -2198,6 +2243,7 @@ export class DownloadDialog implements OnDestroy {
   }
 
   private finishUp(): void {
+    this.visit.note(`Run ended: ${this.step()}${this.error() ? ` - ${this.error()}` : ''}`);
     // the run's record now says how it ended, so History reads it again when next opened
     this.jobs.forgetHistory();
     this.paused.set(null);

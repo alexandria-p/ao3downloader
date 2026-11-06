@@ -17,6 +17,7 @@ import { saveText } from './issues';
 import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
 import { safeGet } from './storage';
 import { ao3TimeZone } from './preferences';
+import { VisitLog } from './visit-log';
 
 /**
  * The feedback tab on the right edge of every page, and the form it opens.
@@ -201,6 +202,7 @@ export class Feedback implements OnDestroy {
   private readonly library = inject(Library);
   private readonly jobs = inject(Jobs);
   private readonly turnstile = inject(Turnstile);
+  private readonly visit = inject(VisitLog);
 
   /** whether this copy can send feedback at all */
   protected readonly offered = computed(() => !!this.helper.settings().feedbackUrl);
@@ -211,6 +213,9 @@ export class Feedback implements OnDestroy {
   protected readonly message = signal('');
   protected readonly name = signal('');
   protected readonly attachLog = signal(false);
+  /** this visit's own log (`VisitLog`) - for a bug outside a run - attached on its own tick */
+  protected readonly attachVisit = signal(false);
+  protected readonly visitPreview = signal('');
   /** the log exactly as it would be sent, once read; '' while reading or when there is none */
   protected readonly logPreview = signal('');
   protected readonly logNote = signal('');
@@ -280,6 +285,17 @@ export class Feedback implements OnDestroy {
     if (this.open() && this.stage() !== 'sending') this.close();
   }
 
+  /** the names the page knows - each one comes out of any log before it is shown or sent */
+  private knownNames(extra = ''): string[] {
+    return [extra, this.jobs.config()?.username ?? '', safeGet(USERNAME_KEY)];
+  }
+
+  protected toggleVisit(on: boolean): void {
+    this.attachVisit.set(on);
+    // read as the box is ticked: what happened after that is the sending itself
+    this.visitPreview.set(on ? redactLog(this.visit.text(), this.knownNames(), [ao3TimeZone()]) : '');
+  }
+
   protected async toggleLog(on: boolean): Promise<void> {
     this.attachLog.set(on);
     this.logPreview.set('');
@@ -314,6 +330,7 @@ export class Feedback implements OnDestroy {
           message: this.message().trim(),
           name: this.name().trim(),
           log: this.attachLog() ? this.logPreview() : '',
+          visit: this.attachVisit() ? this.visitPreview() : '',
           version: this.helper.settings().version,
           copy: this.helper.isLocal() ? 'on their own computer' : 'the hosted page',
           storage: this.storageKind(),
@@ -372,6 +389,9 @@ export class Feedback implements OnDestroy {
     if (this.attachLog() && this.logPreview()) {
       lines.push('', '## Latest run log (AO3 username removed)', '', this.logPreview());
     }
+    if (this.attachVisit() && this.visitPreview()) {
+      lines.push('', '## What I did on this visit (AO3 username removed)', '', this.visitPreview());
+    }
     saveText(lines.join('\n') + '\n', `ao3downloader-feedback-${new Date().toISOString().slice(0, 10)}`);
   }
 
@@ -382,6 +402,8 @@ export class Feedback implements OnDestroy {
     this.name.set('');
     this.attachLog.set(false);
     this.logPreview.set('');
+    this.attachVisit.set(false);
+    this.visitPreview.set('');
     this.logNote.set('');
     this.problem.set('');
     this.sent.set(null);

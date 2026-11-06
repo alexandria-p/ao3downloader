@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { VisitLog } from './visit-log';
 import { Feedback, Turnstile, USERNAME_REMOVED, ZONE_REMOVED, PATH_REMOVED, failureReason, readLatestLog, redactLog } from './feedback';
 import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
 import { Library } from './library';
@@ -139,6 +140,21 @@ describe('Feedback', () => {
     });
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it('attaches what was done on this visit, with the username taken out, when ticked', async () => {
+    localStorage.setItem('ao3.username', 'ReaderName');
+    TestBed.inject(VisitLog).note('User settings: Saved: the Lavender palette, as ReaderName');
+    await make();
+    await openForm();
+    const box = element.querySelector<HTMLInputElement>('input[name="attachVisit"]')!;
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    await settle();
+    const preview = element.querySelector('details.visit pre')?.textContent ?? '';
+    expect(preview).toContain('Saved: the Lavender palette');
+    expect(preview).not.toContain('ReaderName');
+    localStorage.removeItem('ao3.username');
+  });
 
   it('says at the bottom of the form that an attached log loses the AO3 username', async () => {
     await make();

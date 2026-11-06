@@ -165,6 +165,22 @@ describe('the issue', () => {
     assert.equal(issue.title, `Feedback (positive): ${'a'.repeat(57)}...`);
   });
 
+  it('folds what they did on this visit away on its own, kept to its end and without passwords', () => {
+    const visit = 'x'.repeat(LIMITS.visit) + '\n[2026-11-06 04:00:00 UTC] Tab opened: history password=hunter2';
+    const form = readForm({ ...FORM, visit }).form;
+    // kept to its end: the start goes, the newest line stays (and is then scrubbed)
+    assert.ok(form.visit.length < visit.length);
+    assert.ok(form.visit.endsWith('password=[removed]'));
+    const issue = issueFor(form);
+    assert.match(issue.body, /<details><summary>What they did on this visit/);
+    assert.match(issue.body, /Tab opened: history password=\[removed\]/);
+    assert.doesNotMatch(issue.body, /hunter2/);
+  });
+
+  it('leaves the visit section out when nothing was attached', () => {
+    assert.doesNotMatch(issueFor(readForm(FORM).form).body, /this visit/);
+  });
+
   it('fences the log so backticks in it cannot break out of the block', () => {
     const issue = issueFor(readForm({ ...FORM, log: 'a ``` b ````' }).form);
     assert.match(issue.body, /\n`````\na ``` b ````\n`````\n/);

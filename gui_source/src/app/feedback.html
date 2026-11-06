@@ -79,6 +79,23 @@
               }
             }
 
+            <label class="check">
+              <input type="checkbox" name="attachVisit" [checked]="attachVisit()"
+                (change)="toggleVisit($any($event.target).checked)" />
+              Attach what I did on this visit <em>(optional)</em>
+            </label>
+            <p class="hint">
+              For a problem outside a run: the tabs you opened, library reads, windows, runs
+              started and the settings you changed (with what you chose) since this page was
+              opened. It is kept by this page alone and gone when you close or reload it.
+            </p>
+            @if (attachVisit()) {
+              <details class="log visit">
+                <summary>See exactly what will be sent</summary>
+                <pre>{{ visitPreview() }}</pre>
+              </details>
+            }
+
             <div class="check-widget" #check></div>
             @if (failed()) {
               <div class="problem failed" role="alert">

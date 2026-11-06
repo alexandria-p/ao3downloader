@@ -24,6 +24,7 @@ import { ImportDialog } from './import-dialog';
 import { DebugTab } from './debug-tab';
 import { DebugMode } from './debug';
 import { DummyData } from './dummy-data';
+import { VisitLog } from './visit-log';
 import { DatingResult, ImportRequest, LibraryImports, importIssueCounts, importIssueLines } from './imports';
 import { IMPORT_OFFER_KEY } from './preferences';
 import { safeGet, safeSet, safeRemove } from './storage';
@@ -120,6 +121,7 @@ export class App {
   protected readonly imports = inject(LibraryImports);
   /** this browser's debug mode: a banner at the top, and the DEBUG tab */
   protected readonly debugMode = inject(DebugMode);
+  private readonly visit = inject(VisitLog);
   protected readonly dummyData = inject(DummyData);
   /** the formats an import can fetch: the helper's, or what any helper offers until it answers */
   protected readonly importFormats = computed(
@@ -188,6 +190,7 @@ export class App {
     this.jobs.connecting = this.jobs.loadConfig();
     this.jobs.floorAhead = action === 'quick' ? this.jobs.loadNewestFloor(store) : null;
     void this.jobs.settleInterrupted(store);
+    this.visit.note(`Run window opened: ${action}`);
     this.dialogAction.set(action);
   }
 
@@ -221,6 +224,7 @@ export class App {
   /** from the Works tab's button: the import window, by hand */
   protected openImport(): void {
     if (this.activeRun() || this.dialogAction()) return;
+    this.visit.note('Resolve issues window opened, by hand');
     this.importOpen.set(true);
   }
 
@@ -429,6 +433,7 @@ export class App {
       untracked(() => {
         if (this.offeredFor.has(store)) return;
         this.offeredFor.add(store);
+        this.visit.note('Resolve issues window opened by itself - issues were found in the library');
         this.importOpen.set(true);
       });
     });
@@ -440,7 +445,9 @@ export class App {
     // page read that folder again
     effect(() => {
       // debug mode's dummy data turned on or off reads whichever library is chosen again
-      this.dummyData.active();
+      const dummy = this.dummyData.active();
+      const mode = this.mode();
+      untracked(() => this.visit.note(`Library: ${mode === 'dropbox' ? 'Dropbox' : 'this computer'}${dummy ? ' (dummy data)' : ''}`));
       if (this.mode() === 'dropbox') {
         this.dropboxStatus();
         untracked(() => void this.library.showDropbox());
@@ -448,6 +455,21 @@ export class App {
         // reopen the folder picked last time, if the browser still lets us read it
         untracked(() => void this.library.showLocal());
       }
+    });
+    // for the visit log: each library read, and how it ended
+    let wasLoading = false;
+    effect(() => {
+      const loading = this.library.loading();
+      const error = this.library.error();
+      untracked(() => {
+        if (loading && !wasLoading) this.visit.note('Library read started');
+        if (!loading && wasLoading) {
+          this.visit.note(error
+            ? `Library read failed: ${error}`
+            : `Library read finished: ${this.library.data()?.works.length ?? 0} works, ${this.library.collections().length} collections`);
+        }
+        wasLoading = loading;
+      });
     });
     // the buttons on offer depend on settings.ini, so it is read as the page opens
     // rather than when a dialog first needs it
@@ -529,6 +551,7 @@ export class App {
   }
 
   protected setView(view: View): void {
+    if (view !== this.view()) this.visit.note(`Tab opened: ${view}`);
     this.view.set(view);
     if (view === 'bookmarks' || view === 'collections') void this.freshness.check(true);
   }

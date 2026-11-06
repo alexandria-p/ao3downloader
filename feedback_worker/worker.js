@@ -24,7 +24,7 @@
  *   TURNSTILE_SECRET  the Turnstile widget's secret key                (secret)
  */
 
-export const LIMITS = { message: 5000, name: 100, log: 60000, version: 40, copy: 60, storage: 60, browser: 300 };
+export const LIMITS = { message: 5000, name: 100, log: 60000, visit: 30000, version: 40, copy: 60, storage: 60, browser: 300 };
 export const SENTIMENTS = ['positive', 'negative'];
 const SITEVERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const GITHUB_API = 'https://api.github.com';
@@ -80,12 +80,16 @@ export function readForm(raw) {
   // a log is kept to its end - whatever went wrong is at the end - and never refused for length
   let log = typeof raw.log === 'string' ? raw.log : '';
   if (log.length > LIMITS.log) log = log.slice(-LIMITS.log);
+  // what the person did on this visit, kept to its end for the same reason
+  let visit = typeof raw.visit === 'string' ? raw.visit : '';
+  if (visit.length > LIMITS.visit) visit = visit.slice(-LIMITS.visit);
   return {
     form: {
       sentiment,
       message,
       name,
       log: scrubPasswords(log),
+      visit: scrubPasswords(visit),
       version: text(raw.version).slice(0, LIMITS.version),
       copy: text(raw.copy).slice(0, LIMITS.copy),
       storage: text(raw.storage).slice(0, LIMITS.storage),
@@ -125,6 +129,19 @@ export function issueFor(form) {
       '',
       mark,
       form.log.replace(/\s+$/, ''),
+      mark,
+      '',
+      '</details>',
+    );
+  }
+  if (form.visit) {
+    const mark = fence(form.visit);
+    lines.push(
+      '',
+      '<details><summary>What they did on this visit (AO3 username removed)</summary>',
+      '',
+      mark,
+      form.visit.replace(/\s+$/, ''),
       mark,
       '',
       '</details>',
