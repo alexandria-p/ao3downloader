@@ -18,7 +18,7 @@ const PAGE = path.join(ROOT, 'gui_source', 'dist', 'ao3-bookmarks', 'browser');
 const OUT = process.argv[2] ? path.resolve(process.argv[2]) : __dirname;
 const PORT = 4200;
 const URL_ = `http://localhost:${PORT}/`;
-const LIBRARY_NAME = 'FicFairy library';
+const LIBRARY_NAME = 'library';
 // how every screenshot looks, but for the customisation strip, which shows three looks of its own
 const LOOK = { palette: 'strawberry-milk', font: 'lexend' };
 
