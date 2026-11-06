@@ -19,6 +19,8 @@ const OUT = process.argv[2] ? path.resolve(process.argv[2]) : __dirname;
 const PORT = 4200;
 const URL_ = `http://localhost:${PORT}/`;
 const LIBRARY_NAME = 'FicFairy library';
+// how every screenshot looks, but for the customisation strip, which shows three looks of its own
+const LOOK = { palette: 'strawberry-milk', font: 'lexend' };
 
 // region the library
 
@@ -214,7 +216,7 @@ async function open(browser, o = {}) {
     FileSystemHandle.prototype.requestPermission = grant;
     // the folder picker hands over the made-up library, so the top bar names it
     window.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle(name, { create: true });
-  }, [o.palette || '', o.font || '', !!o.windows, LIBRARY_NAME]);
+  }, ['palette' in o ? o.palette : LOOK.palette, 'font' in o ? o.font : LOOK.font, !!o.windows, LIBRARY_NAME]);
   // a stand-in helper: only what the page asks before a run starts, so nothing reaches AO3
   await page.route('http://127.0.0.1:4400/**', async (route) => {
     if (o.noHelper) return route.abort('connectionrefused');
@@ -288,7 +290,7 @@ async function stack(browser, files, name) {
 
     const looks = [];
     for (const [file, o] of [
-      ['custom-strawberry-milk.png', { palette: 'strawberry-milk' }],
+      ['custom-strawberry-milk.png', { palette: 'strawberry-milk', font: '' }],
       ['custom-charcoal-typewriter.png', { palette: 'charcoal', font: 'mono' }],
       ['custom-lavender-gaegu.png', { palette: 'lavender', font: 'gaegu' }],
     ]) {

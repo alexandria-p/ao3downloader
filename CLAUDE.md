@@ -2869,7 +2869,8 @@ Three rules worth keeping:
   made-up safe-for-work library - never a real account or username). **They are made by
   `docs/screenshots/make-screenshots.js`** (build the page, then `node docs/screenshots/make-screenshots.js`
   from the root), which holds the library they show - the works, collections and runs the user
-  chose. Change the data there, never in a one-off script, so every set shows the same library.
+  chose - in Strawberry milk and Lexend (`LOOK`), but for the customisation strip, which keeps its
+  three looks. Change the data there, never in a one-off script, so every set shows the same library.
   Keep it that short; detail
   goes in the wiki. The old full README is `helper_files/README_OBSOLETE.md`, kept for reference and still
   marker-checked. The bundle's own `build/README.md` (the `README` string in
