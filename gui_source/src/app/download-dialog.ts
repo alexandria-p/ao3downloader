@@ -1056,6 +1056,10 @@ export class DownloadDialog implements OnDestroy {
    * stayed open anyway. Not offered, rather than offered and refused: the choice is not shown.
    */
   protected readonly offersBackground = computed(() => !this.helper.isLocal());
+  /** whether this page's helper is on this computer - the app's own window, which a restart brings back */
+  protected readonly local = computed(() => this.helper.isLocal());
+  /** what starts FicFairy on this computer's system, for the helper-not-running advice; null when it cannot tell */
+  protected readonly startProgram = computed(() => startProgramFor(systemName()));
   /** ticked: the run carries on in the helper with this page closed */
   protected readonly background = signal(false);
   /** whether the run on screen is a background one - chosen here, or attached to */
@@ -2393,4 +2397,22 @@ function isDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? '')) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/** the name of the system this browser runs on, as far as the browser says */
+function systemName(): string {
+  const nav = typeof navigator === 'undefined' ? null : (navigator as Navigator & { userAgentData?: { platform?: string } });
+  return nav?.userAgentData?.platform || nav?.platform || nav?.userAgent || '';
+}
+
+/**
+ * What a person double-clicks (or runs) to start the app on their system - the same files the
+ * release zips hold. Null for a system no zip is built for, such as a phone.
+ */
+export function startProgramFor(system: string): { file: string; how: string } | null {
+  if (/android|iphone|ipad|ios/i.test(system)) return null;
+  if (/mac|darwin/i.test(system)) return { file: 'Start FicFairy.command', how: 'double-click' };
+  if (/win/i.test(system)) return { file: 'ficfairy.exe', how: 'double-click' };
+  if (/linux|x11/i.test(system)) return { file: 'Start FicFairy.sh', how: 'run' };
+  return null;
 }
