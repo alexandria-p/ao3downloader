@@ -48,4 +48,4 @@ Works tab heading: show the number of bookmarks in 'X - Y of Z Bookmarks', and u
 
 Improve the initial popup warning about the browser - it is too wordy.
 
-Downloaded app: let users change the default answers runs take when a question times out (UndatedFilesAnswer etc.) in a "Questions a run may ask" section of User settings, as the hosted copy has. Today they are only reachable as dropdowns among the settings.ini values in User settings, mixed in with every other setting.
+Downloaded app: let users change the default answers runs take when a question times out (UndatedFilesAnswer etc.) in a "Defaults used during a run" section of User settings, as the hosted copy has. Today they are only reachable as dropdowns among the settings.ini values in User settings, mixed in with every other setting.

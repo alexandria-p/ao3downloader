@@ -918,7 +918,7 @@ date. A misspelt value leaves the built-in. The question event carries `default`
 (`startFromDefaults`). `QuestionTimeoutMinutes` 0 takes the default without asking.
 
 **A hosted copy's are kept by the browser**, since its settings.ini cannot be edited from the
-page: User settings shows *Questions a run may ask* only when `!HelperConnection.isLocal()`
+page: User settings shows *Defaults used during a run* only when `!HelperConnection.isLocal()`
 (`QUESTION_DEFAULTS`, `ao3.answerDefaults`, `ao3.questionTimeoutMinutes`; only values that
 differ from the helper's are stored, and Reset drops them). The dialog sends them with every
 run (`questionSettings`: `answerDefaults`, `questionTimeoutMinutes`), never from a local page;

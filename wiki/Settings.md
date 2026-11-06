@@ -91,7 +91,7 @@ message at the bottom says so. Prompts and formats are kept in this browser only
 
 The default answers are also what a background run takes when it was not told. A stop always takes the answer that changes nothing. **Reset to defaults** puts all of these back to the values above.
 
-**On a hosted copy** the page can't edit settings.ini, so User settings has its own **Questions a run may ask** section instead: the minutes a question waits and each default answer, saved to this browser. They're sent with every run, and a background run's up-front answers start from them. Reset to defaults goes back to the hosted copy's own (the values above unless its deployment changed them).
+**On a hosted copy** the page can't edit settings.ini, so User settings has its own **Defaults used during a run** section instead: the minutes a question waits and each default answer, saved to this browser. They're sent with every run, and a background run's up-front answers start from them. Reset to defaults goes back to the hosted copy's own (the values above unless its deployment changed them).
 
 ## Your file is only ever added to
 
