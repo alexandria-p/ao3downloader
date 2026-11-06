@@ -1,5 +1,6 @@
 import { inAo3Zone, shownTime } from './preferences';
 import { Component, effect, inject, signal, untracked, output } from '@angular/core';
+import { WorkLink } from './work-link';
 import { DecimalPipe } from '@angular/common';
 import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
 import { describeGap, issueCount, issuesOf, issuesReport, saveText } from './issues';
@@ -18,7 +19,7 @@ import { HISTORY_LIMIT } from './library-store';
  */
 @Component({
   selector: 'app-history',
-  imports: [DecimalPipe, ProgressBar],
+  imports: [DecimalPipe, ProgressBar, WorkLink],
   templateUrl: './history.html',
   styleUrl: './history.css',
 })

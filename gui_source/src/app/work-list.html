@@ -321,7 +321,8 @@
       } @else if (work.placeholder) {
         <!-- listed by number only: nothing is indexed about it, so there is nothing to show -->
         <h4 class="heading">
-          <a class="title" [href]="work.link" target="_blank" rel="noopener">{{ work.title }}</a>
+          <!-- an external work's number is not a work's, so only a work opens a copy -->
+          <a class="title" [href]="work.link" [appWorkLink]="typeOf(work) === 'external work' ? null : work.id" target="_blank" rel="noopener">{{ work.title }}</a>
         </h4>
         <p class="not-indexed">
           @if (typeOf(work) === 'external work') {
@@ -697,7 +698,7 @@
         <li [class.current]="part.id === current">
           <span class="part">Part {{ at + 1 }}</span>
           @if (part.placeholder) {
-            <a class="title" [href]="part.link" target="_blank" rel="noopener">Work {{ part.id }}</a>
+            <a class="title" [href]="part.link" [appWorkLink]="part.id" target="_blank" rel="noopener">Work {{ part.id }}</a>
             <span class="part-meta">not in your index yet</span>
           } @else {
             <a

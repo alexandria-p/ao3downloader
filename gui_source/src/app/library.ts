@@ -394,6 +394,42 @@ export class Library {
    * The contents of a downloaded work, to open it - typed as the format it is, so a tab
    * shows it rather than offering to save it. Dropbox sends every file as octet-stream.
    */
+  /**
+   * Show a downloaded copy in a new tab.
+   *
+   * A copy in Dropbox has to be fetched first. The tab is opened straight away, while the
+   * click still counts as the user's - opened after the download it would be a popup, and
+   * blocked - and pointed at the file once it arrives. If it cannot be fetched, the tab goes
+   * to `fallback` (the work on AO3) rather than staying blank.
+   */
+  openCopy(copy: LocalCopy, format: OpenableFormat, fallback: string | null): void {
+    const tab = window.open('', '_blank');
+    void this.readCopy(copy, format).then(
+      (blob) => {
+        const url = URL.createObjectURL(blob);
+        if (tab) tab.location.href = url;
+        else window.open(url, '_blank');
+        // the tab keeps its own copy once loaded, so the handle can be released
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      },
+      () => {
+        if (tab && fallback) tab.location.href = fallback;
+        else tab?.close();
+      },
+    );
+  }
+
+  /**
+   * Open a work's downloaded html in a new tab, if this library holds one, and say whether it
+   * did - so a link to the work on AO3 opens your own copy first, wherever it is shown.
+   */
+  openWorkCopy(id: string | null | undefined, fallback: string | null): boolean {
+    const copy = id ? this.htmlFiles().get(id) : undefined;
+    if (!copy) return false;
+    this.openCopy(copy, 'html', fallback);
+    return true;
+  }
+
   async readCopy(copy: LocalCopy, format: OpenableFormat = 'html'): Promise<Blob> {
     const type = SHOWN_AS[format];
     if (copy instanceof Blob) return copy.type === type ? copy : new Blob([copy], { type });

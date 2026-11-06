@@ -1612,7 +1612,7 @@
             @if (askedIds().length) {
               <p class="hint">
                 @for (id of askedIds().slice(0, 10); track id; let last = $last) {
-                  <a [href]="'https://archiveofourown.org/works/' + id" target="_blank" rel="noopener">{{ id }}</a>@if (!last) {, }
+                  <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>@if (!last) {, }
                 }
                 @if (askedIds().length > 10) { and {{ askedIds().length - 10 | number }} more }
               </p>
@@ -1642,7 +1642,7 @@
             <p class="question-text">
               FicHub's copy of work
               @for (id of askedIds(); track id) {
-                <a [href]="'https://archiveofourown.org/works/' + id" target="_blank" rel="noopener">{{ id }}</a>
+                <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
               }
               is <strong>older</strong> than your index says the work is
               (FicHub: {{ askedDate() }}, your index: {{ askedIndexed() }}). You have no
@@ -1674,7 +1674,7 @@
               This run replaces what you have, but your
               <strong>{{ askedFormats().join(', ') }}</strong> of work
               @for (id of askedIds(); track id) {
-                <a [href]="'https://archiveofourown.org/works/' + id" target="_blank" rel="noopener">{{ id }}</a>
+                <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
               }
               is <strong>newer</strong> ({{ askedNewer() }}) than the version it would be replaced
               with ({{ askedDate() }}). Replace it with what could be an older, outdated version?
@@ -2017,7 +2017,7 @@
             <ul class="failed-list">
               @for (failure of failures().slice(0, 5); track failure.link) {
                 <li>
-                  <a [href]="failure.link" target="_blank" rel="noopener">{{ failure.id || failure.link }}</a>
+                  <a [href]="failure.link" [appWorkLink]="failure.id" target="_blank" rel="noopener">{{ failure.id || failure.link }}</a>
                   <span class="reason">{{ failure.error }}</span>
                 </li>
               }
@@ -2045,7 +2045,7 @@
             <ul class="failed-list">
               @for (item of keptCopies().slice(0, 5); track $index) {
                 <li>
-                  <a [href]="item.link" target="_blank" rel="noopener">{{ item.id || item.link }}</a>
+                  <a [href]="item.link" [appWorkLink]="item.id" target="_blank" rel="noopener">{{ item.id || item.link }}</a>
                   <span class="reason">{{ item.file }} - {{ item.error }}</span>
                 </li>
               }
@@ -2072,7 +2072,7 @@
             <ul class="failed-list">
               @for (item of notRemoved().slice(0, 5); track $index) {
                 <li>
-                  <a [href]="item.link" target="_blank" rel="noopener">{{ item.id }}</a>
+                  <a [href]="item.link" [appWorkLink]="item.id" target="_blank" rel="noopener">{{ item.id }}</a>
                   <span class="reason">{{ item.file }} - {{ item.error }}</span>
                 </li>
               }

@@ -1,5 +1,6 @@
 import { HIDE_WARNING_KEY } from './preferences';
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
+import { WorkLink } from './work-link';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, hiddenKey, viewableInBrowser } from './library';
 import { safeGet, safeSet } from './storage';
@@ -62,7 +63,7 @@ export const DEFAULT_SORT: WorkSort = 'bookmarked-desc';
 @Component({
   selector: 'app-work-list',
   host: { '(document:click)': 'closeMenu()', '(document:keydown.escape)': 'closeMenu()' },
-  imports: [DecimalPipe, NgTemplateOutlet, CollectionEditor, TagFilter],
+  imports: [DecimalPipe, NgTemplateOutlet, CollectionEditor, TagFilter, WorkLink],
   styleUrl: './work-list.css',
   templateUrl: './work-list.html',
 })
@@ -776,7 +777,7 @@ export class WorkList {
 
     const copy = isWorkEntry(work) && work.id ? this.htmlFiles().get(work.id) : undefined;
     if (copy) {
-      this.openCopy(copy, 'html', work.link);
+      this.library.openCopy(copy, 'html', work.link);
       return;
     }
     if (work.link) window.open(work.link, '_blank', 'noopener');
@@ -804,7 +805,7 @@ export class WorkList {
     event.preventDefault();
     const copy = isWorkEntry(work) && work.id ? this.copies()[format].get(work.id) : undefined;
     if (!copy) return;
-    if (viewableInBrowser(format)) this.openCopy(copy, format, null);
+    if (viewableInBrowser(format)) this.library.openCopy(copy, format, null);
     else this.saveCopy(copy, format);
   }
 
@@ -820,31 +821,6 @@ export class WorkList {
       },
       () => {
         // the file has gone since the folder was read; the button stays, nothing is saved
-      },
-    );
-  }
-
-  /**
-   * Show a downloaded copy in a new tab.
-   *
-   * A copy in Dropbox has to be fetched first. The tab is opened straight away, while the
-   * click still counts as the user's - opened after the download it would be a popup, and
-   * blocked - and pointed at the file once it arrives. If it cannot be fetched, the tab goes
-   * to `fallback` (the work on AO3) rather than staying blank.
-   */
-  private openCopy(copy: LocalCopy, format: OpenableFormat, fallback: string | null): void {
-    const tab = window.open('', '_blank');
-    void this.library.readCopy(copy, format).then(
-      (blob) => {
-        const url = URL.createObjectURL(blob);
-        if (tab) tab.location.href = url;
-        else window.open(url, '_blank');
-        // the tab keeps its own copy once loaded, so the handle can be released
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      },
-      () => {
-        if (tab && fallback) tab.location.href = fallback;
-        else tab?.close();
       },
     );
   }

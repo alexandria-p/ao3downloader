@@ -276,7 +276,7 @@
                     <ul class="id-list">
                       @for (id of choice.works; track id) {
                         <li>
-                          <a [href]="workLink(id)" target="_blank" rel="noopener">{{ id }}</a>
+                          <a [href]="workLink(id)" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
                         </li>
                       }
                     </ul>
@@ -358,7 +358,7 @@
               <ul class="id-list">
                 @for (id of group.ids; track id) {
                   <li>
-                    <a [href]="workLink(id)" target="_blank" rel="noopener">{{ id }}</a>
+                    <a [href]="workLink(id)" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
                   </li>
                 }
               </ul>
@@ -392,7 +392,7 @@
             <ul class="reason-list">
               @for (item of removedOf(run); track $index) {
                 <li>
-                  <a [href]="workLink(item.id)" target="_blank" rel="noopener">{{ item.id }}</a>
+                  <a [href]="workLink(item.id)" [appWorkLink]="item.id" target="_blank" rel="noopener">{{ item.id }}</a>
                   <span class="reason">{{ item.file }} &middot; kept {{ item.keeping }}</span>
                 </li>
               }
@@ -409,7 +409,7 @@
             <ul class="reason-list">
               @for (item of notRemovedOf(run); track $index) {
                 <li>
-                  <a [href]="workLink(item.id)" target="_blank" rel="noopener">{{ item.id }}</a>
+                  <a [href]="workLink(item.id)" [appWorkLink]="item.id" target="_blank" rel="noopener">{{ item.id }}</a>
                   <span class="reason">
                     {{ item.file }} &middot; {{ item.error || 'the run ended before its cleanup step' }}
                   </span>
@@ -428,7 +428,7 @@
             <ul class="reason-list">
               @for (item of run.rescued; track $index) {
                 <li>
-                  <a [href]="item.link" target="_blank" rel="noopener">{{ item.id }}</a>
+                  <a [href]="item.link" [appWorkLink]="item.id" target="_blank" rel="noopener">{{ item.id }}</a>
                   <span class="reason">
                     {{ item.title }}@if (item.downloaded.length) { &middot; {{ item.downloaded.join(', ') }}}
                   </span>
@@ -447,7 +447,7 @@
             <ul class="reason-list">
               @for (item of run.keptCopies; track $index) {
                 <li>
-                  <a [href]="item.link" target="_blank" rel="noopener">{{ item.id || item.link }}</a>
+                  <a [href]="item.link" [appWorkLink]="item.id" target="_blank" rel="noopener">{{ item.id || item.link }}</a>
                   <span class="reason">
                     new: {{ item.file }}@if (item.old) { &middot; older copy still on disk: {{ item.old }}} &middot; {{ item.error }}
                   </span>
@@ -466,7 +466,7 @@
             <ul class="reason-list">
               @for (item of run.failures; track $index) {
                 <li>
-                  <a [href]="item.link" target="_blank" rel="noopener">
+                  <a [href]="item.link" [appWorkLink]="item.id" target="_blank" rel="noopener">
                     {{ item.id || item.link }}
                   </a>
                   <span class="reason">{{ item.error }}</span>
