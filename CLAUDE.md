@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2154 python passed; 1102 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2155 python passed; 1103 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2134,11 +2134,14 @@ holds that - and is skipped when nothing failed. What not to break:
   stats, plus whatever it had blank; it never sets `bookmarked`. The index is written only
   when the run writes JSON, **after** the downloads, as a reading carrying
   `retrieved_from: {site, downloaded}`.
-- **An older FicHub copy replaces nothing** (`older_on_fichub`, `older_fichub_formats`): when
-  FicHub's `date_updated` is before the index entry's, no file already on disk is touched -
-  any copy of a format counts, whatever its date - unless the run overwrites, which then asks
-  `OVERWRITE_OLDER_QUESTION` for those formats (default **no**); the index is never
-  rewritten (its reading is newer). A requested format with **no file at all** is asked
+- **A FicHub copy older than the index is judged against each file's own date**
+  (`older_on_fichub`, `older_fichub_formats`), never against the index's - at the user's
+  request, as AO3's is. When FicHub's `date_updated` is before the index entry's: a file whose
+  name is dated **before** FicHub's copy is replaced unasked (`AO3_INFO_FICHUB_NEWER_THAN_FILE`);
+  one dated the same is kept, or replaced on an overwriting run; one dated after it, or
+  undated, is kept - or, on an overwriting run, asked about with `OVERWRITE_OLDER_QUESTION`
+  (default **no**; `newer` empty for an undated file, which the page words as *no date in its
+  name*). Each file's verdict is printed. The index is never rewritten (its reading is newer). A requested format with **no file at all** is asked
   about per work, `FICHUB_OUTDATED_QUESTION` (`fichub-outdated`), the second question whose
   default is **yes** (an older version beats none; offered up front on a background run that
   downloads). Declined, or nothing missing, the work stays a failure with

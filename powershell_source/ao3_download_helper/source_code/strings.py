@@ -459,8 +459,13 @@ AO3_INFO_FICHUB_RESCUED = '{} works AO3 would not give us came from FicHub inste
 AO3_INFO_FICHUB_FAILED_TOO = '  not on FicHub either: {}'
 # FicHub's copy is a cache, and can be older than what the index already says of the work
 AO3_INFO_FICHUB_OUTDATED = ('  FicHub\'s copy of work {} was last updated {}, older than your '
-                            'index ({}) - nothing you already have will be replaced')
-AO3_INFO_FICHUB_OUTDATED_NOTHING = '  you already have every format asked for, so nothing is taken from FicHub'
+                            'index ({}) - each file you have is judged against it by the date in its own name')
+AO3_INFO_FICHUB_OUTDATED_NOTHING = '  nothing FicHub has is newer than what you have, so nothing is taken from FicHub'
+AO3_INFO_FICHUB_NEWER_THAN_FILE = '  {}: FicHub\'s copy ({}) is newer than yours ({}), though older than the index - replacing it'
+AO3_INFO_FICHUB_SAME_AS_FILE = '  {}: yours is the same version as FicHub\'s ({}) - keeping it'
+AO3_INFO_FICHUB_NOT_NEWER = '  {}: yours ({}) is newer than FicHub\'s copy - keeping it'
+AO3_INFO_FICHUB_FILE_UNDATED = '  {}: no date in your file\'s name, so it cannot be told which is newer - keeping it'
+NO_DATE_IN_NAME = 'no date in its name'
 AO3_INFO_FICHUB_OUTDATED_ASK = ('  no {} of work {} on disk - waiting for you to choose whether '
                                 'to take FicHub\'s older version...')
 AO3_INFO_FICHUB_OUTDATED_DECLINED = '  not taking FicHub\'s older version'

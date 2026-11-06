@@ -3989,45 +3989,75 @@ def older_fichub_formats(job, failure: dict, existing: dict, filetypes: list[str
                          behind: dict, overwrite: bool = False) -> bool:
     """FicHub's copy is older than the index: decide what, if anything, to take from it.
 
-    A format with **no file** is asked about (`FICHUB_OUTDATED_QUESTION`, default yes); the
-    answer goes in `behind['missing']`. A format **already on disk** is never replaced -
-    unless the run is one that overwrites, and then it is asked about too
-    (`OVERWRITE_OLDER_QUESTION`, default no, the same question an overwriting run asks of
-    ao3's own older versions); a yes goes in `behind['replace']`. Every question has the
-    usual 30-minute timeout. False means take nothing: the work stays a failure, saying why.
+    **Each file is judged against FicHub's date by the date in its own name** - never by the
+    index's, which says how current the entry is, not which version a file holds:
+
+    - **no file**: asked about (`FICHUB_OUTDATED_QUESTION`, default yes) - an older version
+      beats none; a yes goes in `behind['missing']`.
+    - **a file older than FicHub's copy**: replaced, unasked - FicHub's is newer than what you
+      have, even though it is behind AO3's (the outdated rule: incoming newer than the file).
+    - **a file the same date**: kept - unless the run overwrites, which replaces it.
+    - **a file newer than FicHub's copy, or with no date in its name**: never replaced unasked;
+      a run that overwrites asks (`OVERWRITE_OLDER_QUESTION`, default no) naming each file's
+      own date.
+
+    What to replace goes in `behind['replace']`. False means take nothing: the work stays a
+    failure, saying why. The index is never rewritten from it (its reading is newer).
     """
 
     work = str(failure['id'])
-    print(strings.AO3_INFO_FICHUB_OUTDATED.format(work, behind['fichub'], behind['indexed']))
+    fichub_date = behind['fichub']
+    print(strings.AO3_INFO_FICHUB_OUTDATED.format(work, fichub_date, behind['indexed']))
     have = existing.get(work) or {}
     missing = [x for x in filetypes if x.upper() not in have]
     present = [x for x in filetypes if x.upper() in have]
-    reason = strings.ERROR_FICHUB_OUTDATED.format(behind['fichub'], behind['indexed'])
+    reason = strings.ERROR_FICHUB_OUTDATED.format(fichub_date, behind['indexed'])
 
     if missing and job is not None:
         print(strings.AO3_INFO_FICHUB_OUTDATED_ASK.format(', '.join(missing), work))
         if ask_yes_no(job, FICHUB_OUTDATED_QUESTION, FICHUB_YES,
-                      {'ids': [work], 'formats': missing, 'date': behind['fichub'],
+                      {'ids': [work], 'formats': missing, 'date': fichub_date,
                        'indexed': behind['indexed']}, work, missing):
             behind['missing'] = missing
         else:
             print(strings.AO3_INFO_FICHUB_OUTDATED_DECLINED)
 
-    if present and overwrite and job is not None:
+    file_date = {x: (have[x.upper()].get('date') or '') for x in present}
+    replace: list[str] = []
+    asking: list[str] = []
+    for filetype in present:
+        date = file_date[filetype]
+        if date and date < fichub_date:
+            print(strings.AO3_INFO_FICHUB_NEWER_THAN_FILE.format(filetype, fichub_date, date))
+            replace.append(filetype)
+        elif date and date == fichub_date:
+            if overwrite: replace.append(filetype)
+            else: print(strings.AO3_INFO_FICHUB_SAME_AS_FILE.format(filetype, date))
+        elif overwrite and job is not None:
+            asking.append(filetype)
+        else:
+            print(strings.AO3_INFO_FICHUB_NOT_NEWER.format(filetype, date) if date
+                  else strings.AO3_INFO_FICHUB_FILE_UNDATED.format(filetype))
+
+    if asking:
+        dated = [file_date[x] for x in asking if file_date[x]]
         print(strings.AO3_INFO_OLDER_THAN_COPY.format(
-            work, behind['fichub'], ', '.join(present), behind['indexed']))
+            work, fichub_date, ', '.join(asking),
+            ', '.join(file_date[x] or strings.NO_DATE_IN_NAME for x in asking)))
         if ask_yes_no(job, OVERWRITE_OLDER_QUESTION, OVERWRITE_OLDER_NO,
-                      {'ids': [work], 'formats': present, 'date': behind['fichub'],
-                       'newer': behind['indexed']}, work, present):
-            behind['replace'] = present
-            for filetype in present:
+                      {'ids': [work], 'formats': asking, 'date': fichub_date,
+                       'newer': max(dated) if dated else '',
+                       'fileDates': {x: file_date[x] for x in asking}}, work, asking):
+            replace += asking
+            for filetype in asking:
                 print(strings.AO3_INFO_REPLACING_NEWER.format(filetype, work))
         else:
-            for filetype in present:
+            for filetype in asking:
                 print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
 
+    behind['replace'] = replace
     if behind['missing'] or behind['replace']: return True
-    if not missing and not (present and overwrite):
+    if not missing and not asking:
         print(strings.AO3_INFO_FICHUB_OUTDATED_NOTHING)
     failure['error'] = strings.ERROR_AO3_AND_FICHUB.format(failure.get('error') or '', reason)
     failure['fichub'] = reason

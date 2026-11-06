@@ -493,6 +493,13 @@
             Useful for downloading your fics in a new format, or to fill in any blanks in
             your downloaded files if your index is already up-to-date
           </p>
+          @if (!reindex()) {
+            <p class="hint warn skip-index-warning">
+              Your files are only checked against your last index, not against live AO3 data:
+              a fic AO3 has updated since it was last indexed will not be seen as needing an
+              update.
+            </p>
+          }
         }
 
         @if (picksCollectionWorks()) {
@@ -1695,8 +1702,14 @@
               @for (id of askedIds(); track id) {
                 <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
               }
-              is <strong>newer</strong> ({{ askedNewer() }}) than the version it would be replaced
-              with ({{ askedDate() }}). Replace it with what could be an older, outdated version?
+              @if (askedNewer()) {
+                is <strong>newer</strong> ({{ askedNewer() }}) than the version it would be replaced
+                with ({{ askedDate() }}). Replace it with what could be an older, outdated version?
+              } @else {
+                has <strong>no date in its name</strong>, so it cannot be told whether it is newer
+                than the version it would be replaced with ({{ askedDate() }}). Replace it with
+                what could be an older, outdated version?
+              }
             </p>
 
             <div class="question-actions">

@@ -282,27 +282,59 @@ def index_text(library) -> str:
 
 
 @pytest.mark.fichub
-def test_an_older_fichub_copy_never_replaces_a_file_you_have(library, monkeypatch, capsys):
+def test_an_older_fichub_copy_never_replaces_a_file_newer_than_it(library, monkeypatch, capsys):
     indexed_newer_than_fichub(library)
     a_copy(library, '75354806 Wolfbird - OpalApparition 2026-05-10.epub')
-    a_copy(library, '75354806 Wolfbird - OpalApparition 2026-01-01.html')
+    a_copy(library, '75354806 Wolfbird - OpalApparition 2026-04-27.html')
+    a_copy(library, '75354806 Wolfbird - OpalApparition.pdf')
     fetched = []
     monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
     monkeypatch.setattr(server.fichub, 'download',
                         lambda repo, answer, filetype: fetched.append(filetype) or b'old')
-    job, ao3, asked = a_run(library, ['JSON', 'EPUB', 'HTML'], ao3_failed())
+    job, ao3, asked = a_run(library, ['JSON', 'EPUB', 'HTML', 'PDF'], ao3_failed())
     before = index_text(library)
 
     server.rescue_with_fichub(job, library, ao3, MagicMock())
 
+    # newer than FicHub's copy, the same, and undated: all kept, judged by their own names
     assert fetched == []
     assert [q['name'] for q, _ in asked] == [server.FICHUB_QUESTION]
-    assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-01-01.html',
-                                   '75354806 Wolfbird - OpalApparition 2026-05-10.epub']
+    assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.html',
+                                   '75354806 Wolfbird - OpalApparition 2026-05-10.epub',
+                                   '75354806 Wolfbird - OpalApparition.pdf']
     assert index_text(library) == before
     assert 'older version' in ao3.failures[0]['error']
     out = capsys.readouterr().out
-    assert "FicHub's copy of work 75354806 was last updated 2026-04-27, older than your index (2026-05-10)" in out
+    assert ("FicHub's copy of work 75354806 was last updated 2026-04-27, older than your index "
+            "(2026-05-10) - each file you have is judged against it by the date in its own name") in out
+    assert "EPUB: yours (2026-05-10) is newer than FicHub's copy - keeping it" in out
+    assert "HTML: yours is the same version as FicHub's (2026-04-27) - keeping it" in out
+    assert "PDF: no date in your file's name, so it cannot be told which is newer - keeping it" in out
+
+
+@pytest.mark.fichub
+def test_an_older_fichub_copy_replaces_a_file_older_still_without_asking(library, monkeypatch, capsys):
+    # your file says 1 Jan; FicHub has 27 Apr; the index says AO3 moved on to 10 May. FicHub's
+    # copy is behind AO3's, but newer than what you have
+    indexed_newer_than_fichub(library)
+    a_copy(library, '75354806 Wolfbird - OpalApparition 2026-01-01.html')
+    fetched = []
+    monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
+    monkeypatch.setattr(server.fichub, 'download',
+                        lambda repo, answer, filetype: fetched.append(filetype) or b'newer than yours')
+    job, ao3, asked = a_run(library, ['JSON', 'HTML'], ao3_failed())
+    before = index_text(library)
+
+    server.rescue_with_fichub(job, library, ao3, MagicMock())
+
+    assert fetched == ['HTML']
+    assert [q['name'] for q, _ in asked] == [server.FICHUB_QUESTION]
+    # named with FicHub's own date; the older copy gone; the index still AO3's newer reading
+    assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.html']
+    assert index_text(library) == before
+    assert ao3.failures == [] and ao3.rescued[0]['downloaded'] == ['HTML']
+    assert ("HTML: FicHub's copy (2026-04-27) is newer than yours (2026-01-01), though older "
+            "than the index - replacing it") in capsys.readouterr().out
 
 
 @pytest.mark.fichub

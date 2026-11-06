@@ -961,3 +961,8 @@ fieldset.bare:disabled {
   border-radius: 3px;
   background: var(--warn-bg);
 }
+
+/* skipping the indexing judges every file against the index as it stands, not AO3 */
+.hint.skip-index-warning {
+  color: var(--warn-text);
+}

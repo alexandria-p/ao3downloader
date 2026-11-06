@@ -2963,6 +2963,18 @@ describe('DownloadDialog', () => {
     expect(checkbox('Skip indexing')).toBeUndefined();
   });
 
+  it('warns, once indexing is skipped, that files are judged against the last index', async () => {
+    await open('custom');
+    await advanceTo('options');
+    expect(element.querySelector('.skip-index-warning')).toBeNull();
+
+    checkbox('Skip indexing')!.click();
+    fixture.detectChanges();
+    expect(element.querySelector('.skip-index-warning')!.textContent).toContain(
+      'not against live AO3 data',
+    );
+  });
+
   it('asks a custom run its options before its file types', async () => {
     // one of its options decides a file type, so asking which types you want and then
     // changing one behind you would read as the dialog overruling you
