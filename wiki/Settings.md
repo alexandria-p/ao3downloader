@@ -38,6 +38,9 @@ settings come from its deployment, so the tab does not offer them there.
   **Mock Resolve issues** opens the Resolve issues window on made-up files - choose duplicates,
   index issues and/or dating issues, and how many - that live only in memory: nothing in your
   library is renamed, deleted or written, and no run starts. This browser only.
+  With debug mode on, **Use dummy data instead of my library** shows a made-up library - works,
+  collections and run history - one for *This computer* and a different one for *Dropbox*, so you
+  can tell which is in use. Nothing real is read or written, and runs are held while it is on.
 - **Exclusion lists for imports** - **Reset exclusion lists for imports** empties every list in
   the open library's `import-excluded.json` (files, index and dates), so everything Resolve
   issues found in your library passed over is offered again. Your files are not touched.

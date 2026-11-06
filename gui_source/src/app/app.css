@@ -706,3 +706,5 @@ app-progress-bar {
   margin-top: 10px;
   min-width: 7em;
 }
+
+.debug-banner .dummy-note { display: block; margin-top: 4px; }

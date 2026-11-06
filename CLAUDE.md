@@ -463,10 +463,17 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
 - **No email field, and the log loses the AO3 username before it is shown.** The issue is
   public. `redactLog` replaces every username the page knows, case-insensitively: the newest
   record's `username`, `Jobs.config().username`, and `ao3.username` in localStorage. It also
-  takes out `password=`-shaped text. The Worker's `scrubPasswords` does that again, as a
-  backstop; it cannot know the username. **See exactly what will be sent** shows the redacted
-  text, and the same text is what is sent. The form's foot says so (`.hint.privacy`): an attached
-  log has the AO3 username and password-shaped text stripped out; the message is sent as written.
+  takes out `password=`-shaped text, and as a backstop anything shaped like an IP address (v4,
+  or v6 with four or more groups - a time of day has three) or an email, the account name in a
+  home folder path, and the AO3 time zone (`ao3TimeZone()`, as `[your time zone]`; never UTC). A
+  run log names none of those on purpose - the library is reached by paths inside it - so these
+  only catch what should not be there. The Worker's `scrubPasswords` does the passwords again; it
+  cannot know the username. The IP address reaches the Worker only for Turnstile's check
+  (`remoteip`) and is never written into the issue. **See exactly what will be sent** shows the
+  redacted text, and the same text is what is sent. The form's foot says it will be posted
+  publicly, linking `https://github.com/alexandria-p/ficfairy/issues/` (`.hint.public`), and what
+  an attached log never includes (`.hint.privacy`) - and that the issue does name the browser,
+  the version and the library's kind; the message is sent as written.
 - **The deploy makes the labels** (`gh label create --force`): GitHub drops an unknown label
   rather than creating it. The Worker is deployed by the `feedback` job, which needs only
   `tests`, and skips with a notice until it is configured.
@@ -943,6 +950,21 @@ opens the real `ImportDialog` on them. **Nothing real is touched**: the files ar
 of making it and refreshes no listing; *never ask me again* is not bound; and starting hands the
 request back to the tab, which shows it and starts nothing. Only `POST /api/file-names` reaches
 the helper, which writes nothing. Keep any new write the window learns behind `sandbox()`.
+
+**Dummy data** (`dummy-data.ts`, `DummyData`, `ao3.dummyData`, a box under *Debug mode* in User
+settings, in force only while debug mode is on - `active`) shows a made-up library instead of the
+real one: works, collections and run history. **One per storage choice** (`dummyLibrary(kind)`):
+*This computer* a small tea-shop set from 9100001, *Dropbox* a larger space-station one from
+9200001, every title, fandom, tag and run naming which it is, and the debug banner says so too
+(`.dummy-note`). `Library.showLocal`/`showDropbox` hand over to `showDummy`, which reads a
+`MemoryStore` (`memory-store.ts`, kept per kind while on) through the same `ingestRecords` and
+`mapCopies` a real read uses - so History, hiding and custom collections work on it, in memory -
+and `leaveDummy` clears it before a real library is shown. Turning it on or off re-reads (the
+`App` effect tracks `active`). **Runs are held while it is on** (`runsHeld`, `runsTitle`,
+History's Retry): a run would reach AO3 for real and write into a library that does not exist.
+The folder and Dropbox sign-in controls are held too (`sourceLocked`); the storage switch and
+Refresh are not. `DebugMode` lives in `debug-mode.ts` so the library can use it without importing
+the mock, which imports the library.
 
 ### A login that lapses mid-run ends the run
 

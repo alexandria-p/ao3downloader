@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Feedback, Turnstile, USERNAME_REMOVED, failureReason, readLatestLog, redactLog } from './feedback';
+import { Feedback, Turnstile, USERNAME_REMOVED, ZONE_REMOVED, failureReason, readLatestLog, redactLog } from './feedback';
 import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
 import { Library } from './library';
 import { DirectoryHandle } from './folder-store';
@@ -147,6 +147,15 @@ describe('Feedback', () => {
     expect(note).toContain('AO3');
     expect(note).toContain('username');
     expect(note).toContain('stripped out');
+    expect(note).toContain('IP address');
+  });
+
+  it('says the feedback is posted publicly, and where', async () => {
+    await make();
+    await openForm();
+    const link = element.querySelector<HTMLAnchorElement>('.hint.public a');
+    expect(link?.href).toBe('https://github.com/alexandria-p/ficfairy/issues/');
+    expect(element.querySelector('.hint.public')?.textContent).toContain('posted publicly');
   });
 
   it('offers no tab on a copy built without the feedback service', async () => {
@@ -395,6 +404,28 @@ describe('redactLog', () => {
     expect(redactLog('password=hunter2 {"password": "x"}', [])).toBe(
       'password=[removed] {"password": [removed]}',
     );
+  });
+
+  it('takes out IP addresses, v4 and v6, and leaves times of day and versions alone', () => {
+    expect(redactLog('from 203.0.113.7 and 2001:db8:85a3:0:0:8a2e:370:7334 and fe80::1', [])).toBe(
+      'from [IP address removed] and [IP address removed] and [IP address removed]',
+    );
+    expect(redactLog('[2026-11-01 09:30:00 UTC] version 1.4.12', [])).toBe(
+      '[2026-11-01 09:30:00 UTC] version 1.4.12',
+    );
+  });
+
+  it('takes out email addresses and the name in a home folder path', () => {
+    expect(redactLog('mail me@example.com at C:\\Users\\Jo\\x and /home/jo/y and /Users/jo', [])).toBe(
+      'mail [email removed] at C:\\Users\\[name removed]\\x and /home/[name removed]/y and /Users/[name removed]',
+    );
+  });
+
+  it('takes out the AO3 time zone, but never UTC', () => {
+    expect(redactLog("AO3's dates are read as dates in Australia/Brisbane", [], ['Australia/Brisbane'])).toBe(
+      `AO3's dates are read as dates in ${ZONE_REMOVED}`,
+    );
+    expect(redactLog('read as dates in UTC', [], ['UTC'])).toBe('read as dates in UTC');
   });
 });
 

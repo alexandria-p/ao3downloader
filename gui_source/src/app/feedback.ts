@@ -16,6 +16,7 @@ import { Library } from './library';
 import { saveText } from './issues';
 import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
 import { safeGet } from './storage';
+import { ao3TimeZone } from './preferences';
 
 /**
  * The feedback tab on the right edge of every page, and the form it opens.
@@ -136,21 +137,45 @@ export async function readLatestLog(store: LibraryStore): Promise<LatestLog | nu
   }
 }
 
+/** what is said in place of a time zone named in an attached log */
+export const ZONE_REMOVED = '[your time zone]';
+
 /**
- * The log as it will be sent: every AO3 username named, in any case, replaced, and anything
- * that looks like a password taken out. No run prints a password - the Worker scrubs the same
- * pattern again - but this is what the person sees before sending, so it is done here too.
+ * The log as it will be sent, with everything that could say who or where someone is taken out:
+ *
+ * - every AO3 username named, in any case;
+ * - the AO3 time zone (`zones`), which names a region - not UTC, which names nobody;
+ * - anything shaped like an IP address (v4 or v6) or an email address;
+ * - the account name in a home folder path (`C:\Users\<name>`, `/home/<name>`, `/Users/<name>`);
+ * - anything that looks like a password.
+ *
+ * A run's log is made of work titles, links, file names and dates, and names none of those
+ * things on purpose - a library is reached by paths inside it, never by where it lives - so
+ * most of this is a backstop. It is done here because this is what the person sees before
+ * sending; the Worker scrubs passwords again.
  */
-export function redactLog(text: string, usernames: string[]): string {
+export function redactLog(text: string, usernames: string[], zones: string[] = []): string {
   let redacted = text;
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const names = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
     // longest first, so a name containing another is replaced whole
     .sort((a, b) => b.length - a.length);
   for (const name of names) {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    redacted = redacted.replace(new RegExp(escaped, 'gi'), USERNAME_REMOVED);
+    redacted = redacted.replace(new RegExp(escape(name), 'gi'), USERNAME_REMOVED);
   }
-  return redacted.replace(/(password["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1[removed]');
+  const named = [...new Set(zones.map((zone) => zone.trim()))].filter(
+    (zone) => zone && !/^(Etc\/)?(UTC|GMT|Universal|Zulu)$/i.test(zone),
+  );
+  for (const zone of named) {
+    redacted = redacted.replace(new RegExp(escape(zone), 'g'), ZONE_REMOVED);
+  }
+  return redacted
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[email removed]')
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP address removed]')
+    // v6: four or more groups (a time of day has three), or a :: shorthand between hex groups
+    .replace(/\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b|\b[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?\b/gi, '[IP address removed]')
+    .replace(/([A-Za-z]:\\(?:Users|Documents and Settings)\\|\/home\/|\/Users\/)[^\\/\s]+/g, '$1[name removed]')
+    .replace(/(password["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1[removed]');
 }
 
 type Stage = 'form' | 'sending' | 'sent';
@@ -259,7 +284,7 @@ export class Feedback implements OnDestroy {
     }
     const head = `# ${latest.actionName || 'a run'}, started ${latest.started || 'at an unknown time'}`;
     const names = [latest.username, this.jobs.config()?.username ?? '', safeGet(USERNAME_KEY)];
-    this.logPreview.set(redactLog([head, '', ...latest.lines].join('\n'), names));
+    this.logPreview.set(redactLog([head, '', ...latest.lines].join('\n'), names, [ao3TimeZone()]));
   }
 
   protected async send(event?: Event): Promise<void> {

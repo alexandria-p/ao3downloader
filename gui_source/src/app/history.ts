@@ -4,6 +4,7 @@ import { DecimalPipe } from '@angular/common';
 import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
 import { describeGap, issueCount, issuesOf, issuesReport, saveText } from './issues';
 import { Library } from './library';
+import { DummyData } from './dummy-data';
 import { ProgressBar } from './progress-bar';
 import { HISTORY_LIMIT } from './library-store';
 
@@ -24,6 +25,8 @@ import { HISTORY_LIMIT } from './library-store';
 export class History {
   private readonly jobs = inject(Jobs);
   private readonly library = inject(Library);
+  /** dummy data on screen: a retry would start a real run, so it is held as every run is */
+  protected readonly dummy = inject(DummyData).active;
 
   protected readonly runs = signal<RunHistory[]>([]);
   /** the most runs the tab reads and lists - older ones stay in runs/, just not shown */
