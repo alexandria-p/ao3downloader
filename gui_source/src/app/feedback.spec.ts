@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Feedback, Turnstile, USERNAME_REMOVED, ZONE_REMOVED, failureReason, readLatestLog, redactLog } from './feedback';
+import { Feedback, Turnstile, USERNAME_REMOVED, ZONE_REMOVED, PATH_REMOVED, failureReason, readLatestLog, redactLog } from './feedback';
 import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
 import { Library } from './library';
 import { DirectoryHandle } from './folder-store';
@@ -415,10 +415,25 @@ describe('redactLog', () => {
     );
   });
 
-  it('takes out email addresses and the name in a home folder path', () => {
-    expect(redactLog('mail me@example.com at C:\\Users\\Jo\\x and /home/jo/y and /Users/jo', [])).toBe(
-      'mail [email removed] at C:\\Users\\[name removed]\\x and /home/[name removed]/y and /Users/[name removed]',
-    );
+  it('takes out email addresses', () => {
+    expect(redactLog('mail me@example.com now', [])).toBe('mail [email removed] now');
+  });
+
+  it('takes out every file path whole, and leaves AO3 links and library names alone', () => {
+    const log = [
+      'could not save C:\\Users\\Jo Smith\\My Library\\works\\1 A.html: denied',
+      'wrote /home/jo/lib/works/2 B.pdf',
+      'copied \\\\nas\\share\\x.epub',
+      'opened file:///C:/x.html',
+      'see https://archiveofourown.org/works/123 and works/3 C - D 2026-10-01.html, page 3/80',
+    ].join('\n');
+    expect(redactLog(log, []).split('\n')).toEqual([
+      `could not save ${PATH_REMOVED}: denied`,
+      `wrote ${PATH_REMOVED}`,
+      `copied ${PATH_REMOVED}`,
+      `opened ${PATH_REMOVED}`,
+      'see https://archiveofourown.org/works/123 and works/3 C - D 2026-10-01.html, page 3/80',
+    ]);
   });
 
   it('takes out the AO3 time zone, but never UTC', () => {

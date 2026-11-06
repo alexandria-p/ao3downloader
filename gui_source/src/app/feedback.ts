@@ -137,6 +137,9 @@ export async function readLatestLog(store: LibraryStore): Promise<LatestLog | nu
   }
 }
 
+/** what is said in place of a file path in an attached log */
+export const PATH_REMOVED = '[file path removed]';
+
 /** what is said in place of a time zone named in an attached log */
 export const ZONE_REMOVED = '[your time zone]';
 
@@ -146,7 +149,8 @@ export const ZONE_REMOVED = '[your time zone]';
  * - every AO3 username named, in any case;
  * - the AO3 time zone (`zones`), which names a region - not UTC, which names nobody;
  * - anything shaped like an IP address (v4 or v6) or an email address;
- * - the account name in a home folder path (`C:\Users\<name>`, `/home/<name>`, `/Users/<name>`);
+ * - every file path on a computer, whole (`C:\...`, `\\server\share\...`, `/home/...`, `file://...`) -
+ *   a path names the folders someone keeps things in, and often their account name;
  * - anything that looks like a password.
  *
  * A run's log is made of work titles, links, file names and dates, and names none of those
@@ -174,7 +178,13 @@ export function redactLog(text: string, usernames: string[], zones: string[] = [
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP address removed]')
     // v6: four or more groups (a time of day has three), or a :: shorthand between hex groups
     .replace(/\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b|\b[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?\b/gi, '[IP address removed]')
-    .replace(/([A-Za-z]:\\(?:Users|Documents and Settings)\\|\/home\/|\/Users\/)[^\\/\s]+/g, '$1[name removed]')
+    .replace(/file:\/\/\S+/gi, PATH_REMOVED)
+    // a Windows or network path, spaces and all, up to a colon, quote or line end
+    .replace(/(?:\b[A-Za-z]:|\\\\[^\\\s]+)[\\/][^:*?"<>|\r\n]*/g, (path) => PATH_REMOVED + (path.match(/\s+$/)?.[0] ?? ''))
+    // an absolute path elsewhere: two or more parts, starting where a word could, and - as a
+    // name can hold spaces - running on to a colon, quote or line end, since taking too much
+    // is the safe side. A link's own path follows its host, never a space, so AO3 links stay
+    .replace(/(^|[\s"'(=\[])\/(?:[^\/\s"'<>|]+\/)+[^:*?"<>|\r\n]*/gm, (_, before: string) => `${before}${PATH_REMOVED}`)
     .replace(/(password["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1[removed]');
 }
 

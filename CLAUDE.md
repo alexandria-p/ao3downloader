@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1045 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1056 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -464,8 +464,11 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   public. `redactLog` replaces every username the page knows, case-insensitively: the newest
   record's `username`, `Jobs.config().username`, and `ao3.username` in localStorage. It also
   takes out `password=`-shaped text, and as a backstop anything shaped like an IP address (v4,
-  or v6 with four or more groups - a time of day has three) or an email, the account name in a
-  home folder path, and the AO3 time zone (`ao3TimeZone()`, as `[your time zone]`; never UTC). A
+  or v6 with four or more groups - a time of day has three) or an email, every file path on a
+  computer whole (`PATH_REMOVED`: a drive or network path, `file://`, or an absolute path of two or
+  more parts starting where a word could - so an AO3 link's path and a library-relative name like
+  `works/1 A.html` stay; a path is taken on to a colon, quote or line end, since a name can hold
+  spaces and taking too much is the safe side), and the AO3 time zone (`ao3TimeZone()`, as `[your time zone]`; never UTC). A
   run log names none of those on purpose - the library is reached by paths inside it - so these
   only catch what should not be there. The Worker's `scrubPasswords` does the passwords again; it
   cannot know the username. The IP address reaches the Worker only for Turnstile's check
