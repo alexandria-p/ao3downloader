@@ -3722,6 +3722,20 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
+  it('puts retrying last among what a custom run covers, and hides the options it takes over', async () => {
+    await open('custom');
+    await advanceTo('options');
+    const radios = Array.from(element.querySelectorAll<HTMLInputElement>('input[name="coverage"]'));
+    const last = radios[radios.length - 1].closest('label')?.textContent ?? '';
+    expect(last).toContain('Retry an earlier run');
+    const options = element.querySelector<HTMLFieldSetElement>('fieldset.bare')!;
+    expect(options.hidden).toBe(false);
+
+    checkbox('Retry an earlier run')!.click();
+    await fixture.whenStable();
+    expect(options.hidden).toBe(true);
+  });
+
   it('offers retrying an earlier run on a custom run only, with no experimental label',
     async () => {
       await open('custom');

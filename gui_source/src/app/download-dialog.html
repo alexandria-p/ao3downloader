@@ -298,14 +298,6 @@
               </label>
             }
 
-            @if (action() === 'custom') {
-              <label class="check">
-                <input type="radio" name="coverage" [checked]="coverage() === 'resume'"
-                       (change)="coverage.set('resume')" />
-                <span>Retry an earlier run</span>
-              </label>
-            }
-
             @if (picksDates()) {
               <label class="check">
                 <input type="radio" name="coverage" [checked]="coverage() === 'dates'"
@@ -318,6 +310,15 @@
                     Choose my own date range
                   }
                 </span>
+              </label>
+            }
+
+            <!-- last: it takes every other choice from the run it retries -->
+            @if (action() === 'custom') {
+              <label class="check">
+                <input type="radio" name="coverage" [checked]="coverage() === 'resume'"
+                       (change)="coverage.set('resume')" />
+                <span>Retry an earlier run</span>
               </label>
             }
           </fieldset>
@@ -439,8 +440,9 @@
           }
         }
 
-        <!-- a resumed run's settings are the earlier run's, so none of these is a choice -->
-        <fieldset class="bare" [disabled]="resuming()">
+        <!-- a resumed run's settings are the earlier run's, so none of these is a choice - and
+             a box that cannot be ticked is not shown at all -->
+        <fieldset class="bare" [disabled]="resuming()" [hidden]="resuming()">
 
         @if (picksPages()) {
           <label class="field">
