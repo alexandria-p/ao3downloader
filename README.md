@@ -105,16 +105,9 @@ Again, this tool is only for personal use and I have been militant in ensuring t
 
 Pick a colour palette and a font in **User settings**, and it fits a narrow window too.
 
-<table>
-  <tr>
-    <td><img src="docs/screenshots/custom-strawberry-milk.png" alt="Strawberry milk palette"><br>Strawberry milk</td>
-    <td><img src="docs/screenshots/custom-lavender-gaegu.png" alt="Lavender palette with the Gaegu font"><br>Lavender, with Gaegu</td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/custom-charcoal-typewriter.png" alt="Charcoal palette with the Typewriter font"><br>Charcoal, with Typewriter</td>
-    <td align="center"><img src="docs/screenshots/custom-narrow.png" alt="FicFairy in a narrow window" width="220"><br>A narrow window</td>
-  </tr>
-</table>
+![Strawberry milk, Charcoal with the Typewriter font, and Lavender with Gaegu](docs/screenshots/customisation.png)
+
+<img src="docs/screenshots/custom-narrow.png" alt="FicFairy in a narrow window" width="220">
 
 ## More
 
