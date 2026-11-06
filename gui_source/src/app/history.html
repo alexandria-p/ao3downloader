@@ -320,6 +320,19 @@
                   {{ choice.formats?.join(', ') }} on disk, and chose
                   <strong>{{ choice.choice === 'no' ? 'not to take it' : 'to take the older version' }}</strong>.
                 </p>
+              } @else if (choice.question === 'inferred-date') {
+                <p>
+                  The {{ choice.formats?.join(', ') }} of work {{ choice.works?.join(', ') }} on disk
+                  had a date in its name that could only be guessed at, and
+                  {{ choice.source || 'AO3' }} looked newer. Chose
+                  <strong>{{ choice.choice === 'yes' ? 'to replace it' : 'to keep it' }}</strong>.
+                </p>
+              } @else if (choice.question === 'fichub-undated') {
+                <p>
+                  The {{ choice.formats?.join(', ') }} of work {{ choice.works?.join(', ') }} on disk
+                  had no date in its name, so FicHub's copy could not be told newer or older, and chose
+                  <strong>{{ choice.choice === 'yes' ? "to replace it with FicHub's copy" : 'to keep it' }}</strong>.
+                </p>
               } @else if (choice.question === 'overwrite-older') {
                 <p>
                   The {{ choice.formats?.join(', ') }} of work {{ choice.works?.join(', ') }} on disk

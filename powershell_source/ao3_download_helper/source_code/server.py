@@ -163,8 +163,31 @@ UNINDEXED_COPY_NO = 'no'
 # only some of a work's copies recommended for replacing: replace just those
 UNINDEXED_COPY_RECOMMENDED = 'recommended'
 UNINDEXED_COPY_CHOICES = (UNINDEXED_COPY_RECOMMENDED, UNINDEXED_COPY_YES, UNINDEXED_COPY_NO)
+# Whether FicHub's copy replaces a file of yours with **no date in its name**. Nothing says
+# which version such a file holds, so - as before a download from AO3 - the run asks rather
+# than guessing; but unlike that question, per work, and the default is **no**: on a timeout,
+# a background run, a stop, or no answer, your file is kept. Not asked on a run that
+# overwrites (which replaces it, as it would from AO3, or asks `OVERWRITE_OLDER_QUESTION` when
+# FicHub's copy is older than the index), nor for a work the index had no entry for (that is
+# `UNINDEXED_COPY_QUESTION`). Never from settings.ini, never answered up front.
+FICHUB_UNDATED_QUESTION = 'fichub-undated'
+FICHUB_UNDATED_YES = 'yes'
+FICHUB_UNDATED_NO = 'no'
+FICHUB_UNDATED_CHOICES = (FICHUB_UNDATED_YES, FICHUB_UNDATED_NO)
+
+# Whether a file whose name carries a date **not in the app's own form** - one only inferred
+# from its name, the way *Infer date* reads it - is replaced by an incoming version that looks
+# newer than that date. From AO3 or FicHub alike. Replacing on a version check is only ever
+# automatic for a date in the app's own form; on an inferred date the run only *thinks* the
+# incoming version is newer, so it asks, per work, and the default is **no**. Never from
+# settings.ini, never answered up front, never reused from an earlier attempt.
+INFERRED_DATE_QUESTION = 'inferred-date'
+INFERRED_DATE_YES = 'yes'
+INFERRED_DATE_NO = 'no'
+INFERRED_DATE_CHOICES = (INFERRED_DATE_YES, INFERRED_DATE_NO)
+
 # questions asked about one work at a time: an earlier attempt's answer was about another work
-ASKED_PER_WORK = {UNINDEXED_COPY_QUESTION}
+ASKED_PER_WORK = {UNINDEXED_COPY_QUESTION, FICHUB_UNDATED_QUESTION, INFERRED_DATE_QUESTION}
 
 # how each question was answered, kept with the answer in the run's history (`how`)
 ANSWERED_BY_YOU = 'answered'
@@ -184,7 +207,9 @@ CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
                DUPLICATES_QUESTION: DUPLICATES_CHOICES, FICHUB_QUESTION: FICHUB_CHOICES,
                FICHUB_OUTDATED_QUESTION: FICHUB_OUTDATED_CHOICES,
                OVERWRITE_OLDER_QUESTION: OVERWRITE_OLDER_CHOICES,
-               UNINDEXED_COPY_QUESTION: UNINDEXED_COPY_CHOICES}
+               UNINDEXED_COPY_QUESTION: UNINDEXED_COPY_CHOICES,
+               FICHUB_UNDATED_QUESTION: FICHUB_UNDATED_CHOICES,
+               INFERRED_DATE_QUESTION: INFERRED_DATE_CHOICES}
 
 # which settings.ini key holds each question's default answer
 ANSWER_SETTING_FOR = {UNDATED_QUESTION: strings.INI_UNDATED_ANSWER,
@@ -3339,6 +3364,9 @@ def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: di
     """
 
     undated = shared.plan_downloads(records, existing, filetypes)['undated']
+    # a work whose undated files all have a date that can be read out of their names some
+    # other way is asked about on its own, per work, after planning (`ask_about_inferred_dates`)
+    undated = [x for x in undated if not all_dates_inferable(records, existing, filetypes, x)]
     if not undated: return False, 0
 
     # exactly the works the question is about, and no others. `existing` is the whole
@@ -3392,10 +3420,96 @@ def settle_undated(job: Job, fileops: FileOps, records: list[dict], existing: di
 
     if choice == UNDATED_REFRESH:
         print(strings.AO3_INFO_UNDATED_REFRESH.format(len(undated)))
-        return True, 0
+        # the works asked about, and only those (all undated works, when they cannot be named)
+        return set(works) or True, 0
 
     print(strings.AO3_INFO_UNDATED_SKIPPED.format(len(undated)))
     return False, 0
+
+
+def undated_copies(existing: dict, work: str, filetypes: list[str]) -> list[str]:
+    """The requested formats of a work whose file carries no date in the app's own form."""
+
+    have = existing.get(str(work)) or {}
+    return [x for x in filetypes if have.get(x.upper()) and not have[x.upper()].get('date')]
+
+
+def all_dates_inferable(records: list[dict], existing: dict, filetypes: list[str],
+                        link: str) -> bool:
+    """Whether every undated file of the work at `link` has a date that can be inferred."""
+
+    work = next((str(r.get('id')) for r in records if r.get('link') == link), '')
+    have = existing.get(work) or {}
+    formats = undated_copies(existing, work, filetypes)
+    return bool(formats) and all(
+        parse_text.infer_date_from_filename(have[x.upper()]['path']) for x in formats)
+
+
+def ask_about_inferred_dates(job: 'Job | None', records: list[dict], existing: dict, plan: dict,
+                             filetypes: list[str], source: str = strings.SOURCE_AO3,
+                             skip: set[str] = frozenset(), overwriting: bool | set[str] = False,
+                             incoming_date: str | None = None) -> set[str]:
+    """A file with no date in the app's own form, but one that can be **read some other way**
+    out of its name (`parse_text.infer_date_from_filename`, the *Infer date* rules) - judged by
+    that date, but never replaced on it unasked.
+
+    Where the incoming version is newer than the inferred date the run only *thinks* it is
+    newer, so it asks per work (`INFERRED_DATE_QUESTION`), saying so - **default no**. Where
+    it is not newer the file is kept, said as such. A work with no incoming date is left as
+    undated. Not on a run that overwrites (it replaces every copy, by the user's own choice),
+    nor for `skip` (works another question already asked about), nor for a format already
+    being replaced (the undated question's re-download). Answers the works it said anything
+    about. `incoming_date` stands in for the record's date (FicHub's copy older than the
+    index, whose record date is not what is incoming).
+    """
+
+    said: set[str] = set()
+    keep: dict[str, set[str]] = plan.setdefault('keep', {})
+    for record in records:
+        work = str(record.get('id') or '')
+        link = record.get('link') or ''
+        if not work or not link or work in skip: continue
+        if overwriting is True or (isinstance(overwriting, (set, frozenset)) and link in overwriting):
+            continue
+        have = existing.get(work) or {}
+        replacing = plan['superseded'].get(link) or {}
+        inferred = {x: parse_text.infer_date_from_filename(have[x.upper()]['path'])
+                    for x in undated_copies(existing, work, filetypes) if x not in replacing}
+        inferred = {x: d for x, d in inferred.items() if d}
+        incoming = parse_text.get_date_stamp(
+            incoming_date if incoming_date is not None else (record.get('date_updated') or ''))
+        if not inferred or not incoming: continue
+
+        said.add(work)
+        plan.setdefault('keptSaid', set()).add(link)
+        newer = [x for x in inferred if inferred[x] < incoming]
+        for filetype, date in inferred.items():
+            if filetype not in newer:
+                print(strings.AO3_INFO_INFERRED_NOT_NEWER.format(filetype, date, source, incoming))
+                keep.setdefault(link, set()).add(filetype.upper())
+
+        replace: list[str] = []
+        if newer and job is not None:
+            for filetype in newer:
+                print(strings.AO3_INFO_INFERRED_NEWER.format(filetype, inferred[filetype], source, incoming))
+            if ask_yes_no(job, INFERRED_DATE_QUESTION, INFERRED_DATE_NO,
+                          {'ids': [work], 'formats': newer, 'date': incoming, 'source': source,
+                           'fileDates': {x: inferred[x] for x in newer}}, work, newer,
+                          {'source': source}):
+                replace = newer
+        for filetype in newer:
+            if filetype in replace:
+                plan['superseded'].setdefault(link, {})[filetype] = have[filetype.upper()]['path']
+                print(strings.AO3_INFO_INFERRED_REPLACING.format(filetype))
+            else:
+                keep.setdefault(link, set()).add(filetype.upper())
+                print(strings.AO3_INFO_INFERRED_KEEPING.format(filetype))
+        if replace and link not in plan['stale']: plan['stale'].append(link)
+        # nothing left that cannot be judged: no longer an undated work
+        if link in plan.get('undated', []) and not [
+                x for x in undated_copies(existing, work, filetypes) if x not in inferred]:
+            plan['undated'].remove(link)
+    return said
 
 
 def settle_duplicates(job: Job, records: list[dict], existing: dict,
@@ -3923,8 +4037,14 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         if filetypes:
             plan = shared.plan_downloads([record], existing, filetypes, overwrite=overwrite)
             plan['overwrite'] = overwrite
-            ask_about_unindexed_copies(job, [record], existing, plan, filetypes, before,
-                                       strings.SOURCE_FICHUB, overwriting=run_overwrites)
+            asked = ask_about_unindexed_copies(job, [record], existing, plan, filetypes, before,
+                                               strings.SOURCE_FICHUB, overwriting=run_overwrites)
+            if not behind and (job is None or job.action != ACTION_IMPORT):
+                asked |= ask_about_inferred_dates(job, [record], existing, plan, filetypes,
+                                                  strings.SOURCE_FICHUB, skip=asked,
+                                                  overwriting=overwrite)
+            if not behind:
+                ask_about_undated_for_fichub(job, record, existing, plan, filetypes, asked)
             fetching = say_what_each_format_needs(record, existing, filetypes, plan)
             if behind and not fetching:
                 # an older copy, and every copy of yours kept: nothing came from FicHub
@@ -4025,6 +4145,7 @@ def older_fichub_formats(job, failure: dict, existing: dict, filetypes: list[str
     file_date = {x: (have[x.upper()].get('date') or '') for x in present}
     replace: list[str] = []
     asking: list[str] = []
+    undated: list[str] = []
     for filetype in present:
         date = file_date[filetype]
         if date and date < fichub_date:
@@ -4035,9 +4156,10 @@ def older_fichub_formats(job, failure: dict, existing: dict, filetypes: list[str
             else: print(strings.AO3_INFO_FICHUB_SAME_AS_FILE.format(filetype, date))
         elif overwrite and job is not None:
             asking.append(filetype)
+        elif date:
+            print(strings.AO3_INFO_FICHUB_NOT_NEWER.format(filetype, date))
         else:
-            print(strings.AO3_INFO_FICHUB_NOT_NEWER.format(filetype, date) if date
-                  else strings.AO3_INFO_FICHUB_FILE_UNDATED.format(filetype))
+            undated.append(filetype)
 
     if asking:
         dated = [file_date[x] for x in asking if file_date[x]]
@@ -4055,13 +4177,77 @@ def older_fichub_formats(job, failure: dict, existing: dict, filetypes: list[str
             for filetype in asking:
                 print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
 
+    # an undated file whose name has a date written some other way is judged by it, but
+    # replaced only if you say so (`ask_about_inferred_dates`); one with none at all is asked
+    # about as undated
+    paths = {x: have[x.upper()]['path'] for x in undated}
+    inferable = [x for x in undated if parse_text.infer_date_from_filename(paths[x])]
+    if inferable and job is not None:
+        plan = {'superseded': {}, 'stale': [], 'undated': []}
+        record = {'id': work, 'link': failure.get('link') or work}
+        ask_about_inferred_dates(job, [record], existing, plan, inferable,
+                                 strings.SOURCE_FICHUB, incoming_date=fichub_date)
+        replace += list((plan['superseded'].get(record['link']) or {}).keys())
+    replace += fichub_undated_formats(job, work, [x for x in undated if x not in inferable]
+                                      if job is not None else undated, fichub_date)
     behind['replace'] = replace
     if behind['missing'] or behind['replace']: return True
-    if not missing and not asking:
+    if not missing and not asking and not undated:
         print(strings.AO3_INFO_FICHUB_OUTDATED_NOTHING)
     failure['error'] = strings.ERROR_AO3_AND_FICHUB.format(failure.get('error') or '', reason)
     failure['fichub'] = reason
     return False
+
+
+def fichub_undated_formats(job, work: str, undated: list[str], fichub_date: str) -> list[str]:
+    """Of a work's files with **no date in their names**, the formats to replace with FicHub's
+    copy: asked per work (`FICHUB_UNDATED_QUESTION`), default **no**. Nothing says which
+    version an undated file holds, so it is never replaced unasked - nor kept unasked."""
+
+    if not undated: return []
+    for filetype in undated:
+        print(strings.AO3_INFO_FICHUB_FILE_UNDATED.format(filetype))
+    # an import's own window chose what to do with undated files before it started
+    if job is None or job.action == ACTION_IMPORT:
+        return []
+    print(strings.AO3_INFO_FICHUB_UNDATED_ASK.format(', '.join(undated), work))
+    if ask_yes_no(job, FICHUB_UNDATED_QUESTION, FICHUB_UNDATED_NO,
+                  {'ids': [work], 'formats': undated, 'date': fichub_date}, work, undated):
+        for filetype in undated:
+            print(strings.AO3_INFO_FICHUB_UNDATED_REPLACING.format(filetype))
+        return list(undated)
+    for filetype in undated:
+        print(strings.AO3_INFO_FICHUB_UNDATED_KEEPING.format(filetype))
+    return []
+
+
+def ask_about_undated_for_fichub(job, record: dict, existing: dict, plan: dict,
+                                 filetypes: list[str], skip: set[str]) -> None:
+    """FicHub's copy is as new as the index (or newer): a file of the work with no date in its
+    name is asked about before it is replaced, default no (`fichub_undated_formats`). Only on a
+    run that does not overwrite - one that does replaces it, as it would from AO3. `skip` is the
+    works the unindexed-copy question already asked about."""
+
+    work = str(record.get('id') or '')
+    link = record.get('link') or ''
+    if not work or not link or work in skip or plan.get('overwrite'): return
+    have = existing.get(work) or {}
+    undated = [x for x in undated_copies(existing, work, filetypes)
+               if x not in (plan['superseded'].get(link) or {})
+               and x.upper() not in (plan.get('keep') or {}).get(link, set())]
+    if not undated: return
+    fichub_date = parse_text.get_date_stamp(record.get('date_updated') or '')
+    replace = fichub_undated_formats(job, work, undated, fichub_date)
+    plan.setdefault('keptSaid', set()).add(link)
+    if replace:
+        replacing = plan['superseded'].setdefault(link, {})
+        for filetype in replace:
+            replacing[filetype] = have[filetype.upper()]['path']
+        if link not in plan['stale']: plan['stale'].append(link)
+    else:
+        keep = plan.setdefault('keep', {})
+        keep.setdefault(link, set()).update(x.upper() for x in undated)
+    if link in plan.get('undated', []): plan['undated'].remove(link)
 
 
 def ask_yes_no(job, name: str, default: str, details: dict, work: str,
@@ -4134,6 +4320,9 @@ def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
     plan['overwrite'] = bool(overwrite)
     asked = ask_about_unindexed_copies(job, records, existing, plan, downloadtypes, before,
                                        overwriting=overwrite)
+    if job.action != ACTION_IMPORT:
+        ask_about_inferred_dates(job, records, existing, plan, downloadtypes, skip=asked,
+                                 overwriting=overwrite)
     if overwrite: keep_newer_copies(job, records, existing, plan, downloadtypes, skip=asked)
 
     if plan['stale'] and overwrite:
@@ -4865,11 +5054,13 @@ def say_what_each_format_needs(record: dict, existing: dict, filetypes: list[str
             print(strings.AO3_INFO_FORMAT_MISSING.format(filetype))
             wanted.append(filetype)
         elif filetype in replacing:
+            wanted.append(filetype)
+            # a question about this work already said what becomes of each copy
+            if (record.get('link') or '') in plan.get('keptSaid', ()): continue
             # a run told to overwrite replaces copies that are perfectly current, so the
             # line has to say which reason it is or it reads as a version check gone wrong
             print(strings.AO3_INFO_FORMAT_REPLACING.format(filetype) if plan.get('overwrite')
                   else strings.AO3_INFO_FORMAT_OUTDATED.format(filetype))
-            wanted.append(filetype)
         elif copy['date'] is None:
             print(strings.AO3_INFO_FORMAT_UNDATED.format(filetype))
         else:
@@ -4951,6 +5142,9 @@ def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str]
         plan['overwrite'] = overwrite
         asked = ask_about_unindexed_copies(job, [fresh], existing, plan, filetypes,
                                            indexed_before(job), overwriting=overwrite)
+        if job is not None and job.action != ACTION_IMPORT:
+            ask_about_inferred_dates(job, [fresh], existing, plan, filetypes, skip=asked,
+                                     overwriting=overwrite)
         if overwrite and job is not None:
             keep_newer_copies(job, [fresh], existing, plan, filetypes, skip=asked)
         wanted = say_what_each_format_needs(fresh, existing, filetypes, plan)

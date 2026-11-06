@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2155 python passed; 1103 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2178 python passed; 1105 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1848,6 +1848,18 @@ Three things follow from it, and each is load-bearing somewhere else:
 - **A file with no date in its name cannot be judged at all** - there is nothing to compare.
   Those are `undated`, never `stale`, and the run stops and asks what to do about them
   rather than guessing.
+- **Only a date in the app's own form replaces a file unasked.** `get_date_from_filename`
+  takes only a space, then a real `YYYY-MM-DD`, ending the name. A date written any other way
+  is *inferred* (`infer_date_from_filename`, the *Infer date* rules) and the file is undated to
+  the version check - but judged by it in `ask_about_inferred_dates`, from AO3 or FicHub, after
+  planning (`plan_refresh`, `update_one_work`, `rescue_one`, and `older_fichub_formats`): an
+  incoming version newer than the inferred date is asked about per work,
+  `INFERRED_DATE_QUESTION` (`inferred-date`), saying the run only *thinks* it is newer -
+  **default no**, never from settings.ini or up front (`ASKED_PER_WORK`); one not newer is
+  kept, said. Not on an overwriting run, nor an import. `settle_undated` leaves out a work
+  whose undated files all have an inferred date, and its re-download answer now names the
+  works it was about (`refresh_undated` a set), so such a work is never re-downloaded on that
+  answer. `test_inferred_dates.py` holds it.
 - **The index has to be current before the comparison is worth anything.** An entry that has
   not been re-read cannot say ao3 has moved on. This is why the update pass re-reads a fic
   before judging it, and why the gap pass re-reads one before writing a file - a file named
@@ -2141,7 +2153,12 @@ holds that - and is skipped when nothing failed. What not to break:
   one dated the same is kept, or replaced on an overwriting run; one dated after it, or
   undated, is kept - or, on an overwriting run, asked about with `OVERWRITE_OLDER_QUESTION`
   (default **no**; `newer` empty for an undated file, which the page words as *no date in its
-  name*). Each file's verdict is printed. The index is never rewritten (its reading is newer). A requested format with **no file at all** is asked
+  name*). Each file's verdict is printed. The index is never rewritten (its reading is newer).
+  **An undated file is never replaced by FicHub unasked**, whether or not FicHub is behind
+  the index: `FICHUB_UNDATED_QUESTION` (`fichub-undated`, per work, default **no**;
+  `ask_about_undated_for_fichub`, `fichub_undated_formats`) - or the inferred-date question,
+  when a date can be read out of its name some other way. Not on an overwriting run (which
+  replaces it, or asks `overwrite-older` when FicHub is behind), nor an import. A requested format with **no file at all** is asked
   about per work, `FICHUB_OUTDATED_QUESTION` (`fichub-outdated`), the second question whose
   default is **yes** (an older version beats none; offered up front on a background run that
   downloads). Declined, or nothing missing, the work stays a failure with

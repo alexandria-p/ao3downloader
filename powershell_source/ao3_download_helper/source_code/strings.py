@@ -466,6 +466,17 @@ AO3_INFO_FICHUB_SAME_AS_FILE = '  {}: yours is the same version as FicHub\'s ({}
 AO3_INFO_FICHUB_NOT_NEWER = '  {}: yours ({}) is newer than FicHub\'s copy - keeping it'
 AO3_INFO_FICHUB_FILE_UNDATED = '  {}: no date in your file\'s name, so it cannot be told which is newer - keeping it'
 NO_DATE_IN_NAME = 'no date in its name'
+AO3_INFO_FICHUB_UNDATED_ASK = ('  asking whether FicHub\'s copy should replace your {} of work {}, '
+                               'which has no date in its name - kept if you don\'t answer')
+AO3_INFO_FICHUB_UNDATED_REPLACING = '  {}: replacing your undated file with FicHub\'s copy'
+AO3_INFO_FICHUB_UNDATED_KEEPING = '  {}: keeping your undated file'
+AO3_INFO_INFERRED_NEWER = ('  {}: your file\'s name looks dated {} - written differently from this '
+                           'app\'s dates, so only inferred. We think {}\'s copy ({}) is newer, but '
+                           'cannot be sure - asking, and keeping yours if you don\'t answer')
+AO3_INFO_INFERRED_NOT_NEWER = ('  {}: your file\'s name looks dated {}, so {}\'s copy ({}) does not '
+                               'look newer - keeping it')
+AO3_INFO_INFERRED_REPLACING = '  {}: replacing your file, as you said'
+AO3_INFO_INFERRED_KEEPING = '  {}: keeping your file'
 AO3_INFO_FICHUB_OUTDATED_ASK = ('  no {} of work {} on disk - waiting for you to choose whether '
                                 'to take FicHub\'s older version...')
 AO3_INFO_FICHUB_OUTDATED_DECLINED = '  not taking FicHub\'s older version'

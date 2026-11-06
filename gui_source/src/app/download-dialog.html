@@ -1688,8 +1688,74 @@
             </div>
 
             <p class="hint">
-              Files you already have are never replaced by an older copy, and the index is left
-              as it is. Left unanswered, the run takes the older version after 30 minutes.
+              A file you already have is only replaced where FicHub's copy is newer than the date
+              in its name, and the index is left as it is. Left unanswered, the run takes the
+              older version after 30 minutes.
+            </p>
+          </div>
+        }
+
+        @if (asking() && question() === 'inferred-date') {
+          <div class="question" data-question="inferred-date">
+            <p class="question-text">
+              We <strong>think</strong> {{ askedSource() || 'AO3' }} has a newer version
+              ({{ askedDate() }}) of work
+              @for (id of askedIds(); track id) {
+                <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
+              }
+              than your <strong>{{ askedFormats().join(', ') }}</strong>, but we can't be sure:
+              the date in your file's name isn't written the way this app writes dates, so we
+              had to guess it.
+            </p>
+            <ul class="question-files">
+              @for (format of askedFormats(); track format) {
+                <li>{{ format }}: looks dated {{ askedFileDates()[format] || 'unknown' }}</li>
+              }
+            </ul>
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="keepInferredFile()">
+                No, keep mine
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="replaceInferredFile()">
+                Yes, replace {{ askedFormats().length === 1 ? 'it' : 'them' }}
+              </button>
+            </div>
+
+            <p class="hint">
+              Left unanswered, the run keeps your file after 30 minutes.
+            </p>
+          </div>
+        }
+
+        @if (asking() && question() === 'fichub-undated') {
+          <div class="question" data-question="fichub-undated">
+            <p class="question-text">
+              Your <strong>{{ askedFormats().join(', ') }}</strong> of work
+              @for (id of askedIds(); track id) {
+                <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
+              }
+              {{ askedFormats().length === 1 ? 'has' : 'have' }} <strong>no date in
+              {{ askedFormats().length === 1 ? 'its name' : 'their names' }}</strong>, so there is
+              no telling whether FicHub's copy ({{ askedDate() }}) is newer. Replace
+              {{ askedFormats().length === 1 ? 'it' : 'them' }} with FicHub's copy?
+            </p>
+
+            <div class="question-actions">
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="keepUndatedFile()">
+                No, keep mine
+              </button>
+              <button type="button" class="button" [disabled]="answering()"
+                      (click)="replaceUndatedFile()">
+                Yes, replace {{ askedFormats().length === 1 ? 'it' : 'them' }}
+              </button>
+            </div>
+
+            <p class="hint">
+              Left unanswered, the run keeps your file after 30 minutes.
             </p>
           </div>
         }
@@ -1778,7 +1844,8 @@
         <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
         @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub' &&
              question() !== 'fichub-outdated' && question() !== 'overwrite-older' &&
-             question() !== 'unindexed-copy') {
+             question() !== 'unindexed-copy' && question() !== 'fichub-undated' &&
+             question() !== 'inferred-date') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">

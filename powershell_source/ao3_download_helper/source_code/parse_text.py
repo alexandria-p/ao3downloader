@@ -148,8 +148,15 @@ def get_date_from_filename(name: str) -> str | None:
     """
 
     base = os.path.splitext(str(name or '').split('/')[-1].split('\\')[-1])[0]
-    match = re.search(r'(\d{4}-\d{2}-\d{2})$', base.strip())
-    return match.group(1) if match else None
+    # only the app's own form: a space, then a real YYYY-MM-DD, ending the name. A date
+    # written any other way is only *inferred* (`infer_date_from_filename`), and nothing is
+    # ever replaced on an inferred date without asking
+    match = re.search(r'(?:^|\s)(\d{4})-(\d{2})-(\d{2})$', base.strip())
+    if not match: return None
+    try:
+        return datetime.date(*(int(x) for x in match.groups())).isoformat()
+    except ValueError:
+        return None
 
 
 _MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']

@@ -567,7 +567,7 @@ export interface StartRequest {
 /** the questions a run can stop to ask, by the name the helper gives them */
 export type QuestionName =
   'undated' | 'quick-floor' | 'duplicates' | 'fichub' | 'fichub-outdated' | 'overwrite-older' |
-  'unindexed-copy';
+  'unindexed-copy' | 'fichub-undated' | 'inferred-date';
 
 /** answers given before a background run starts, since nobody will be there to give them */
 export type BackgroundAnswers = Partial<Record<QuestionName, { choice: AnswerChoice; date?: string }>>;

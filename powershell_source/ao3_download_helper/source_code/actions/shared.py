@@ -544,7 +544,7 @@ def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
 
 
 def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
-                   filetypes: list[str], refresh_undated: bool = False,
+                   filetypes: list[str], refresh_undated: bool | set[str] = False,
                    overwrite: bool | set[str] = False) -> dict:
     """Work out which already-downloaded works this run should fetch again.
 
@@ -594,7 +594,11 @@ def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
                 replacing[filetype] = copy['path']
             elif copy['date'] is None:
                 is_undated = True
-                if refresh_undated: replacing[filetype] = copy['path']
+                # a set names the works the undated question was asked about: the rest
+                # were not part of the answer
+                if refresh_undated is True or (isinstance(refresh_undated, (set, frozenset))
+                                               and str(work) in refresh_undated):
+                    replacing[filetype] = copy['path']
             elif current and copy['date'] < current:
                 replacing[filetype] = copy['path']
 

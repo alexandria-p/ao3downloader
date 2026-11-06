@@ -966,3 +966,10 @@ fieldset.bare:disabled {
 .hint.skip-index-warning {
   color: var(--warn-text);
 }
+
+/* the date read out of each file's name, under the inferred-date question */
+.question-files {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text-dim);
+}

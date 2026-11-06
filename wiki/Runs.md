@@ -46,7 +46,9 @@ Each run asks its options, then which file types, then your login.
 Three dates are involved whenever a run decides whether to download a format:
 
 - **The incoming date** - when the source says the fic was last updated: AO3, as read during this run, or FicHub's copy.
-- **Your file's date** - the date at the end of the file's name (`12345 Title - Author 2026-11-04.epub`). This is the version the file holds. A file with no date in its name is *undated*.
+- **Your file's date** - the date at the end of the file's name, written the way this app writes it: a space, then `YYYY-MM-DD` (`12345 Title - Author 2026-11-04.epub`). This is the version the file holds. A file with no date in its name is *undated*.
+
+**A file is only ever replaced without asking when its date is written the app's way.** A date written any other way - `(4 Nov 2026)`, `2026.11.04`, in the middle of the name - can still be read out of the name the way *Infer date* reads one, but it is only a guess. If the incoming version looks newer than a guessed date, the run asks first, saying it only *thinks* the incoming version is newer (**no** if you don't answer); if it doesn't look newer, the file is kept.
 - **The index entry's date** - when AO3 (or FicHub) said the fic was last updated, the last time its entry was read. It says how current the entry's summary, tags and stats are. **It is never what a file is compared against** - each file is compared with the incoming date.
 
 Each format is judged on its own, so a work can have a current HTML and an outdated EPUB, and only the EPUB is fetched. A new file is named with the incoming date, and an older copy is deleted only once the new one is saved whole.
@@ -61,6 +63,8 @@ Each format is judged on its own, so a work can have a current HTML and an outda
 | Older than AO3's version | Replaced | Replaced |
 | Same date | Kept | Replaced |
 | Newer than AO3's version | Kept | Asks first (default: keep) |
+| A date written another way, older than AO3's version | Asks first (default: keep) | Replaced |
+| A date written another way, not older | Kept | Replaced |
 | No date in its name | Asks: date it, re-download, or skip (default: skip) | Replaced |
 
 **The index** is updated with a new reading whenever AO3's details have changed - whatever happens to the files.
@@ -69,7 +73,7 @@ Each format is judged on its own, so a work can have a current HTML and an outda
 
 FicHub is only asked at the end of a run, for works AO3 wouldn't give. What happens depends on how FicHub's copy compares with your **index**:
 
-**FicHub's copy is as new as your index, or newer** (or the work has no indexed date): it is treated as AO3's version would be, using the AO3 table above with FicHub's date - except that a file with no date in its name is kept rather than asked about (the undated question is only asked before downloading from AO3). If the run writes JSON, the index gets a new reading from FicHub, marked **From FicHub**.
+**FicHub's copy is as new as your index, or newer** (or the work has no indexed date): it is treated as AO3's version would be, using the AO3 table above with FicHub's date - except that for a file with no date in its name, the run asks whether to replace it with FicHub's copy, one work at a time (**no** if you don't answer), rather than offering to date or re-download it. If the run writes JSON, the index gets a new reading from FicHub, marked **From FicHub**.
 
 **FicHub's copy is older than your index** (AO3 had a newer version that FicHub never caught): each file is still compared with FicHub's date, by the date in its own name, and **the index is left alone** - its reading is newer.
 
@@ -79,7 +83,9 @@ FicHub is only asked at the end of a run, for works AO3 wouldn't give. What happ
 | Older than FicHub's copy | Replaced without asking | Replaced |
 | Same date | Kept | Replaced |
 | Newer than FicHub's copy | Kept | Asks first (default: keep) |
-| No date in its name | Kept | Asks first (default: keep) |
+| A date written another way, older than FicHub's copy | Asks first (default: keep) | Asks first (default: keep) |
+| A date written another way, not older | Kept | Asks first (default: keep) |
+| No date in its name | Asks first (default: keep) | Asks first (default: keep) |
 
 The log says which case applied to each file. A work FicHub can give nothing newer for stays on the run's failure list.
 
@@ -96,6 +102,8 @@ If the index had no entry for a work when the run began, but your library holds 
 - **Replace a copy of a work your index has no entry for?** - when a file in your library is for a work the index did not know when the run began, there is nothing to tell which version it holds. The run reads the date in each file's name (as *Infer date* does) and recommends replacing a copy only if the incoming version from AO3 or FicHub is newer - or the same, on a run that overwrites - saying why for each. You can replace only the recommended ones, all, or none. **None** if you don't answer.
 - **Replace a newer copy with an older version?** - on a run that replaces files, when the copy you have is newer than what would replace it (from AO3 or FicHub). **No** if you don't answer.
 - **Take FicHub's older version?** - when FicHub's copy is older than your index says the fic is, and you have no file at all in a format you asked for. Yes takes the older version of just that format.
+- **Replace a file whose date we had to guess?** - when a file's name has a date written differently from this app's, and the incoming version from AO3 or FicHub looks newer than it. The run only thinks it is newer, so it asks. **No** if you don't answer.
+- **Replace an undated file with FicHub's copy?** - when FicHub has a work and your file of it has no date in its name at all. **No** if you don't answer.
 
 Closing the page or stopping takes the answer that changes nothing - except for the two FicHub questions, where it is yes.
 

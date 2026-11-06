@@ -1596,9 +1596,58 @@ describe('DownloadDialog', () => {
     expect(said).toContain('older');
     expect(said).toContain('FicHub: 2026-04-27, your index: 2026-05-10');
     expect(said).toContain('HTML, PDF');
-    expect(said).toContain('never replaced');
+    expect(said).toContain('only replaced where FicHub');
     // its own panel, not the generic one as well
     expect(element.querySelectorAll('.question')).toHaveLength(1);
+  });
+
+  /** a file with no date in its name, and FicHub's copy to replace it with */
+  async function askedAboutUndatedFile(): Promise<void> {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'fichub-undated', count: 1, ids: ['75354806'],
+                 formats: ['EPUB'], date: '2026-04-27', choices: ['yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+  }
+
+  it('asks before replacing a file whose date was only inferred, saying it only thinks so', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'inferred-date', count: 1, ids: ['75354806'],
+                 formats: ['EPUB'], date: '2026-04-27', source: 'FicHub',
+                 fileDates: { EPUB: '2024-12-14' }, choices: ['yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+
+    const said = element.querySelector('[data-question="inferred-date"]')?.textContent ?? '';
+    expect(said).toContain('think');
+    expect(said).toContain('FicHub');
+    expect(said).toContain('EPUB: looks dated 2024-12-14');
+    expect(said).toContain('keeps your file');
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+
+    button('No, keep mine')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
+  });
+
+  it('asks before FicHub replaces a file with no date in its name, keeping it by default', async () => {
+    await askedAboutUndatedFile();
+
+    const said = element.querySelector('[data-question="fichub-undated"]')?.textContent ?? '';
+    expect(said).toContain('no date in');
+    expect(said).toContain('EPUB');
+    expect(said).toContain('2026-04-27');
+    expect(said).toContain('keeps your file');
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+
+    button('No, keep mine')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
+
+    await askedAboutUndatedFile();
+    button('Yes, replace it')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers.at(-1)).toEqual({ jobId: 'job-1', choice: 'yes', date: '' });
   });
 
   it('takes the older version, or leaves it, as told', async () => {
