@@ -8,6 +8,7 @@ import {
   isListedEntry,
   isNewerCopy,
   isWorkEntry,
+  ownerFromSource,
   workIdFromFilename,
 } from './bookmarks';
 import { Collection, flattenCollection, isCollectionRecord } from './collections';
@@ -926,7 +927,10 @@ export class Library {
     }
 
     this.data.set({
-      source: works.find((w) => w.source)?.source ?? '',
+      // the listing is someone's only when an entry came off their bookmarks: a fic run's entry
+      // has no source, and a series' or a collection's names no user - whichever was read first
+      // used to decide, so a collection work listed ahead of your bookmarks lost the 'by'
+      source: works.find((w) => ownerFromSource(w.source ?? ''))?.source ?? '',
       // the newest time any entry was indexed - so a run whose changes are taken into the list
       // as it ends moves it on. newer files record when they were last checked; older ones a
       // single retrieval

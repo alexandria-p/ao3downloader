@@ -276,6 +276,19 @@ describe('Library', () => {
     expect(library.htmlFiles().get('111')).toBeTruthy();
   });
 
+  it('takes the owner from an entry off their bookmarks, whatever was read first', async () => {
+    const entry = (id: string, source?: string) => new File(
+      [JSON.stringify({ ...record(id, 1), source, bookmarked: !source || source === SOURCE ? undefined : false })],
+      `${id} Work ${id} - X.json`);
+    // a work a collection brought in, listed ahead of your bookmark
+    await library.load([entry('111', 'https://archiveofourown.org/collections/fest/works'), entry('222', SOURCE)] as unknown as FileList);
+    expect(library.data()?.source).toBe(SOURCE);
+
+    // only fics downloaded by link or number: nobody's listing
+    await library.load([entry('333')] as unknown as FileList);
+    expect(library.data()?.source).toBe('');
+  });
+
   it('names a folder handed over as a file list, so the top bar shows it rather than a count', async () => {
     const inFolder = (file: File, path: string) => Object.defineProperty(file, 'webkitRelativePath', { value: path });
     await library.load([

@@ -90,7 +90,7 @@
 
 /* said beside the count, so a short listing is never mistaken for a small library */
 .filtered-note {
-  margin-left: 6px;
+  /* the space before it is the template's own; a margin as well left a wide gap */
   color: var(--text-dim);
   font-size: 0.82rem;
   font-weight: 400;
