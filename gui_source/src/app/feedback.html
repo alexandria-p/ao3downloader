@@ -60,12 +60,43 @@
             <label class="check" [class.unavailable]="!canAttach()">
               <input type="checkbox" name="attachLog" [checked]="attachLog()" [disabled]="!canAttach()"
                 (change)="toggleLog($any($event.target).checked)" />
-              Attach the log of my latest run <em>(optional)</em>
+              Attach a run's log <em>(optional)</em>
             </label>
             @if (!canAttach()) {
               <p class="hint">Open your library to attach a run's log - the logs are kept in it.</p>
             }
             @if (attachLog()) {
+              <div class="log-choice" role="radiogroup" aria-label="Which run's log">
+                <label class="radio">
+                  <input type="radio" name="logChoice" value="latest" [checked]="logChoice() === 'latest'"
+                    (change)="setLogChoice('latest')" />
+                  The most recent run
+                </label>
+                <label class="radio">
+                  <input type="radio" name="logChoice" value="choose" [checked]="logChoice() === 'choose'"
+                    (change)="setLogChoice('choose')" />
+                  Choose a run
+                </label>
+                @if (logChoice() === 'choose') {
+                  @if (runListFailed()) {
+                    <p class="hint">Your runs could not be read - attach the most recent one instead.</p>
+                  } @else if (runList(); as runs) {
+                    @if (runs.length) {
+                      <select class="run-pick" aria-label="Run" [value]="chosenRun()"
+                        (change)="chooseRun($any($event.target).value)">
+                        <option value="" disabled [selected]="!chosenRun()">Choose a run...</option>
+                        @for (run of runs; track run.file) {
+                          <option [value]="run.file">{{ runLabel(run) }}</option>
+                        }
+                      </select>
+                    } @else {
+                      <p class="hint">There are no runs in this library yet.</p>
+                    }
+                  } @else {
+                    <p class="reading-runs" role="status"><span class="spinner" aria-hidden="true"></span> Reading your runs...</p>
+                  }
+                }
+              </div>
               @if (logPreview()) {
                 <details class="log">
                   <summary>See exactly what will be sent</summary>
@@ -74,7 +105,7 @@
                 <p class="hint">Your AO3 username is taken out of it. It never holds your password.</p>
               } @else if (logNote()) {
                 <p class="hint">{{ logNote() }}</p>
-              } @else {
+              } @else if (logChoice() === 'latest' || chosenRun()) {
                 <p class="hint">Reading the log...</p>
               }
             }

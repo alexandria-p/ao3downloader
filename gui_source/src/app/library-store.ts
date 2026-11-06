@@ -152,16 +152,19 @@ export async function readUnsettledRuns(store: LibraryStore): Promise<RunHistory
  * A record that cannot be read is skipped rather than ending the listing - and the next one
  * read in its place, so the history still holds HISTORY_LIMIT runs when there are that many.
  */
-export async function readRunHistory(store: LibraryStore): Promise<RunHistory[]> {
+export async function readRunHistory(store: LibraryStore, signal?: AbortSignal): Promise<RunHistory[]> {
   // named for when they started, so newest first is simply by name
   const files = (await store.list('runs', false))
     .filter((path) => /\.json$/i.test(path))
     .sort()
     .reverse();
+  signal?.throwIfAborted();
 
   const found: RunHistory[] = [];
   let next = 0;
   while (found.length < HISTORY_LIMIT && next < files.length) {
+    // a reader that no longer wants the list (the feedback form closed) stops it between batches
+    signal?.throwIfAborted();
     // only as many as could still be wanted, read together, kept in the order they were named
     const batch = files.slice(next, next + HISTORY_LIMIT - found.length);
     next += batch.length;

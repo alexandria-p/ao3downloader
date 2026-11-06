@@ -14,7 +14,8 @@ import { HelperConnection } from './helper-connection';
 import { Jobs } from './jobs';
 import { Library } from './library';
 import { saveText } from './issues';
-import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
+import { DropboxLibraryStore, LibraryStore, LocalLibraryStore, readRunHistory } from './library-store';
+import type { RunHistory } from './jobs';
 import { safeGet } from './storage';
 import { ao3TimeZone } from './preferences';
 import { VisitLog } from './visit-log';
@@ -123,8 +124,16 @@ export async function readLatestLog(store: LibraryStore): Promise<LatestLog | nu
   try {
     // named for when they started, so the newest is last by name
     const newest = (await store.list('runs', false)).filter((path) => /\.json$/i.test(path)).sort().pop();
-    if (!newest) return null;
-    const record = JSON.parse((await store.read(newest)) ?? '') as Record<string, unknown>;
+    return newest ? await readRunLog(store, newest) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One run record's log, by its path in the library, or null when it will not read. */
+export async function readRunLog(store: LibraryStore, path: string): Promise<LatestLog | null> {
+  try {
+    const record = JSON.parse((await store.read(path)) ?? '') as Record<string, unknown>;
     if (!record || typeof record !== 'object') return null;
     const text = (value: unknown) => (typeof value === 'string' ? value : '');
     return {
@@ -214,6 +223,17 @@ export class Feedback implements OnDestroy {
   protected readonly name = signal('');
   protected readonly attachLog = signal(false);
   /** this visit's own log (`VisitLog`) - for a bug outside a run - attached on its own tick */
+  /** which run's log goes with the feedback: the most recent, or one picked from the history */
+  protected readonly logChoice = signal<'latest' | 'choose'>('latest');
+  /** the runs to choose from, read in the background as the form opens; null until read */
+  protected readonly runList = signal<RunHistory[] | null>(null);
+  protected readonly runListFailed = signal(false);
+  /** the chosen run's file name in `runs/` */
+  protected readonly chosenRun = signal('');
+  /** the run history read the form's opening started - stopped if the form closes first */
+  private historyAbort: AbortController | null = null;
+  /** which preview read is the latest, so an earlier slower one never lands over it */
+  private previewRead = 0;
   protected readonly attachVisit = signal(false);
   protected readonly visitPreview = signal('');
   /** the log exactly as it would be sent, once read; '' while reading or when there is none */
@@ -272,9 +292,47 @@ export class Feedback implements OnDestroy {
   show(): void {
     if (this.stage() === 'sent') this.reset();
     this.open.set(true);
+    this.readRunList();
+  }
+
+  /**
+   * Read the runs to choose a log from, in the background: nothing waits on it but choosing
+   * a run. What History last read is used as it is; otherwise the history is read, and that
+   * read stops if the form closes first (`close`).
+   */
+  private readRunList(): void {
+    const store = this.library.store();
+    if (!store || this.runList()) return;
+    const read = this.jobs.historyRead;
+    if (read?.store === store) {
+      this.runList.set(read.runs);
+      return;
+    }
+    // one already reading is left to finish
+    if (this.historyAbort) return;
+    const abort = new AbortController();
+    this.historyAbort = abort;
+    this.runListFailed.set(false);
+    readRunHistory(store, abort.signal).then(
+      (runs) => {
+        if (abort.signal.aborted) return;
+        this.runList.set(runs);
+        this.historyAbort = null;
+      },
+      () => {
+        if (!abort.signal.aborted) this.runListFailed.set(true);
+      },
+    );
   }
 
   protected close(): void {
+    // the run history read the opening started is not wanted any more
+    if (this.historyAbort) {
+      this.historyAbort.abort();
+      this.historyAbort = null;
+    }
+    // read afresh next time, since a run may finish meanwhile - unless one was chosen from it
+    if (!this.chosenRun()) this.runList.set(null);
     this.open.set(false);
     this.unmountCheck();
     // a sent form starts afresh next time; an unsent one keeps what was typed
@@ -298,19 +356,45 @@ export class Feedback implements OnDestroy {
 
   protected async toggleLog(on: boolean): Promise<void> {
     this.attachLog.set(on);
+    if (on) this.readRunList();
+    await this.loadLogPreview();
+  }
+
+  protected async setLogChoice(choice: 'latest' | 'choose'): Promise<void> {
+    this.logChoice.set(choice);
+    await this.loadLogPreview();
+  }
+
+  protected async chooseRun(file: string): Promise<void> {
+    this.chosenRun.set(file);
+    await this.loadLogPreview();
+  }
+
+  /** what a run reads as in the list to choose from */
+  protected runLabel(run: RunHistory): string {
+    const when = new Date(run.started);
+    const at = Number.isNaN(when.getTime()) ? run.started : when.toLocaleString();
+    return `${run.actionName || run.action} - ${at} - ${run.status}`;
+  }
+
+  /** the log as it will be sent, for whichever run is chosen; empty (and Send held) until there is one */
+  private async loadLogPreview(): Promise<void> {
+    const read = ++this.previewRead;
     this.logPreview.set('');
     this.logNote.set('');
-    if (!on) return;
-    const store = this.library.store();
-    const latest = store ? await readLatestLog(store) : null;
     if (!this.attachLog()) return;
-    if (!latest || !latest.lines.length) {
-      this.logNote.set('There is no run log in this library to attach yet.');
+    const store = this.library.store();
+    if (!store) return;
+    const choosing = this.logChoice() === 'choose';
+    if (choosing && !this.chosenRun()) return;
+    const log = choosing ? await readRunLog(store, `runs/${this.chosenRun()}`) : await readLatestLog(store);
+    if (read !== this.previewRead || !this.attachLog()) return;
+    if (!log || !log.lines.length) {
+      this.logNote.set(choosing ? 'That run has no log to attach.' : 'There is no run log in this library to attach yet.');
       return;
     }
-    const head = `# ${latest.actionName || 'a run'}, started ${latest.started || 'at an unknown time'}`;
-    const names = [latest.username, this.jobs.config()?.username ?? '', safeGet(USERNAME_KEY)];
-    this.logPreview.set(redactLog([head, '', ...latest.lines].join('\n'), names, [ao3TimeZone()]));
+    const head = `# ${log.actionName || 'a run'}, started ${log.started || 'at an unknown time'}`;
+    this.logPreview.set(redactLog([head, '', ...log.lines].join('\n'), this.knownNames(log.username), [ao3TimeZone()]));
   }
 
   protected async send(event?: Event): Promise<void> {
@@ -401,6 +485,8 @@ export class Feedback implements OnDestroy {
     this.message.set('');
     this.name.set('');
     this.attachLog.set(false);
+    this.logChoice.set('latest');
+    this.chosenRun.set('');
     this.logPreview.set('');
     this.attachVisit.set(false);
     this.visitPreview.set('');

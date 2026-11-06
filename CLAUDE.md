@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1056 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1065 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -477,6 +477,22 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   publicly, linking `https://github.com/alexandria-p/ficfairy/issues/` (`.hint.public`), and what
   an attached log never includes (`.hint.privacy`) - and that the issue does name the browser,
   the version and the library's kind; the message is sent as written.
+- **A run's log is the one chosen, and the visit has a log of its own.** *Attach a run's log*
+  offers *The most recent run* (`readLatestLog`) or *Choose a run* (`readRunLog`), from a list
+  read in the background as the form opens (`readRunList`: `Jobs.historyRead` if History has
+  it, else `readRunHistory` with an `AbortSignal`) - Send waits on it only while choosing, and
+  closing the form aborts the read between batches and drops an unchosen list, so the next
+  opening reads afresh. *Attach what I did on this visit* is the **visit log** (`visit-log.ts`,
+  `VisitLog`): in memory only, the last `VISIT_LOG_LIMIT` (300) entries, gone on a reload, and
+  never written anywhere. It notes tabs, the storage switch, library reads and how they ended,
+  windows opened, each run's start - every option and the file types as *left as the default*
+  or *changed from* what the run window opened with (`DownloadDialog.openedWith`, `noteStart`)
+  - and end, every User settings change with its value (through `say`), and every error
+  (`VisitErrorHandler`, the app's `ErrorHandler`; `provideBrowserGlobalErrorListeners` hands it
+  the window's errors and unhandled rejections). **Never what was typed in the login boxes** -
+  `noteStart` takes only `filetypes` and `options` from the start request. It goes through the
+  same `redactLog`, and the Worker puts it in a folded section of its own (`visit`,
+  `LIMITS.visit`, kept to its end like the run log).
 - **The deploy makes the labels** (`gh label create --force`): GitHub drops an unknown label
   rather than creating it. The Worker is deployed by the `feedback` job, which needs only
   `tests`, and skips with a notice until it is configured.

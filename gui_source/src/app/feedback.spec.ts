@@ -384,6 +384,64 @@ describe('Feedback', () => {
     expect(log).not.toContain('ReaderName');
   });
 
+  it('lets a run be chosen, holding Send while the runs are read and until one is chosen', async () => {
+    const pending: ((paths: string[]) => void)[] = [];
+    const listed = (paths: string[]) => pending.splice(0).forEach((resolve) => resolve(paths));
+    const files: Record<string, string> = {
+      'runs/20261020T100000Z-aaaa1111.json': record({ id: 'aaaa1111', action: 'quick', status: 'success', actionName: 'Quick scan' }),
+      'runs/20261001T100000Z-bbbb2222.json': record({ id: 'bbbb2222', action: 'bookmarks', status: 'partial', started: '2026-10-01T10:00:00',
+        actionName: 'Full scan', log: ['an older run, as ReaderName'] }),
+    };
+    TestBed.inject(Library).store.set({
+      ...storeWith(files),
+      list: () => new Promise<string[]>((resolve) => pending.push(resolve)),
+    });
+    await make();
+    await openForm();
+    await fill('positive', 'Hi');
+    await tickLog();
+    const choose = element.querySelector<HTMLInputElement>('input[name="logChoice"][value="choose"]')!;
+    choose.checked = true;
+    choose.dispatchEvent(new Event('change'));
+    await settle();
+
+    expect(element.querySelector('.reading-runs')).not.toBeNull();
+    expect(sendButton().disabled).toBe(true);
+
+    listed(Object.keys(files));
+    await settle();
+    const pick = element.querySelector<HTMLSelectElement>('select.run-pick')!;
+    expect(pick.options.length).toBe(3);
+    expect(sendButton().disabled).toBe(true);
+
+    pick.value = '20261001T100000Z-bbbb2222.json';
+    pick.dispatchEvent(new Event('change'));
+    await settle();
+    const preview = element.querySelector('details.log pre')?.textContent ?? '';
+    expect(preview).toContain('# Full scan');
+    expect(preview).toContain('an older run');
+    expect(preview).not.toContain('ReaderName');
+    expect(sendButton().disabled).toBe(false);
+  });
+
+  it('stops reading the runs when the form is closed before they are read', async () => {
+    let listed!: (paths: string[]) => void;
+    const read = vi.fn(async () => record());
+    TestBed.inject(Library).store.set({
+      ...storeWith({}),
+      list: () => new Promise<string[]>((resolve) => (listed = resolve)),
+      read,
+    });
+    await make();
+    await openForm();
+    (element.querySelector('.dialog button.icon, button[aria-label="Close"]') as HTMLButtonElement).click();
+    await settle();
+
+    listed(['runs/20261020T100000Z-aaaa1111.json']);
+    await settle();
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it('says so when the library has no run log to attach, and does not send without one', async () => {
     TestBed.inject(Library).store.set(storeWith({}));
     await make();
