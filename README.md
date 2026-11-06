@@ -19,6 +19,14 @@ Keep your own copy of your AO3 bookmarks and collections on your computer or Dro
 - **Logging in is optional.** Skip it to fetch only what anyone can see, or log in to access your private bookmarks and fics restricted to AO3 users. Your ao3 login is never saved, and is passed straight to ao3.
 - **Keep your fics in your Dropbox** so you can access your downloads from any device - sync up your bookmarks on your computer, and read fic on the go from your phone using Dropbox.
 
+. ݁₊ ⊹ . ݁ ⟡ ݁ . ⊹ ₊ ݁.
+
+### Make it yours
+
+Pick a colour palette and a font in **User settings**.
+
+![Strawberry milk, Charcoal with the Typewriter font, and Lavender with Gaegu](docs/screenshots/customisation.png)
+
 ## Download
 
 | Windows | Mac (Apple silicon) | Mac (Intel) | Linux |
@@ -87,12 +95,6 @@ Even though this tool only uses ao3's own download system, and does not pass any
 Again, this tool is only for personal use and I have been militant in ensuring that creative human works have not, and will not, be passed through AI - neither in the development nor use of this application.
 
 . ݁₊ ⊹ . ݁ ⟡ ݁ . ⊹ ₊ ݁.
-
-### Make it yours
-
-Pick a colour palette and a font in **User settings**.
-
-![Strawberry milk, Charcoal with the Typewriter font, and Lavender with Gaegu](docs/screenshots/customisation.png)
 
 ## Screenshots
 
