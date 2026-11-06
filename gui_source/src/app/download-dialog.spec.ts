@@ -3722,11 +3722,12 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
-  it('offers retrying an earlier run as an experimental choice on a custom run only',
+  it('offers retrying an earlier run on a custom run only, with no experimental label',
     async () => {
       await open('custom');
       await advanceTo('options');
-      expect(checkbox('[EXPERIMENTAL] Retry an earlier run')).toBeDefined();
+      expect(checkbox('Retry an earlier run')).toBeDefined();
+      expect(element.querySelector('.body')?.textContent).not.toContain('[EXPERIMENTAL] Retry');
 
       fixture.destroy();
       await open('quick');
