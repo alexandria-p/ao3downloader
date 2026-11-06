@@ -767,7 +767,9 @@ fieldset.bare:disabled {
 
 /* region background runs */
 
-.background-choice {
+/* a line between it and an import's summary - on every other run it is the first thing on the
+   page, and a line over it divided it from nothing */
+.import-summary + .background-choice {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
