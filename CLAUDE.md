@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1073 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1074 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -2866,7 +2866,11 @@ Three rules worth keeping:
   with `# region` / `# endregion`.
 - **The root `README.md` is a short front page, at the user's request**: download links for each
   system, a few lines on what the app does, and mocked screenshots (`docs/screenshots/`, a
-  made-up safe-for-work library - never a real account or username). Keep it that short; detail
+  made-up safe-for-work library - never a real account or username). **They are made by
+  `docs/screenshots/make-screenshots.js`** (build the page, then `node docs/screenshots/make-screenshots.js`
+  from the root), which holds the library they show - the works, collections and runs the user
+  chose. Change the data there, never in a one-off script, so every set shows the same library.
+  Keep it that short; detail
   goes in the wiki. The old full README is `helper_files/README_OBSOLETE.md`, kept for reference and still
   marker-checked. The bundle's own `build/README.md` (the `README` string in
   `build_artifacts.py`) is the full guide that ships in a build: file naming, the matching rule

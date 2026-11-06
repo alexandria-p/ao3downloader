@@ -174,6 +174,12 @@ export class Library {
   readonly collections = signal<Collection[]>([]);
   readonly sourceName = signal('');
   readonly folderName = signal('');
+  /**
+   * The name of a library open on this computer that is not a remembered folder - one handed
+   * over as a list of files, or debug mode's dummy library - for the top bar to show in place
+   * of a count. Never remembered, so it has no Forget.
+   */
+  readonly openedName = signal('');
   /** each work's newest downloaded copy in every format, by work number */
   readonly copies = signal<Copies>(emptyCopies());
   readonly htmlFiles = computed(() => this.copies().html);
@@ -279,6 +285,7 @@ export class Library {
       // Dropbox's library, and the means of writing to it, go with it
       this.clearLibrary();
       this.store.set(null);
+      this.openedName.set('');
     }
     this.showing = 'local';
     const generation = ++this.generation;
@@ -485,6 +492,7 @@ export class Library {
     await this.folders.forget();
     this.handle = null;
     this.folderName.set('');
+    this.openedName.set('');
     this.needsReconnect.set(false);
     this.store.set(null);
     this.lastRead.set(null);
@@ -517,6 +525,7 @@ export class Library {
   private async showDummy(kind: DummyKind): Promise<void> {
     this.showing = kind;
     this.showingDummy = true;
+    this.openedName.set(kind === 'local' ? 'Dummy library (this computer)' : '');
     const generation = ++this.generation;
     this.notReading();
     this.clearLibrary();
@@ -551,6 +560,7 @@ export class Library {
   private leaveDummy(): void {
     if (!this.showingDummy) return;
     this.showingDummy = false;
+    this.openedName.set('');
     this.clearLibrary();
     this.store.set(null);
     this.lastRead.set(null);
@@ -627,6 +637,9 @@ export class Library {
   async load(fileList: FileList | null): Promise<void> {
     const files = Array.from(fileList ?? []);
     if (files.length === 0) return;
+    // the folder chosen is the first part of every file's path within it
+    const parts = relativePath(files[0]).split(/[\\/]/);
+    this.openedName.set(parts.length > 1 ? parts[0] : '');
     await this.ingest(files);
   }
 
@@ -635,6 +648,7 @@ export class Library {
    * any step of that finishes, in which case nothing of it is kept.
    */
   private async readHandle(handle: DirectoryHandle, generation: number): Promise<void> {
+    this.openedName.set('');
     const current = () => generation === this.generation;
     this.loading.set(true);
     this.readFailure.set(null);

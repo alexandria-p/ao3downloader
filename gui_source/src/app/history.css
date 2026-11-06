@@ -87,6 +87,8 @@
 }
 
 .run {
+  /* holds the floated status corner inside the card */
+  display: flow-root;
   margin: 0 0 12px;
   padding: 11px 13px;
   border: 1px solid var(--border);
@@ -108,22 +110,20 @@
 .run-active { border-left-color: var(--accent); }
 .run { border-left-width: 5px; }
 
+/* the corner floats, so the date sits straight under the name rather than under the pill and
+   Retry stacked beside it; the card holds the float (display: flow-root on .run) */
 .run-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  display: block;
 }
 
 /* how it ended, with Retry under it, in the card's top right corner */
 .run-corner {
+  float: right;
   display: flex;
-  flex: none;
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
-  margin-left: auto;
+  margin: 0 0 6px 12px;
 }
 
 /* Retry's straight top edge ends where the pill's straight bottom edge does, each going into
