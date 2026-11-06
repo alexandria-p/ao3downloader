@@ -34,6 +34,7 @@ import {
 } from './jobs';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
+import { DebugMode } from './debug-mode';
 import { VisitLog } from './visit-log';
 import { LibraryFreshness } from './freshness';
 import { safeGet, safeRemove, safeSet } from './storage';
@@ -164,6 +165,7 @@ export class DownloadDialog implements OnDestroy {
   private openedWith: { filetypes: string[]; options: Record<string, unknown> } | null = null;
   private readonly dropbox = inject(DropboxSession);
   private readonly helper = inject(HelperConnection);
+  protected readonly debugMode = inject(DebugMode);
   private readonly freshness = inject(LibraryFreshness);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
@@ -586,10 +588,20 @@ export class DownloadDialog implements OnDestroy {
     }
   });
 
+  /**
+   * The file types to list. JSON is the index - always written by a run that indexes, and
+   * never one to pick - so it is listed only in debug mode; it is still sent with every run.
+   */
+  protected readonly shownFiletypes = computed(() => {
+    const all = this.config()?.filetypes ?? [];
+    return this.debugMode.on() ? all : all.filter((filetype) => filetype !== METADATA);
+  });
+
   protected readonly blurb = computed(() => {
     switch (this.action()) {
+      // a full scan and a quick scan say what they do at the top of their first page instead
       case 'bookmarks':
-        return 'Walks every page of your AO3 bookmarks, reindexes all of them, and downloads anything missing or out of date. Thorough, and slow.';
+        return '';
       case 'collections':
         return 'Saves a json file describing each of your collections, including the work IDs it contains. It can index and download the works in them too.';
       case 'collection':
@@ -607,7 +619,7 @@ export class DownloadDialog implements OnDestroy {
       case 'custom':
         return 'A full scan with its parts made optional - choose the pages to cover, or skip reading AO3 entirely and work from what is already indexed.';
       case 'quick':
-        return 'A full scan that stops early: it reads your bookmarks newest-updated first and stops at the first fic AO3 has not touched since your last completed run.';
+        return '';
       default:
         return 'Reads your index for fics it last saw unfinished, checks each one on AO3, brings its index entry up to date, and re-downloads any that have grown.';
     }

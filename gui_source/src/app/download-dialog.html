@@ -186,12 +186,14 @@
     <!-- step 1: what to download -->
     @if (step() === 'filetypes') {
       <section class="body">
-        <p>{{ blurb() }}</p>
+        @if (blurb()) {
+          <p>{{ blurb() }}</p>
+        }
         <p class="hint">Files are saved to <code>{{ folder() }}</code>.</p>
 
         <fieldset>
           <legend>File types</legend>
-          @for (filetype of config()?.filetypes ?? []; track filetype) {
+          @for (filetype of shownFiletypes(); track filetype) {
             <label class="check" [class.locked]="isLocked(filetype)">
               <input
                 type="checkbox"
@@ -207,7 +209,9 @@
           }
         </fieldset>
 
-        @if (picksReindex()) {
+        <!-- JSON is only listed in debug mode, so only then is there anything to say about it -->
+        @if (!debugMode.on()) {
+        } @else if (picksReindex()) {
           <p class="hint">
             @if (reindex()) {
               JSON is the index itself, so it is written whenever a run indexes - which this
@@ -223,12 +227,6 @@
             JSON metadata comes from the bookmarks listing, so this run won't rewrite it - it
             updates the works themselves.
           </p>
-        } @else {
-          <p class="hint">
-            JSON is indexed first and cannot be turned off - it is read off the listing pages,
-            one request per 20 works. Every other type is fetched per work instead, so leaving
-            them all unticked gives a metadata-only run that is far lighter on ao3's rate limit.
-          </p>
         }
       </section>
       <footer>
@@ -242,11 +240,16 @@
     <!-- step 2: the questions the console menu asks -->
     @if (step() === 'options') {
       <section class="body">
-        <!-- what a quick scan is for, before what it covers -->
+        <!-- what a scan is for, before what it covers - said here, not on the file types page -->
         @if (action() === 'quick') {
           <p class="what-it-does">
             Scans your AO3 Bookmarks and updates anything that has changed since the last
             successful run.
+          </p>
+        } @else if (action() === 'bookmarks') {
+          <p class="what-it-does">
+            Walks every page of your AO3 bookmarks, reindexes all of them, and downloads
+            anything missing or out of date. Thorough, and slow.
           </p>
         }
 
@@ -504,9 +507,7 @@
           </label>
           <p class="hint">
             Check this if you are concerned about file integrity issues and would like to
-            simply download the file again. Every format you ask for is fetched afresh for
-            every work this run covers, whether or not AO3 has a newer version than the copy
-            you hold.
+            re-download each file again, in the formats you ask for.
           </p>
         }
 

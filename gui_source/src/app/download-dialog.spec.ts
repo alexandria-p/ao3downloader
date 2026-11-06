@@ -1,3 +1,4 @@
+import { DebugMode } from './debug-mode';
 import { ImportRequest } from './imports';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -335,7 +336,13 @@ describe('DownloadDialog', () => {
 
   // region file types
 
+  /** JSON is listed only in debug mode, so the specs about its box turn that on first */
+  function debugOn() {
+    TestBed.overrideProvider(DebugMode, { useValue: { on: () => true } });
+  }
+
   it('locks the file types that are always produced', async () => {
+    debugOn();
     await open();
     await advanceTo('filetypes');
 
@@ -445,11 +452,16 @@ describe('DownloadDialog', () => {
     ]);
   });
 
-  it('says what unticking the rest buys, where the choice is made', async () => {
+  it('lists no JSON outside debug mode, and says nothing about it, but still sends it', async () => {
+    // json is the index - always written by a run that indexes, never one to pick
     await open('bookmarks');
     await advanceTo('filetypes');
 
-    expect(element.textContent).toContain('rate limit');
+    expect(checkbox('JSON')).toBeFalsy();
+    expect(checkbox('HTML')).toBeTruthy();
+    expect(element.querySelector('.body')?.textContent).not.toContain('JSON');
+    await advanceTo('running');
+    expect(jobs.started[0].filetypes).toContain('JSON');
   });
 
   // endregion
@@ -1706,7 +1718,6 @@ describe('DownloadDialog', () => {
     await open('bookmarks');
     await advanceTo('filetypes');
 
-    expect(checkbox('JSON')!.checked).toBe(true);
     expect(checkbox('EPUB')!.checked).toBe(true);
     expect(checkbox('HTML')!.checked).toBe(false);
 
@@ -2914,6 +2925,7 @@ describe('DownloadDialog', () => {
 
   it('ties a custom run’s JSON to whether it is indexing', async () => {
     // json *is* the index, so a run that indexes writes it and a run that does not cannot
+    debugOn();
     await open('custom');
     await advanceTo('options');
     button('Continue')!.click();
@@ -2925,6 +2937,7 @@ describe('DownloadDialog', () => {
   });
 
   it('unticks and locks a custom run’s JSON when it is not indexing', async () => {
+    debugOn();
     await open('custom');
     await advanceTo('options');
     checkbox('Skip indexing')!.click();
@@ -2958,6 +2971,7 @@ describe('DownloadDialog', () => {
   });
 
   it('leaves JSON locked on for every other run', async () => {
+    debugOn();
     await open('bookmarks');
     await advanceTo('filetypes');
 
