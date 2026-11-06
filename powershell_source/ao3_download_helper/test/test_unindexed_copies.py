@@ -368,7 +368,7 @@ def test_the_run_s_record_keeps_how_each_question_was_answered(fake_fileops, mon
 
 # endregion
 
-# region the version each format holds, in the index
+# region helpers for the scenarios
 
 def an_entry(library, work='1', date='2026-11-06', **fields):
     folder = os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME)
@@ -386,47 +386,6 @@ def read(path) -> dict:
     with open(path, encoding='utf-8') as f:
         return json.load(f)
 
-
-def test_each_saved_format_s_version_is_noted_on_the_entry_and_an_undated_one_taken_out(fake_fileops):
-    path = an_entry(fake_fileops)
-    ao3 = Ao3(MagicMock(), fake_fileops, ['EPUB'], None, False, False)
-
-    assert ao3.note_format_dates('1', {'EPUB': '2026-11-04', 'PDF': '6 Nov 2026'})
-    assert read(path)['format_dates'] == {'EPUB': '2026-11-04', 'PDF': '2026-11-06'}
-    # the same again writes nothing
-    assert not ao3.note_format_dates('1', {'EPUB': '2026-11-04'})
-    assert ao3.note_format_dates('1', {'EPUB': None})
-    assert read(path)['format_dates'] == {'PDF': '2026-11-06'}
-    # a work with no entry has nowhere to note it
-    assert not ao3.note_format_dates('2', {'EPUB': '2026-11-04'})
-
-
-def test_a_new_reading_never_writes_over_the_format_dates_or_adds_them_to_the_history(fake_fileops):
-    path = an_entry(fake_fileops, format_dates={'EPUB': '2026-11-04'})
-    ao3 = Ao3(MagicMock(), fake_fileops, ['EPUB'], None, False, False)
-    from source_code import indexing
-    # a record carried forward from before the note, as a re-read does
-    stale = {**indexing.flatten(read(path)), 'format_dates': {'EPUB': '2020-01-01'},
-             'kudos': 5}
-
-    ao3.save_metadata(stale)
-
-    data = read(path)
-    assert data['format_dates'] == {'EPUB': '2026-11-04'}
-    assert all('format_dates' not in reading for reading in data['indexes'])
-
-
-def test_a_download_notes_the_date_its_files_are_named_with(library):
-    path = an_entry(library, work='75354806', date='2026-11-06')
-    ao3 = Ao3(MagicMock(), library, ['PDF'], None, False, False)
-    ao3.repo.download_file.return_value = b'%PDF the work'
-
-    ao3.download_one_indexed({'id': '75354806', 'link': LINK, 'title': 'Fic A', 'authors': ['B'],
-                              'date_updated': '2026-11-06'}, 50, {}, 1, 1)
-
-    assert work_files(library) == ['75354806 Fic A - B 2026-11-06.pdf']
-    assert read(path)['format_dates'] == {'PDF': '2026-11-06'}
-
 # endregion
 
 # region your three scenarios: an imported Fic A, left unindexed, then a full scan that overwrites
@@ -443,7 +402,7 @@ FORMATS = ['PDF', 'EPUB', 'HTML']
 def test_scenario_1_an_entry_from_an_earlier_quick_scan_lets_overwriting_replace_every_copy(library):
     # a quick scan for PDF only indexed Fic A (6 Nov) and saved its PDF: now there is an entry
     imported(library)
-    an_entry(library, work='75354806', date='2026-11-06', format_dates={'PDF': '2026-11-06'})
+    an_entry(library, work='75354806', date='2026-11-06')
     job, asked = a_scan(library, overwrite=True)
     records = [{'id': '75354806', 'link': LINK, 'date_updated': '2026-11-06'}]
 
@@ -525,12 +484,10 @@ def test_scenario_3_ao3_down_so_fichub_s_older_copy_replaces_only_what_it_is_new
         assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.epub',
                                        '75354806 Wolfbird - OpalApparition 2026-05-10.pdf',
                                        '75354806 Wolfbird - OpalApparition.html']
-        # the index is newer than FicHub's copy, so it stays - and says the epub is older
+        # the index is newer than FicHub's copy, so it says what AO3 said: how current the
+        # fic's details are, not which version any one file holds
         data = read(index)
-        assert data['indexes'][-1]['date_updated'] == '10 May 2026' or \
-            data['indexes'][-1]['date_updated'].startswith('2026-05-10') or \
-            parse_text.get_date_stamp(data['indexes'][-1]['date_updated']) == '2026-05-10'
-        assert data['format_dates'] == {'EPUB': '2026-04-27'}
+        assert parse_text.get_date_stamp(data['indexes'][-1]['date_updated']) == '2026-05-10'
     else:
         assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-01-01.epub',
                                        '75354806 Wolfbird - OpalApparition 2026-05-10.pdf',
@@ -540,21 +497,19 @@ def test_scenario_3_ao3_down_so_fichub_s_older_copy_replaces_only_what_it_is_new
 
 # region scenario 4: a repair that looks up the index, then a quick scan
 
-def test_scenario_4_a_repair_s_lookup_notes_each_file_s_own_date_on_the_new_entry(library):
+def test_scenario_4_a_repair_s_lookup_keeps_each_file_s_own_date(library):
     # dating skipped; the lookup made Fic A's entry from AO3, which says 8 Nov
     a_copy(library, '75354806 Fic A - B 2026-11-06.pdf')
     a_copy(library, '75354806 Fic A - B 2026-11-03.epub')
     a_copy(library, '75354806 Fic A - B.html')
     path = an_entry(library, work='75354806', date='2026-11-08')
-    ao3 = Ao3(MagicMock(), library, FORMATS, None, False, False)
     record = {'id': '75354806', 'link': LINK, 'title': 'Fic A', 'authors': ['B'],
               'date_updated': '2026-11-08'}
 
-    server.name_files_from_index(library, [record], ao3)
+    server.name_files_from_index(library, [record])
 
-    # the entry says AO3's 8 Nov; each file keeps - and the entry notes - its own version
+    # the entry says AO3's 8 Nov; each file keeps its own version in its name
     assert read(path)['indexes'][-1]['date_updated'] == '2026-11-08'
-    assert read(path)['format_dates'] == {'EPUB': '2026-11-03', 'PDF': '2026-11-06'}
     assert work_files(library) == ['75354806 Fic A - B 2026-11-03.epub',
                                    '75354806 Fic A - B 2026-11-06.pdf',
                                    '75354806 Fic A - B.html']
@@ -564,8 +519,7 @@ def test_scenario_4_the_quick_scan_after_it_judges_by_that_entry_and_asks_nothin
     a_copy(library, '75354806 Fic A - B 2026-11-06.pdf')
     a_copy(library, '75354806 Fic A - B 2026-11-03.epub')
     a_copy(library, '75354806 Fic A - B.html')
-    path = an_entry(library, work='75354806', date='2026-11-08',
-                    format_dates={'EPUB': '2026-11-03', 'PDF': '2026-11-06'})
+    an_entry(library, work='75354806', date='2026-11-08')
     job, asked = a_scan(library)
     records = [{'id': '75354806', 'link': LINK, 'date_updated': '2026-11-08'}]
 
@@ -576,8 +530,5 @@ def test_scenario_4_the_quick_scan_after_it_judges_by_that_entry_and_asks_nothin
     assert asked == []
     assert sorted(plan['superseded'][LINK]) == ['EPUB', 'PDF']
     assert LINK in plan['stale'] and LINK not in plan['undated']
-    # a reading never touches what the entry says each format holds
-    job.ao3.save_metadata({**records[0], 'title': 'Fic A', 'authors': ['B'], 'kudos': 9})
-    assert read(path)['format_dates'] == {'EPUB': '2026-11-03', 'PDF': '2026-11-06'}
 
 # endregion

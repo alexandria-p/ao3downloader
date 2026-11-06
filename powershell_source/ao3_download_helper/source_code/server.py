@@ -2822,7 +2822,7 @@ def run_fic_list(job: Job, fileops: FileOps, repo: Repository, report, importing
     else: job.steps.done('index')
 
     if importing:
-        name_files_from_index(fileops, records, ao3)
+        name_files_from_index(fileops, records)
         replace = bool(job.options.get('replaceOutdated'))
         index_only = set(job.options.get('indexOnly') or [])
         updating = [r for r in records if str(r.get('id') or '') not in index_only]
@@ -3795,7 +3795,7 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
         named = [x for x in candidates if str(x['id']) in ao3.reindexed]
         if named:
             fresh = indexed_entries(ao3, fileops, {str(x['id']) for x in named})
-            name_files_from_index(fileops, list(fresh.values()), ao3)
+            name_files_from_index(fileops, list(fresh.values()))
 
     if job.cancel.is_set(): return
     job.steps.done('fichub')
@@ -3952,10 +3952,6 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
                               from_mirror=True)
             print((strings.AO3_INFO_FICHUB_INDEXED if str(failure['id']) in ao3.reindexed
                    else strings.AO3_INFO_FICHUB_NOT_INDEXED).format(failure['id']))
-            # the entry is written after the downloads: say which version each one holds
-            if arrived and hasattr(ao3, 'note_format_dates'):
-                ao3.note_format_dates(str(failure['id']),
-                                      {x: record.get('date_updated') for x in arrived})
         if problem is not None: raise problem
     except exceptions.CancelledException:
         print(strings.INFO_CANCELLED)
@@ -4710,7 +4706,7 @@ def keep_newer_copies(job: 'Job', records: list[dict], existing: dict, plan: dic
             if not missing and link in plan['stale']: plan['stale'].remove(link)
 
 
-def name_files_from_index(fileops: FileOps, records: list[dict], ao3=None) -> int:
+def name_files_from_index(fileops: FileOps, records: list[dict]) -> int:
     """An import's works, once indexed: each file of theirs in works/ that is not named the way
     its index entry names it is renamed so it is - **keeping the date its own name ends in**,
     which is the version the file holds and may well be older than AO3's. A file with no date
@@ -4734,16 +4730,11 @@ def name_files_from_index(fileops: FileOps, records: list[dict], ao3=None) -> in
 
     renamed = 0
     names: dict[str, str] = {}
-    # the version each format holds is the date its own name keeps - noted on the entry
-    held: dict[str, dict[str, str | None]] = {}
     for path in paths:
         name = path.replace('\\', '/').rsplit('/', 1)[-1]
         extension = os.path.splitext(name)[1]
         record = by_work.get(parse_text.get_work_number_from_filename(name) or '')
         if record is None or extension.lower() not in WORK_FILE_EXTENSIONS: continue
-        held.setdefault(str(record['id']), {})[
-            'HTML' if extension.lower() in ('.html', '.htm') else extension[1:].upper()] = \
-            parse_text.get_date_from_filename(name)
         wanted = indexed_file_name(record, parse_text.get_date_from_filename(name) or '',
                                    extension, maximum)
         if wanted == name: continue
@@ -4755,8 +4746,6 @@ def name_files_from_index(fileops: FileOps, records: list[dict], ao3=None) -> in
         names[name] = wanted
         renamed += 1
     follow_renames_in_exclusions(fileops, names)
-    if ao3 is not None and hasattr(ao3, 'note_format_dates'):
-        for work, dates in held.items(): ao3.note_format_dates(work, dates)
     return renamed
 
 

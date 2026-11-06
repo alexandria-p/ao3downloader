@@ -25,15 +25,7 @@ LAST_INDEXED = 'last_indexed'
 LAST_INDEXED_BY = 'last_indexed_by'
 # the file's own bookkeeping. a flattened record carries them, and saving one back must not
 # make them part of a reading
-# the version each downloaded format holds, by format - {'EPUB': 'YYYY-MM-DD'} - when one is
-# known: what the file's own name says, which can differ from the entry's `date_updated` (an
-# older FicHub copy kept beside AO3's newer reading, an imported file keeping its own date, a
-# format left alone while the work moved on). Written straight onto the file whenever a format
-# is saved or named (`Ao3.note_format_dates`), never part of a reading - so a reading carried
-# forward from earlier in a run cannot write an older one back - and read by nothing that
-# decides what to fetch: what is outdated is still judged from each file's own name
-FORMAT_DATES = 'format_dates'
-BOOKKEEPING_FIELDS = (INDEXES, LAST_INDEXED, LAST_INDEXED_BY, FORMAT_DATES)
+BOOKKEEPING_FIELDS = (INDEXES, LAST_INDEXED, LAST_INDEXED_BY)
 
 # these identify the file rather than describing the work, so they live at the root and
 # are not versioned.

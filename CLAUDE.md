@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2157 python passed; 1102 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2154 python passed; 1102 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1931,16 +1931,12 @@ leave those works to it. In `rescue_one` the older-copy questions still ask abou
 there is no file of; a work whose copies are all kept and gets nothing from an older FicHub copy
 stays a failure. `test_unindexed_copies.py` holds it, with the scenarios it was built for.
 
-**The entry notes which version each downloaded format holds** (`indexing.FORMAT_DATES`,
-`format_dates: {"EPUB": "2026-11-04"}`): the date its file's name carries, which can differ from
-`date_updated` - an older FicHub copy kept beside AO3's newer reading, an imported file keeping its
-own date, a format left alone while the work moved on. `Ao3.note_format_dates` writes it straight
-onto the file (no new reading) after every format `download_one_indexed` saves, after FicHub's
-entry is written, and when an import names its files (`name_files_from_index`); an undated file
-takes its format out. It is a **bookkeeping field** (`BOOKKEEPING_FIELDS`), never part of a
-reading - so a reading carried forward from earlier in a run cannot write an older one back, and a
-re-index never touches it - and **nothing reads it to decide what to fetch**: outdated is still
-judged from each file's own name.
+**An entry's date is the fic's, not a file's.** `date_updated` in a reading is what AO3 (or
+FicHub, for an entry FicHub wrote) said the fic was last updated when that reading was taken - it
+says how current the entry's details are (summary, tags, stats). Which version a file holds is the
+date at the end of its own name, and only that decides whether it is outdated. A per-format record
+in the entry (`format_dates`) was built and taken out again at the user's request: it duplicated
+what the names already say, cost an index write per download, and nothing read it.
 
 **Every question a run asks is recorded with how it was answered** (`how` on the choice):
 `answered`, `timed-out`, `not-asked` (QuestionTimeoutMinutes 0), `background-default`,

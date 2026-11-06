@@ -66,6 +66,7 @@ the same thing in conversation.
 ## What happens in a run
 - **Indexing** [the index step, reindexing] - writing or updating index entries from what AO3 shows.
 - **Index entry** [entry, record, JSON file] - metadata for one work, series or external work saved as a JSON file. Each index file keeps a history. When a fic is indexed again in a future run, a new entry is added to the index file only if something actually changed, so you can see when a work gained chapters or was updated.
+- **The index entry's date** (`date_updated` in an entry's reading) - **the date AO3 (or FicHub, for an entry FicHub wrote) said the fic was last updated, when that reading was taken.** It says how current the entry's own details are - summary, tags, chapters, stats: an entry dated before AO3's latest update is out of date, and the next run that reads the fic adds a new reading. It says nothing about the files: **each downloaded file's own version is the date at the end of its name**, and that alone decides whether a file is outdated (newer on AO3 than in the name) - so a library can hold an EPUB of an older version beside an entry of a newer one, and that is not a contradiction.
 - **Listing** [bookmarks listing] - an AO3 list of blurbs, 20 to a page, such as your bookmarks.
 - **Page** [listing page] - one page of a listing (20 blurbs). Not to be confused with "the page", the web app.
 - **Blurb** - one entry on a listing: a work's (or series') summary box.
@@ -418,7 +419,6 @@ Used by: every workflow that downloads.
 - Asks about undated files, then about older copies (only for this run's works).
 - Decides, per work and format, what is missing, outdated or current.
 - **A copy of a work with no earlier index entry** [unindexed copy] - a file in the library for a work the index did not have when the run began. Before replacing it - from AO3 or FicHub, overwriting or not, in every scan and fic run but an import - the run asks per work (`unindexed-copy`), judging each copy from the date in its name (the *Infer date* rules): recommended for replacing when the incoming version is newer, or the same on an overwriting run; never when older or undated. Answers: *Replace only* the recommended copies, *Yes* all, *No* none; **the default is always no**, keeping them.
-- **Format dates** (`format_dates` on an index entry) - which version each downloaded format holds, from its file's name, noted whenever a format is saved or an import names its files. Bookkeeping, not part of a reading; never used to decide what to fetch.
 - **Overwrite** (full scan, custom run) treats every copy as needing replacing; **specific fic** always replaces that fic, and only that fic. A copy whose date is **later** than the version about to be written is asked about first, per work (`overwrite-older`, default *no*, keeping it); formats not on disk are fetched either way.
 
 ### Download or update works as necessary
