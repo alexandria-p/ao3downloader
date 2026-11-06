@@ -47,3 +47,5 @@ Allow downloaded (local) builds to 'run in background' too, so people can still 
 Works tab heading: show the number of bookmarks in 'X - Y of Z Bookmarks', and underneath it the total number of works in the library too (some may be imported, or downloaded by id/url, and not marked as bookmarks).
 
 Improve the initial popup warning about the browser - it is too wordy.
+
+Downloaded app: let users change the default answers runs take when a question times out (UndatedFilesAnswer etc.) from User settings, as the hosted copy already can in "Questions a run may ask" - today they can only be changed in settings.ini.
