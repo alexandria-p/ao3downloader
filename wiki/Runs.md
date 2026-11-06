@@ -69,7 +69,7 @@ Each format is judged on its own, so a work can have a current HTML and an outda
 
 FicHub is only asked at the end of a run, for works AO3 wouldn't give. What happens depends on how FicHub's copy compares with your **index**:
 
-**FicHub's copy is as new as your index, or newer** (or the work has no indexed date): it is treated exactly as AO3's version would be, using the AO3 table above with FicHub's date. If the run writes JSON, the index gets a new reading from FicHub, marked **From FicHub**.
+**FicHub's copy is as new as your index, or newer** (or the work has no indexed date): it is treated as AO3's version would be, using the AO3 table above with FicHub's date - except that a file with no date in its name is kept rather than asked about (the undated question is only asked before downloading from AO3). If the run writes JSON, the index gets a new reading from FicHub, marked **From FicHub**.
 
 **FicHub's copy is older than your index** (AO3 had a newer version that FicHub never caught): each file is still compared with FicHub's date, by the date in its own name, and **the index is left alone** - its reading is newer.
 
