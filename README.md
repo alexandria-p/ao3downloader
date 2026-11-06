@@ -2,6 +2,8 @@
 
 Keep your own copy of your AO3 bookmarks and collections on your computer or Dropbox.
 
+[![Downloads](https://img.shields.io/github/downloads/alexandria-p/ficfairy/total)](https://github.com/alexandria-p/ficfairy/releases/latest)
+
 **This app works best in Chrome web browser.**
 
 ![The works list](docs/screenshots/works.png)
