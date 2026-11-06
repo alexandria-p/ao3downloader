@@ -275,6 +275,17 @@ def a_copy(library, name: str) -> None:
         f.write('what you had')
 
 
+def unchanged_but_format_dates(library, before: str) -> bool:
+    """The entry says what it said - only which version each format holds may have been noted."""
+    data = json.loads(index_text(library))
+    data.pop('format_dates', None)
+    return data == json.loads(before)
+
+
+def format_dates(library) -> dict:
+    return json.loads(index_text(library)).get('format_dates') or {}
+
+
 def index_text(library) -> str:
     with open(os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME,
                            '75354806 Wolfbird - OpalApparition.json'), encoding='utf-8') as f:
@@ -299,7 +310,7 @@ def test_an_older_fichub_copy_never_replaces_a_file_you_have(library, monkeypatc
     assert [q['name'] for q, _ in asked] == [server.FICHUB_QUESTION]
     assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-01-01.html',
                                    '75354806 Wolfbird - OpalApparition 2026-05-10.epub']
-    assert index_text(library) == before
+    assert unchanged_but_format_dates(library, before)
     assert 'older version' in ao3.failures[0]['error']
     out = capsys.readouterr().out
     assert "FicHub's copy of work 75354806 was last updated 2026-04-27, older than your index (2026-05-10)" in out
@@ -336,12 +347,14 @@ def test_an_overwriting_run_asks_before_replacing_your_copy_with_an_older_fichub
     if replaced:
         assert fetched == ['EPUB']
         assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.epub']
+        # the entry keeps AO3's newer reading, and notes the epub holds FicHub's older one
+        assert format_dates(library) == {'EPUB': '2026-04-27'}
     else:
         assert fetched == []
         assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-05-10.epub']
         assert 'older version' in ao3.failures[0]['error']
     # whatever the answer, the index already says more than FicHub does
-    assert index_text(library) == before
+    assert unchanged_but_format_dates(library, before)
 
 
 @pytest.mark.fichub
@@ -366,8 +379,10 @@ def test_a_format_you_have_none_of_is_asked_about_then_taken_from_an_older_fichu
     assert fetched == ['HTML']
     assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.html',
                                    '75354806 Wolfbird - OpalApparition 2026-05-10.epub']
+    # noted on the entry: the html holds FicHub's older version, not the index's
+    assert format_dates(library) == {'HTML': '2026-04-27'}
     # the index already says more than FicHub does, so it is left as it was
-    assert index_text(library) == before
+    assert unchanged_but_format_dates(library, before)
     assert ao3.failures == []
     assert ao3.rescued[0]['downloaded'] == ['HTML']
 
@@ -390,7 +405,7 @@ def test_saying_no_to_an_older_fichub_copy_takes_nothing(library, monkeypatch):
 
     assert fetched == []
     assert work_files(library) == []
-    assert index_text(library) == before
+    assert unchanged_but_format_dates(library, before)
     assert 'older version' in ao3.failures[0]['error']
 
 
@@ -405,7 +420,8 @@ def test_a_background_run_takes_an_older_fichub_copy_without_asking(library, mon
     server.rescue_with_fichub(job, library, ao3, MagicMock())
 
     assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.epub']
-    assert index_text(library) == before
+    assert unchanged_but_format_dates(library, before)
+    assert format_dates(library) == {'EPUB': '2026-04-27'}
 
 
 @pytest.mark.fichub

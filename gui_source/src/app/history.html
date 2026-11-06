@@ -331,8 +331,8 @@
                   Work {{ choice.works?.join(', ') }} had no index entry, so its
                   {{ choice.formats?.join(', ') }} could not be judged by one. With the version from
                   {{ choice.source || 'AO3' }} on offer@if (choice.recommended) { (recommended:
-                  {{ choice.recommended }})}, chose
-                  <strong>{{ choice.choice === 'yes' ? 'to replace it' : 'to keep the copy' }}</strong>.
+                  {{ choice.recommended === 'recommended' ? 'some' : choice.recommended }})}, chose
+                  <strong>@if (choice.replaced?.length && choice.replaced!.length < (choice.formats?.length ?? 0)) {to replace only {{ choice.replaced!.join(', ') }}} @else if (choice.choice === 'yes' || choice.replaced?.length) {to replace it} @else {to keep the copy}</strong>.
                 </p>
               } @else if (choice.question === 'quick-floor') {
                 <p>

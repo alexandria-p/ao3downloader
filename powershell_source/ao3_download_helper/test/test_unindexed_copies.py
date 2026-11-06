@@ -39,30 +39,35 @@ def test_a_date_is_read_out_of_a_file_name_the_way_infer_date_reads_one(name, da
 
 # endregion
 
-# region what is recommended, and why
+# region what is recommended, and why - for each copy on its own
 
 def test_a_newer_incoming_version_is_recommended_with_its_reason():
-    choice, reason = server.unindexed_copy_advice('2026-05-10', {'EPUB': '2026-01-01'}, 'AO3')
+    choice, reason = server.unindexed_copy_advice('2026-05-10', '2026-01-01', 'AO3')
     assert choice == 'yes'
     assert reason == ('recommended: yes - the AO3 version (2026-05-10) is newer than the date in '
                       'your file name (2026-01-01)')
 
 
-@pytest.mark.parametrize('copy', ['2026-05-10', '2026-06-01'])
-def test_an_incoming_version_no_newer_than_the_copy_is_not_recommended(copy):
-    choice, reason = server.unindexed_copy_advice('2026-05-10', {'EPUB': copy}, 'FicHub')
-    assert choice == 'no'
-    assert reason.startswith('recommended: no - your file name says')
+def test_the_same_date_is_recommended_only_on_a_run_that_overwrites():
+    assert server.unindexed_copy_advice('2026-05-10', '2026-05-10', 'AO3')[0] == 'no'
+    choice, reason = server.unindexed_copy_advice('2026-05-10', '2026-05-10', 'AO3', overwriting=True)
+    assert choice == 'yes' and 'this run overwrites existing downloads' in reason
 
 
-def test_a_copy_whose_name_holds_no_date_is_not_recommended_for_replacing():
-    choice, reason = server.unindexed_copy_advice('2026-05-10', {'EPUB': '2026-01-01', 'HTML': ''}, 'AO3')
-    assert choice == 'no'
-    assert 'no date could be read from your file name' in reason
+@pytest.mark.parametrize('overwriting', [False, True])
+def test_an_older_incoming_version_is_never_recommended(overwriting):
+    choice, reason = server.unindexed_copy_advice('2026-05-10', '2026-06-01', 'FicHub', overwriting)
+    assert choice == 'no' and reason.startswith('recommended: no - your file name says 2026-06-01')
+
+
+@pytest.mark.parametrize('overwriting', [False, True])
+def test_a_copy_whose_name_holds_no_date_is_never_recommended_for_replacing(overwriting):
+    choice, reason = server.unindexed_copy_advice('2026-05-10', '', 'AO3', overwriting)
+    assert choice == 'no' and 'no date could be read from your file name' in reason
 
 
 def test_an_incoming_version_with_no_date_is_not_recommended():
-    assert server.unindexed_copy_advice('', {'EPUB': '2026-01-01'}, 'AO3')[0] == 'no'
+    assert server.unindexed_copy_advice('', '2026-01-01', 'AO3')[0] == 'no'
 
 # endregion
 
@@ -88,17 +93,21 @@ def a_plan(copies: dict, date='2026-04-27', overwrite=False):
     return link, records, existing, plan
 
 
-def test_a_work_with_no_earlier_entry_is_asked_about_recommending_from_the_names():
-    link, records, existing, plan = a_plan({'EPUB': '1 A 2026-01-01.epub'})
+def test_a_work_with_no_earlier_entry_is_asked_about_judging_each_copy():
+    link, records, existing, plan = a_plan({'EPUB': '1 A 2026-01-01.epub', 'HTML': '1 A.html'})
     job, asked = answering_job()
 
-    server.ask_about_unindexed_copies(job, records, existing, plan, ['EPUB'], set())
+    server.ask_about_unindexed_copies(job, records, existing, plan, ['EPUB', 'HTML'], set())
 
     question, default = asked[0]
     assert question['name'] == server.UNINDEXED_COPY_QUESTION
-    assert question['ids'] == ['1'] and question['formats'] == ['EPUB']
-    assert question['date'] == '2026-04-27' and question['fileDates'] == {'EPUB': '2026-01-01'}
-    assert question['recommended'] == 'yes' and 'is newer than' in question['reason']
+    assert question['ids'] == ['1'] and question['formats'] == ['EPUB', 'HTML']
+    assert question['date'] == '2026-04-27'
+    assert question['fileDates'] == {'EPUB': '2026-01-01', 'HTML': ''}
+    assert question['recommended'] == 'recommended' and question['recommendedFormats'] == ['EPUB']
+    assert 'is newer than' in question['reasons']['EPUB']
+    assert 'no date could be read' in question['reasons']['HTML']
+    assert question['choices'] == ['recommended', 'yes', 'no']
     assert question['source'] == 'AO3'
     assert default == {'choice': 'no'}
 
@@ -107,10 +116,11 @@ def test_a_work_with_no_earlier_entry_is_asked_about_recommending_from_the_names
 def test_nobody_answering_keeps_the_copy_overwriting_or_not_even_when_yes_is_recommended(overwrite):
     # the version check would have replaced it (behind), and overwriting would too
     link, records, existing, plan = a_plan({'EPUB': '1 A 2026-01-01.epub'}, overwrite=overwrite)
-    job, _ = answering_job()
+    job, asked = answering_job()
 
-    server.ask_about_unindexed_copies(job, records, existing, plan, ['EPUB'], set())
+    server.ask_about_unindexed_copies(job, records, existing, plan, ['EPUB'], set(), overwriting=overwrite)
 
+    assert asked[0][0]['recommended'] == 'yes' and asked[0][0]['choices'] == ['yes', 'no']
     assert link not in plan['superseded'] and link not in plan['stale']
     assert plan['keep'] == {link: {'EPUB'}}
 
@@ -156,6 +166,7 @@ def test_a_format_with_no_copy_is_fetched_whatever_is_answered_about_the_others(
     assert asked[0][0]['formats'] == ['EPUB']
     # kept, but still downloaded for the html it has none of
     assert plan['keep'] == {link: {'EPUB'}}
+    assert link in plan['stale']
 
 # endregion
 
@@ -221,7 +232,8 @@ def test_a_scan_asks_about_a_copy_of_a_work_it_has_just_indexed_for_the_first_ti
     # one question, about this work - not the undated one, not the overwrite-older one
     assert [q['name'] for q, _ in asked] == [server.UNINDEXED_COPY_QUESTION]
     assert asked[0][0]['formats'] == ['EPUB', 'HTML']
-    assert asked[0][0]['recommended'] == 'no'   # the html's name says nothing
+    # the epub is behind; the html's name says nothing
+    assert asked[0][0]['recommendedFormats'] == ['EPUB']
     assert plan['keep'] == {LINK: {'EPUB', 'HTML'}}
     assert LINK not in plan['stale']
 
@@ -353,5 +365,219 @@ def test_the_run_s_record_keeps_how_each_question_was_answered(fake_fileops, mon
     assert record.data['choices'][0]['how'] == 'timed-out'
     # said once, for the answer it was about
     assert 'how' not in record.data['choices'][1]
+
+# endregion
+
+# region the version each format holds, in the index
+
+def an_entry(library, work='1', date='2026-11-06', **fields):
+    folder = os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME)
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f'{work} Fic A - B.json')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump({'id': work, 'link': f'https://archiveofourown.org/works/{work}',
+                   'indexes': [{'indexed_on': '2026-11-06T00:00:00+00:00', 'id': work,
+                                'title': 'Fic A', 'authors': ['B'], 'date_updated': date}],
+                   **fields}, f)
+    return path
+
+
+def read(path) -> dict:
+    with open(path, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def test_each_saved_format_s_version_is_noted_on_the_entry_and_an_undated_one_taken_out(fake_fileops):
+    path = an_entry(fake_fileops)
+    ao3 = Ao3(MagicMock(), fake_fileops, ['EPUB'], None, False, False)
+
+    assert ao3.note_format_dates('1', {'EPUB': '2026-11-04', 'PDF': '6 Nov 2026'})
+    assert read(path)['format_dates'] == {'EPUB': '2026-11-04', 'PDF': '2026-11-06'}
+    # the same again writes nothing
+    assert not ao3.note_format_dates('1', {'EPUB': '2026-11-04'})
+    assert ao3.note_format_dates('1', {'EPUB': None})
+    assert read(path)['format_dates'] == {'PDF': '2026-11-06'}
+    # a work with no entry has nowhere to note it
+    assert not ao3.note_format_dates('2', {'EPUB': '2026-11-04'})
+
+
+def test_a_new_reading_never_writes_over_the_format_dates_or_adds_them_to_the_history(fake_fileops):
+    path = an_entry(fake_fileops, format_dates={'EPUB': '2026-11-04'})
+    ao3 = Ao3(MagicMock(), fake_fileops, ['EPUB'], None, False, False)
+    from source_code import indexing
+    # a record carried forward from before the note, as a re-read does
+    stale = {**indexing.flatten(read(path)), 'format_dates': {'EPUB': '2020-01-01'},
+             'kudos': 5}
+
+    ao3.save_metadata(stale)
+
+    data = read(path)
+    assert data['format_dates'] == {'EPUB': '2026-11-04'}
+    assert all('format_dates' not in reading for reading in data['indexes'])
+
+
+def test_a_download_notes_the_date_its_files_are_named_with(library):
+    path = an_entry(library, work='75354806', date='2026-11-06')
+    ao3 = Ao3(MagicMock(), library, ['PDF'], None, False, False)
+    ao3.repo.download_file.return_value = b'%PDF the work'
+
+    ao3.download_one_indexed({'id': '75354806', 'link': LINK, 'title': 'Fic A', 'authors': ['B'],
+                              'date_updated': '2026-11-06'}, 50, {}, 1, 1)
+
+    assert work_files(library) == ['75354806 Fic A - B 2026-11-06.pdf']
+    assert read(path)['format_dates'] == {'PDF': '2026-11-06'}
+
+# endregion
+
+# region your three scenarios: an imported Fic A, left unindexed, then a full scan that overwrites
+
+def imported(library, pdf=True) -> None:
+    if pdf: a_copy(library, '75354806 Fic A - B 2026-11-06.pdf')
+    a_copy(library, '75354806 Fic A - B 2026-11-03.epub')
+    a_copy(library, '75354806 Fic A - B.html')
+
+
+FORMATS = ['PDF', 'EPUB', 'HTML']
+
+
+def test_scenario_1_an_entry_from_an_earlier_quick_scan_lets_overwriting_replace_every_copy(library):
+    # a quick scan for PDF only indexed Fic A (6 Nov) and saved its PDF: now there is an entry
+    imported(library)
+    an_entry(library, work='75354806', date='2026-11-06', format_dates={'PDF': '2026-11-06'})
+    job, asked = a_scan(library, overwrite=True)
+    records = [{'id': '75354806', 'link': LINK, 'date_updated': '2026-11-06'}]
+
+    plan = server.plan_refresh(job, library, records, FORMATS, MagicMock())
+
+    # the entry judges them, and overwriting replaces them all - the undated html included -
+    # without asking: none is newer than the version written
+    assert asked == []
+    assert sorted(plan['superseded'][LINK]) == ['EPUB', 'HTML', 'PDF']
+    assert LINK in plan['stale']
+
+
+@pytest.mark.parametrize('answer, replaced', [
+    (None, []), ('no', []), ('recommended', ['EPUB', 'PDF']), ('yes', ['EPUB', 'HTML', 'PDF']),
+])
+def test_scenario_2_no_entry_so_the_full_scan_indexes_first_then_asks_about_each_copy(
+        library, answer, replaced):
+    imported(library)
+    job, asked = a_scan(library, answer=answer, overwrite=True)
+    # the full scan indexes every bookmark before downloading anything: AO3 says 6 Nov
+    job.ao3.save_metadata({'id': '75354806', 'link': LINK, 'title': 'Fic A', 'authors': ['B'],
+                           'date_updated': '2026-11-06'})
+    records = [{'id': '75354806', 'link': LINK, 'date_updated': '2026-11-06'}]
+
+    plan = server.plan_refresh(job, library, records, FORMATS, MagicMock())
+
+    [(question, default)] = asked
+    assert question['name'] == server.UNINDEXED_COPY_QUESTION
+    # the pdf is the same version but this run overwrites; the epub is behind; the html's
+    # name says nothing, so replacing it is never recommended
+    assert question['recommendedFormats'] == ['PDF', 'EPUB']
+    assert question['recommended'] == 'recommended'
+    assert default == {'choice': 'no'}
+    assert sorted(plan['superseded'].get(LINK, {})) == replaced
+    assert sorted(plan['keep'].get(LINK, set())) == sorted(set(FORMATS) - set(replaced))
+
+
+@pytest.mark.fichub
+@pytest.mark.parametrize('answer, fetched_formats', [(None, []), ('recommended', ['EPUB'])])
+def test_scenario_3_ao3_down_so_fichub_s_older_copy_replaces_only_what_it_is_newer_than(
+        library, monkeypatch, answer, fetched_formats):
+    # FicHub's copy is 2026-04-27 (its fixture). The pdf is named newer than that, the epub
+    # older, the html not at all. AO3 indexed Fic A off the listing (2026-05-10) before it
+    # went down, so FicHub's copy is also older than the index
+    a_copy(library, '75354806 Wolfbird - OpalApparition 2026-05-10.pdf')
+    a_copy(library, '75354806 Wolfbird - OpalApparition 2026-01-01.epub')
+    a_copy(library, '75354806 Wolfbird - OpalApparition.html')
+    fetched = []
+    monkeypatch.setattr(server.fichub, 'lookup', lambda repo, link: wolfbird())
+    monkeypatch.setattr(server.fichub, 'download',
+                        lambda repo, given, filetype: fetched.append(filetype) or b'fichub copy')
+    job, asked = answering_job()
+    job.filetypes = ['JSON'] + FORMATS
+    job.options['overwrite'] = True
+    job.ao3 = ao3 = Ao3(MagicMock(), library, FORMATS, None, False, False)
+    ao3.save_metadata({'id': '75354806', 'link': LINK, 'title': 'Wolfbird',
+                       'authors': ['OpalApparition'], 'date_updated': '2026-05-10'})
+    ao3.failures = [{'id': '75354806', 'link': LINK, 'error': 'AO3 is down for maintenance'}]
+    index = os.path.join(library.downloadfolder, strings.INDEXING_FOLDER_NAME,
+                         '75354806 Wolfbird - OpalApparition.json')
+
+    def ask(question, default):
+        asked.append((question, default))
+        if question['name'] == server.UNINDEXED_COPY_QUESTION:
+            return dict(default) if answer is None else {'choice': answer}
+        return {'choice': 'yes'}
+    job.ask = ask
+
+    server.rescue_with_fichub(job, library, ao3, MagicMock())
+
+    [question] = [q for q, _ in asked if q['name'] == server.UNINDEXED_COPY_QUESTION]
+    assert question['source'] == 'FicHub' and question['date'] == '2026-04-27'
+    assert question['recommendedFormats'] == ['EPUB']
+    # not the older-copy questions: they judge by an entry this work did not have
+    assert server.OVERWRITE_OLDER_QUESTION not in [q['name'] for q, _ in asked]
+    assert fetched == fetched_formats
+    if fetched_formats:
+        # named with FicHub's own date; the old epub replaced, the pdf and html as they were
+        assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.epub',
+                                       '75354806 Wolfbird - OpalApparition 2026-05-10.pdf',
+                                       '75354806 Wolfbird - OpalApparition.html']
+        # the index is newer than FicHub's copy, so it stays - and says the epub is older
+        data = read(index)
+        assert data['indexes'][-1]['date_updated'] == '10 May 2026' or \
+            data['indexes'][-1]['date_updated'].startswith('2026-05-10') or \
+            parse_text.get_date_stamp(data['indexes'][-1]['date_updated']) == '2026-05-10'
+        assert data['format_dates'] == {'EPUB': '2026-04-27'}
+    else:
+        assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-01-01.epub',
+                                       '75354806 Wolfbird - OpalApparition 2026-05-10.pdf',
+                                       '75354806 Wolfbird - OpalApparition.html']
+
+# endregion
+
+# region scenario 4: a repair that looks up the index, then a quick scan
+
+def test_scenario_4_a_repair_s_lookup_notes_each_file_s_own_date_on_the_new_entry(library):
+    # dating skipped; the lookup made Fic A's entry from AO3, which says 8 Nov
+    a_copy(library, '75354806 Fic A - B 2026-11-06.pdf')
+    a_copy(library, '75354806 Fic A - B 2026-11-03.epub')
+    a_copy(library, '75354806 Fic A - B.html')
+    path = an_entry(library, work='75354806', date='2026-11-08')
+    ao3 = Ao3(MagicMock(), library, FORMATS, None, False, False)
+    record = {'id': '75354806', 'link': LINK, 'title': 'Fic A', 'authors': ['B'],
+              'date_updated': '2026-11-08'}
+
+    server.name_files_from_index(library, [record], ao3)
+
+    # the entry says AO3's 8 Nov; each file keeps - and the entry notes - its own version
+    assert read(path)['indexes'][-1]['date_updated'] == '2026-11-08'
+    assert read(path)['format_dates'] == {'EPUB': '2026-11-03', 'PDF': '2026-11-06'}
+    assert work_files(library) == ['75354806 Fic A - B 2026-11-03.epub',
+                                   '75354806 Fic A - B 2026-11-06.pdf',
+                                   '75354806 Fic A - B.html']
+
+
+def test_scenario_4_the_quick_scan_after_it_judges_by_that_entry_and_asks_nothing_new(library):
+    a_copy(library, '75354806 Fic A - B 2026-11-06.pdf')
+    a_copy(library, '75354806 Fic A - B 2026-11-03.epub')
+    a_copy(library, '75354806 Fic A - B.html')
+    path = an_entry(library, work='75354806', date='2026-11-08',
+                    format_dates={'EPUB': '2026-11-03', 'PDF': '2026-11-06'})
+    job, asked = a_scan(library)
+    records = [{'id': '75354806', 'link': LINK, 'date_updated': '2026-11-08'}]
+
+    plan = server.plan_refresh(job, library, records, FORMATS, MagicMock())
+
+    # the pdf and epub are behind 8 Nov and replaced. the undated html is left as it is: a
+    # work behind in one format counts as behind, not undated, so nothing asks about it
+    assert asked == []
+    assert sorted(plan['superseded'][LINK]) == ['EPUB', 'PDF']
+    assert LINK in plan['stale'] and LINK not in plan['undated']
+    # a reading never touches what the entry says each format holds
+    job.ao3.save_metadata({**records[0], 'title': 'Fic A', 'authors': ['B'], 'kudos': 9})
+    assert read(path)['format_dates'] == {'EPUB': '2026-11-03', 'PDF': '2026-11-06'}
 
 # endregion

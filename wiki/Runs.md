@@ -46,7 +46,7 @@ Each run asks its options, then which file types, then your login.
 - **Older copies** - two copies of one work and format. Keep only the newest, or leave them.
 - **How far back to go** - a Quick Scan with no earlier scan, but an index already there.
 - **Try FicHub?** - at the end, when AO3 wouldn't give the run some works. Try FicHub, or leave them as failures.
-- **Replace a copy of a work your index has no entry for?** - when a file in your library is for a work the index did not know when the run began, there is nothing to tell which version it holds. The run reads the date in the file's name (as *Infer date* does), recommends yes only if the incoming version from AO3 or FicHub is newer, and says why. **No** if you don't answer.
+- **Replace a copy of a work your index has no entry for?** - when a file in your library is for a work the index did not know when the run began, there is nothing to tell which version it holds. The run reads the date in each file's name (as *Infer date* does) and recommends replacing a copy only if the incoming version from AO3 or FicHub is newer - or the same, on a run that overwrites - saying why for each. You can replace only the recommended ones, all, or none. **None** if you don't answer.
 - **Replace a newer copy with an older version?** - on a run that replaces files, when the copy you have is newer than what would replace it (from AO3 or FicHub). **No** if you don't answer.
 - **Take FicHub's older version?** - when FicHub's copy is older than your index says the fic is, and you have no file at all in a format you asked for. Yes takes the older version of just that format.
 

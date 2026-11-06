@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2143 python passed; 1102 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2157 python passed; 1102 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1915,19 +1915,32 @@ version's, not the copy's, so the version check has nothing to judge by. `Ao3.in
 is the index as the run found it - the first listing of `indexing/`, which `entry_path` makes
 before the run's first write there (`entries_at_start`); `indexed_before` takes it off the run's
 own downloader, and is None (nothing asked) for an import - whose window already chose to keep or
-replace - or a test's stand-in. Per work, naming every requested format it has a copy of, it reads
-a date out of each copy's name the way *Infer date* does (`parse_text.infer_date_from_filename`,
-the same `_DATE_PATTERNS` as the page's `DATE_PATTERNS` - keep them in step) and recommends
-(`unindexed_copy_advice`): **yes** only when the incoming version is newer than every copy's
-date, **no** when it is not, or a name holds no date - saying why, in the log and the question.
-**The default is always no**, whatever is recommended: not from settings.ini, not offered up front
-on a background run, and never reused from an earlier attempt (`ASKED_PER_WORK` - one work's answer
-is not another's). Yes puts the copies in `superseded` and the work in `stale`; no takes them
-out, into `plan['keep']`. It runs in `plan_refresh` (every scan, the fic runs), `update_one_work`
-and `rescue_one`; `settle_undated` and `keep_newer_copies` leave those works to it, so nothing is
-asked twice. In `rescue_one` the older-copy questions still ask about the formats there is no
-file of; a work whose copies are all kept and gets nothing from an older FicHub copy stays a
-failure. `test_unindexed_copies.py` holds it.
+replace - or a test's stand-in. **Each copy is judged on its own** (`unindexed_copy_advice`), from
+a date read out of its name the way *Infer date* does (`parse_text.infer_date_from_filename`, the
+same `_DATE_PATTERNS` as the page's `DATE_PATTERNS` - keep them in step): recommended for
+replacing when the incoming version is newer, or the same on a run that overwrites; never when it
+is older or either side has no date (an undated copy can never be told apart). The reason is said
+per copy, in the log and the question. **One question per work**: `yes` replaces every copy,
+`recommended` (offered when only some are) replaces just those, `no` keeps them all - and **no is
+the default whatever is recommended**: not from settings.ini, not offered up front on a background
+run, never reused from an earlier attempt (`ASKED_PER_WORK`). A copy to replace goes in
+`superseded` (and the work in `stale`); one kept leaves it, into `plan['keep']`, and `keptSaid`
+stops the downloader saying *keeping your newer copy* after it. It runs in `plan_refresh` (every
+scan, the fic runs), `update_one_work` and `rescue_one`; `settle_undated` and `keep_newer_copies`
+leave those works to it. In `rescue_one` the older-copy questions still ask about the formats
+there is no file of; a work whose copies are all kept and gets nothing from an older FicHub copy
+stays a failure. `test_unindexed_copies.py` holds it, with the scenarios it was built for.
+
+**The entry notes which version each downloaded format holds** (`indexing.FORMAT_DATES`,
+`format_dates: {"EPUB": "2026-11-04"}`): the date its file's name carries, which can differ from
+`date_updated` - an older FicHub copy kept beside AO3's newer reading, an imported file keeping its
+own date, a format left alone while the work moved on. `Ao3.note_format_dates` writes it straight
+onto the file (no new reading) after every format `download_one_indexed` saves, after FicHub's
+entry is written, and when an import names its files (`name_files_from_index`); an undated file
+takes its format out. It is a **bookkeeping field** (`BOOKKEEPING_FIELDS`), never part of a
+reading - so a reading carried forward from earlier in a run cannot write an older one back, and a
+re-index never touches it - and **nothing reads it to decide what to fetch**: outdated is still
+judged from each file's own name.
 
 **Every question a run asks is recorded with how it was answered** (`how` on the choice):
 `answered`, `timed-out`, `not-asked` (QuestionTimeoutMinutes 0), `background-default`,

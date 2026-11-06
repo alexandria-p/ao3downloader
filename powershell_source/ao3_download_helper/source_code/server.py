@@ -160,7 +160,9 @@ OVERWRITE_OLDER_CHOICES = (OVERWRITE_OLDER_YES, OVERWRITE_OLDER_NO)
 UNINDEXED_COPY_QUESTION = 'unindexed-copy'
 UNINDEXED_COPY_YES = 'yes'
 UNINDEXED_COPY_NO = 'no'
-UNINDEXED_COPY_CHOICES = (UNINDEXED_COPY_YES, UNINDEXED_COPY_NO)
+# only some of a work's copies recommended for replacing: replace just those
+UNINDEXED_COPY_RECOMMENDED = 'recommended'
+UNINDEXED_COPY_CHOICES = (UNINDEXED_COPY_RECOMMENDED, UNINDEXED_COPY_YES, UNINDEXED_COPY_NO)
 # questions asked about one work at a time: an earlier attempt's answer was about another work
 ASKED_PER_WORK = {UNINDEXED_COPY_QUESTION}
 
@@ -175,7 +177,8 @@ ANSWERED_STOPPED = 'stopped'
 
 # every choice any question may be answered with. the run reads only the answer to the
 # question it actually asked, so one list is enough to keep nonsense out at the door
-ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES + FICHUB_CHOICES
+ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES + FICHUB_CHOICES + \
+    (UNINDEXED_COPY_RECOMMENDED,)
 # which choices belong to which question - a background run is answered up front, by name
 CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
                DUPLICATES_QUESTION: DUPLICATES_CHOICES, FICHUB_QUESTION: FICHUB_CHOICES,
@@ -2420,6 +2423,7 @@ def download_planned(job: Job, fileops: FileOps, ao3: Ao3, records: list[dict],
                 visited.append(record['link'])
     ao3.superseded = plan['superseded']
     ao3.keep_formats = plan.get('keep') or {}
+    ao3.keep_said = plan.get('keptSaid') or set()
     job.steps.done('check')
 
     job.steps.start('download')
@@ -2818,7 +2822,7 @@ def run_fic_list(job: Job, fileops: FileOps, repo: Repository, report, importing
     else: job.steps.done('index')
 
     if importing:
-        name_files_from_index(fileops, records)
+        name_files_from_index(fileops, records, ao3)
         replace = bool(job.options.get('replaceOutdated'))
         index_only = set(job.options.get('indexOnly') or [])
         updating = [r for r in records if str(r.get('id') or '') not in index_only]
@@ -3791,7 +3795,7 @@ def rescue_with_fichub(job: Job, fileops: FileOps, ao3, report) -> None:
         named = [x for x in candidates if str(x['id']) in ao3.reindexed]
         if named:
             fresh = indexed_entries(ao3, fileops, {str(x['id']) for x in named})
-            name_files_from_index(fileops, list(fresh.values()))
+            name_files_from_index(fileops, list(fresh.values()), ao3)
 
     if job.cancel.is_set(): return
     job.steps.done('fichub')
@@ -3898,6 +3902,8 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         # the older-copy question, which judges by an entry it never had
         before = indexed_before(job)
         work = str(failure['id'])
+        # what the run was asked, before an older FicHub copy narrows it to what it may replace
+        run_overwrites = overwrite
         held_new = [x for x in filetypes if (existing.get(work) or {}).get(x.upper())] \
             if before is not None and work not in before else []
         if behind:
@@ -3918,7 +3924,7 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
             plan = shared.plan_downloads([record], existing, filetypes, overwrite=overwrite)
             plan['overwrite'] = overwrite
             ask_about_unindexed_copies(job, [record], existing, plan, filetypes, before,
-                                       strings.SOURCE_FICHUB)
+                                       strings.SOURCE_FICHUB, overwriting=run_overwrites)
             fetching = say_what_each_format_needs(record, existing, filetypes, plan)
             if behind and not fetching:
                 # an older copy, and every copy of yours kept: nothing came from FicHub
@@ -3946,6 +3952,10 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
                               from_mirror=True)
             print((strings.AO3_INFO_FICHUB_INDEXED if str(failure['id']) in ao3.reindexed
                    else strings.AO3_INFO_FICHUB_NOT_INDEXED).format(failure['id']))
+            # the entry is written after the downloads: say which version each one holds
+            if arrived and hasattr(ao3, 'note_format_dates'):
+                ao3.note_format_dates(str(failure['id']),
+                                      {x: record.get('date_updated') for x in arrived})
         if problem is not None: raise problem
     except exceptions.CancelledException:
         print(strings.INFO_CANCELLED)
@@ -4096,7 +4106,8 @@ def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
     plan['existing'] = existing
     # so the per-format lines can say why a current-looking copy is being fetched again
     plan['overwrite'] = bool(overwrite)
-    asked = ask_about_unindexed_copies(job, records, existing, plan, downloadtypes, before)
+    asked = ask_about_unindexed_copies(job, records, existing, plan, downloadtypes, before,
+                                       overwriting=overwrite)
     if overwrite: keep_newer_copies(job, records, existing, plan, downloadtypes, skip=asked)
 
     if plan['stale'] and overwrite:
@@ -4549,38 +4560,46 @@ def indexed_before(job: 'Job | None') -> set[str] | None:
         return None
 
 
-def unindexed_copy_advice(incoming: str, dates: dict[str, str], source: str) -> tuple[str, str]:
-    """What to recommend for a work's copies when the index has nothing to judge them by: 'yes'
-    only when the incoming version is newer than **every** copy's date read from its name, and
-    'no' otherwise - older, the same, or a copy whose name holds no date. With the reason, in a
-    sentence, for the log and the question."""
+def unindexed_copy_advice(incoming: str, file_date: str, source: str,
+                          overwriting: bool = False) -> tuple[str, str]:
+    """What to recommend for one copy when the index has nothing to judge it by, and why.
+
+    'yes' when the incoming version is newer than the date read from the copy's name - or the
+    same, on a run that overwrites (it was asked to replace even current copies). 'no' when it
+    is older, the same on a run that does not overwrite, or either side has no date: a copy
+    whose name holds no date cannot be told apart, so replacing it is never recommended.
+    """
 
     if not incoming:
         return UNINDEXED_COPY_NO, strings.UNINDEXED_REASON_NO_DATE.format(source)
-    if any(not date for date in dates.values()):
+    if not file_date:
         return UNINDEXED_COPY_NO, strings.UNINDEXED_REASON_NO_FILE_DATE
-    newest = max(dates.values())
-    if incoming > newest:
-        return UNINDEXED_COPY_YES, strings.UNINDEXED_REASON_NEWER.format(source, incoming, newest)
-    return UNINDEXED_COPY_NO, strings.UNINDEXED_REASON_NOT_NEWER.format(newest, source, incoming)
+    if incoming > file_date:
+        return UNINDEXED_COPY_YES, strings.UNINDEXED_REASON_NEWER.format(source, incoming, file_date)
+    if incoming == file_date and overwriting:
+        return UNINDEXED_COPY_YES, strings.UNINDEXED_REASON_SAME_OVERWRITING.format(source, incoming)
+    return UNINDEXED_COPY_NO, strings.UNINDEXED_REASON_NOT_NEWER.format(file_date, source, incoming)
 
 
 def ask_about_unindexed_copies(job: 'Job | None', records: list[dict], existing: dict,
                                plan: dict, filetypes: list[str], before: set[str] | None,
-                               source: str = strings.SOURCE_AO3) -> set[str]:
+                               source: str = strings.SOURCE_AO3,
+                               overwriting: bool | set[str] = False) -> set[str]:
     """Ask before a copy of a work **the index had no entry for when the run began** is replaced.
 
     With no entry of its own, nothing but the copy's name says which version it holds - the
     date the run just indexed is the incoming version's, not the copy's - so the version check
     has nothing to go on. For each such work with a copy of a requested format, the run asks
-    (`UNINDEXED_COPY_QUESTION`) whatever it would otherwise have done, overwriting or not,
-    reading a date out of each copy's name the way the Resolve issues window's *Infer date*
-    does (`parse_text.infer_date_from_filename`) to recommend an answer and say why. Yes puts
-    those copies in `superseded` (and the work in `stale`), so they are fetched and replaced;
-    no takes them out, into `plan['keep']`, so they are kept and not fetched. **The default is
-    always no.** Formats it has no copy of are fetched either way. Answers the works it asked
-    about, so no other question asks about them again. `before` is `Ao3.indexed_before_run()`;
-    None (no downloader to say) asks nothing.
+    (`UNINDEXED_COPY_QUESTION`) whatever it would otherwise have done, overwriting or not. Each
+    copy is judged on its own (`unindexed_copy_advice`), from a date read out of its name the way
+    the Resolve issues window's *Infer date* does (`parse_text.infer_date_from_filename`), and
+    the reason said. The answer is per work: **yes** replaces every copy, **recommended** (offered
+    when only some are) replaces just the recommended ones, **no** keeps them all - and **no is
+    always the default**. A copy to replace goes in `superseded` (and the work in `stale`); one
+    kept leaves it, into `plan['keep']`. Formats with no copy are fetched either way. Answers the
+    works it asked about, so no other question asks about them again. `before` is
+    `Ao3.indexed_before_run()`; None asks nothing. `overwriting` is the run's overwrite (True, or
+    the links it overwrites).
     """
 
     asked: set[str] = set()
@@ -4594,32 +4613,54 @@ def ask_about_unindexed_copies(job: 'Job | None', records: list[dict], existing:
         formats = [x for x in filetypes if have.get(x.upper())]
         if not formats: continue
 
+        overwrites = overwriting is True or (isinstance(overwriting, (set, frozenset)) and link in overwriting)
         incoming = parse_text.get_date_stamp(record.get('date_updated') or '')
         dates = {x: parse_text.infer_date_from_filename(have[x.upper()]['path']) for x in formats}
-        recommended, reason = unindexed_copy_advice(incoming, dates, source)
-        print(strings.AO3_INFO_UNINDEXED_COPY.format(
-            work, ', '.join(formats), source, incoming or '?', reason))
+        advice = {x: unindexed_copy_advice(incoming, dates[x], source, overwrites) for x in formats}
+        recommended_formats = [x for x in formats if advice[x][0] == UNINDEXED_COPY_YES]
+        recommended = (UNINDEXED_COPY_NO if not recommended_formats
+                       else UNINDEXED_COPY_YES if len(recommended_formats) == len(formats)
+                       else UNINDEXED_COPY_RECOMMENDED)
+        print(strings.AO3_INFO_UNINDEXED_COPY.format(work, ', '.join(formats), source, incoming or '?'))
+        for filetype in formats:
+            print(strings.AO3_INFO_UNINDEXED_FORMAT.format(filetype, advice[filetype][1]))
         asked.add(work)
-        yes = ask_yes_no(job, UNINDEXED_COPY_QUESTION, UNINDEXED_COPY_NO,
-                         {'ids': [work], 'formats': formats, 'date': incoming,
-                          'fileDates': {x: dates[x] for x in formats}, 'source': source,
-                          'recommended': recommended, 'reason': reason}, work, formats,
-                         kept={'recommended': recommended, 'source': source})
+
+        choices = ([UNINDEXED_COPY_RECOMMENDED] if recommended == UNINDEXED_COPY_RECOMMENDED else []) + \
+            [UNINDEXED_COPY_YES, UNINDEXED_COPY_NO]
+        answer = job.ask({'name': UNINDEXED_COPY_QUESTION, 'count': 1, 'ids': [work],
+                          'formats': formats, 'date': incoming, 'source': source,
+                          'fileDates': dates, 'reasons': {x: advice[x][1] for x in formats},
+                          'recommended': recommended, 'recommendedFormats': recommended_formats,
+                          'overwriting': overwrites, 'choices': choices},
+                         {'choice': UNINDEXED_COPY_NO})
+        # 'recommended' is taken whenever it is sent - it means the recommended copies, all or none
+        choice = answer.get('choice') if answer.get('choice') in UNINDEXED_COPY_CHOICES \
+            else UNINDEXED_COPY_NO
+        if job.cancel.is_set(): choice = UNINDEXED_COPY_NO
+        replace = formats if choice == UNINDEXED_COPY_YES \
+            else recommended_formats if choice == UNINDEXED_COPY_RECOMMENDED else []
+        if job.record:
+            job.record.choice({'question': UNINDEXED_COPY_QUESTION, 'count': 1, 'works': [work],
+                               'formats': formats, 'choice': choice, 'replaced': replace,
+                               'recommended': recommended, 'source': source})
+
         replacing = plan['superseded'].setdefault(link, {})
-        if yes:
-            for filetype in formats:
+        # this said what became of each copy, so the later per-format lines need not again
+        plan.setdefault('keptSaid', set()).add(link)
+        for filetype in formats:
+            if filetype in replace:
                 replacing[filetype] = have[filetype.upper()]['path']
                 print(strings.AO3_INFO_UNINDEXED_REPLACING.format(filetype))
-            if link not in plan['stale']: plan['stale'].append(link)
-            if link in plan.get('undated', []): plan['undated'].remove(link)
-            continue
-        keep.setdefault(link, set()).update(x.upper() for x in formats)
-        for filetype in formats:
-            replacing.pop(filetype, None)
-            print(strings.AO3_INFO_UNINDEXED_KEEPING.format(filetype))
+            else:
+                replacing.pop(filetype, None)
+                keep.setdefault(link, set()).add(filetype.upper())
+                print(strings.AO3_INFO_UNINDEXED_KEEPING.format(filetype))
         if not replacing: plan['superseded'].pop(link, None)
         missing = any(not have.get(x.upper()) for x in filetypes)
-        if not missing and link in plan['stale']: plan['stale'].remove(link)
+        if replace or missing:
+            if link not in plan['stale']: plan['stale'].append(link)
+        elif link in plan['stale']: plan['stale'].remove(link)
         if link in plan.get('undated', []): plan['undated'].remove(link)
     return asked
 
@@ -4669,7 +4710,7 @@ def keep_newer_copies(job: 'Job', records: list[dict], existing: dict, plan: dic
             if not missing and link in plan['stale']: plan['stale'].remove(link)
 
 
-def name_files_from_index(fileops: FileOps, records: list[dict]) -> int:
+def name_files_from_index(fileops: FileOps, records: list[dict], ao3=None) -> int:
     """An import's works, once indexed: each file of theirs in works/ that is not named the way
     its index entry names it is renamed so it is - **keeping the date its own name ends in**,
     which is the version the file holds and may well be older than AO3's. A file with no date
@@ -4693,11 +4734,16 @@ def name_files_from_index(fileops: FileOps, records: list[dict]) -> int:
 
     renamed = 0
     names: dict[str, str] = {}
+    # the version each format holds is the date its own name keeps - noted on the entry
+    held: dict[str, dict[str, str | None]] = {}
     for path in paths:
         name = path.replace('\\', '/').rsplit('/', 1)[-1]
         extension = os.path.splitext(name)[1]
         record = by_work.get(parse_text.get_work_number_from_filename(name) or '')
         if record is None or extension.lower() not in WORK_FILE_EXTENSIONS: continue
+        held.setdefault(str(record['id']), {})[
+            'HTML' if extension.lower() in ('.html', '.htm') else extension[1:].upper()] = \
+            parse_text.get_date_from_filename(name)
         wanted = indexed_file_name(record, parse_text.get_date_from_filename(name) or '',
                                    extension, maximum)
         if wanted == name: continue
@@ -4709,6 +4755,8 @@ def name_files_from_index(fileops: FileOps, records: list[dict]) -> int:
         names[name] = wanted
         renamed += 1
     follow_renames_in_exclusions(fileops, names)
+    if ao3 is not None and hasattr(ao3, 'note_format_dates'):
+        for work, dates in held.items(): ao3.note_format_dates(work, dates)
     return renamed
 
 
@@ -4792,7 +4840,8 @@ def say_what_each_format_needs(record: dict, existing: dict, filetypes: list[str
     for filetype in filetypes:
         copy = have.get(filetype.upper())
         if filetype.upper() in kept:
-            print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
+            if (record.get('link') or '') not in plan.get('keptSaid', ()):
+                print(strings.AO3_INFO_KEEPING_NEWER.format(filetype))
         elif not copy:
             print(strings.AO3_INFO_FORMAT_MISSING.format(filetype))
             wanted.append(filetype)
@@ -4882,7 +4931,7 @@ def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str]
                                      refresh_undated=refresh_undated, overwrite=overwrite)
         plan['overwrite'] = overwrite
         asked = ask_about_unindexed_copies(job, [fresh], existing, plan, filetypes,
-                                           indexed_before(job))
+                                           indexed_before(job), overwriting=overwrite)
         if overwrite and job is not None:
             keep_newer_copies(job, [fresh], existing, plan, filetypes, skip=asked)
         wanted = say_what_each_format_needs(fresh, existing, filetypes, plan)

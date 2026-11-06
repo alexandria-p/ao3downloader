@@ -472,11 +472,13 @@ AO3_INFO_KEEPING_NEWER = '  {}: keeping your newer copy'
 # a work the index had no entry for when the run began: nothing but its file's own name says
 # which version a copy holds, so the run asks - recommending from that name, defaulting to no
 AO3_INFO_UNINDEXED_COPY = ('  work {} had no index entry before this run, so your {} cannot be '
-                           'judged by it. the version from {} is dated {}. {} - waiting for you '
-                           'to choose whether to replace it...')
+                           'judged by it. the version from {} is dated {} - waiting for you to '
+                           'choose whether to replace it...')
+AO3_INFO_UNINDEXED_FORMAT = '    {}: {}'
 AO3_INFO_UNINDEXED_REPLACING = '  {}: replacing your copy, as asked'
 AO3_INFO_UNINDEXED_KEEPING = '  {}: keeping your copy'
 UNINDEXED_REASON_NEWER = 'recommended: yes - the {} version ({}) is newer than the date in your file name ({})'
+UNINDEXED_REASON_SAME_OVERWRITING = 'recommended: yes - the {} version is the same date ({}), and this run overwrites existing downloads'
 UNINDEXED_REASON_NOT_NEWER = 'recommended: no - your file name says {}, and the {} version ({}) is not newer'
 UNINDEXED_REASON_NO_FILE_DATE = 'recommended: no - no date could be read from your file name, so it cannot be told which is newer'
 UNINDEXED_REASON_NO_DATE = 'recommended: no - the {} version has no date to compare'

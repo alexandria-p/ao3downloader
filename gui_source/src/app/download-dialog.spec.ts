@@ -1636,28 +1636,34 @@ describe('DownloadDialog', () => {
     await open('bookmarks');
     await advanceTo('running');
     jobs.push!({ type: 'question', name: 'unindexed-copy', count: 1, ids: ['1'],
-                 formats: ['EPUB', 'HTML'], date: '2026-04-27', source: 'FicHub',
-                 fileDates: { EPUB: '2026-01-01', HTML: '' }, recommended: 'no',
-                 reason: 'recommended: no - no date could be read from your file name, so it cannot be told which is newer',
-                 default: 'no', choices: ['yes', 'no'] } as JobEvent);
+                 formats: ['PDF', 'EPUB', 'HTML'], date: '2026-11-06', source: 'AO3',
+                 fileDates: { PDF: '2026-11-06', EPUB: '2026-11-03', HTML: '' },
+                 recommended: 'recommended', recommendedFormats: ['PDF', 'EPUB'],
+                 reasons: {
+                   PDF: 'recommended: yes - the AO3 version is the same date (2026-11-06), and this run overwrites existing downloads',
+                   EPUB: 'recommended: yes - the AO3 version (2026-11-06) is newer than the date in your file name (2026-11-03)',
+                   HTML: 'recommended: no - no date could be read from your file name, so it cannot be told which is newer',
+                 },
+                 default: 'no', choices: ['recommended', 'yes', 'no'] } as JobEvent);
     await fixture.whenStable();
 
     const panel = element.querySelector('[data-question="unindexed-copy"]')!;
     const said = panel.textContent ?? '';
     expect(said).toContain('had no index entry for it');
-    expect(said).toContain('the version from FicHub');
-    expect(said).toContain('Your EPUB: dated 2026-01-01 in its name');
-    expect(said).toContain('Your HTML: no date in its name');
-    expect(said).toContain('Recommended: no - no date could be read from your file name');
-    expect(said).toContain('Left unanswered, the run keeps your copy');
+    expect(said).toContain('the version from AO3 (2026-11-06)');
+    const lines = Array.from(panel.querySelectorAll('.file-dates li')).map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(lines[0]).toContain('PDF - dated 2026-11-06 in its name. Recommended: yes - the AO3 version is the same date');
+    expect(lines[2]).toContain('HTML - no date in its name. Recommended: no - no date could be read');
+    expect(said).toContain('Left unanswered, the run keeps every copy');
     expect(element.querySelectorAll('.question')).toHaveLength(1);
-    // the recommended answer is the one that stands out
-    expect(button('No, keep my copy')!.classList).toContain('primary');
-    expect(button('Yes, replace it')!.classList).not.toContain('primary');
+    // only some recommended: replacing just those is offered, and stands out
+    expect(button('Replace only PDF, EPUB')!.classList).toContain('primary');
+    expect(button('Yes, replace them all')!.classList).not.toContain('primary');
+    expect(button('No, keep them all')).toBeTruthy();
 
-    button('Yes, replace it')!.click();
+    button('Replace only PDF, EPUB')!.click();
     await fixture.whenStable();
-    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'yes', date: '' }]);
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'recommended', date: '' }]);
   });
 
   it('says how many works came from FicHub at the end', async () => {

@@ -191,7 +191,9 @@ export type DuplicatesChoice = 'newest' | 'leave';
 export type FicHubChoice = 'yes' | 'no';
 
 /** anything a run may be answered with; the run only reads its own question's replies */
-export type AnswerChoice = UndatedChoice | QuickFloorChoice | DuplicatesChoice | FicHubChoice;
+/** a copy of a work with no earlier index entry: replace just the recommended copies */
+export type UnindexedCopyChoice = 'recommended';
+export type AnswerChoice = UndatedChoice | QuickFloorChoice | DuplicatesChoice | FicHubChoice | UnindexedCopyChoice;
 
 /** one older copy a run marked for removal, and what became of it */
 export interface RunRemoval {
@@ -309,9 +311,11 @@ export interface RunChoice {
    * `stopped` the run was stopped while it waited.
    */
   how?: string;
-  /** on an `unindexed-copy` answer: what was recommended, and where the incoming version was from */
+  /** on an `unindexed-copy` answer: what was recommended, where the incoming version was
+   *  from, and the formats replaced */
   recommended?: string;
   source?: string;
+  replaced?: string[];
 }
 
 /** one past run, as the helper wrote it down */
@@ -505,8 +509,12 @@ export interface JobEvent {
    *  where the incoming version is from, the answer recommended and why */
   fileDates?: Record<string, string>;
   source?: string;
+  /** 'yes', 'no', or 'recommended' when only some copies are worth replacing */
   recommended?: string;
-  reason?: string;
+  recommendedFormats?: string[];
+  /** why each copy is or is not recommended for replacing */
+  reasons?: Record<string, string>;
+  overwriting?: boolean;
   /** a question's: the answer it takes if nobody gives one, and after how many minutes */
   default?: string;
   timeoutMinutes?: number;

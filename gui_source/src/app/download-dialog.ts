@@ -544,12 +544,13 @@ export class DownloadDialog implements OnDestroy {
   protected readonly askedFileDates = signal<Record<string, string>>({});
   protected readonly askedSource = signal('');
   protected readonly askedRecommended = signal('');
-  protected readonly askedReason = signal('');
+  protected readonly askedRecommendedFormats = signal<string[]>([]);
+  protected readonly askedReasons = signal<Record<string, string>>({});
+
   /** the helper's reason as a sentence: 'Recommended: no - ...' */
-  protected readonly recommendation = computed(() => {
-    const reason = this.askedReason();
+  protected sentence(reason: string | undefined): string {
     return reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + '.' : '';
-  });
+  }
   /** what the question answers itself with if nobody does, and after how many minutes */
   protected readonly askedDefault = signal('');
   protected readonly askedTimeout = signal(0);
@@ -2136,7 +2137,8 @@ export class DownloadDialog implements OnDestroy {
         this.askedFileDates.set(event.fileDates ?? {});
         this.askedSource.set(event.source ?? '');
         this.askedRecommended.set(event.recommended ?? '');
-        this.askedReason.set(event.reason ?? '');
+        this.askedRecommendedFormats.set(event.recommendedFormats ?? []);
+        this.askedReasons.set(event.reasons ?? {});
         this.askedDefault.set(event.default ?? '');
         this.askedTimeout.set(event.timeoutMinutes ?? 0);
         this.choosingDate.set(false);
@@ -2399,6 +2401,11 @@ export class DownloadDialog implements OnDestroy {
 
   protected keepUnindexedCopy(): void {
     void this.answerQuestion('no');
+  }
+
+  /** replace only the copies recommended for it */
+  protected replaceRecommendedCopies(): void {
+    void this.answerQuestion('recommended');
   }
 
   /** measure back to the day the index was last written */

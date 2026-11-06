@@ -417,7 +417,8 @@ Used by: every workflow that downloads.
 - Scans `works/` and matches files to works by work number.
 - Asks about undated files, then about older copies (only for this run's works).
 - Decides, per work and format, what is missing, outdated or current.
-- **A copy of a work with no earlier index entry** [unindexed copy] - a file in the library for a work the index did not have when the run began. Before replacing it - from AO3 or FicHub, overwriting or not, in every scan and fic run but an import - the run asks per work (`unindexed-copy`), recommending yes only when the incoming version is newer than the date read from every copy's name (the *Infer date* rules), and saying why; **the default is always no**, keeping it.
+- **A copy of a work with no earlier index entry** [unindexed copy] - a file in the library for a work the index did not have when the run began. Before replacing it - from AO3 or FicHub, overwriting or not, in every scan and fic run but an import - the run asks per work (`unindexed-copy`), judging each copy from the date in its name (the *Infer date* rules): recommended for replacing when the incoming version is newer, or the same on an overwriting run; never when older or undated. Answers: *Replace only* the recommended copies, *Yes* all, *No* none; **the default is always no**, keeping them.
+- **Format dates** (`format_dates` on an index entry) - which version each downloaded format holds, from its file's name, noted whenever a format is saved or an import names its files. Bookkeeping, not part of a reading; never used to decide what to fetch.
 - **Overwrite** (full scan, custom run) treats every copy as needing replacing; **specific fic** always replaces that fic, and only that fic. A copy whose date is **later** than the version about to be written is asked about first, per work (`overwrite-older`, default *no*, keeping it); formats not on disk are fetched either way.
 
 ### Download or update works as necessary

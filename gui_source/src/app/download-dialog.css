@@ -675,10 +675,9 @@ pre {
   padding-left: 18px;
 }
 
-.question .recommendation {
-  margin: 0 0 10px;
-  font-weight: 600;
-  color: var(--text-strong);
+/* one line per copy; the ones recommended for replacing say so in the accent */
+.question .file-dates li[data-recommended='yes'] {
+  color: var(--accent-text);
 }
 
 /* endregion */

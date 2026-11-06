@@ -444,7 +444,11 @@ describe('History', () => {
       aRun({
         choices: [
           { at: '2026-09-13T12:05:00', question: 'unindexed-copy', choice: 'no', count: 1,
-            works: ['1'], formats: ['EPUB'], recommended: 'yes', source: 'AO3', how: 'timed-out' },
+            works: ['1'], formats: ['EPUB'], recommended: 'yes', source: 'AO3', how: 'timed-out',
+            replaced: [] },
+          { at: '2026-09-13T12:05:30', question: 'unindexed-copy', choice: 'recommended', count: 1,
+            works: ['2'], formats: ['PDF', 'HTML'], recommended: 'recommended', source: 'FicHub',
+            how: 'answered', replaced: ['PDF'] },
           { at: '2026-09-13T12:06:00', question: 'fichub', choice: 'yes', count: 2, how: 'answered' },
           // from before the record kept how
           { at: '2026-09-13T12:07:00', question: 'quick-floor', choice: 'full', count: 40 },
@@ -458,8 +462,11 @@ describe('History', () => {
     expect(said).toContain('Work 1 had no index entry');
     expect(said).toContain('recommended: yes');
     expect(said).toContain('to keep the copy');
+    expect(said).toContain('recommended: some');
+    expect(said).toContain('to replace only PDF');
     const hows = Array.from(block.querySelectorAll('.how')).map((x) => x.textContent?.trim());
-    expect(hows).toEqual(['Nobody answered in time, so it took the default.', 'You answered.']);
+    expect(hows).toEqual(['Nobody answered in time, so it took the default.', 'You answered.',
+                          'You answered.']);
   });
 
   it('lists every run it was given', async () => {

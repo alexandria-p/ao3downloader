@@ -1725,35 +1725,39 @@
               @for (id of askedIds(); track id) {
                 <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
               }
-              but had no index entry for it, so there is nothing to tell which version your copy
-              holds. Replace it with the version from {{ askedSource() }}
+              but had no index entry for it, so there is nothing to tell which version each copy
+              holds. Replace them with the version from {{ askedSource() }}
               ({{ askedDate() || 'no date' }})?
             </p>
             <ul class="file-dates">
               @for (format of askedFormats(); track format) {
-                <li>Your {{ format }}: {{ askedFileDates()[format] ? 'dated ' + askedFileDates()[format] + ' in its name' : 'no date in its name' }}</li>
+                <li [attr.data-recommended]="askedRecommendedFormats().includes(format) ? 'yes' : 'no'">
+                  <strong>{{ format }}</strong> - {{ askedFileDates()[format] ? 'dated ' + askedFileDates()[format] + ' in its name' : 'no date in its name' }}.
+                  {{ sentence(askedReasons()[format]) }}
+                </li>
               }
             </ul>
-            @if (askedReason()) {
-              <p class="recommendation" [attr.data-recommended]="askedRecommended()">
-                {{ recommendation() }}
-              </p>
-            }
 
             <div class="question-actions">
+              @if (askedRecommended() === 'recommended') {
+                <button type="button" class="button primary" [disabled]="answering()"
+                        (click)="replaceRecommendedCopies()">
+                  Replace only {{ askedRecommendedFormats().join(', ') }}
+                </button>
+              }
               <button type="button" class="button" [class.primary]="askedRecommended() === 'yes'"
                       [disabled]="answering()" (click)="replaceUnindexedCopy()">
-                Yes, replace it
+                {{ askedFormats().length > 1 ? 'Yes, replace them all' : 'Yes, replace it' }}
               </button>
-              <button type="button" class="button" [class.primary]="askedRecommended() !== 'yes'"
+              <button type="button" class="button" [class.primary]="askedRecommended() === 'no'"
                       [disabled]="answering()" (click)="keepUnindexedCopy()">
-                No, keep my copy
+                {{ askedFormats().length > 1 ? 'No, keep them all' : 'No, keep my copy' }}
               </button>
             </div>
 
             <p class="hint">
               Formats you do not have yet are still downloaded either way. Left unanswered, the
-              run keeps your copy.
+              run keeps every copy.
             </p>
           </div>
         }

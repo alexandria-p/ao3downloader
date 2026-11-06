@@ -196,6 +196,8 @@ class Ao3:
         # formats of a work an overwriting run was told not to replace: the copy on disk is
         # newer than the version this run would write. by link, formats upper-case
         self.keep_formats: dict[str, set[str]] = {}
+        # the works whose kept formats a question already said were kept - not said twice
+        self.keep_said: set[str] = set()
         # what a kept format is said as: a newer copy kept on an overwriting run, or - on an
         # import told not to replace outdated copies - whatever copy you have
         self.keep_message = strings.AO3_INFO_KEEPING_NEWER
@@ -906,13 +908,15 @@ class Ao3:
 
         display = ' / '.join(x for x in title if x)
         failed: list[tuple[str, Exception]] = []
+        saved: list[str] = []
         kept = self.keep_formats.get(record['link']) or set()
         current = self.current_formats(record)
         wanted = self.wanted_formats(record)
         formats = [x for x in wanted if x.upper() not in kept
                    and not self.format_done(work, x) and x.upper() not in current]
         for filetype in wanted:
-            if filetype.upper() in kept: print(self.keep_message.format(filetype))
+            if filetype.upper() in kept:
+                if record['link'] not in self.keep_said: print(self.keep_message.format(filetype))
             elif self.format_done(work, filetype):
                 print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, work))
             elif filetype.upper() in current:
@@ -927,8 +931,12 @@ class Ao3:
                     parse_text.get_direct_download_link(work, filetype), filetype)
                 self.save_download(record['link'], filetype,
                                    filename + parse_text.get_file_type(filetype), content)
+                saved.append(filetype)
                 if arrived is not None: arrived.append(filetype)
 
+        # each format saved holds the version its name says - FicHub's may be older than the
+        # entry's - so the entry is told, per format
+        if saved: self.note_format_dates(work, {x: updated for x in saved})
         # anything that did arrive is a download, even when a format beside it failed
         if len(failed) < len(formats): self.downloaded.add(work)
         self.raise_if_formats_failed(failed)
@@ -1240,6 +1248,35 @@ class Ao3:
         # series' `series_existing`), and the name built from that is not one to reuse. a
         # name is remembered once a file has been written under it - `remember_entry`
         return self.metadata_path(document, subfolder)
+
+
+    def note_format_dates(self, work: str, dates: dict[str, str | None]) -> bool:
+        """Write onto a work's index entry which version each of these formats now holds
+        (`indexing.FORMAT_DATES`): the date its file's name carries, or none - which takes the
+        format out, since an undated file says nothing. Straight onto the file, no new reading.
+        Nothing when the work has no entry, or nothing changed. Swallows its own errors: a
+        note about a download must never fail the download. Answers whether it wrote."""
+
+        try:
+            path = self.entry_path({'id': str(work)})
+            data = self.fileops.load_json(path)
+            if not isinstance(data, dict) or not (data.get('id') or data.get(indexing.INDEXES)):
+                return False
+            current = dict(data.get(indexing.FORMAT_DATES) or {})
+            noted = dict(current)
+            for filetype, date in dates.items():
+                stamp = parse_text.get_date_stamp(date or '')
+                if stamp: noted[str(filetype).upper()] = stamp
+                else: noted.pop(str(filetype).upper(), None)
+            if noted == current: return False
+            if noted: data[indexing.FORMAT_DATES] = dict(sorted(noted.items()))
+            else: data.pop(indexing.FORMAT_DATES, None)
+            self.fileops.save_json(path, data)
+            return True
+        except exceptions.CancelledException:
+            raise
+        except Exception:
+            return False
 
 
     def indexed_before_run(self) -> set[str]:
