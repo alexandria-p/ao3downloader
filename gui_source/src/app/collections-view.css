@@ -365,9 +365,12 @@
 }
 
 /* the pill naming a collection made here wears the accent, as ao3's challenge pill does */
+/* gold (the status tokens' warn tint, so it follows a light or dark palette), never the accent -
+   the accent is the challenge pill's, and the two sit side by side */
 .badge.custom {
-  border-color: var(--accent-line);
-  color: var(--accent);
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-text);
 }
 
 /* an opened collection made here: name and pencil on the left, Update collection details on the right */
