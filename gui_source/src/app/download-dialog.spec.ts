@@ -3762,6 +3762,29 @@ describe('DownloadDialog', () => {
     }
   });
 
+  it('says under a run that cannot be retried why not, where it is listed', async () => {
+    jobs.retryableOnRecord = [
+      ended({ id: 'r3', actionName: 'Collection',
+              retry: { modes: ALL_MODES({ top: 'It has no link to go back to.', reindex: 'x', index: 'x',
+                                          redownload: 'x', downloads: 'x', failed: 'x' }),
+                       default: '', failedWorks: 0 } }),
+    ];
+    await toRetryPage();
+
+    const row = element.querySelector('.floor-runs label.unavailable')!;
+    expect(row.querySelector('.why-not')?.textContent).toContain('It has no link to go back to.');
+  });
+
+  it('no longer says on the first page that a slice cannot be retried', async () => {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('Retry an earlier run')!.click();
+    await fixture.whenStable();
+    const said = element.querySelector('.body')?.textContent ?? '';
+    expect(said).toContain('as that run, with its settings.');
+    expect(said).not.toContain('slice of pages');
+  });
+
   it('lists every ended run, finished ones included, with any warnings', async () => {
     jobs.retryableOnRecord = [
       ended({ warnings: ['It has already been resumed once.'] }),

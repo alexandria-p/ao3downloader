@@ -376,6 +376,11 @@ export class DownloadDialog implements OnDestroy {
     return run ? attemptIssues(run) : [];
   });
 
+  /** why an earlier run cannot be retried any way at all: the helper's reason for the first way */
+  protected whyNotRetryable(run: RetryableRun): string {
+    return run.retry.modes.find((m) => !m.available && m.reason)?.reason || 'It cannot be retried.';
+  }
+
   protected statusWord(status: RunStatus): string {
     return (
       { success: 'finished', partial: 'partly finished', failed: 'failed', stopped: 'stopped',

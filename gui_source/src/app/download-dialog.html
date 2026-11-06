@@ -326,9 +326,7 @@
           @if (resuming()) {
             <p class="hint">
               Carries on a full scan, quick scan or custom run that was stopped, failed, or
-              interrupted - as that run, with its settings, so everything else here is taken
-              from it. You pick the run on the next page. A custom run over a slice of pages
-              cannot be resumed.
+              interrupted - as that run, with its settings.
             </p>
           }
 
@@ -735,7 +733,7 @@
             <legend>Earlier runs</legend>
             @for (run of retryableRuns(); track run.id) {
               <label class="check" [class.unavailable]="!run.retry.default"
-                     [title]="run.retry.default ? '' : 'It cannot be retried'">
+                     [title]="run.retry.default ? '' : whyNotRetryable(run)">
                 <input type="radio" name="resumeRun" [value]="run.id"
                        [disabled]="!run.retry.default"
                        [checked]="resumeRun() === run.id"
@@ -746,6 +744,10 @@
                     - started {{ run.started.slice(0, 10) }} {{ run.started.slice(11, 16) }},
                     {{ statusWord(run.status) }}
                   </span>
+                  <!-- a run that cannot be picked says why where it is listed, not only on hover -->
+                  @if (!run.retry.default) {
+                    <span class="hint why-not">{{ whyNotRetryable(run) }}</span>
+                  }
                   @for (warning of run.warnings; track $index) {
                     <span class="hint warn">{{ warning }}</span>
                   }
