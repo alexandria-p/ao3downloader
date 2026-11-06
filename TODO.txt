@@ -43,3 +43,5 @@ look at, and decide how to style, topbar when using local storage
 Let people looking at the GitHub page 'continue as a guest in read-only mode': serve them dummy data, and let them run pretend scans that go through all their steps in under a minute.
 
 Allow downloaded (local) builds to 'run in background' too, so people can still click about the app while their local helper finishes the run.
+
+Works tab heading: show the number of bookmarks in 'X - Y of Z Bookmarks', and underneath it the total number of works in the library too (some may be imported, or downloaded by id/url, and not marked as bookmarks).
