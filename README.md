@@ -68,7 +68,7 @@ Because this runs on your machine, it means you don't have to send that request 
 
 Note: If lots of users opt-into the Dropbox integration (above 500), I will need to upgrade my app registration with Dropbox - I am happy to do this.
 
-**Privacy**: FicFairy collects no personal information. Read the full [privacy policy](docs/privacy/20261106_FicFairy_Private-Policy.docx) (a Word document) for what the optional feedback form sends, and where.
+**Privacy**: FicFairy collects no personal information. Read the full [privacy policy](docs/privacy/FicFairy_Privacy-Policy.docx) (a Word document) for what the optional feedback form sends, and where.
 
 ## AI Use and Disclosure
 
