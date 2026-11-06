@@ -469,6 +469,27 @@ describe('DownloadDialog', () => {
     });
   }
 
+  for (const action of ['bookmarks', 'custom'] as JobAction[]) {
+    it(`says a ${action} run's overwrite takes in the non-bookmarks only when both are ticked`, async () => {
+      await open(action);
+      await advanceTo('options');
+      const note = () => element.querySelector('.overwrite-non-bookmarks')?.textContent ?? '';
+      expect(note()).toBe('');
+
+      checkbox('Overwrite existing downloads')!.click();
+      await fixture.whenStable();
+      expect(note()).toBe('');
+
+      checkbox('Check all non-bookmarks for updates too')!.click();
+      await fixture.whenStable();
+      expect(note()).toContain('This will include any non-bookmarks in this scan too.');
+
+      checkbox('Overwrite existing downloads')!.click();
+      await fixture.whenStable();
+      expect(note()).toBe('');
+    });
+  }
+
   it('lists no JSON outside debug mode, and says nothing about it, but still sends it', async () => {
     // json is the index - always written by a run that indexes, never one to pick
     await open('bookmarks');

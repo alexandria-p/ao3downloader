@@ -604,6 +604,10 @@
             Check this if you are concerned about file integrity issues and would like to
             re-download each file again, in the formats you ask for.
           </p>
+          <!-- the non-bookmarks it re-reads are downloaded with the rest, so they are overwritten too -->
+          @if (overwrite() && picksNonBookmarks() && nonBookmarks()) {
+            <p class="hint overwrite-non-bookmarks">This will include any non-bookmarks in this scan too.</p>
+          }
         }
 
         @if (picksImages()) {
