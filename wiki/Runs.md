@@ -41,6 +41,52 @@ Each run asks its options, then which file types, then your login.
 - **Include subcollections / parent collections** - collection runs only. Follows the family, each collection once, up to 200.
 - **Skip AO3 login?** - on every run's login page, below the username and password, off by default. Not recommended: logged out, private bookmarks are missed and fics restricted to AO3 users can't be reached, so they may have to come from FicHub instead. Scans of your own bookmarks or collections still ask for your username, never your password.
 
+## How files are compared
+
+Three dates are involved whenever a run decides whether to download a format:
+
+- **The incoming date** - when the source says the fic was last updated: AO3, as read during this run, or FicHub's copy.
+- **Your file's date** - the date at the end of the file's name (`12345 Title - Author 2026-11-04.epub`). This is the version the file holds. A file with no date in its name is *undated*.
+- **The index entry's date** - when AO3 (or FicHub) said the fic was last updated, the last time its entry was read. It says how current the entry's summary, tags and stats are. **It is never what a file is compared against** - each file is compared with the incoming date.
+
+Each format is judged on its own, so a work can have a current HTML and an outdated EPUB, and only the EPUB is fetched. A new file is named with the incoming date, and an older copy is deleted only once the new one is saved whole.
+
+### From AO3
+
+**Where AO3's date comes from.** Every scan reads it off your bookmarks listing (or a collection's) as it walks it. The fic runs and the pass over unfinished fics open each fic's own page. The index entry is written from that same read, so on these runs the two dates agree. Two exceptions use an older date: a **Custom run with *Skip indexing***, which judges files against your index as it stands, and a **retry carrying on an earlier attempt's downloads**, which uses what that attempt read.
+
+| Your file | Ordinary run | Overwriting run (and the fic runs) |
+|---|---|---|
+| No file in that format | Downloaded | Downloaded |
+| Older than AO3's version | Replaced | Replaced |
+| Same date | Kept | Replaced |
+| Newer than AO3's version | Kept | Asks first (default: keep) |
+| No date in its name | Asks: date it, re-download, or skip (default: skip) | Replaced |
+
+**The index** is updated with a new reading whenever AO3's details have changed - whatever happens to the files.
+
+### From FicHub
+
+FicHub is only asked at the end of a run, for works AO3 wouldn't give. What happens depends on how FicHub's copy compares with your **index**:
+
+**FicHub's copy is as new as your index, or newer** (or the work has no indexed date): it is treated exactly as AO3's version would be, using the AO3 table above with FicHub's date. If the run writes JSON, the index gets a new reading from FicHub, marked **From FicHub**.
+
+**FicHub's copy is older than your index** (AO3 had a newer version that FicHub never caught): each file is still compared with FicHub's date, by the date in its own name, and **the index is left alone** - its reading is newer.
+
+| Your file | Ordinary run | Overwriting run |
+|---|---|---|
+| No file in that format | Asks whether to take the older version (default: yes) | Same |
+| Older than FicHub's copy | Replaced without asking | Replaced |
+| Same date | Kept | Replaced |
+| Newer than FicHub's copy | Kept | Asks first (default: keep) |
+| No date in its name | Kept | Asks first (default: keep) |
+
+The log says which case applied to each file. A work FicHub can give nothing newer for stays on the run's failure list.
+
+### A work your index didn't have
+
+If the index had no entry for a work when the run began, but your library holds a file of it, there is no earlier reading to go by. Before replacing such a file - from AO3 or FicHub, overwriting or not - the run asks, and recommends replacing a copy only when the incoming version is newer than the date in its name (or the same, on an overwriting run). **No** if you don't answer. *Resolve issues* (importing) doesn't ask: its own window has already chosen whether to keep or replace your copies, and it never overwrites a format you hold unless you chose to replace outdated ones.
+
 ## Questions a run may stop to ask
 
 - **Undated files** - files saved before names carried a date. Give them a date (renamed, nothing downloaded), re-download them, or skip them.

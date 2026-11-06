@@ -8,7 +8,7 @@ The words this project uses. `helper_files/TERMINOLOGY.md` in the repository has
 | **Non-bookmark** | A work in your index you didn't bookmark - found through a series or collection. |
 | **Library** | The folder everything is saved in - on your computer, or in Dropbox. |
 | **Index / index entry** | The `indexing/` folder: one JSON file per work, keeping its history. |
-| **Index entry's date** | When AO3 (or FicHub) said the fic was last updated, as of the last time the entry was read - so it shows whether the entry's summary, tags and stats are up to date. Each downloaded file has its own version date at the end of its name; that, not the entry, is what says whether the file is outdated. |
+| **Index entry's date** | When AO3 (or FicHub) said the fic was last updated, as of the last time the entry was read - so it shows whether the entry's summary, tags and stats are up to date. Each downloaded file has its own version date at the end of its name; that, not the entry, is what says whether the file is outdated. See [[How files are compared|Runs#how-files-are-compared]]. |
 | **Run** | One press of a button, from login to report. |
 | **Step** | One stage of a run, ticked off in the run window. |
 | **Log line** | One thing a run said as it went - "looking up work 7 on AO3", "new download: ..." - with when it was said. The run window shows each line's time in your AO3 time zone (User settings); **Download log** in History keeps the same lines stamped in UTC (`[2026-11-03 10:15:42 UTC]`), so logs from different places line up. Logs from older versions may have no times. |
