@@ -1,7 +1,8 @@
 import { ImportRequest } from './imports';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DownloadDialog, parseWorkList } from './download-dialog';
+import { DownloadDialog, parseWorkList, startProgramFor } from './download-dialog';
+import { VisitLog } from './visit-log';
 import { Library } from './library';
 import { LibraryStore, StorageRequest } from './library-store';
 import {
@@ -301,6 +302,33 @@ describe('DownloadDialog', () => {
 
     expect(element.querySelector('.preparing')).toBeNull();
     expect(element.textContent).toContain("isn't running");
+  });
+
+  it('tells someone whose helper is not running to start the app again, and folds the developer way away', async () => {
+    jobs.loadConfig = async () => {
+      jobs.available.set(false);
+      return null;
+    };
+    await open('quick');
+
+    const advice = element.querySelector('.restart-advice')?.textContent ?? '';
+    expect(advice).toContain('Close this page, then start FicFairy again');
+    expect(advice).toContain('open the helper in a terminal window');
+    expect(advice).toContain('Chrome is recommended');
+    const details = element.querySelector<HTMLDetailsElement>('details.developer-info');
+    expect(details?.querySelector('summary')?.textContent).toContain('Advanced information for developers');
+    expect(details?.open).toBe(false);
+    expect(details?.textContent).toContain('uv run python -m ao3downloader.server');
+  });
+
+  it('names what starts the app on each system', () => {
+    expect(startProgramFor('Windows')?.file).toBe('ficfairy.exe');
+    expect(startProgramFor('macOS')?.file).toBe('Start FicFairy.command');
+    expect(startProgramFor('MacIntel')?.file).toBe('Start FicFairy.command');
+    expect(startProgramFor('Linux x86_64')?.file).toBe('Start FicFairy.sh');
+    expect(startProgramFor('iPhone')).toBeNull();
+    expect(startProgramFor('Android')).toBeNull();
+    expect(startProgramFor('')).toBeNull();
   });
 
   // endregion
@@ -847,6 +875,22 @@ describe('DownloadDialog', () => {
     expect(checkbox('encountered series')).toBeUndefined();
     expect(checkbox('publication date')).toBeUndefined();
     expect(checkbox('images separately')).toBeUndefined();
+  });
+
+  it('notes in the visit log which options were left as the default and which were changed', async () => {
+    await open('bookmarks');
+    await advanceTo('options');
+    checkbox('encountered series')!.click();
+    await fixture.whenStable();
+    await advanceTo('running');
+
+    const text = TestBed.inject(VisitLog).text();
+    expect(text).toContain('Run started:');
+    expect(text).toContain('series: true (changed from false)');
+    expect(text).toContain('overwrite: false (left as the default)');
+    expect(text).toMatch(/file types: .*\(left as the default\)/);
+    // the login is never noted
+    expect(text).not.toMatch(/password/i);
   });
 
   it('sends the chosen options with the job', async () => {

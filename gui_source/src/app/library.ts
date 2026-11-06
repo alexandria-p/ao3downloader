@@ -17,6 +17,7 @@ import { isRunRecord } from './jobs';
 import { LibrarySetup, SetupTarget, WORKS_FOLDER } from './library-setup';
 import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
 import { unzip } from './unzip';
+import { DummyData, DummyKind } from './dummy-data';
 import { buildTagIndex } from './tags';
 
 /**
@@ -218,6 +219,9 @@ export class Library {
   private readonly folders = inject(FolderStore);
   private readonly dropbox = inject(DropboxSession);
   private readonly setup = inject(LibrarySetup);
+  private readonly dummy = inject(DummyData);
+  /** what is on screen is debug mode's dummy data, not a real library (`showDummy`) */
+  private showingDummy = false;
 
   /** which library is on screen, so switching back to a local folder clears Dropbox's */
   private showing: 'local' | 'dropbox' | null = null;
@@ -269,6 +273,8 @@ export class Library {
 
   /** Show the folder on this computer: reopen the remembered one if it can still be read. */
   async showLocal(): Promise<void> {
+    if (this.dummy.active()) return this.showDummy('local');
+    this.leaveDummy();
     if (this.showing === 'dropbox') {
       // Dropbox's library, and the means of writing to it, go with it
       this.clearLibrary();
@@ -302,6 +308,7 @@ export class Library {
   async retryRead(): Promise<void> {
     this.error.set('');
     this.readFailure.set(null);
+    if (this.showingDummy) return this.showDummy(this.showing ?? 'local');
     if (this.showing === 'dropbox') await this.showDropbox(true);
     else if (this.localHandle) await this.readHandle(this.localHandle, ++this.generation);
   }
@@ -314,6 +321,8 @@ export class Library {
    * is an empty library, not an error - a folder chosen a minute ago is exactly that.
    */
   async showDropbox(keep = false): Promise<void> {
+    if (this.dummy.active()) return this.showDummy('dropbox');
+    this.leaveDummy();
     this.showing = 'dropbox';
     const generation = ++this.generation;
     this.notReading();
@@ -455,11 +464,60 @@ export class Library {
     if (this.refreshing()) return;
     this.refreshing.set(true);
     try {
-      if (this.showing === 'dropbox') await this.showDropbox(true);
+      if (this.showingDummy) await this.showDummy(this.showing ?? 'local');
+      else if (this.showing === 'dropbox') await this.showDropbox(true);
       else if (this.localHandle && this.store()) await this.readHandle(this.localHandle, ++this.generation);
     } finally {
       this.refreshing.set(false);
     }
+  }
+
+  /**
+   * Show debug mode's dummy library for a storage choice instead of the real one - a different
+   * one for each, so it is plain which is on screen. It is read exactly as a real library is
+   * (the same json and works/ files, the same `ingestRecords`), from a `MemoryStore`, so History,
+   * hiding and custom collections all work on it and none of it reaches a real library.
+   */
+  private async showDummy(kind: DummyKind): Promise<void> {
+    this.showing = kind;
+    this.showingDummy = true;
+    const generation = ++this.generation;
+    this.notReading();
+    this.clearLibrary();
+    this.needsReconnect.set(false);
+    const store = this.dummy.library(kind);
+    this.store.set(store);
+    this.loading.set(true);
+    try {
+      const paths = await store.list('', true);
+      const files = await Promise.all(
+        paths.map(async (path) => {
+          const name = path.split('/').pop() ?? path;
+          return {
+            path,
+            file: new File([(await store.read(path)) ?? ''], name, {
+              lastModified: (await store.modified(path)) ?? Date.now(),
+            }),
+          };
+        }),
+      );
+      if (generation !== this.generation) return;
+      const works = files.filter((f) => f.path.split('/')[0] === WORKS_FOLDER).map((f) => f.file);
+      await this.ingestRecords(jsonOf(files.map((f) => f.file)), this.mapCopies(works), false);
+      await this.readHidden(generation, paths.some((p) => p.toLowerCase() === HIDDEN_FILE));
+      if (generation === this.generation) this.lastRead.set({ store, at: Date.now() });
+    } finally {
+      if (generation === this.generation) this.loading.set(false);
+    }
+  }
+
+  /** a real library is about to be shown: nothing of the dummy one may stay on screen */
+  private leaveDummy(): void {
+    if (!this.showingDummy) return;
+    this.showingDummy = false;
+    this.clearLibrary();
+    this.store.set(null);
+    this.lastRead.set(null);
   }
 
   /** What is on screen, without touching which local folder is remembered. */

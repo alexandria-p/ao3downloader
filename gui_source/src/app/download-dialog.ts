@@ -33,6 +33,7 @@ import {
 } from './jobs';
 import { DropboxSession } from './dropbox';
 import { HelperConnection } from './helper-connection';
+import { VisitLog } from './visit-log';
 import { LibraryFreshness } from './freshness';
 import { safeGet, safeRemove, safeSet } from './storage';
 import { Library } from './library';
@@ -154,6 +155,12 @@ const MAX_LOG = 200;
 export class DownloadDialog implements OnDestroy {
   private readonly jobs = inject(Jobs);
   private readonly library = inject(Library);
+  private readonly visit = inject(VisitLog);
+  /**
+   * What the window opened with - its file types and every option as it would send them - so
+   * the visit log can say which were left as they were and which were changed (`noteStart`).
+   */
+  private openedWith: { filetypes: string[]; options: Record<string, unknown> } | null = null;
   private readonly dropbox = inject(DropboxSession);
   private readonly helper = inject(HelperConnection);
   private readonly freshness = inject(LibraryFreshness);
@@ -1056,6 +1063,10 @@ export class DownloadDialog implements OnDestroy {
    * stayed open anyway. Not offered, rather than offered and refused: the choice is not shown.
    */
   protected readonly offersBackground = computed(() => !this.helper.isLocal());
+  /** whether this page's helper is on this computer - the app's own window, which a restart brings back */
+  protected readonly local = computed(() => this.helper.isLocal());
+  /** what starts FicFairy on this computer's system, for the helper-not-running advice; null when it cannot tell */
+  protected readonly startProgram = computed(() => startProgramFor(systemName()));
   /** ticked: the run carries on in the helper with this page closed */
   protected readonly background = signal(false);
   /** whether the run on screen is a background one - chosen here, or attached to */
@@ -1302,7 +1313,11 @@ export class DownloadDialog implements OnDestroy {
     // for whatever has not been chosen yet
     void this.helperAnswer.then((answer) => {
       if (!answer || known) return;
-      if (!this.filetypesTouched) this.selected.set(startingFiletypes(answer));
+      if (!this.filetypesTouched) {
+        this.selected.set(startingFiletypes(answer));
+        // the helper's own defaults are what the window opened with, for the visit log
+        if (this.openedWith) this.openedWith.filetypes = this.chosenFiletypes();
+      }
       // the up-front answers are chosen on the login step: until then they are the defaults
       if (this.step() !== 'credentials' && this.step() !== 'background') {
         this.startFromDefaults({ ...(answer.settings?.answerDefaults ?? {}), ...this.browserAnswers() });
@@ -1325,6 +1340,38 @@ export class DownloadDialog implements OnDestroy {
     this.remember.set(remembered);
     // the saved username can come from the browser or from ao3downloader's own data.json
     this.username.set((remembered ? safeGet(USERNAME_KEY) : '') || config.username || '');
+    this.openedWith = this.settingsNow();
+  }
+
+  /** the file types and options as a start request would carry them now */
+  private settingsNow(): { filetypes: string[]; options: Record<string, unknown> } | null {
+    try {
+      const request = this.startRequest(null);
+      return { filetypes: [...request.filetypes], options: { ...(request.options as unknown as Record<string, unknown>) } };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Note in the visit log what this run was started with: every option and the file types,
+   * each said to be left as the window opened with it or changed from that. Never the login.
+   */
+  private noteStart(background: boolean): void {
+    const now = this.settingsNow();
+    const shown = (value: unknown) => (Array.isArray(value) ? value.join(', ') || '(none)' : JSON.stringify(value ?? null));
+    const lines = [`Run started: ${this.title()} (${this.sentAction()})${background ? ', in the background' : ''}`];
+    if (now) {
+      const first = this.openedWith;
+      const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+      const says = (value: unknown, was: unknown) =>
+        first === null ? '' : same(value, was) ? ' (left as the default)' : ` (changed from ${shown(was)})`;
+      lines.push(`  file types: ${shown(now.filetypes)}${says(now.filetypes, first?.filetypes)}`);
+      for (const [key, value] of Object.entries(now.options)) {
+        lines.push(`  ${key}: ${shown(value)}${says(value, first?.options[key])}`);
+      }
+    }
+    this.visit.note(lines.join('\n'));
   }
 
   ngOnDestroy(): void {
@@ -1785,6 +1832,7 @@ export class DownloadDialog implements OnDestroy {
       const background = this.background() && !this.backgroundBlocked();
       // an ordinary run sends nothing about the background at all - in particular never the
       // Dropbox sign-in, which only a background run has any use for
+      this.noteStart(background);
       jobId = await this.jobs.start(
         background
           ? {
@@ -1798,6 +1846,7 @@ export class DownloadDialog implements OnDestroy {
       );
     } catch (e) {
       this.error.set(e instanceof Error ? e.message : String(e));
+      this.visit.note(`Run did not start: ${this.error()}`);
       this.step.set('failed');
       // the page's idea of what is running is out of date, so it is asked again
       if (e instanceof RunInProgressError) void this.jobs.refreshActiveRuns();
@@ -2194,6 +2243,7 @@ export class DownloadDialog implements OnDestroy {
   }
 
   private finishUp(): void {
+    this.visit.note(`Run ended: ${this.step()}${this.error() ? ` - ${this.error()}` : ''}`);
     // the run's record now says how it ended, so History reads it again when next opened
     this.jobs.forgetHistory();
     this.paused.set(null);
@@ -2393,4 +2443,22 @@ function isDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? '')) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/** the name of the system this browser runs on, as far as the browser says */
+function systemName(): string {
+  const nav = typeof navigator === 'undefined' ? null : (navigator as Navigator & { userAgentData?: { platform?: string } });
+  return nav?.userAgentData?.platform || nav?.platform || nav?.userAgent || '';
+}
+
+/**
+ * What a person double-clicks (or runs) to start the app on their system - the same files the
+ * release zips hold. Null for a system no zip is built for, such as a phone.
+ */
+export function startProgramFor(system: string): { file: string; how: string } | null {
+  if (/android|iphone|ipad|ios/i.test(system)) return null;
+  if (/mac|darwin/i.test(system)) return { file: 'Start FicFairy.command', how: 'double-click' };
+  if (/win/i.test(system)) return { file: 'ficfairy.exe', how: 'double-click' };
+  if (/linux|x11/i.test(system)) return { file: 'Start FicFairy.sh', how: 'run' };
+  return null;
 }

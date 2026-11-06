@@ -2,6 +2,8 @@
 
 Keep your own copy of your AO3 bookmarks and collections on your computer or Dropbox.
 
+[![Downloads](https://img.shields.io/github/downloads/alexandria-p/ficfairy/total)](https://github.com/alexandria-p/ficfairy/releases/latest)
+
 **This app works best in Chrome web browser.**
 
 ![The works list](docs/screenshots/works.png)
@@ -66,6 +68,8 @@ Because this runs on your machine, it means you don't have to send that request 
 
 Note: If lots of users opt-into the Dropbox integration (above 500), I will need to upgrade my app registration with Dropbox - I am happy to do this.
 
+**Privacy**: FicFairy collects no personal information. Read the full [privacy policy](docs/privacy/FicFairy_Privacy-Policy.docx) (a Word document) for what the optional feedback form sends, and where.
+
 ## AI Use and Disclosure
 
 This project has been developed over 3 months, and 100+ hours of (my own) human time. The code has been hand-architected - implementation has been part manual, part AI-assisted. 
@@ -92,6 +96,18 @@ Again, this tool is only for personal use and I have been militant in ensuring t
 ![Starting a Quick Scan](docs/screenshots/quick-scan.png)
 
 ![Importing files you already had](docs/screenshots/import.png)
+
+![Your collections, from AO3 and your own](docs/screenshots/collections.png)
+
+![Run history](docs/screenshots/history.png)
+
+### Make it yours
+
+Pick a colour palette and a font in **User settings**, and it fits a narrow window too.
+
+![Strawberry milk, Charcoal with the Typewriter font, and Lavender with Gaegu](docs/screenshots/customisation.png)
+
+<img src="docs/screenshots/custom-narrow.png" alt="FicFairy in a narrow window" width="220">
 
 ## More
 

@@ -346,6 +346,19 @@
         <span class="hint">Shows a banner at the top and a DEBUG tab with tools for trying the app out - such as a mock of Resolve issues found in your library that touches no real files.</span>
       </span>
     </label>
+    @if (debugMode.on()) {
+      <label class="check dummy-data">
+        <input type="checkbox" name="dummyData" [checked]="dummyData.chosen()"
+               (change)="setDummyData($any($event.target).checked)" />
+        <span>
+          Use dummy data instead of my library
+          <span class="hint">Works, collections and run history are made up and held in memory - one set for
+            <strong>This computer</strong> (a small tea-shop library) and another for <strong>Dropbox</strong>
+            (a larger space-station one), so you can tell which is in use. Nothing is read from or
+            written to your real library, and runs are held while it is on.</span>
+        </span>
+      </label>
+    }
   </section>
 
   @if (toast(); as toast) {

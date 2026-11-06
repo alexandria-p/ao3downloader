@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Feedback, Turnstile, USERNAME_REMOVED, failureReason, readLatestLog, redactLog } from './feedback';
+import { VisitLog } from './visit-log';
+import { Feedback, Turnstile, USERNAME_REMOVED, ZONE_REMOVED, PATH_REMOVED, failureReason, readLatestLog, redactLog } from './feedback';
 import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
 import { Library } from './library';
 import { DirectoryHandle } from './folder-store';
@@ -140,6 +141,21 @@ describe('Feedback', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
+  it('attaches what was done on this visit, with the username taken out, when ticked', async () => {
+    localStorage.setItem('ao3.username', 'ReaderName');
+    TestBed.inject(VisitLog).note('User settings: Saved: the Lavender palette, as ReaderName');
+    await make();
+    await openForm();
+    const box = element.querySelector<HTMLInputElement>('input[name="attachVisit"]')!;
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    await settle();
+    const preview = element.querySelector('details.visit pre')?.textContent ?? '';
+    expect(preview).toContain('Saved: the Lavender palette');
+    expect(preview).not.toContain('ReaderName');
+    localStorage.removeItem('ao3.username');
+  });
+
   it('says at the bottom of the form that an attached log loses the AO3 username', async () => {
     await make();
     await openForm();
@@ -147,6 +163,15 @@ describe('Feedback', () => {
     expect(note).toContain('AO3');
     expect(note).toContain('username');
     expect(note).toContain('stripped out');
+    expect(note).toContain('IP address');
+  });
+
+  it('says the feedback is posted publicly, and where', async () => {
+    await make();
+    await openForm();
+    const link = element.querySelector<HTMLAnchorElement>('.hint.public a');
+    expect(link?.href).toBe('https://github.com/alexandria-p/ficfairy/issues/');
+    expect(element.querySelector('.hint.public')?.textContent).toContain('posted publicly');
   });
 
   it('offers no tab on a copy built without the feedback service', async () => {
@@ -198,7 +223,7 @@ describe('Feedback', () => {
     });
     const link = element.querySelector('a[href="https://github.com/o/r/issues/12"]');
     expect(link?.textContent).toContain('issue #12');
-    expect(element.textContent).toContain('within a minute');
+    expect(element.textContent).toContain('It may take up to a minute to');
     expect(element.querySelector('a[href*="label%3Afeedback"]')).not.toBeNull();
   });
 
@@ -359,6 +384,64 @@ describe('Feedback', () => {
     expect(log).not.toContain('ReaderName');
   });
 
+  it('lets a run be chosen, holding Send while the runs are read and until one is chosen', async () => {
+    const pending: ((paths: string[]) => void)[] = [];
+    const listed = (paths: string[]) => pending.splice(0).forEach((resolve) => resolve(paths));
+    const files: Record<string, string> = {
+      'runs/20261020T100000Z-aaaa1111.json': record({ id: 'aaaa1111', action: 'quick', status: 'success', actionName: 'Quick scan' }),
+      'runs/20261001T100000Z-bbbb2222.json': record({ id: 'bbbb2222', action: 'bookmarks', status: 'partial', started: '2026-10-01T10:00:00',
+        actionName: 'Full scan', log: ['an older run, as ReaderName'] }),
+    };
+    TestBed.inject(Library).store.set({
+      ...storeWith(files),
+      list: () => new Promise<string[]>((resolve) => pending.push(resolve)),
+    });
+    await make();
+    await openForm();
+    await fill('positive', 'Hi');
+    await tickLog();
+    const choose = element.querySelector<HTMLInputElement>('input[name="logChoice"][value="choose"]')!;
+    choose.checked = true;
+    choose.dispatchEvent(new Event('change'));
+    await settle();
+
+    expect(element.querySelector('.reading-runs')).not.toBeNull();
+    expect(sendButton().disabled).toBe(true);
+
+    listed(Object.keys(files));
+    await settle();
+    const pick = element.querySelector<HTMLSelectElement>('select.run-pick')!;
+    expect(pick.options.length).toBe(3);
+    expect(sendButton().disabled).toBe(true);
+
+    pick.value = '20261001T100000Z-bbbb2222.json';
+    pick.dispatchEvent(new Event('change'));
+    await settle();
+    const preview = element.querySelector('details.log pre')?.textContent ?? '';
+    expect(preview).toContain('# Full scan');
+    expect(preview).toContain('an older run');
+    expect(preview).not.toContain('ReaderName');
+    expect(sendButton().disabled).toBe(false);
+  });
+
+  it('stops reading the runs when the form is closed before they are read', async () => {
+    let listed!: (paths: string[]) => void;
+    const read = vi.fn(async () => record());
+    TestBed.inject(Library).store.set({
+      ...storeWith({}),
+      list: () => new Promise<string[]>((resolve) => (listed = resolve)),
+      read,
+    });
+    await make();
+    await openForm();
+    (element.querySelector('.dialog button.icon, button[aria-label="Close"]') as HTMLButtonElement).click();
+    await settle();
+
+    listed(['runs/20261020T100000Z-aaaa1111.json']);
+    await settle();
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it('says so when the library has no run log to attach, and does not send without one', async () => {
     TestBed.inject(Library).store.set(storeWith({}));
     await make();
@@ -395,6 +478,43 @@ describe('redactLog', () => {
     expect(redactLog('password=hunter2 {"password": "x"}', [])).toBe(
       'password=[removed] {"password": [removed]}',
     );
+  });
+
+  it('takes out IP addresses, v4 and v6, and leaves times of day and versions alone', () => {
+    expect(redactLog('from 203.0.113.7 and 2001:db8:85a3:0:0:8a2e:370:7334 and fe80::1', [])).toBe(
+      'from [IP address removed] and [IP address removed] and [IP address removed]',
+    );
+    expect(redactLog('[2026-11-01 09:30:00 UTC] version 1.4.12', [])).toBe(
+      '[2026-11-01 09:30:00 UTC] version 1.4.12',
+    );
+  });
+
+  it('takes out email addresses', () => {
+    expect(redactLog('mail me@example.com now', [])).toBe('mail [email removed] now');
+  });
+
+  it('takes out every file path whole, and leaves AO3 links and library names alone', () => {
+    const log = [
+      'could not save C:\\Users\\Jo Smith\\My Library\\works\\1 A.html: denied',
+      'wrote /home/jo/lib/works/2 B.pdf',
+      'copied \\\\nas\\share\\x.epub',
+      'opened file:///C:/x.html',
+      'see https://archiveofourown.org/works/123 and works/3 C - D 2026-10-01.html, page 3/80',
+    ].join('\n');
+    expect(redactLog(log, []).split('\n')).toEqual([
+      `could not save ${PATH_REMOVED}: denied`,
+      `wrote ${PATH_REMOVED}`,
+      `copied ${PATH_REMOVED}`,
+      `opened ${PATH_REMOVED}`,
+      'see https://archiveofourown.org/works/123 and works/3 C - D 2026-10-01.html, page 3/80',
+    ]);
+  });
+
+  it('takes out the AO3 time zone, but never UTC', () => {
+    expect(redactLog("AO3's dates are read as dates in Australia/Brisbane", [], ['Australia/Brisbane'])).toBe(
+      `AO3's dates are read as dates in ${ZONE_REMOVED}`,
+    );
+    expect(redactLog('read as dates in UTC', [], ['UTC'])).toBe('read as dates in UTC');
   });
 });
 

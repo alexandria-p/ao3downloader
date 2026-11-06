@@ -23,6 +23,8 @@ import { History } from './history';
 import { ImportDialog } from './import-dialog';
 import { DebugTab } from './debug-tab';
 import { DebugMode } from './debug';
+import { DummyData } from './dummy-data';
+import { VisitLog } from './visit-log';
 import { DatingResult, ImportRequest, LibraryImports, importIssueCounts, importIssueLines } from './imports';
 import { IMPORT_OFFER_KEY } from './preferences';
 import { safeGet, safeSet, safeRemove } from './storage';
@@ -119,6 +121,8 @@ export class App {
   protected readonly imports = inject(LibraryImports);
   /** this browser's debug mode: a banner at the top, and the DEBUG tab */
   protected readonly debugMode = inject(DebugMode);
+  private readonly visit = inject(VisitLog);
+  protected readonly dummyData = inject(DummyData);
   /** the formats an import can fetch: the helper's, or what any helper offers until it answers */
   protected readonly importFormats = computed(
     () => this.jobs.config()?.filetypes ?? BUILT_IN_CONFIG.filetypes,
@@ -186,6 +190,7 @@ export class App {
     this.jobs.connecting = this.jobs.loadConfig();
     this.jobs.floorAhead = action === 'quick' ? this.jobs.loadNewestFloor(store) : null;
     void this.jobs.settleInterrupted(store);
+    this.visit.note(`Run window opened: ${action}`);
     this.dialogAction.set(action);
   }
 
@@ -219,6 +224,7 @@ export class App {
   /** from the Works tab's button: the import window, by hand */
   protected openImport(): void {
     if (this.activeRun() || this.dialogAction()) return;
+    this.visit.note('Resolve issues window opened, by hand');
     this.importOpen.set(true);
   }
 
@@ -427,6 +433,7 @@ export class App {
       untracked(() => {
         if (this.offeredFor.has(store)) return;
         this.offeredFor.add(store);
+        this.visit.note('Resolve issues window opened by itself - issues were found in the library');
         this.importOpen.set(true);
       });
     });
@@ -437,6 +444,10 @@ export class App {
     // dropbox is the choice: signing in while looking at a local folder must not make the
     // page read that folder again
     effect(() => {
+      // debug mode's dummy data turned on or off reads whichever library is chosen again
+      const dummy = this.dummyData.active();
+      const mode = this.mode();
+      untracked(() => this.visit.note(`Library: ${mode === 'dropbox' ? 'Dropbox' : 'this computer'}${dummy ? ' (dummy data)' : ''}`));
       if (this.mode() === 'dropbox') {
         this.dropboxStatus();
         untracked(() => void this.library.showDropbox());
@@ -444,6 +455,21 @@ export class App {
         // reopen the folder picked last time, if the browser still lets us read it
         untracked(() => void this.library.showLocal());
       }
+    });
+    // for the visit log: each library read, and how it ended
+    let wasLoading = false;
+    effect(() => {
+      const loading = this.library.loading();
+      const error = this.library.error();
+      untracked(() => {
+        if (loading && !wasLoading) this.visit.note('Library read started');
+        if (!loading && wasLoading) {
+          this.visit.note(error
+            ? `Library read failed: ${error}`
+            : `Library read finished: ${this.library.data()?.works.length ?? 0} works, ${this.library.collections().length} collections`);
+        }
+        wasLoading = loading;
+      });
     });
     // the buttons on offer depend on settings.ini, so it is read as the page opens
     // rather than when a dialog first needs it
@@ -525,6 +551,7 @@ export class App {
   }
 
   protected setView(view: View): void {
+    if (view !== this.view()) this.visit.note(`Tab opened: ${view}`);
     this.view.set(view);
     if (view === 'bookmarks' || view === 'collections') void this.freshness.check(true);
   }
@@ -595,8 +622,27 @@ export class App {
     () => this.library.loading() || this.librarySetup.state() !== 'idle' || this.imports.checking(),
   );
   protected readonly preparingTitle = 'Wait until your library has finished loading';
-  /** a run cannot start: one is going, or the library is not ready yet */
-  protected readonly runsHeld = computed(() => !!this.activeRun() || this.libraryPreparing());
+  /**
+   * a run cannot start: one is going, the library is not ready yet, or what is on screen is
+   * debug mode's dummy data - a run would reach AO3 for real and write into a library that
+   * does not exist
+   */
+  protected readonly runsHeld = computed(
+    () => !!this.activeRun() || this.libraryPreparing() || this.dummyData.active(),
+  );
+  protected readonly dummyTitle = 'Runs are held while debug mode shows dummy data - turn it off in User settings';
+  /** why the run buttons are held, when it is not simply a run going */
+  protected readonly runsTitle = computed(() =>
+    this.libraryPreparing() ? this.preparingTitle : this.dummyData.active() ? this.dummyTitle : null,
+  );
+  /**
+   * The folder and Dropbox sign-in controls: locked while a run is going, and while dummy data
+   * stands in for the library - a folder picked or a sign-out then would change nothing shown.
+   */
+  protected readonly sourceLocked = computed(() => this.libraryLocked() || this.dummyData.active());
+  protected readonly sourceLockedTitle = computed(() =>
+    this.libraryLocked() ? this.lockedTitle : this.dummyData.active() ? 'Cannot be changed while debug mode shows dummy data' : null,
+  );
   protected readonly store = this.library.store;
 
   protected setMode(mode: StorageMode): void {
@@ -605,12 +651,12 @@ export class App {
   }
 
   protected signInToDropbox(): void {
-    if (this.libraryLocked()) return;
+    if (this.sourceLocked()) return;
     void this.dropbox.signIn();
   }
 
   protected async signOutOfDropbox(): Promise<void> {
-    if (this.libraryLocked()) return;
+    if (this.sourceLocked()) return;
     await this.dropbox.signOut();
   }
 
@@ -625,7 +671,7 @@ export class App {
   }
 
   protected async forget(): Promise<void> {
-    if (this.libraryLocked()) return;
+    if (this.sourceLocked()) return;
     await this.library.forget();
   }
 }

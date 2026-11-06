@@ -538,6 +538,33 @@ legend {
   font-size: 0.82rem;
 }
 
+/* the helper is not running: what to do first, then the developer's way folded away */
+.restart-advice ol {
+  margin: 0 0 14px;
+  padding-left: 22px;
+}
+
+.restart-advice li {
+  margin: 0 0 4px;
+}
+
+.developer-info {
+  margin: 4px 0 0;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.developer-info summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+.developer-info[open] summary {
+  margin-bottom: 10px;
+}
+
 pre {
   overflow-x: auto;
   padding: 8px 10px;

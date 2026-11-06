@@ -21,10 +21,9 @@
               <a [href]="issue.url" target="_blank" rel="noopener">issue #{{ issue.number }}</a>.
             </p>
             <p>
-              It shows up in the
-              <a [href]="feedbackList()" target="_blank" rel="noopener">list of feedback</a>
-              within a minute - GitHub's list can take that long to catch up. Nobody needs an
-              account to read it, and any reply is posted there.
+              It may take up to a minute to
+              <a [href]="feedbackList()" target="_blank" rel="noopener">show in the list</a>. You do
+              not need an account to read it, and any replies to the topic will be posted there.
             </p>
           </section>
           <footer>
@@ -61,12 +60,43 @@
             <label class="check" [class.unavailable]="!canAttach()">
               <input type="checkbox" name="attachLog" [checked]="attachLog()" [disabled]="!canAttach()"
                 (change)="toggleLog($any($event.target).checked)" />
-              Attach the log of my latest run <em>(optional)</em>
+              Attach a run's log <em>(optional)</em>
             </label>
             @if (!canAttach()) {
               <p class="hint">Open your library to attach a run's log - the logs are kept in it.</p>
             }
             @if (attachLog()) {
+              <div class="log-choice" role="radiogroup" aria-label="Which run's log">
+                <label class="radio">
+                  <input type="radio" name="logChoice" value="latest" [checked]="logChoice() === 'latest'"
+                    (change)="setLogChoice('latest')" />
+                  The most recent run
+                </label>
+                <label class="radio">
+                  <input type="radio" name="logChoice" value="choose" [checked]="logChoice() === 'choose'"
+                    (change)="setLogChoice('choose')" />
+                  Choose a run
+                </label>
+                @if (logChoice() === 'choose') {
+                  @if (runListFailed()) {
+                    <p class="hint">Your runs could not be read - attach the most recent one instead.</p>
+                  } @else if (runList(); as runs) {
+                    @if (runs.length) {
+                      <select class="run-pick" aria-label="Run" [value]="chosenRun()"
+                        (change)="chooseRun($any($event.target).value)">
+                        <option value="" disabled [selected]="!chosenRun()">Choose a run...</option>
+                        @for (run of runs; track run.file) {
+                          <option [value]="run.file">{{ runLabel(run) }}</option>
+                        }
+                      </select>
+                    } @else {
+                      <p class="hint">There are no runs in this library yet.</p>
+                    }
+                  } @else {
+                    <p class="reading-runs" role="status"><span class="spinner" aria-hidden="true"></span> Reading your runs...</p>
+                  }
+                }
+              </div>
               @if (logPreview()) {
                 <details class="log">
                   <summary>See exactly what will be sent</summary>
@@ -75,9 +105,26 @@
                 <p class="hint">Your AO3 username is taken out of it. It never holds your password.</p>
               } @else if (logNote()) {
                 <p class="hint">{{ logNote() }}</p>
-              } @else {
+              } @else if (logChoice() === 'latest' || chosenRun()) {
                 <p class="hint">Reading the log...</p>
               }
+            }
+
+            <label class="check">
+              <input type="checkbox" name="attachVisit" [checked]="attachVisit()"
+                (change)="toggleVisit($any($event.target).checked)" />
+              Attach what I did on this visit <em>(optional)</em>
+            </label>
+            <p class="hint">
+              For a problem outside a run: the tabs you opened, library reads, windows, runs
+              started and the settings you changed (with what you chose) since this page was
+              opened. It is kept by this page alone and gone when you close or reload it.
+            </p>
+            @if (attachVisit()) {
+              <details class="log visit">
+                <summary>See exactly what will be sent</summary>
+                <pre>{{ visitPreview() }}</pre>
+              </details>
             }
 
             <div class="check-widget" #check></div>
@@ -96,14 +143,19 @@
               </div>
             }
 
-            <p class="hint">
-              This becomes a public issue on GitHub, labelled feedback - anyone can read it, so
-              leave out anything private. No account is needed to send it.
+            <p class="hint public">
+              Your feedback will be posted publicly to
+              <a href="https://github.com/alexandria-p/ficfairy/issues/" target="_blank" rel="noopener">https://github.com/alexandria-p/ficfairy/issues/</a>,
+              labelled feedback - anyone can read it, so leave out anything private. No account is
+              needed to send it.
             </p>
             <p class="hint privacy">
-              An attached log has identifying information stripped out before it is sent: your AO3
-              username, and anything that looks like a password. What you type above is sent as
-              written.
+              An attached log never includes your AO3 username or password, your IP address, email
+              addresses, your AO3 time zone, file paths on your computer, or where your library is
+              kept (its folder's name or location) - anything like these is stripped out before it is sent. The issue also
+              says which browser you used, this app's version, and whether your library is in
+              Dropbox or on this computer. Your IP address is only seen by the bot check, and is
+              never posted. What you type above is sent as written.
             </p>
           </section>
 

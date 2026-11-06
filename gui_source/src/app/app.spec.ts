@@ -1509,10 +1509,8 @@ describe('App', () => {
     TestBed.inject(Library).worksById.set(new Map([['1', work(1)]]));
     await settled(fixture);
     expect(element.querySelector('app-import-dialog')).toBeNull();
-    // the reminder above the tabs still offers it
-    element.querySelector<HTMLButtonElement>('.import-issues button')!.click();
-    await settled(fixture);
-    expect(element.querySelector('app-import-dialog')).not.toBeNull();
+    // and the reminder goes with it, until the library is opened again
+    expect(element.querySelector('.import-issues')).toBeNull();
   });
 
   it('does not offer an import while a run is going, and offers it once the run has ended', async () => {

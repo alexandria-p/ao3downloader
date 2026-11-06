@@ -49,15 +49,15 @@
       }
 
       @if (canPickFolder) {
-        <button type="button" class="button" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="askBeforePicking()">
+        <button type="button" class="button" [disabled]="sourceLocked()" [attr.title]="sourceLockedTitle()" (click)="askBeforePicking()">
           {{ folderName() ? 'Change folder' : 'Choose downloads folder' }}
         </button>
         @if (folderName()) {
-          <button type="button" class="button subtle" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="forget()">Forget</button>
+          <button type="button" class="button subtle" [disabled]="sourceLocked()" [attr.title]="sourceLockedTitle()" (click)="forget()">Forget</button>
         }
       } @else {
         <!-- a button rather than a label, so the note can come first; it clicks the input -->
-        <button type="button" class="button" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="askBeforePicking()">
+        <button type="button" class="button" [disabled]="sourceLocked()" [attr.title]="sourceLockedTitle()" (click)="askBeforePicking()">
           {{ data() ? 'Change folder' : 'Choose downloads folder' }}
         </button>
         <input #folderInput type="file" webkitdirectory multiple (change)="choose($event)" hidden />
@@ -65,7 +65,7 @@
     } @else {
       @switch (dropboxStatus()) {
         @case ('signed-out') {
-          <button type="button" class="button primary" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="signInToDropbox()">
+          <button type="button" class="button primary" [disabled]="sourceLocked()" [attr.title]="sourceLockedTitle()" (click)="signInToDropbox()">
             Sign in with Dropbox
           </button>
         }
@@ -80,7 +80,7 @@
             <span class="remembered" title="Remembered - opens automatically next time">&#9679;</span>
             {{ appFolderPath }}
           </span>
-          <button type="button" class="button subtle" [disabled]="libraryLocked()" [attr.title]="libraryLocked() ? lockedTitle : null" (click)="signOutOfDropbox()">Sign out</button>
+          <button type="button" class="button subtle" [disabled]="sourceLocked()" [attr.title]="sourceLockedTitle()" (click)="signOutOfDropbox()">Sign out</button>
         }
       }
     }
@@ -181,6 +181,10 @@
   <div class="debug-banner" role="status">
     <strong>Debug mode is on.</strong> The DEBUG tab has tools for trying the app out. Turn it off
     in User settings.
+    @if (dummyData.active()) {
+      <span class="dummy-note">Showing <strong>dummy data</strong> for
+      {{ mode() === 'dropbox' ? 'Dropbox' : 'This computer' }} - not your library. Runs are held.</span>
+    }
   </div>
 }
 
@@ -295,21 +299,21 @@
       they should be reached for. the rest are each useful for one job and confusing as a
       default, so they wait behind a disclosure rather than sitting in the way
     -->
-    <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('quick')">
+    <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('quick')">
       Quick Scan
     </button>
-    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('bookmarks')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('bookmarks')">
       (Full scan) Reindex &amp; Update All
     </button>
 
     <!-- the runs for one job each, beside the two everyday ones rather than hidden away -->
-    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('work')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('work')">
       Download/update a specific fic
     </button>
-    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('works')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('works')">
       Download/update several fics
     </button>
-    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('custom')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('custom')">
       Custom run
     </button>
 
@@ -323,23 +327,23 @@
       <details class="advanced">
         <summary>Advanced options</summary>
         <div class="advanced-actions">
-          <button type="button" class="button debug" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('sync')">
+          <button type="button" class="button debug" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('sync')">
             [DEBUG] Download new bookmarks and update incomplete fics
           </button>
-          <button type="button" class="button debug" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('update')">
+          <button type="button" class="button debug" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('update')">
             [DEBUG] Just update any bookmarks marked as incomplete
           </button>
-          <button type="button" class="button debug" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('new')">
+          <button type="button" class="button debug" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('new')">
             [DEBUG] Just download newly added bookmarks
           </button>
         </div>
       </details>
     }
   } @else {
-    <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('collections')">
+    <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('collections')">
       Index my collections
     </button>
-    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="libraryPreparing() ? preparingTitle : null" (click)="openRun('collection')">
+    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('collection')">
       Index collection by URL
     </button>
   }
@@ -366,7 +370,8 @@
                      [store]="library.store()"
                      [formats]="importFormats()" [busy]="!!activeRun()"
                      (askAgainChanged)="setImportOffered($event)"
-                     (closed)="importClosed($event)" (start)="importStart($event)" />
+                     (closed)="importClosed($event)" (start)="importStart($event)"
+                     (remindLater)="dismissImportReminder()" />
 }
 
 

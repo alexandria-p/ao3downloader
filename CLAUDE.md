@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1044 gui passed; 15 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1065 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -463,10 +463,36 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
 - **No email field, and the log loses the AO3 username before it is shown.** The issue is
   public. `redactLog` replaces every username the page knows, case-insensitively: the newest
   record's `username`, `Jobs.config().username`, and `ao3.username` in localStorage. It also
-  takes out `password=`-shaped text. The Worker's `scrubPasswords` does that again, as a
-  backstop; it cannot know the username. **See exactly what will be sent** shows the redacted
-  text, and the same text is what is sent. The form's foot says so (`.hint.privacy`): an attached
-  log has the AO3 username and password-shaped text stripped out; the message is sent as written.
+  takes out `password=`-shaped text, and as a backstop anything shaped like an IP address (v4,
+  or v6 with four or more groups - a time of day has three) or an email, every file path on a
+  computer whole (`PATH_REMOVED`: a drive or network path, `file://`, or an absolute path of two or
+  more parts starting where a word could - so an AO3 link's path and a library-relative name like
+  `works/1 A.html` stay; a path is taken on to a colon, quote or line end, since a name can hold
+  spaces and taking too much is the safe side), and the AO3 time zone (`ao3TimeZone()`, as `[your time zone]`; never UTC). A
+  run log names none of those on purpose - the library is reached by paths inside it - so these
+  only catch what should not be there. The Worker's `scrubPasswords` does the passwords again; it
+  cannot know the username. The IP address reaches the Worker only for Turnstile's check
+  (`remoteip`) and is never written into the issue. **See exactly what will be sent** shows the
+  redacted text, and the same text is what is sent. The form's foot says it will be posted
+  publicly, linking `https://github.com/alexandria-p/ficfairy/issues/` (`.hint.public`), and what
+  an attached log never includes (`.hint.privacy`) - and that the issue does name the browser,
+  the version and the library's kind; the message is sent as written.
+- **A run's log is the one chosen, and the visit has a log of its own.** *Attach a run's log*
+  offers *The most recent run* (`readLatestLog`) or *Choose a run* (`readRunLog`), from a list
+  read in the background as the form opens (`readRunList`: `Jobs.historyRead` if History has
+  it, else `readRunHistory` with an `AbortSignal`) - Send waits on it only while choosing, and
+  closing the form aborts the read between batches and drops an unchosen list, so the next
+  opening reads afresh. *Attach what I did on this visit* is the **visit log** (`visit-log.ts`,
+  `VisitLog`): in memory only, the last `VISIT_LOG_LIMIT` (300) entries, gone on a reload, and
+  never written anywhere. It notes tabs, the storage switch, library reads and how they ended,
+  windows opened, each run's start - every option and the file types as *left as the default*
+  or *changed from* what the run window opened with (`DownloadDialog.openedWith`, `noteStart`)
+  - and end, every User settings change with its value (through `say`), and every error
+  (`VisitErrorHandler`, the app's `ErrorHandler`; `provideBrowserGlobalErrorListeners` hands it
+  the window's errors and unhandled rejections). **Never what was typed in the login boxes** -
+  `noteStart` takes only `filetypes` and `options` from the start request. It goes through the
+  same `redactLog`, and the Worker puts it in a folded section of its own (`visit`,
+  `LIMITS.visit`, kept to its end like the run log).
 - **The deploy makes the labels** (`gh label create --force`): GitHub drops an unknown label
   rather than creating it. The Worker is deployed by the `feedback` job, which needs only
   `tests`, and skips with a notice until it is configured.
@@ -943,6 +969,21 @@ opens the real `ImportDialog` on them. **Nothing real is touched**: the files ar
 of making it and refreshes no listing; *never ask me again* is not bound; and starting hands the
 request back to the tab, which shows it and starts nothing. Only `POST /api/file-names` reaches
 the helper, which writes nothing. Keep any new write the window learns behind `sandbox()`.
+
+**Dummy data** (`dummy-data.ts`, `DummyData`, `ao3.dummyData`, a box under *Debug mode* in User
+settings, in force only while debug mode is on - `active`) shows a made-up library instead of the
+real one: works, collections and run history. **One per storage choice** (`dummyLibrary(kind)`):
+*This computer* a small tea-shop set from 9100001, *Dropbox* a larger space-station one from
+9200001, every title, fandom, tag and run naming which it is, and the debug banner says so too
+(`.dummy-note`). `Library.showLocal`/`showDropbox` hand over to `showDummy`, which reads a
+`MemoryStore` (`memory-store.ts`, kept per kind while on) through the same `ingestRecords` and
+`mapCopies` a real read uses - so History, hiding and custom collections work on it, in memory -
+and `leaveDummy` clears it before a real library is shown. Turning it on or off re-reads (the
+`App` effect tracks `active`). **Runs are held while it is on** (`runsHeld`, `runsTitle`,
+History's Retry): a run would reach AO3 for real and write into a library that does not exist.
+The folder and Dropbox sign-in controls are held too (`sourceLocked`); the storage switch and
+Refresh are not. `DebugMode` lives in `debug-mode.ts` so the library can use it without importing
+the mock, which imports the library.
 
 ### A login that lapses mid-run ends the run
 
@@ -2151,7 +2192,8 @@ window finishes after dating (`afterDating`). What not to break:
   run is in progress*; its × hides it until the library is opened again
   (`reminderDismissedFor`), and `ao3.importOfferOff` hides it for good. **The first page asks
   what to do** (`firstChoice`, *Repair now* ticked to begin with): *Repair now (recommended)*; *Not
-  now, remind me again next time I open my library* (*Remind me later*, closes); *No, do not ask
+  now, remind me again next time I open my library* (*Remind me later*, closes, and hides the
+  reminder until the library is opened again - `remindLater`); *No, do not ask
   me again for these files* (*Done*: `LibraryImports.excludeFiles` puts every file found on the
   **files** list); *No, never
   ask me again* (*Done*: `ao3.importOfferOff`). The window itself refuses to rename or start while `busy`. A run ending
@@ -2416,7 +2458,9 @@ reads; as History's *Reading past runs* and the run window's bar are), **under t
 whichever tab is showing**: `#libraryProgress` in `app.html` is projected into each tab as
 `[listingProgress]` - on Works and Collections under the title **and its buttons**, on the FAQ
 under *About downloading from AO3* - and goes above the content only where there is no title
-(`progressOnTop`: Works before a read, Dropbox's sign-in panel). Held buttons are dimmed
+(`progressOnTop`: Works before a read, Dropbox's sign-in panel). It is the page's full width
+on every tab (`width: 100cqw` against `.page-body`, a container) - the FAQ, Report a bug and User
+settings keep their text narrower, and it sat in that column. Held buttons are dimmed
 (`.button:disabled`).
 
 **Setting a library up is said in that same bar, step by step** (`LibrarySetup.caption`):

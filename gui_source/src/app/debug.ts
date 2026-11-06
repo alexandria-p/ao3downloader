@@ -13,76 +13,13 @@
 
 import { Injectable, signal } from '@angular/core';
 import { DuplicateGroup, FoundFile, FoundWork, duplicateGroups, undatedIndexedFiles, unindexedWorks } from './imports';
-import { LibraryStore } from './library-store';
+import { MemoryStore } from './memory-store';
 import { safeGet, safeRemove, safeSet } from './storage';
 
-export const DEBUG_MODE_KEY = 'ao3.debugMode';
+// kept importable from here, where the mock first needed it
+export { MemoryStore };
 
-@Injectable({ providedIn: 'root' })
-export class DebugMode {
-  readonly on = signal(safeGet(DEBUG_MODE_KEY) === 'on');
-
-  set(on: boolean): void {
-    this.on.set(on);
-    if (on) safeSet(DEBUG_MODE_KEY, 'on');
-    else safeRemove(DEBUG_MODE_KEY);
-  }
-}
-
-/** a library held in memory, by path - what a mock renames and deletes, and nothing else */
-export class MemoryStore implements LibraryStore {
-  readonly label = 'mock library (in memory)';
-  readonly files = new Map<string, string>();
-  /** when each file was last changed, by path; a file not here cannot say */
-  readonly changed = new Map<string, number>();
-
-  constructor(paths: Iterable<string> = [], changed: Record<string, number> = {}) {
-    for (const path of paths) this.files.set(path, '');
-    for (const [path, at] of Object.entries(changed)) this.changed.set(path, at);
-  }
-
-  async check(): Promise<void> {}
-
-  async list(path: string): Promise<string[]> {
-    const prefix = path ? `${path.replace(/\/+$/, '')}/` : '';
-    return [...this.files.keys()].filter((p) => p.startsWith(prefix)).sort();
-  }
-
-  async read(path: string): Promise<string | null> {
-    return this.files.get(path) ?? null;
-  }
-
-  async write(path: string, body: Response): Promise<number> {
-    const text = await body.text();
-    this.files.set(path, text);
-    return text.length;
-  }
-
-  async size(path: string): Promise<number | null> {
-    return this.files.has(path) ? (this.files.get(path) ?? '').length : null;
-  }
-
-  async modified(path: string): Promise<number | null> {
-    return this.files.has(path) ? (this.changed.get(path) ?? null) : null;
-  }
-
-  async delete(path: string): Promise<void> {
-    this.files.delete(path);
-    this.changed.delete(path);
-  }
-
-  async rename(from: string, to: string): Promise<void> {
-    if (this.files.has(to)) throw new Error(`${to} is already there`);
-    if (!this.files.has(from)) throw new Error(`${from} is not there`);
-    this.files.set(to, this.files.get(from) ?? '');
-    this.files.delete(from);
-    const at = this.changed.get(from);
-    this.changed.delete(from);
-    if (at !== undefined) this.changed.set(to, at);
-  }
-
-  async mkdir(): Promise<void> {}
-}
+export { DEBUG_MODE_KEY, DebugMode } from './debug-mode';
 
 /** what a mock library has issues with, and how many of each */
 export interface MockSetup {

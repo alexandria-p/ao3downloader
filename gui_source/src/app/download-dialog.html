@@ -24,15 +24,42 @@
   @if (available() === false) {
     <section class="body">
       <p class="error">The local helper isn't running, so downloads can't be started from here.</p>
-      <p>
-        A web page can't reach AO3 or write to your disk on its own. Start the helper in a
-        terminal, then reopen this:
-      </p>
-      <pre>uv run python -m ao3downloader.server</pre>
-      <p class="hint">
-        Run it from the folder holding <code>settings.ini</code>, so it uses the same settings
-        and downloads folder as the console app.
-      </p>
+      @if (local()) {
+        <!-- what to do, for someone who just wants it to work - the developer's way is folded away below -->
+        <div class="restart-advice">
+          <p>
+            Close this page, then start FicFairy again
+            @if (startProgram(); as program) {
+              - {{ program.how }} <code>{{ program.file }}</code> in the <code>ficfairy</code> folder you unzipped.
+            } @else {
+              - double-click <code>ficfairy.exe</code> on Windows, <code>Start FicFairy.command</code> on a Mac,
+              or run <code>Start FicFairy.sh</code> on Linux, in the <code>ficfairy</code> folder you unzipped.
+            }
+            That should:
+          </p>
+          <ol>
+            <li>open the helper in a terminal window - it sends your requests to AO3, so leave it open while you use FicFairy</li>
+            <li>open this site in your web browser - Chrome is recommended</li>
+          </ol>
+        </div>
+      } @else {
+        <p>
+          The helper this page uses isn't answering. It may be waking up after a quiet spell - close
+          this and try again in a minute.
+        </p>
+      }
+      <details class="developer-info">
+        <summary>Advanced information for developers</summary>
+        <p>
+          A web page can't reach AO3 or write to your disk on its own. Start the helper in a
+          terminal, then reopen this:
+        </p>
+        <pre>uv run python -m ao3downloader.server</pre>
+        <p class="hint">
+          Run it from the folder holding <code>settings.ini</code>, so it uses the same settings
+          and downloads folder as the console app.
+        </p>
+      </details>
     </section>
     <footer>
       <button type="button" class="button" (click)="close()">Close</button>

@@ -14,8 +14,11 @@ import { HelperConnection } from './helper-connection';
 import { Jobs } from './jobs';
 import { Library } from './library';
 import { saveText } from './issues';
-import { DropboxLibraryStore, LibraryStore, LocalLibraryStore } from './library-store';
+import { DropboxLibraryStore, LibraryStore, LocalLibraryStore, readRunHistory } from './library-store';
+import type { RunHistory } from './jobs';
 import { safeGet } from './storage';
+import { ao3TimeZone } from './preferences';
+import { VisitLog } from './visit-log';
 
 /**
  * The feedback tab on the right edge of every page, and the form it opens.
@@ -121,8 +124,16 @@ export async function readLatestLog(store: LibraryStore): Promise<LatestLog | nu
   try {
     // named for when they started, so the newest is last by name
     const newest = (await store.list('runs', false)).filter((path) => /\.json$/i.test(path)).sort().pop();
-    if (!newest) return null;
-    const record = JSON.parse((await store.read(newest)) ?? '') as Record<string, unknown>;
+    return newest ? await readRunLog(store, newest) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One run record's log, by its path in the library, or null when it will not read. */
+export async function readRunLog(store: LibraryStore, path: string): Promise<LatestLog | null> {
+  try {
+    const record = JSON.parse((await store.read(path)) ?? '') as Record<string, unknown>;
     if (!record || typeof record !== 'object') return null;
     const text = (value: unknown) => (typeof value === 'string' ? value : '');
     return {
@@ -136,21 +147,55 @@ export async function readLatestLog(store: LibraryStore): Promise<LatestLog | nu
   }
 }
 
+/** what is said in place of a file path in an attached log */
+export const PATH_REMOVED = '[file path removed]';
+
+/** what is said in place of a time zone named in an attached log */
+export const ZONE_REMOVED = '[your time zone]';
+
 /**
- * The log as it will be sent: every AO3 username named, in any case, replaced, and anything
- * that looks like a password taken out. No run prints a password - the Worker scrubs the same
- * pattern again - but this is what the person sees before sending, so it is done here too.
+ * The log as it will be sent, with everything that could say who or where someone is taken out:
+ *
+ * - every AO3 username named, in any case;
+ * - the AO3 time zone (`zones`), which names a region - not UTC, which names nobody;
+ * - anything shaped like an IP address (v4 or v6) or an email address;
+ * - every file path on a computer, whole (`C:\...`, `\\server\share\...`, `/home/...`, `file://...`) -
+ *   a path names the folders someone keeps things in, and often their account name;
+ * - anything that looks like a password.
+ *
+ * A run's log is made of work titles, links, file names and dates, and names none of those
+ * things on purpose - a library is reached by paths inside it, never by where it lives - so
+ * most of this is a backstop. It is done here because this is what the person sees before
+ * sending; the Worker scrubs passwords again.
  */
-export function redactLog(text: string, usernames: string[]): string {
+export function redactLog(text: string, usernames: string[], zones: string[] = []): string {
   let redacted = text;
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const names = [...new Set(usernames.map((name) => name.trim()).filter(Boolean))]
     // longest first, so a name containing another is replaced whole
     .sort((a, b) => b.length - a.length);
   for (const name of names) {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    redacted = redacted.replace(new RegExp(escaped, 'gi'), USERNAME_REMOVED);
+    redacted = redacted.replace(new RegExp(escape(name), 'gi'), USERNAME_REMOVED);
   }
-  return redacted.replace(/(password["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1[removed]');
+  const named = [...new Set(zones.map((zone) => zone.trim()))].filter(
+    (zone) => zone && !/^(Etc\/)?(UTC|GMT|Universal|Zulu)$/i.test(zone),
+  );
+  for (const zone of named) {
+    redacted = redacted.replace(new RegExp(escape(zone), 'g'), ZONE_REMOVED);
+  }
+  return redacted
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[email removed]')
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP address removed]')
+    // v6: four or more groups (a time of day has three), or a :: shorthand between hex groups
+    .replace(/\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b|\b[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?\b/gi, '[IP address removed]')
+    .replace(/file:\/\/\S+/gi, PATH_REMOVED)
+    // a Windows or network path, spaces and all, up to a colon, quote or line end
+    .replace(/(?:\b[A-Za-z]:|\\\\[^\\\s]+)[\\/][^:*?"<>|\r\n]*/g, (path) => PATH_REMOVED + (path.match(/\s+$/)?.[0] ?? ''))
+    // an absolute path elsewhere: two or more parts, starting where a word could, and - as a
+    // name can hold spaces - running on to a colon, quote or line end, since taking too much
+    // is the safe side. A link's own path follows its host, never a space, so AO3 links stay
+    .replace(/(^|[\s"'(=\[])\/(?:[^\/\s"'<>|]+\/)+[^:*?"<>|\r\n]*/gm, (_, before: string) => `${before}${PATH_REMOVED}`)
+    .replace(/(password["']?\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi, '$1[removed]');
 }
 
 type Stage = 'form' | 'sending' | 'sent';
@@ -166,6 +211,7 @@ export class Feedback implements OnDestroy {
   private readonly library = inject(Library);
   private readonly jobs = inject(Jobs);
   private readonly turnstile = inject(Turnstile);
+  private readonly visit = inject(VisitLog);
 
   /** whether this copy can send feedback at all */
   protected readonly offered = computed(() => !!this.helper.settings().feedbackUrl);
@@ -176,6 +222,20 @@ export class Feedback implements OnDestroy {
   protected readonly message = signal('');
   protected readonly name = signal('');
   protected readonly attachLog = signal(false);
+  /** this visit's own log (`VisitLog`) - for a bug outside a run - attached on its own tick */
+  /** which run's log goes with the feedback: the most recent, or one picked from the history */
+  protected readonly logChoice = signal<'latest' | 'choose'>('latest');
+  /** the runs to choose from, read in the background as the form opens; null until read */
+  protected readonly runList = signal<RunHistory[] | null>(null);
+  protected readonly runListFailed = signal(false);
+  /** the chosen run's file name in `runs/` */
+  protected readonly chosenRun = signal('');
+  /** the run history read the form's opening started - stopped if the form closes first */
+  private historyAbort: AbortController | null = null;
+  /** which preview read is the latest, so an earlier slower one never lands over it */
+  private previewRead = 0;
+  protected readonly attachVisit = signal(false);
+  protected readonly visitPreview = signal('');
   /** the log exactly as it would be sent, once read; '' while reading or when there is none */
   protected readonly logPreview = signal('');
   protected readonly logNote = signal('');
@@ -232,9 +292,47 @@ export class Feedback implements OnDestroy {
   show(): void {
     if (this.stage() === 'sent') this.reset();
     this.open.set(true);
+    this.readRunList();
+  }
+
+  /**
+   * Read the runs to choose a log from, in the background: nothing waits on it but choosing
+   * a run. What History last read is used as it is; otherwise the history is read, and that
+   * read stops if the form closes first (`close`).
+   */
+  private readRunList(): void {
+    const store = this.library.store();
+    if (!store || this.runList()) return;
+    const read = this.jobs.historyRead;
+    if (read?.store === store) {
+      this.runList.set(read.runs);
+      return;
+    }
+    // one already reading is left to finish
+    if (this.historyAbort) return;
+    const abort = new AbortController();
+    this.historyAbort = abort;
+    this.runListFailed.set(false);
+    readRunHistory(store, abort.signal).then(
+      (runs) => {
+        if (abort.signal.aborted) return;
+        this.runList.set(runs);
+        this.historyAbort = null;
+      },
+      () => {
+        if (!abort.signal.aborted) this.runListFailed.set(true);
+      },
+    );
   }
 
   protected close(): void {
+    // the run history read the opening started is not wanted any more
+    if (this.historyAbort) {
+      this.historyAbort.abort();
+      this.historyAbort = null;
+    }
+    // read afresh next time, since a run may finish meanwhile - unless one was chosen from it
+    if (!this.chosenRun()) this.runList.set(null);
     this.open.set(false);
     this.unmountCheck();
     // a sent form starts afresh next time; an unsent one keeps what was typed
@@ -245,21 +343,58 @@ export class Feedback implements OnDestroy {
     if (this.open() && this.stage() !== 'sending') this.close();
   }
 
+  /** the names the page knows - each one comes out of any log before it is shown or sent */
+  private knownNames(extra = ''): string[] {
+    return [extra, this.jobs.config()?.username ?? '', safeGet(USERNAME_KEY)];
+  }
+
+  protected toggleVisit(on: boolean): void {
+    this.attachVisit.set(on);
+    // read as the box is ticked: what happened after that is the sending itself
+    this.visitPreview.set(on ? redactLog(this.visit.text(), this.knownNames(), [ao3TimeZone()]) : '');
+  }
+
   protected async toggleLog(on: boolean): Promise<void> {
     this.attachLog.set(on);
+    if (on) this.readRunList();
+    await this.loadLogPreview();
+  }
+
+  protected async setLogChoice(choice: 'latest' | 'choose'): Promise<void> {
+    this.logChoice.set(choice);
+    await this.loadLogPreview();
+  }
+
+  protected async chooseRun(file: string): Promise<void> {
+    this.chosenRun.set(file);
+    await this.loadLogPreview();
+  }
+
+  /** what a run reads as in the list to choose from */
+  protected runLabel(run: RunHistory): string {
+    const when = new Date(run.started);
+    const at = Number.isNaN(when.getTime()) ? run.started : when.toLocaleString();
+    return `${run.actionName || run.action} - ${at} - ${run.status}`;
+  }
+
+  /** the log as it will be sent, for whichever run is chosen; empty (and Send held) until there is one */
+  private async loadLogPreview(): Promise<void> {
+    const read = ++this.previewRead;
     this.logPreview.set('');
     this.logNote.set('');
-    if (!on) return;
-    const store = this.library.store();
-    const latest = store ? await readLatestLog(store) : null;
     if (!this.attachLog()) return;
-    if (!latest || !latest.lines.length) {
-      this.logNote.set('There is no run log in this library to attach yet.');
+    const store = this.library.store();
+    if (!store) return;
+    const choosing = this.logChoice() === 'choose';
+    if (choosing && !this.chosenRun()) return;
+    const log = choosing ? await readRunLog(store, `runs/${this.chosenRun()}`) : await readLatestLog(store);
+    if (read !== this.previewRead || !this.attachLog()) return;
+    if (!log || !log.lines.length) {
+      this.logNote.set(choosing ? 'That run has no log to attach.' : 'There is no run log in this library to attach yet.');
       return;
     }
-    const head = `# ${latest.actionName || 'a run'}, started ${latest.started || 'at an unknown time'}`;
-    const names = [latest.username, this.jobs.config()?.username ?? '', safeGet(USERNAME_KEY)];
-    this.logPreview.set(redactLog([head, '', ...latest.lines].join('\n'), names));
+    const head = `# ${log.actionName || 'a run'}, started ${log.started || 'at an unknown time'}`;
+    this.logPreview.set(redactLog([head, '', ...log.lines].join('\n'), this.knownNames(log.username), [ao3TimeZone()]));
   }
 
   protected async send(event?: Event): Promise<void> {
@@ -279,6 +414,7 @@ export class Feedback implements OnDestroy {
           message: this.message().trim(),
           name: this.name().trim(),
           log: this.attachLog() ? this.logPreview() : '',
+          visit: this.attachVisit() ? this.visitPreview() : '',
           version: this.helper.settings().version,
           copy: this.helper.isLocal() ? 'on their own computer' : 'the hosted page',
           storage: this.storageKind(),
@@ -337,6 +473,9 @@ export class Feedback implements OnDestroy {
     if (this.attachLog() && this.logPreview()) {
       lines.push('', '## Latest run log (AO3 username removed)', '', this.logPreview());
     }
+    if (this.attachVisit() && this.visitPreview()) {
+      lines.push('', '## What I did on this visit (AO3 username removed)', '', this.visitPreview());
+    }
     saveText(lines.join('\n') + '\n', `ao3downloader-feedback-${new Date().toISOString().slice(0, 10)}`);
   }
 
@@ -346,7 +485,11 @@ export class Feedback implements OnDestroy {
     this.message.set('');
     this.name.set('');
     this.attachLog.set(false);
+    this.logChoice.set('latest');
+    this.chosenRun.set('');
     this.logPreview.set('');
+    this.attachVisit.set(false);
+    this.visitPreview.set('');
     this.logNote.set('');
     this.problem.set('');
     this.sent.set(null);

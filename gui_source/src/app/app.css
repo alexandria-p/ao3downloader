@@ -14,6 +14,15 @@
    bottom - its height is measured (--app-footer-height), since it wraps on a narrow window */
 .page-body {
   min-height: calc(100vh - 16px - 24px - var(--app-footer-height, 34px));
+  /* the library's loading panel measures itself against this, not the tab's own column */
+  container-type: inline-size;
+}
+
+/* the library's loading panel is the page's full width on every tab - the FAQ, Report a bug
+   and User settings keep their text to a narrower column, and it sat inside that */
+app-progress-bar {
+  width: 100cqw;
+  max-width: 100cqw;
 }
 
 /* region top bar */
@@ -365,12 +374,16 @@
 
 .views {
   display: flex;
-  gap: 4px;
+  /* on a narrow window the tabs go onto a second row rather than off the edge of the page */
+  flex-wrap: wrap;
+  gap: 2px 4px;
   margin: 18px 0 0;
   border-bottom: 1px solid var(--border);
 }
 
 .views button {
+  /* a tab's name stays on one line - 'Report a bug' broke in two inside its tab */
+  white-space: nowrap;
   padding: 8px 18px;
   border: 1px solid transparent;
   border-bottom: none;
@@ -390,6 +403,12 @@
   border-color: var(--border);
   background: var(--surface);
   color: var(--text-strong);
+}
+
+@media (max-width: 560px) {
+  .views button {
+    padding: 6px 10px;
+  }
 }
 
 .views .count {
@@ -687,3 +706,5 @@
   margin-top: 10px;
   min-width: 7em;
 }
+
+.debug-banner .dummy-note { display: block; margin-top: 4px; }

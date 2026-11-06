@@ -4,6 +4,7 @@ import { DecimalPipe } from '@angular/common';
 import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
 import { describeGap, issueCount, issuesOf, issuesReport, saveText } from './issues';
 import { Library } from './library';
+import { DummyData } from './dummy-data';
 import { ProgressBar } from './progress-bar';
 import { HISTORY_LIMIT } from './library-store';
 
@@ -24,6 +25,8 @@ import { HISTORY_LIMIT } from './library-store';
 export class History {
   private readonly jobs = inject(Jobs);
   private readonly library = inject(Library);
+  /** dummy data on screen: a retry would start a real run, so it is held as every run is */
+  protected readonly dummy = inject(DummyData).active;
 
   protected readonly runs = signal<RunHistory[]>([]);
   /** the most runs the tab reads and lists - older ones stay in runs/, just not shown */
@@ -32,6 +35,8 @@ export class History {
   /** when the list shown was read from the library, for 'List refreshed' */
   protected readonly readAt = signal<Date | null>(null);
   protected readonly shownTime = shownTime;
+  /** the library is being read: its own panel shows, so this tab's would be a second bar */
+  protected readonly libraryLoading = this.library.loading;
   /** true when the helper could not be reached at all, which is not the same as no runs */
   protected readonly unavailable = signal(false);
 

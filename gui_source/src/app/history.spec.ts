@@ -98,6 +98,21 @@ describe('History', () => {
     expect(element.querySelector('.meta-line')).toBeNull();
   });
 
+  it('shows no bar of its own while the library is being read - one bar at a time', async () => {
+    let finish!: (runs: RunHistory[]) => void;
+    vi.spyOn(jobs, 'loadRuns').mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    TestBed.inject(Library).loading.set(true);
+    fixture = TestBed.createComponent(History);
+    element = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    expect(element.querySelector('app-progress-bar')).toBeNull();
+
+    TestBed.inject(Library).loading.set(false);
+    fixture.detectChanges();
+    expect(element.querySelector('app-progress-bar')?.textContent).toContain('Reading past runs');
+    finish([]);
+  });
+
   it('says it lists only the most recent runs, in an (i) beside the heading', async () => {
     await show([]);
     expect(element.querySelector('h2 .history-limit')?.textContent).toContain('100 most recent runs');

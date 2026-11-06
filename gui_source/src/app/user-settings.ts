@@ -29,6 +29,8 @@ import { LibraryImports } from './imports';
 import { Library } from './library';
 import { StorageChoice } from './storage-choice';
 import { DebugMode } from './debug';
+import { DummyData } from './dummy-data';
+import { VisitLog } from './visit-log';
 import { Appearance, CUSTOM_FONT, DEFAULT_FONT, DEFAULT_PALETTE, FONTS, FONT_GROUPS, PALETTES, fontById, fontStack, paletteById } from './appearance';
 
 export type Asking = 'ask' | 'skip';
@@ -95,6 +97,8 @@ export class UserSettings implements OnDestroy {
   private readonly imports = inject(LibraryImports);
   private readonly library = inject(Library);
   protected readonly debugMode = inject(DebugMode);
+  protected readonly dummyData = inject(DummyData);
+  private readonly visit = inject(VisitLog);
   /**
    * Where the exclusion lists are kept: in the library itself, so they follow it - in Dropbox,
    * or in the folder on this computer - whichever this page has open
@@ -142,6 +146,11 @@ export class UserSettings implements OnDestroy {
   private fontName(): string {
     const font = this.appearance.font();
     return font === CUSTOM_FONT ? this.appearance.customFont() || 'the default' : fontById(font).name;
+  }
+
+  protected setDummyData(on: boolean): void {
+    this.dummyData.set(on);
+    this.say(on ? 'Saved: showing dummy data instead of your library' : 'Saved: showing your library again');
   }
 
   protected setDebugMode(on: boolean): void {
@@ -320,6 +329,8 @@ export class UserSettings implements OnDestroy {
   }
 
   private say(text: string, kind: Toast['kind'] = 'saved'): void {
+    // every setting changed, and what it was set to, goes into this visit's log for a bug report
+    this.visit.note(`User settings: ${text}`);
     clearTimeout(this.toastTimer);
     this.toast.set({ text, kind });
     this.toastTimer = setTimeout(() => this.toast.set(null), kind === 'saved' ? TOAST_MS : PROBLEM_TOAST_MS);

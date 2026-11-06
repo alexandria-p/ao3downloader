@@ -1,3 +1,5 @@
+import { DebugMode } from './debug-mode';
+import { DummyData } from './dummy-data';
 import { TestBed } from '@angular/core/testing';
 import { effect } from '@angular/core';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -127,6 +129,36 @@ describe('Library', () => {
     });
     store = TestBed.inject(FolderStore) as FakeFolderStore;
     library = TestBed.inject(Library);
+  });
+
+  it('shows debug mode\'s dummy data instead of the real library, a different set per choice', async () => {
+    store.recalled = handle();
+    TestBed.inject(DebugMode).set(true);
+    TestBed.inject(DummyData).set(true);
+
+    await library.showLocal();
+    const local = library.data()?.works.map((w) => w.title) ?? [];
+    expect(local).toContain('Steeped in Starlight');
+    expect(library.store()?.label).toContain('this computer');
+    expect(library.collections().length).toBe(2);
+    expect(library.htmlFiles().size).toBe(local.length);
+    // every one a work, so no file reads as unindexed and nothing offers to repair it
+    expect(library.worksById().size).toBe(local.length);
+    // the real folder was never read
+    expect(local).not.toContain('Example');
+
+    await library.showDropbox();
+    const dropbox = library.data()?.works.map((w) => w.title) ?? [];
+    expect(dropbox).toContain('Zero-G Waltz');
+    expect(dropbox).not.toContain('Steeped in Starlight');
+    expect(library.store()?.label).toContain('Dropbox');
+
+    // turned off, the real folder comes back and nothing dummy stays on screen
+    TestBed.inject(DummyData).set(false);
+    await library.showLocal();
+    expect(library.data()?.works.length).toBe(1);
+    expect(library.store()?.label ?? '').not.toContain('dummy');
+    TestBed.inject(DebugMode).set(false);
   });
 
   it('does nothing at startup when no folder was ever picked', async () => {

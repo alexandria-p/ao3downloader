@@ -459,3 +459,6 @@ select.zone-select {
   min-width: 170px;
   max-width: 100%;
 }
+
+/* dummy data is a choice inside debug mode, so it sits under it */
+.check.dummy-data { margin-left: 26px; }
