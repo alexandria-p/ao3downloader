@@ -475,6 +475,6 @@ Used by: every workflow.
 
 ## Debug mode
 
-- **Debug mode** [debug] - this browser's switch in User settings (`ao3.debugMode`, `DebugMode`), not settings.ini's `EnableDebugTools`. It shows a banner above everything and a **DEBUG** tab.
+- **Debug mode** [debug] - this browser's switch in User settings (`ao3.debugMode`, `DebugMode`), not settings.ini's `EnableDebugTools` - though a downloaded app offers it only while `EnableDebugTools=true` (`DebugMode.allowed`); the hosted copy always does. It shows a banner above everything and a **DEBUG** tab.
 - **Dummy data** [dummy library, fake data] - a box on the DEBUG tab (`ao3.dummyData`, `DummyData`), only while debug mode is on: the page shows a made-up library - works, collections and run history - held in memory instead of reading the real one. A different set for each storage choice (*This computer*: tea-shop titles, 6 works; *Dropbox*: space-station titles, 12 works), each naming itself on every entry, and the debug banner says which is showing. Runs, History's Retry, and the folder and Dropbox sign-in buttons are held while it is on.
 - **Mock Resolve issues** [mock] - on the DEBUG tab: tick duplicates, index issues and/or dating issues and how many, then open the real Resolve issues window on made-up files in memory (`MemoryStore`, `ImportDialog.sandbox`). Nothing real is renamed, deleted or written; exclusion-list writes and the run request are shown on the tab instead, and no run starts.

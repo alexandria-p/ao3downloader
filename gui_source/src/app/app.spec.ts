@@ -4,7 +4,7 @@ import { DebugMode } from './debug';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, shownTime } from './app';
-import { Jobs } from './jobs';
+import { BUILT_IN_CONFIG, Jobs, ServerConfig } from './jobs';
 import { Library } from './library';
 import { UpdateCheck } from './updates';
 import { Bookmark, BookmarksExport } from './bookmarks';
@@ -1580,6 +1580,7 @@ describe('App', () => {
     expect(element.querySelector('.debug-banner')).toBeNull();
     expect(tab(element, 'DEBUG')).toBeUndefined();
 
+    TestBed.inject(Jobs).config.set({ ...BUILT_IN_CONFIG, settings: { debugTools: true } } as ServerConfig);
     TestBed.inject(DebugMode).set(true);
     await settled(fixture);
     const banner = element.querySelector('.debug-banner')!;

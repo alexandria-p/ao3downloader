@@ -1,3 +1,4 @@
+import { BUILT_IN_CONFIG, Jobs, ServerConfig } from './jobs';
 import { TestBed } from '@angular/core/testing';
 import { DebugMode } from './debug-mode';
 import { DUMMY_DATA_KEY, DummyData, dummyLibrary } from './dummy-data';
@@ -53,6 +54,7 @@ describe('DummyData', () => {
   it('is only in force while debug mode is on', () => {
     const dummy = TestBed.inject(DummyData);
     const debug = TestBed.inject(DebugMode);
+    TestBed.inject(Jobs).config.set({ ...BUILT_IN_CONFIG, settings: { debugTools: true } } as ServerConfig);
     dummy.set(true);
     expect(localStorage.getItem(DUMMY_DATA_KEY)).toBe('on');
     expect(dummy.active()).toBe(false);

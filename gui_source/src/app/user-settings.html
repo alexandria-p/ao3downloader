@@ -332,7 +332,9 @@
     }
   }
 
-  <!-- always the last section on the page -->
+  <!-- always the last section on the page; on a downloaded app only when settings.ini's
+       EnableDebugTools is true (DebugMode.allowed) -->
+  @if (debugMode.allowed()) {
   <section class="group debug-mode">
     <div class="group-head">
       <h3>Debug mode</h3>
@@ -347,6 +349,7 @@
       </span>
     </label>
   </section>
+  }
 
   @if (toast(); as toast) {
     <div class="toast" [class.problem]="toast.kind === 'problem'" [attr.role]="toast.kind === 'problem' ? 'alert' : 'status'">

@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1072 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1073 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -961,7 +961,10 @@ offers are deliberately different in kind:
 ### Debug mode is the page's, and its mock touches nothing real
 
 `debug.ts`, `debug-tab.ts`. **Debug mode** (`DebugMode`, `ao3.debugMode`, this browser's
-alone, from User settings' *Debug mode*) is not `EnableDebugTools` (settings.ini, the run
+alone, from User settings' *Debug mode* - **offered on a downloaded app only with settings.ini's
+`EnableDebugTools` on** (`DebugMode.allowed`: always on the hosted copy, else
+`settings.debugTools`), and off wherever it is not allowed, whatever the browser saved (`on` is
+`chosen` and `allowed`)) is not `EnableDebugTools` (settings.ini, the run
 window's panel): it shows `.debug-banner` first among the notices, the reminder included, and a
 **DEBUG** tab (`view` `debug`), and changes nothing else. The tab's **Mock Resolve issues**
 builds made-up files for the issues ticked, as many as asked (`mockPaths`: index issues from
