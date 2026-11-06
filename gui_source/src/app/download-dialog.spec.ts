@@ -531,11 +531,14 @@ describe('DownloadDialog', () => {
     }
   });
 
-  it('says plainly what saving images costs and what it is not', async () => {
+  it('says plainly what saving images costs and what it is not, once it is ticked', async () => {
     // most people do not want this: the pictures are already inside the downloaded work
     await open('custom');
     await advanceTo('options');
+    expect(element.querySelector('.body')?.textContent).not.toContain('already embedded');
 
+    checkbox('images separately')!.click();
+    await fixture.whenStable();
     const said = element.querySelector('.body')?.textContent ?? '';
     expect(said).toContain('already embedded inside all regular downloaded works');
     expect(said).toContain('their own folder');
@@ -1627,6 +1630,34 @@ describe('DownloadDialog', () => {
     button('No, keep my newer copy')!.click();
     await fixture.whenStable();
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
+  });
+
+  it('asks about a copy of a work with no earlier index entry, recommending but keeping it by default', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'unindexed-copy', count: 1, ids: ['1'],
+                 formats: ['EPUB', 'HTML'], date: '2026-04-27', source: 'FicHub',
+                 fileDates: { EPUB: '2026-01-01', HTML: '' }, recommended: 'no',
+                 reason: 'recommended: no - no date could be read from your file name, so it cannot be told which is newer',
+                 default: 'no', choices: ['yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+
+    const panel = element.querySelector('[data-question="unindexed-copy"]')!;
+    const said = panel.textContent ?? '';
+    expect(said).toContain('had no index entry for it');
+    expect(said).toContain('the version from FicHub');
+    expect(said).toContain('Your EPUB: dated 2026-01-01 in its name');
+    expect(said).toContain('Your HTML: no date in its name');
+    expect(said).toContain('Recommended: no - no date could be read from your file name');
+    expect(said).toContain('Left unanswered, the run keeps your copy');
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+    // the recommended answer is the one that stands out
+    expect(button('No, keep my copy')!.classList).toContain('primary');
+    expect(button('Yes, replace it')!.classList).not.toContain('primary');
+
+    button('Yes, replace it')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'yes', date: '' }]);
   });
 
   it('says how many works came from FicHub at the end', async () => {
@@ -3819,7 +3850,7 @@ describe('DownloadDialog', () => {
     checkbox('Retry an earlier run')!.click();
     await fixture.whenStable();
     const said = element.querySelector('.body')?.textContent ?? '';
-    expect(said).toContain('as that run, with its settings.');
+    expect(said).toContain('Retry a run that was stopped, failed, or interrupted. Some previous runs can be');
     expect(said).not.toContain('slice of pages');
   });
 

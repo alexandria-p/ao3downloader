@@ -439,6 +439,29 @@ describe('History', () => {
     expect(said).toContain('the whole listing');
   });
 
+  it('lists the questions a run asked, each with how it was answered', async () => {
+    await show([
+      aRun({
+        choices: [
+          { at: '2026-09-13T12:05:00', question: 'unindexed-copy', choice: 'no', count: 1,
+            works: ['1'], formats: ['EPUB'], recommended: 'yes', source: 'AO3', how: 'timed-out' },
+          { at: '2026-09-13T12:06:00', question: 'fichub', choice: 'yes', count: 2, how: 'answered' },
+          // from before the record kept how
+          { at: '2026-09-13T12:07:00', question: 'quick-floor', choice: 'full', count: 40 },
+        ],
+      }),
+    ]);
+
+    const block = element.querySelector('.run-choices')!;
+    expect(block.querySelector('.choices-head')?.textContent).toContain('Questions asked');
+    const said = block.textContent ?? '';
+    expect(said).toContain('Work 1 had no index entry');
+    expect(said).toContain('recommended: yes');
+    expect(said).toContain('to keep the copy');
+    const hows = Array.from(block.querySelectorAll('.how')).map((x) => x.textContent?.trim());
+    expect(hows).toEqual(['Nobody answered in time, so it took the default.', 'You answered.']);
+  });
+
   it('lists every run it was given', async () => {
     await show([aRun({ file: 'a.json' }), aRun({ file: 'b.json' })]);
 

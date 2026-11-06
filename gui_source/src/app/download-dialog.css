@@ -669,6 +669,18 @@ pre {
   margin-bottom: 0;
 }
 
+/* a copy with no earlier index entry: what each one's name says, and what is recommended */
+.question .file-dates {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.question .recommendation {
+  margin: 0 0 10px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
 /* endregion */
 
 /* region the settings a run is working from */

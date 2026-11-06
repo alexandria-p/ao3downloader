@@ -152,6 +152,65 @@ def get_date_from_filename(name: str) -> str | None:
     return match.group(1) if match else None
 
 
+_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+
+def _stamp(year: int, month: int, day: int) -> str:
+    """'YYYY-MM-DD' for a real day in a plausible year, else ''."""
+
+    if not 1990 <= year <= datetime.date.today().year + 1: return ''
+    try:
+        return datetime.date(year, month, day).isoformat()
+    except ValueError:
+        return ''
+
+
+def _month_date(year: str, month: str, day: str) -> str:
+    name = month[:3].lower()
+    return _stamp(int(year), _MONTHS.index(name) + 1, int(day)) if name in _MONTHS else ''
+
+
+# the ways a date is written in file names, tried in this order - the first that gives a real
+# day wins. **Keep in step with DATE_PATTERNS in the gui's imports.ts** (the Resolve issues
+# window's Infer date): a run judging a file and the window dating it must read one date.
+_DATE_PATTERNS = [
+    # 2024-03-04, 2024_03_04, 2024.03.04, 2024/03/04, 2024 03 04 - month-first, then day-first
+    (re.compile(r'(?<!\d)(\d{4})[-_. /](\d{1,2})[-_. /](\d{1,2})(?!\d)'),
+     lambda m: _stamp(int(m[1]), int(m[2]), int(m[3])) or _stamp(int(m[1]), int(m[3]), int(m[2]))),
+    # 20240304 - month-first, then day-first
+    (re.compile(r'(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)'),
+     lambda m: _stamp(int(m[1]), int(m[2]), int(m[3])) or _stamp(int(m[1]), int(m[3]), int(m[2]))),
+    # 03-04-2024 as month-first, then day-first
+    (re.compile(r'(?<!\d)(\d{1,2})[-_. /](\d{1,2})[-_. /](\d{4})(?!\d)'),
+     lambda m: _stamp(int(m[3]), int(m[1]), int(m[2])) or _stamp(int(m[3]), int(m[2]), int(m[1]))),
+    # 14 Dec 2024, 14 December 2024, 14-Dec-2024
+    (re.compile(r'(?<!\d)(\d{1,2})(?:st|nd|rd|th)?[-_. ]+([a-z]{3,9})\.?[-_., ]+(\d{4})(?!\d)', re.I),
+     lambda m: _month_date(m[3], m[2], m[1])),
+    # Dec 14 2024, December 14, 2024
+    (re.compile(r'(?<![a-z])([a-z]{3,9})\.?[-_. ]+(\d{1,2})(?:st|nd|rd|th)?,?[-_. ]+(\d{4})(?!\d)', re.I),
+     lambda m: _month_date(m[3], m[1], m[2])),
+    # 2024 Dec 14
+    (re.compile(r'(?<!\d)(\d{4})[-_. ]+([a-z]{3,9})\.?[-_. ]+(\d{1,2})(?!\d)', re.I),
+     lambda m: _month_date(m[1], m[2], m[3])),
+]
+
+
+def infer_date_from_filename(name: str) -> str:
+    """A date read out of a file's name, written any of the ways in `_DATE_PATTERNS` and
+    anywhere in the name - or '' when there is none. The work number the name starts with is
+    left out, so a work numbered 20240304 is not read as a date. The helper's half of the
+    page's `inferDate`; reads only the name, never the file."""
+
+    base = os.path.splitext(str(name or '').split('/')[-1].split('\\')[-1])[0]
+    number = get_work_number_from_filename(base)
+    rest = base[len(number):] if number else base
+    for pattern, read in _DATE_PATTERNS:
+        for match in pattern.finditer(rest):
+            date = read(match)
+            if date: return date
+    return ''
+
+
 def get_file_type(filetype: str) -> str:
     """
     creates a filename suffix string for an input (uppercase) filetype and returns it

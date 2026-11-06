@@ -434,6 +434,8 @@ STEP_FICHUB = 'Try FicHub for works AO3 would not give us'
 # FicHub (fichub.net) keeps copies of ao3 works, including some ao3 no longer serves. its
 # api answers a work's link with the work's details and where each format can be fetched
 FICHUB_SITE = 'fichub'
+SOURCE_AO3 = 'AO3'
+SOURCE_FICHUB = 'FicHub'
 FICHUB_BASE_URL = 'https://fichub.net'
 FICHUB_API_URL = FICHUB_BASE_URL + '/api/v0/epub'
 # the formats FicHub makes. ao3's azw3 is not among them
@@ -467,6 +469,17 @@ AO3_INFO_FICHUB_INDEX_KEPT = '  index for work {} left as it was: it is newer th
 AO3_INFO_OLDER_THAN_COPY = ('  the version about to be downloaded of work {} ({}) is older than '
                             'your {} ({}) - waiting for you to choose whether to replace it...')
 AO3_INFO_KEEPING_NEWER = '  {}: keeping your newer copy'
+# a work the index had no entry for when the run began: nothing but its file's own name says
+# which version a copy holds, so the run asks - recommending from that name, defaulting to no
+AO3_INFO_UNINDEXED_COPY = ('  work {} had no index entry before this run, so your {} cannot be '
+                           'judged by it. the version from {} is dated {}. {} - waiting for you '
+                           'to choose whether to replace it...')
+AO3_INFO_UNINDEXED_REPLACING = '  {}: replacing your copy, as asked'
+AO3_INFO_UNINDEXED_KEEPING = '  {}: keeping your copy'
+UNINDEXED_REASON_NEWER = 'recommended: yes - the {} version ({}) is newer than the date in your file name ({})'
+UNINDEXED_REASON_NOT_NEWER = 'recommended: no - your file name says {}, and the {} version ({}) is not newer'
+UNINDEXED_REASON_NO_FILE_DATE = 'recommended: no - no date could be read from your file name, so it cannot be told which is newer'
+UNINDEXED_REASON_NO_DATE = 'recommended: no - the {} version has no date to compare'
 # an import told not to replace outdated copies keeps every copy you have, current or not
 AO3_INFO_KEEPING_YOURS = '  {}: keeping the copy you have (not replacing outdated copies)'
 AO3_INFO_IMPORT_WORKS = '{} works found in your library to look up'

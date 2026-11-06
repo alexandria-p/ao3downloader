@@ -325,8 +325,8 @@
 
           @if (resuming()) {
             <p class="hint">
-              Carries on a full scan, quick scan or custom run that was stopped, failed, or
-              interrupted - as that run, with its settings.
+              Retry a run that was stopped, failed, or interrupted. Some previous runs can be
+              continued from a check-point.
             </p>
           }
 
@@ -615,12 +615,15 @@
             <input type="checkbox" [checked]="images()" (change)="images.set($any($event.target).checked)" />
             <span>Also save embedded images separately</span>
           </label>
-          <p class="hint">
-            <strong>Please note:</strong> images are already embedded inside all regular
-            downloaded works, and display when you read them. This option just also exports
-            any images to their own folder in your downloads directory, for you to look at
-            separately. It will make the download longer.
-          </p>
+          <!-- only once ticked: a note about a choice not made yet is one more thing to read -->
+          @if (images()) {
+            <p class="hint">
+              <strong>Please note:</strong> images are already embedded inside all regular
+              downloaded works, and display when you read them. This option just also exports
+              any images to their own folder in your downloads directory, for you to look at
+              separately. It will make the download longer.
+            </p>
+          }
         }
 
         </fieldset>
@@ -1714,9 +1717,51 @@
           </div>
         }
 
+        @if (asking() && question() === 'unindexed-copy') {
+          <div class="question" data-question="unindexed-copy">
+            <p class="question-text">
+              Your library has
+              <strong>{{ askedFormats().join(', ') }}</strong> of work
+              @for (id of askedIds(); track id) {
+                <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
+              }
+              but had no index entry for it, so there is nothing to tell which version your copy
+              holds. Replace it with the version from {{ askedSource() }}
+              ({{ askedDate() || 'no date' }})?
+            </p>
+            <ul class="file-dates">
+              @for (format of askedFormats(); track format) {
+                <li>Your {{ format }}: {{ askedFileDates()[format] ? 'dated ' + askedFileDates()[format] + ' in its name' : 'no date in its name' }}</li>
+              }
+            </ul>
+            @if (askedReason()) {
+              <p class="recommendation" [attr.data-recommended]="askedRecommended()">
+                {{ recommendation() }}
+              </p>
+            }
+
+            <div class="question-actions">
+              <button type="button" class="button" [class.primary]="askedRecommended() === 'yes'"
+                      [disabled]="answering()" (click)="replaceUnindexedCopy()">
+                Yes, replace it
+              </button>
+              <button type="button" class="button" [class.primary]="askedRecommended() !== 'yes'"
+                      [disabled]="answering()" (click)="keepUnindexedCopy()">
+                No, keep my copy
+              </button>
+            </div>
+
+            <p class="hint">
+              Formats you do not have yet are still downloaded either way. Left unanswered, the
+              run keeps your copy.
+            </p>
+          </div>
+        }
+
         <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
         @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub' &&
-             question() !== 'fichub-outdated' && question() !== 'overwrite-older') {
+             question() !== 'fichub-outdated' && question() !== 'overwrite-older' &&
+             question() !== 'unindexed-copy') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">

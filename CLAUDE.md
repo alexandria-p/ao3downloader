@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1100 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2143 python passed; 1102 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1907,6 +1907,34 @@ leave `superseded`, go into `plan['keep']` - `Ao3.keep_formats`, which `download
 skips, saying `keeping your newer copy` - and a work with nothing else to fetch leaves `stale`.
 Formats it does not have are still fetched. FicHub's older copy goes through the same question
 on an overwriting run (see the FicHub section).
+
+**A copy of a work the index had no entry for when the run began is asked about, from AO3 or
+FicHub, overwriting or not** (`ask_about_unindexed_copies`, `UNINDEXED_COPY_QUESTION`
+`unindexed-copy`). With no entry of its own, the date the run just indexed is the *incoming*
+version's, not the copy's, so the version check has nothing to judge by. `Ao3.indexed_before_run`
+is the index as the run found it - the first listing of `indexing/`, which `entry_path` makes
+before the run's first write there (`entries_at_start`); `indexed_before` takes it off the run's
+own downloader, and is None (nothing asked) for an import - whose window already chose to keep or
+replace - or a test's stand-in. Per work, naming every requested format it has a copy of, it reads
+a date out of each copy's name the way *Infer date* does (`parse_text.infer_date_from_filename`,
+the same `_DATE_PATTERNS` as the page's `DATE_PATTERNS` - keep them in step) and recommends
+(`unindexed_copy_advice`): **yes** only when the incoming version is newer than every copy's
+date, **no** when it is not, or a name holds no date - saying why, in the log and the question.
+**The default is always no**, whatever is recommended: not from settings.ini, not offered up front
+on a background run, and never reused from an earlier attempt (`ASKED_PER_WORK` - one work's answer
+is not another's). Yes puts the copies in `superseded` and the work in `stale`; no takes them
+out, into `plan['keep']`. It runs in `plan_refresh` (every scan, the fic runs), `update_one_work`
+and `rescue_one`; `settle_undated` and `keep_newer_copies` leave those works to it, so nothing is
+asked twice. In `rescue_one` the older-copy questions still ask about the formats there is no
+file of; a work whose copies are all kept and gets nothing from an older FicHub copy stays a
+failure. `test_unindexed_copies.py` holds it.
+
+**Every question a run asks is recorded with how it was answered** (`how` on the choice):
+`answered`, `timed-out`, `not-asked` (QuestionTimeoutMinutes 0), `background-default`,
+`up-front`, `earlier` (a retry's earlier attempt) or `stopped`. `Job.ask` notes it on the record
+(`Job.answered_how` -> `RunRecord.pending_how`), and `RunRecord.choice` takes it once, for the
+answer it was about. History lists them under *Questions asked*, each with a line saying how
+(`HOW_ANSWERED` in `history.ts`); records from before say nothing.
 
 `replace_superseded` needs nothing new: the re-fetched file usually has the *same* name, so
 there is no old file to delete and the write lands on top of it. The guard only fires when a

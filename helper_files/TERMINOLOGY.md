@@ -417,6 +417,7 @@ Used by: every workflow that downloads.
 - Scans `works/` and matches files to works by work number.
 - Asks about undated files, then about older copies (only for this run's works).
 - Decides, per work and format, what is missing, outdated or current.
+- **A copy of a work with no earlier index entry** [unindexed copy] - a file in the library for a work the index did not have when the run began. Before replacing it - from AO3 or FicHub, overwriting or not, in every scan and fic run but an import - the run asks per work (`unindexed-copy`), recommending yes only when the incoming version is newer than the date read from every copy's name (the *Infer date* rules), and saying why; **the default is always no**, keeping it.
 - **Overwrite** (full scan, custom run) treats every copy as needing replacing; **specific fic** always replaces that fic, and only that fic. A copy whose date is **later** than the version about to be written is asked about first, per work (`overwrite-older`, default *no*, keeping it); formats not on disk are fetched either way.
 
 ### Download or update works as necessary

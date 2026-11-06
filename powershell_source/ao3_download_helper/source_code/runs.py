@@ -282,7 +282,10 @@ class RunRecord:
     def choice(self, entry: dict) -> None:
         """Record something the run stopped to ask, and what came back."""
 
-        self.data['choices'].append({'at': now(), **entry})
+        how = getattr(self, 'pending_how', None)
+        self.pending_how = None
+        # how it was answered - by you, or a default and why - unless the caller says itself
+        self.data['choices'].append({'at': now(), **({'how': how} if how else {}), **entry})
         self.save()
 
     def amend_choice(self, fields: dict) -> None:

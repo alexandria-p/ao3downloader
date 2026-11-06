@@ -150,6 +150,29 @@ OVERWRITE_OLDER_YES = 'yes'
 OVERWRITE_OLDER_NO = 'no'
 OVERWRITE_OLDER_CHOICES = (OVERWRITE_OLDER_YES, OVERWRITE_OLDER_NO)
 
+# Whether a file already in the library replaces a copy of a work **the index had no entry
+# for when the run began** - so nothing but the copy's own name says which version it holds.
+# Asked per work, naming the formats, whether or not the run overwrites, for a file from AO3
+# or from FicHub alike (`ask_about_unindexed_copies`). The run *recommends* an answer from the
+# date it reads in each copy's name, and says why, but the default is always **no**: on a
+# timeout, a background run, a stop, or no answer, what you have is kept. Never answered up
+# front, never from settings.ini, and never reused from an earlier attempt - each work is its own.
+UNINDEXED_COPY_QUESTION = 'unindexed-copy'
+UNINDEXED_COPY_YES = 'yes'
+UNINDEXED_COPY_NO = 'no'
+UNINDEXED_COPY_CHOICES = (UNINDEXED_COPY_YES, UNINDEXED_COPY_NO)
+# questions asked about one work at a time: an earlier attempt's answer was about another work
+ASKED_PER_WORK = {UNINDEXED_COPY_QUESTION}
+
+# how each question was answered, kept with the answer in the run's history (`how`)
+ANSWERED_BY_YOU = 'answered'
+ANSWERED_TIMED_OUT = 'timed-out'
+ANSWERED_NOT_ASKED = 'not-asked'
+ANSWERED_BACKGROUND_DEFAULT = 'background-default'
+ANSWERED_UP_FRONT = 'up-front'
+ANSWERED_EARLIER = 'earlier'
+ANSWERED_STOPPED = 'stopped'
+
 # every choice any question may be answered with. the run reads only the answer to the
 # question it actually asked, so one list is enough to keep nonsense out at the door
 ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES + FICHUB_CHOICES
@@ -157,7 +180,8 @@ ANSWER_CHOICES = UNDATED_CHOICES + QUICK_CHOICES + DUPLICATES_CHOICES + FICHUB_C
 CHOICES_FOR = {UNDATED_QUESTION: UNDATED_CHOICES, QUICK_QUESTION: QUICK_CHOICES,
                DUPLICATES_QUESTION: DUPLICATES_CHOICES, FICHUB_QUESTION: FICHUB_CHOICES,
                FICHUB_OUTDATED_QUESTION: FICHUB_OUTDATED_CHOICES,
-               OVERWRITE_OLDER_QUESTION: OVERWRITE_OLDER_CHOICES}
+               OVERWRITE_OLDER_QUESTION: OVERWRITE_OLDER_CHOICES,
+               UNINDEXED_COPY_QUESTION: UNINDEXED_COPY_CHOICES}
 
 # which settings.ini key holds each question's default answer
 ANSWER_SETTING_FOR = {UNDATED_QUESTION: strings.INI_UNDATED_ANSWER,
@@ -642,17 +666,19 @@ class Job:
         # a stopped run never acts on); every other unanswered question takes settings.ini's
         stopped = dict(default)
         default = configured_answer(name, default, self.answer_defaults.get(name))
-        prior = self.prior_answers.get(name)
+        prior = None if name in ASKED_PER_WORK else self.prior_answers.get(name)
         if prior is not None:
             # a resumed run does not ask again what the attempt before it was already told,
             # and a background run was told before it started
             print((strings.AO3_INFO_BACKGROUND_ANSWER if self.background
                    else strings.AO3_INFO_RESUME_ANSWER).format(prior.get('choice')))
+            self.answered_how(ANSWERED_UP_FRONT if self.background else ANSWERED_EARLIER)
             return dict(prior)
         if self.background:
             # nobody is there to answer, so waiting would stall the run for half an hour and
             # then take the default anyway
             print(strings.AO3_INFO_BACKGROUND_DEFAULT.format(default.get('choice')))
+            self.answered_how(ANSWERED_BACKGROUND_DEFAULT)
             return dict(default)
 
         timeout = (question_timeout_seconds() if self.question_timeout_minutes is None
@@ -660,6 +686,7 @@ class Job:
         if timeout <= 0:
             # set to take the default at once: said, so the log shows why nobody was asked
             print(strings.AO3_INFO_QUESTION_NOT_ASKED.format(default.get('choice')))
+            self.answered_how(ANSWERED_NOT_ASKED)
             return dict(default)
 
         self.answer = {}
@@ -669,14 +696,24 @@ class Job:
 
         waited = 0.0
         while not self.answered.is_set():
-            if self.cancel.is_set(): return stopped
+            if self.cancel.is_set():
+                self.answered_how(ANSWERED_STOPPED)
+                return stopped
             if waited >= timeout:
                 print(strings.AO3_INFO_QUESTION_TIMED_OUT.format(default.get('choice')))
+                self.answered_how(ANSWERED_TIMED_OUT)
                 return default
             self.answered.wait(timeout=ANSWER_POLL_SECONDS)
             waited += ANSWER_POLL_SECONDS
 
+        self.answered_how(ANSWERED_BY_YOU)
         return self.answer or default
+
+    def answered_how(self, how: str) -> None:
+        """Note how the question just asked was answered, for the record of it that follows -
+        so History can say whether you chose, or the run took a default (and why)."""
+
+        if self.record is not None: self.record.pending_how = how
 
 
     def progress(self) -> dict:
@@ -3856,10 +3893,20 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         # FicHub's copy is a cache: when it is older than what the index already says, it
         # replaces nothing and does not rewrite the index - see `older_on_fichub`
         behind = older_on_fichub(entry, record)
+        # a work the index had no entry for when the run began: its copies are asked about
+        # one work at a time below (`ask_about_unindexed_copies`), overwriting or not - not by
+        # the older-copy question, which judges by an entry it never had
+        before = indexed_before(job)
+        work = str(failure['id'])
+        held_new = [x for x in filetypes if (existing.get(work) or {}).get(x.upper())] \
+            if before is not None and work not in before else []
         if behind:
-            if not older_fichub_formats(job, failure, existing, filetypes, behind, overwrite):
+            if not older_fichub_formats(job, failure, existing,
+                                        [x for x in filetypes if x not in held_new], behind,
+                                        overwrite and not held_new) and not held_new:
                 return
-            filetypes = behind['missing'] + behind['replace']
+            filetypes = behind['missing'] + behind['replace'] + \
+                [x for x in held_new if x not in behind['missing'] + behind['replace']]
             overwrite = bool(behind['replace'])
 
         def from_fichub(filetype: str) -> bytes:
@@ -3870,7 +3917,15 @@ def rescue_one(ao3, failure: dict, entry: dict | None, existing: dict, filetypes
         if filetypes:
             plan = shared.plan_downloads([record], existing, filetypes, overwrite=overwrite)
             plan['overwrite'] = overwrite
+            ask_about_unindexed_copies(job, [record], existing, plan, filetypes, before,
+                                       strings.SOURCE_FICHUB)
             fetching = say_what_each_format_needs(record, existing, filetypes, plan)
+            if behind and not fetching:
+                # an older copy, and every copy of yours kept: nothing came from FicHub
+                reason = strings.ERROR_FICHUB_OUTDATED.format(behind['fichub'], behind['indexed'])
+                failure['error'] = strings.ERROR_AO3_AND_FICHUB.format(failure.get('error') or '', reason)
+                failure['fichub'] = reason
+                return
             if fetching:
                 ao3.superseded = plan['superseded']
                 try:
@@ -3974,15 +4029,16 @@ def older_fichub_formats(job, failure: dict, existing: dict, filetypes: list[str
 
 
 def ask_yes_no(job, name: str, default: str, details: dict, work: str,
-               formats: list[str]) -> bool:
-    """Ask one of the per-work yes-or-no questions, record the answer, and say if it was yes."""
+               formats: list[str], kept: dict | None = None) -> bool:
+    """Ask one of the per-work yes-or-no questions, record the answer, and say if it was yes.
+    `kept` is anything more the run's history should keep with the answer."""
 
     answer = job.ask({'name': name, 'count': 1, **details, 'choices': ['yes', 'no']},
                      {'choice': default})
     choice = answer.get('choice') if answer.get('choice') in ('yes', 'no') else default
     if job.record:
         job.record.choice({'question': name, 'count': 1, 'works': [work],
-                           'formats': formats, 'choice': choice})
+                           'formats': formats, 'choice': choice, **(kept or {})})
     return choice == 'yes' and not job.cancel.is_set()
 
 
@@ -4020,11 +4076,15 @@ def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
     # the undated question decides which copies count as behind, and overwriting has
     # already decided that for all of them. stopping to ask would be asking about works
     # this run is about to fetch again either way
+    # a work the index had no entry for when the run began is asked about on its own, copy
+    # by copy (`ask_about_unindexed_copies`), so the undated question leaves it out
+    before = indexed_before(job)
+    judged = records if before is None else [r for r in records if str(r.get('id') or '') in before]
     if overwrite is True or (isinstance(overwrite, set) and
                               {str(r.get('link')) for r in records} <= overwrite):
         refresh_undated, stamped = False, 0
     else:
-        refresh_undated, stamped = settle_undated(job, fileops, records, existing,
+        refresh_undated, stamped = settle_undated(job, fileops, judged, existing,
                                                   downloadtypes)
     # after the undated question: dating files can leave two copies of one format side by side
     settle_duplicates(job, records, existing, downloadtypes)
@@ -4036,7 +4096,8 @@ def plan_refresh(job: Job, fileops: FileOps, records: list[dict],
     plan['existing'] = existing
     # so the per-format lines can say why a current-looking copy is being fetched again
     plan['overwrite'] = bool(overwrite)
-    if overwrite: keep_newer_copies(job, records, existing, plan, downloadtypes)
+    asked = ask_about_unindexed_copies(job, records, existing, plan, downloadtypes, before)
+    if overwrite: keep_newer_copies(job, records, existing, plan, downloadtypes, skip=asked)
 
     if plan['stale'] and overwrite:
         # not 'out of date' - most of them are not, and saying so would be a lie the user
@@ -4472,8 +4533,99 @@ def newest_first(records: list[dict]) -> list[dict]:
         reverse=True)
 
 
+def indexed_before(job: 'Job | None') -> set[str] | None:
+    """The works the index held when this run began (`Ao3.indexed_before_run`), from the run's
+    own downloader - or None where there is nothing to say it, which asks nothing: no real
+    downloader (a test's stand-in), or an import, whose works are ones with no entry by
+    definition and whose own rules (keep what you have, or replace what is outdated, as the
+    Resolve issues window chose) already decide their copies."""
+
+    if job is None or getattr(job, 'action', None) == ACTION_IMPORT: return None
+    ao3 = getattr(job, '_ao3', None)
+    if not (isinstance(Ao3, type) and isinstance(ao3, Ao3)): return None
+    try:
+        return ao3.indexed_before_run()
+    except Exception:
+        return None
+
+
+def unindexed_copy_advice(incoming: str, dates: dict[str, str], source: str) -> tuple[str, str]:
+    """What to recommend for a work's copies when the index has nothing to judge them by: 'yes'
+    only when the incoming version is newer than **every** copy's date read from its name, and
+    'no' otherwise - older, the same, or a copy whose name holds no date. With the reason, in a
+    sentence, for the log and the question."""
+
+    if not incoming:
+        return UNINDEXED_COPY_NO, strings.UNINDEXED_REASON_NO_DATE.format(source)
+    if any(not date for date in dates.values()):
+        return UNINDEXED_COPY_NO, strings.UNINDEXED_REASON_NO_FILE_DATE
+    newest = max(dates.values())
+    if incoming > newest:
+        return UNINDEXED_COPY_YES, strings.UNINDEXED_REASON_NEWER.format(source, incoming, newest)
+    return UNINDEXED_COPY_NO, strings.UNINDEXED_REASON_NOT_NEWER.format(newest, source, incoming)
+
+
+def ask_about_unindexed_copies(job: 'Job | None', records: list[dict], existing: dict,
+                               plan: dict, filetypes: list[str], before: set[str] | None,
+                               source: str = strings.SOURCE_AO3) -> set[str]:
+    """Ask before a copy of a work **the index had no entry for when the run began** is replaced.
+
+    With no entry of its own, nothing but the copy's name says which version it holds - the
+    date the run just indexed is the incoming version's, not the copy's - so the version check
+    has nothing to go on. For each such work with a copy of a requested format, the run asks
+    (`UNINDEXED_COPY_QUESTION`) whatever it would otherwise have done, overwriting or not,
+    reading a date out of each copy's name the way the Resolve issues window's *Infer date*
+    does (`parse_text.infer_date_from_filename`) to recommend an answer and say why. Yes puts
+    those copies in `superseded` (and the work in `stale`), so they are fetched and replaced;
+    no takes them out, into `plan['keep']`, so they are kept and not fetched. **The default is
+    always no.** Formats it has no copy of are fetched either way. Answers the works it asked
+    about, so no other question asks about them again. `before` is `Ao3.indexed_before_run()`;
+    None (no downloader to say) asks nothing.
+    """
+
+    asked: set[str] = set()
+    if job is None or before is None: return asked
+    keep: dict[str, set[str]] = plan.setdefault('keep', {})
+    for record in records:
+        work = str(record.get('id') or '')
+        link = record.get('link') or ''
+        if not work or not link or work in before: continue
+        have = existing.get(work) or {}
+        formats = [x for x in filetypes if have.get(x.upper())]
+        if not formats: continue
+
+        incoming = parse_text.get_date_stamp(record.get('date_updated') or '')
+        dates = {x: parse_text.infer_date_from_filename(have[x.upper()]['path']) for x in formats}
+        recommended, reason = unindexed_copy_advice(incoming, dates, source)
+        print(strings.AO3_INFO_UNINDEXED_COPY.format(
+            work, ', '.join(formats), source, incoming or '?', reason))
+        asked.add(work)
+        yes = ask_yes_no(job, UNINDEXED_COPY_QUESTION, UNINDEXED_COPY_NO,
+                         {'ids': [work], 'formats': formats, 'date': incoming,
+                          'fileDates': {x: dates[x] for x in formats}, 'source': source,
+                          'recommended': recommended, 'reason': reason}, work, formats,
+                         kept={'recommended': recommended, 'source': source})
+        replacing = plan['superseded'].setdefault(link, {})
+        if yes:
+            for filetype in formats:
+                replacing[filetype] = have[filetype.upper()]['path']
+                print(strings.AO3_INFO_UNINDEXED_REPLACING.format(filetype))
+            if link not in plan['stale']: plan['stale'].append(link)
+            if link in plan.get('undated', []): plan['undated'].remove(link)
+            continue
+        keep.setdefault(link, set()).update(x.upper() for x in formats)
+        for filetype in formats:
+            replacing.pop(filetype, None)
+            print(strings.AO3_INFO_UNINDEXED_KEEPING.format(filetype))
+        if not replacing: plan['superseded'].pop(link, None)
+        missing = any(not have.get(x.upper()) for x in filetypes)
+        if not missing and link in plan['stale']: plan['stale'].remove(link)
+        if link in plan.get('undated', []): plan['undated'].remove(link)
+    return asked
+
+
 def keep_newer_copies(job: 'Job', records: list[dict], existing: dict, plan: dict,
-                      filetypes: list[str]) -> None:
+                      filetypes: list[str], skip: set[str] = frozenset()) -> None:
     """On an overwriting run, ask before replacing a copy with an **older** version.
 
     Overwriting replaces every copy, current or not - but a copy whose name carries a later
@@ -4492,6 +4644,8 @@ def keep_newer_copies(job: 'Job', records: list[dict], existing: dict, plan: dic
         current = parse_text.get_date_stamp(record.get('date_updated'))
         if not current: continue
         work = str(record.get('id') or '')
+        # already asked about as a work the index had no entry for
+        if work in skip: continue
         have = existing.get(work) or {}
         newer = {x: have[x.upper()]['date'] for x in replacing
                  if (have.get(x.upper()) or {}).get('date') and have[x.upper()]['date'] > current}
@@ -4727,8 +4881,10 @@ def update_one_work(ao3: Ao3, record: dict, existing: dict, filetypes: list[str]
         plan = shared.plan_downloads([fresh], existing, filetypes,
                                      refresh_undated=refresh_undated, overwrite=overwrite)
         plan['overwrite'] = overwrite
+        asked = ask_about_unindexed_copies(job, [fresh], existing, plan, filetypes,
+                                           indexed_before(job))
         if overwrite and job is not None:
-            keep_newer_copies(job, [fresh], existing, plan, filetypes)
+            keep_newer_copies(job, [fresh], existing, plan, filetypes, skip=asked)
         wanted = say_what_each_format_needs(fresh, existing, filetypes, plan)
 
         if not wanted:

@@ -539,6 +539,17 @@ export class DownloadDialog implements OnDestroy {
   protected readonly askedIndexed = signal('');
   /** on an `overwrite-older` question: the date of the copy on disk */
   protected readonly askedNewer = signal('');
+  /** on an `unindexed-copy` question: each copy's date from its name, where the incoming
+   *  version is from, and the answer recommended with why */
+  protected readonly askedFileDates = signal<Record<string, string>>({});
+  protected readonly askedSource = signal('');
+  protected readonly askedRecommended = signal('');
+  protected readonly askedReason = signal('');
+  /** the helper's reason as a sentence: 'Recommended: no - ...' */
+  protected readonly recommendation = computed(() => {
+    const reason = this.askedReason();
+    return reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + '.' : '';
+  });
   /** what the question answers itself with if nobody does, and after how many minutes */
   protected readonly askedDefault = signal('');
   protected readonly askedTimeout = signal(0);
@@ -2122,6 +2133,10 @@ export class DownloadDialog implements OnDestroy {
         this.askedFormats.set(event.formats ?? []);
         this.askedIndexed.set(event.indexed ?? '');
         this.askedNewer.set(event.newer ?? '');
+        this.askedFileDates.set(event.fileDates ?? {});
+        this.askedSource.set(event.source ?? '');
+        this.askedRecommended.set(event.recommended ?? '');
+        this.askedReason.set(event.reason ?? '');
         this.askedDefault.set(event.default ?? '');
         this.askedTimeout.set(event.timeoutMinutes ?? 0);
         this.choosingDate.set(false);
@@ -2374,6 +2389,15 @@ export class DownloadDialog implements OnDestroy {
 
   /** keep the newer copy */
   protected keepNewerCopy(): void {
+    void this.answerQuestion('no');
+  }
+
+  /** a copy of a work with no earlier index entry: replace it, or keep it */
+  protected replaceUnindexedCopy(): void {
+    void this.answerQuestion('yes');
+  }
+
+  protected keepUnindexedCopy(): void {
     void this.answerQuestion('no');
   }
 

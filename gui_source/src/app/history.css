@@ -225,6 +225,16 @@
   margin: 0 0 4px;
 }
 
+.run-choice {
+  margin: 0 0 6px;
+}
+
+/* whether you chose, or a default was taken: quieter than the answer itself */
+.run-choice .how {
+  font-style: italic;
+  font-size: 0.8rem;
+}
+
 .ids {
   margin-top: 4px;
   font-size: 0.84rem;

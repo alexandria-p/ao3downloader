@@ -271,6 +271,9 @@ class Ao3:
         # each index folder's entries by the number their file name starts with - see
         # `entry_path`. listed when first asked for, once per run
         self.entries_by_id: dict[str, dict[str, str]] = {}
+        # the works the index held when this run first looked - before it wrote any entry.
+        # `indexed_before_run`; a work outside it has no entry of its own to judge a copy by
+        self.entries_at_start: set[str] | None = None
         # numbers found with more than one index file, and the one written to
         self.duplicate_entries: list[dict] = []
         # external works this run saved an entry for - its cleanup notes their collections
@@ -1227,12 +1230,36 @@ class Ao3:
         if known is None:
             known = self.list_entries(folder)
             self.entries_by_id[folder] = known
+            # the first listing comes before the first write into the folder, so it is the
+            # index as the run found it
+            if folder == strings.INDEXING_FOLDER_NAME and self.entries_at_start is None:
+                self.entries_at_start = set(known)
         number = str(document.get('id') or '')
         if number and number in known: return os.path.join(folder, known[number])
         # not remembered here: a lookup can be made with little more than a number (a
         # series' `series_existing`), and the name built from that is not one to reuse. a
         # name is remembered once a file has been written under it - `remember_entry`
         return self.metadata_path(document, subfolder)
+
+
+    def indexed_before_run(self) -> set[str]:
+        """The works that had an index entry before this run wrote any - by number.
+
+        A work outside it came into the index this run (or not at all), so a copy of it
+        already in the library has no entry of its own to be judged against: the date the run
+        just indexed says what is incoming, not what the copy holds. Every write goes through
+        `entry_path`, which lists the folder before its first write, so that listing is the
+        index as the run found it; with no write yet, a listing now is the same thing.
+        """
+
+        if self.entries_at_start is None:
+            folder = strings.INDEXING_FOLDER_NAME
+            known = self.entries_by_id.get(folder)
+            if known is None:
+                known = self.list_entries(folder)
+                self.entries_by_id[folder] = known
+            self.entries_at_start = set(known)
+        return self.entries_at_start
 
 
     def remember_entry(self, path: str) -> None:

@@ -2,7 +2,7 @@ import { inAo3Zone, shownTime } from './preferences';
 import { Component, effect, inject, signal, untracked, output } from '@angular/core';
 import { WorkLink } from './work-link';
 import { DecimalPipe } from '@angular/common';
-import { ActiveRun, IndexGap, Jobs, RunHistory, RunRemoval } from './jobs';
+import { ActiveRun, IndexGap, Jobs, RunChoice, RunHistory, RunRemoval } from './jobs';
 import { describeGap, issueCount, issuesOf, issuesReport, saveText } from './issues';
 import { Library } from './library';
 import { DummyData } from './dummy-data';
@@ -17,6 +17,17 @@ import { HISTORY_LIMIT } from './library-store';
  * touched a thousand works would otherwise bury the next one, and the number is usually
  * all anybody wants from it.
  */
+/** what each way a question can be answered says in a run's history */
+const HOW_ANSWERED: Record<string, string> = {
+  answered: 'You answered.',
+  'timed-out': 'Nobody answered in time, so it took the default.',
+  'not-asked': 'Not asked: settings.ini says to take the default at once.',
+  'background-default': 'A background run that was not told, so it took the default.',
+  'up-front': 'Answered before this background run started.',
+  earlier: 'Taken from the earlier attempt this run retried.',
+  stopped: 'The run was stopped while it waited, so it took the answer that changes nothing.',
+};
+
 @Component({
   selector: 'app-history',
   imports: [DecimalPipe, ProgressBar, WorkLink],
@@ -64,6 +75,11 @@ export class History {
   }
 
   /** the older copies a run removed in its cleanup step */
+  /** how a question was answered, in a sentence - '' on records from before it was kept */
+  protected howWords(choice: RunChoice): string {
+    return HOW_ANSWERED[choice.how ?? ''] ?? '';
+  }
+
   protected removedOf(run: RunHistory): RunRemoval[] {
     return (run.removals ?? []).filter((x) => x.status === 'removed');
   }

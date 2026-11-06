@@ -301,6 +301,17 @@ export interface RunChoice {
   formats?: string[];
   /** the files given a date, when that was the answer */
   renamed?: { id: string; from: string; to: string }[];
+  /**
+   * How it was answered: by you, or a default and why. Missing on records from before it was
+   * kept. `answered` you chose; `timed-out` nobody answered in time; `not-asked` settings.ini
+   * says to take the default at once; `background-default` a background run not told;
+   * `up-front` a background run told before it started; `earlier` an earlier attempt's answer;
+   * `stopped` the run was stopped while it waited.
+   */
+  how?: string;
+  /** on an `unindexed-copy` answer: what was recommended, and where the incoming version was from */
+  recommended?: string;
+  source?: string;
 }
 
 /** one past run, as the helper wrote it down */
@@ -490,6 +501,12 @@ export interface JobEvent {
   indexed?: string;
   /** on an `overwrite-older` question: the date of the copy on disk, newer than `date` */
   newer?: string;
+  /** on an `unindexed-copy` question: the date read from each copy's name ('' for none),
+   *  where the incoming version is from, the answer recommended and why */
+  fileDates?: Record<string, string>;
+  source?: string;
+  recommended?: string;
+  reason?: string;
   /** a question's: the answer it takes if nobody gives one, and after how many minutes */
   default?: string;
   timeoutMinutes?: number;
@@ -541,7 +558,8 @@ export interface StartRequest {
 
 /** the questions a run can stop to ask, by the name the helper gives them */
 export type QuestionName =
-  'undated' | 'quick-floor' | 'duplicates' | 'fichub' | 'fichub-outdated' | 'overwrite-older';
+  'undated' | 'quick-floor' | 'duplicates' | 'fichub' | 'fichub-outdated' | 'overwrite-older' |
+  'unindexed-copy';
 
 /** answers given before a background run starts, since nobody will be there to give them */
 export type BackgroundAnswers = Partial<Record<QuestionName, { choice: AnswerChoice; date?: string }>>;
