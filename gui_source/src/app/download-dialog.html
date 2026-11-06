@@ -242,6 +242,14 @@
     <!-- step 2: the questions the console menu asks -->
     @if (step() === 'options') {
       <section class="body">
+        <!-- what a quick scan is for, before what it covers -->
+        @if (action() === 'quick') {
+          <p class="what-it-does">
+            Scans your AO3 Bookmarks and updates anything that has changed since the last
+            successful run.
+          </p>
+        }
+
         <!-- a quick scan's first page, only while no earlier scan is on record to measure back to -->
         @if (firstScan()) {
           <p class="warning first-scan">
@@ -971,15 +979,13 @@
                 index. Both walks start at your newest bookmark whatever the newer end is.
               </p>
             } @else {
-              <p>
-                @if (chosenFloorRun(); as chosen) {
+              <!-- what it does in general is said on the options page; only a chosen scan is new here -->
+              @if (chosenFloorRun(); as chosen) {
+                <p>
                   Scans for and updates anything that has changed since the scan you chose,
                   which started on {{ chosen.started.slice(0, 10) }}.
-                } @else {
-                  Scans for and updates anything that has changed since the last successful
-                  run.
-                }
-              </p>
+                </p>
+              }
 
               <p class="warning">
                 Files missing from earlier runs due to an incomplete or damaged index - for

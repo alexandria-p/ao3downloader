@@ -2321,6 +2321,24 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('input[name="password"]')).toBeTruthy();
   });
 
+  it('goes straight past a quick scan’s note once it is turned off', async () => {
+    jobs.floorAhead = Promise.resolve(scanOnRecord('a', '2026-09-02T12:00:00'));
+    await toNote('quick');
+    expect(currentStep()).toBe('acknowledge');
+    element.querySelector<HTMLInputElement>('input[name="acknowledge"]')!.click();
+    element.querySelector<HTMLInputElement>('input[name="dontAskAgain"]')!.click();
+    await fixture.whenStable();
+    button('Continue')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('input[name="password"]')).toBeTruthy();
+
+    await toNote('quick');
+
+    expect(currentStep()).not.toBe('acknowledge');
+    expect(element.querySelector('.dialog .body')?.textContent).not.toContain('will not be restored by this Quick Scan');
+    expect(element.querySelector('input[name="password"]')).toBeTruthy();
+  });
+
   it('keeps asking when the note is turned off but then backed out of', async () => {
     // ticking the box is not the decision; going through with it is
     await toNote('sync');
@@ -2346,6 +2364,21 @@ describe('DownloadDialog', () => {
     // and not on the acknowledgement page any more
     await walkToNote();
     expect(element.querySelector('.dialog .body')?.textContent).not.toContain('this will perform a full index');
+  });
+
+  it('says what a quick scan does on its first page, above what it covers, and not again after', async () => {
+    jobs.floorAhead = Promise.resolve(scanOnRecord('a', '2026-09-02T12:00:00'));
+    await open('quick');
+    await settled();
+    expect(currentStep()).toBe('options');
+    const body = element.querySelector('.dialog .body')!;
+    const says = body.querySelector('.what-it-does');
+    expect(says?.textContent).toContain('Scans your AO3 Bookmarks and updates anything that has changed');
+    const covers = body.querySelector('fieldset')!;
+    expect(says!.compareDocumentPosition(covers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await walkToNote();
+    expect(element.querySelector('.dialog .body')?.textContent).not.toContain('updates anything that has changed since the last');
   });
 
   it('says nothing about a full index when a scan is on record', async () => {

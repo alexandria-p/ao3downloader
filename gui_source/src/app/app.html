@@ -517,7 +517,7 @@
     <app-work-list
       [works]="works()"
       [owner]="owner()"
-      label="Bookmarks"
+      [label]="owner() || !data() ? 'Bookmarks' : 'Works'"
       [loading]="firstRead()"
       [note]="listingNote() || 'List not yet loaded'"
       [selectable]="true"

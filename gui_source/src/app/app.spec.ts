@@ -678,6 +678,17 @@ describe('App', () => {
     expect(heading).toContain('Someone');
   });
 
+  it('says Works, with nobody named, when no entry came off anyone\'s bookmarks', async () => {
+    const { fixture, element, library } = await render(25);
+    library.data.update((d) => d && { ...d, source: '' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const heading = element.querySelector('.listing-heading')?.textContent ?? '';
+    expect(heading).toContain('1 - 20 of 25 Works');
+    expect(heading).not.toContain(' by ');
+  });
+
   it('shows the remainder on the last page', async () => {
     const { fixture, element } = await render(25);
 
