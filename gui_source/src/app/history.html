@@ -112,7 +112,10 @@
   }
 
   @if (loading()) {
-    <app-progress-bar caption="Reading past runs..." />
+    <!-- one bar at a time: while the library itself is read, its panel above says so -->
+    @if (!libraryLoading()) {
+      <app-progress-bar caption="Reading past runs..." />
+    }
   } @else if (unavailable()) {
     <p class="notice">
       Open a library - choose a folder, or sign in to Dropbox - to see the runs recorded in it.

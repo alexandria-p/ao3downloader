@@ -32,6 +32,8 @@ export class History {
   /** when the list shown was read from the library, for 'List refreshed' */
   protected readonly readAt = signal<Date | null>(null);
   protected readonly shownTime = shownTime;
+  /** the library is being read: its own panel shows, so this tab's would be a second bar */
+  protected readonly libraryLoading = this.library.loading;
   /** true when the helper could not be reached at all, which is not the same as no runs */
   protected readonly unavailable = signal(false);
 
