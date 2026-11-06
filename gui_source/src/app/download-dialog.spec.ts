@@ -452,6 +452,23 @@ describe('DownloadDialog', () => {
     ]);
   });
 
+  for (const action of ['bookmarks', 'quick', 'custom', 'sync', 'new', 'update', 'work', 'works'] as JobAction[]) {
+    it(`lists JSON on a ${action} run's file types in debug mode`, async () => {
+      debugOn();
+      await open(action);
+      await advanceTo('filetypes');
+      expect(currentStep()).toBe('filetypes');
+      expect(checkbox('JSON')).toBeTruthy();
+    });
+
+    it(`lists no JSON on a ${action} run's file types outside debug mode`, async () => {
+      await open(action);
+      await advanceTo('filetypes');
+      expect(currentStep()).toBe('filetypes');
+      expect(checkbox('JSON')).toBeFalsy();
+    });
+  }
+
   it('lists no JSON outside debug mode, and says nothing about it, but still sends it', async () => {
     // json is the index - always written by a run that indexes, never one to pick
     await open('bookmarks');
