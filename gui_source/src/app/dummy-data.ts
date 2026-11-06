@@ -202,7 +202,7 @@ export function dummyLibrary(kind: DummyKind): MemoryStore {
       put(
         `works/${id} ${title} - ${author} ${updated}.${format}`,
         format === 'html'
-          ? workHtml({ title, author, fandom, updated, chapters, summary: reading.summary, tag: theme.tag, n })
+          ? workHtml({ title, n })
           : `${theme.tag} - a made-up ${format} of ${title}`,
         NOW - (3 + n * 9) * DAY,
       );
@@ -292,39 +292,22 @@ export function dummyLibrary(kind: DummyKind): MemoryStore {
   return store;
 }
 
-/** made-up lines a dummy chapter is built from - gentle, and plainly not anybody's real work */
-const LINES = [
-  'The kettle sang before anyone had quite decided to make tea, which was how most good afternoons began.',
-  'Outside, the weather made up its mind three times and changed it twice.',
-  'Nobody said the obvious thing, and so it sat in the middle of the room like a friendly cat.',
-  'There was a list on the counter: bread, string, something for the window that would not stay shut.',
-  'By evening the lamps were lit, and the long shadows had gone back wherever shadows go.',
-  'It was not a grand adventure. It was, everyone agreed later, exactly the right size.',
+/** the text of every dummy work: lorem ipsum, and nothing that reads as anybody's story */
+const LOREM = [
+  'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+  'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+  'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+  'Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
 ];
 
-/**
- * A dummy work's html, shaped like AO3's own download - title, author, tags, summary, then its
- * chapters - so opening one from the dummy library looks like opening a real one.
- */
-function workHtml(work: { title: string; author: string; fandom: string; updated: string; chapters: number;
-  summary: string; tag: string; n: number }): string {
-  const chapters = Math.min(work.chapters, 3);
-  const body = Array.from({ length: chapters }, (_, c) => {
-    const paragraphs = Array.from({ length: 4 }, (_, p) => `<p>${LINES[(work.n + c + p) % LINES.length]}</p>`).join('\n');
-    return `<div class="meta group"><h2 class="heading">Chapter ${c + 1}</h2></div>\n<div class="userstuff">\n${paragraphs}\n</div>`;
-  }).join('\n');
+/** a dummy work's html: its title, then lorem ipsum - so opening one shows it opened, and nothing more */
+function workHtml(work: { title: string; n: number }): string {
+  const paragraphs = Array.from({ length: 6 }, (_, p) => `<p>${LOREM[(work.n + p) % LOREM.length]}</p>`).join('\n');
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>${work.title} - ${work.author}</title>
-<style>body{font:16px/1.6 Georgia,serif;max-width:40em;margin:2em auto;padding:0 1em;color:#222}
-.meta{border-bottom:1px solid #ccc;margin-bottom:1em}.tag{color:#900}dt{font-weight:bold}</style></head>
+<html><head><meta charset="utf-8"><title>${work.title}</title>
+<style>body{font:16px/1.6 Georgia,serif;max-width:40em;margin:2em auto;padding:0 1em;color:#222}</style></head>
 <body>
-<div class="meta">
-<p class="tag">${work.tag} - a made-up work, not a real one.</p>
-<dl><dt>Fandom:</dt><dd>${work.fandom}</dd><dt>Stats:</dt><dd>Updated: ${work.updated} Chapters: ${work.chapters}</dd></dl>
 <h1>${work.title}</h1>
-<div class="byline">by <a rel="author">${work.author}</a></div>
-<p>Summary</p><blockquote class="userstuff"><p>${work.summary}</p></blockquote>
-</div>
-${body}
+${paragraphs}
 </body></html>`;
 }

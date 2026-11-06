@@ -973,11 +973,11 @@ of making it and refreshes no listing; *never ask me again* is not bound; and st
 request back to the tab, which shows it and starts nothing. Only `POST /api/file-names` reaches
 the helper, which writes nothing. Keep any new write the window learns behind `sandbox()`.
 
-**Dummy data** (`dummy-data.ts`, `DummyData`, `ao3.dummyData`, a box under *Debug mode* in User
-settings, in force only while debug mode is on - `active`) shows a made-up library instead of the
+**Dummy data** (`dummy-data.ts`, `DummyData`, `ao3.dummyData`, a box on the **DEBUG** tab, in force
+only while debug mode is on - `active`) shows a made-up library instead of the
 real one: works, collections and run history. **One per storage choice** (`dummyLibrary(kind)`):
 *This computer* a small tea-shop set from 9100001, *Dropbox* a larger space-station one from
-9200001, every title, fandom, tag and run naming which it is, and the debug banner says so too
+9200001, every title, fandom, tag and run naming which it is, each work's html only its title over lorem ipsum (`workHtml`), and the debug banner says so too
 (`.dummy-note`). `Library.showLocal`/`showDropbox` hand over to `showDummy`, which reads a
 `MemoryStore` (`memory-store.ts`, kept per kind while on) through the same `ingestRecords` and
 `mapCopies` a real read uses - so History, hiding and custom collections work on it, in memory -

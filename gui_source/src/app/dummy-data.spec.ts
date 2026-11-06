@@ -27,14 +27,15 @@ describe('dummyLibrary', () => {
     }
   });
 
-  it('gives every dummy work an html copy that reads like a downloaded work', async () => {
+  it('gives every dummy work an html copy of its title over lorem ipsum', async () => {
     const store = dummyLibrary('local');
     const html = (await store.list('works')).filter((p) => p.endsWith('.html'));
     expect(html.length).toBe((await store.list('indexing')).length);
     const page = (await store.read(html[0])) ?? '';
     expect(page).toContain('<h1>');
-    expect(page).toContain('Chapter 1');
-    expect(page).toContain('a made-up work');
+    expect(page).toContain('Lorem ipsum');
+    // nothing but its title and lorem ipsum
+    expect(page).not.toContain('Chapter');
   });
 
   it('gives every work file an index entry, so nothing offers to repair it', async () => {

@@ -1,8 +1,9 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, inject, input, signal } from '@angular/core';
 import { DecimalPipe, JsonPipe } from '@angular/common';
 import { ImportDialog } from './import-dialog';
 import { DatingResult, ImportRequest } from './imports';
 import { DEFAULT_MOCK, MockLibrary, MockSetup, mockLibrary } from './debug';
+import { DummyData } from './dummy-data';
 
 /**
  * The DEBUG tab, shown only in debug mode: tries the Resolve issues window on a mock library
@@ -16,6 +17,8 @@ import { DEFAULT_MOCK, MockLibrary, MockSetup, mockLibrary } from './debug';
   styleUrl: './debug-tab.css',
 })
 export class DebugTab {
+  /** debug mode's made-up library, in place of the real one - this tab is where it is switched */
+  protected readonly dummyData = inject(DummyData);
   /** the formats the window offers - the helper's, as the real window has them */
   readonly formats = input<string[]>(['HTML', 'EPUB', 'PDF', 'MOBI', 'AZW3', 'JSON']);
 
