@@ -69,6 +69,21 @@
     </label>
 
     <label class="filter-field">
+      <span>Downloaded as</span>
+      <select
+        name="formatFilter"
+        [value]="formatFilter()"
+        (change)="formatFilter.set($any($event.target).value)"
+      >
+        <option value="">Any format</option>
+        @for (format of formats; track format) {
+          <option [value]="format">{{ format.toUpperCase() }}</option>
+        }
+        <option value="none">Not downloaded</option>
+      </select>
+    </label>
+
+    <label class="filter-field">
       <span>Title contains</span>
       <input
         type="search"

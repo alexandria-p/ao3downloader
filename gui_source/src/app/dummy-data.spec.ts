@@ -27,6 +27,16 @@ describe('dummyLibrary', () => {
     }
   });
 
+  it('gives every dummy work an html copy that reads like a downloaded work', async () => {
+    const store = dummyLibrary('local');
+    const html = (await store.list('works')).filter((p) => p.endsWith('.html'));
+    expect(html.length).toBe((await store.list('indexing')).length);
+    const page = (await store.read(html[0])) ?? '';
+    expect(page).toContain('<h1>');
+    expect(page).toContain('Chapter 1');
+    expect(page).toContain('a made-up work');
+  });
+
   it('gives every work file an index entry, so nothing offers to repair it', async () => {
     const store = dummyLibrary('dropbox');
     const indexed = new Set((await store.list('indexing')).map((p) => workIdFromFilename(p.split('/').pop()!)));

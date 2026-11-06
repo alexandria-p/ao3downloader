@@ -103,6 +103,12 @@ export class WorkList {
   protected readonly typeFilter = signal<'' | BookmarkType>('');
   /** where a work came from - your bookmarks, a collection, anything else - or '' for all */
   protected readonly originFilter = signal<'' | Origin>('');
+  /**
+   * Works with a downloaded copy in one format, or with none at all ('none') - read from the
+   * files in the library, by work number; '' for any.
+   */
+  protected readonly formatFilter = signal<'' | 'none' | OpenableFormat>('');
+  protected readonly formats = OPENABLE_FORMATS;
   /** bookmarks you wrote a note on, and bookmarks you marked as a rec */
   protected readonly withNotes = signal(false);
   protected readonly recommended = signal(false);
@@ -148,6 +154,7 @@ export class WorkList {
         this.bookmarkedTo() ||
         this.typeFilter() ||
         this.originFilter() ||
+        this.formatFilter() ||
         this.withNotes() ||
         this.recommended() ||
         this.includeTags().length ||
@@ -180,12 +187,20 @@ export class WorkList {
     const include = this.includeTags();
     const exclude = this.excludeTags();
     const origin = this.originFilter();
+    const format = this.formatFilter();
+    const copies = this.copies();
     const withNotes = this.withNotes();
     const recommended = this.recommended();
 
     return this.visibleWorks().filter((work) => {
       if (type && bookmarkTypeOf(work) !== type) return false;
       if (origin && originOf(work) !== origin) return false;
+      if (format) {
+        // a series or an external work has no copy of its own to be downloaded as
+        const id = isWorkEntry(work) ? work.id : null;
+        const held = (f: OpenableFormat) => !!id && copies[f].has(id);
+        if (format === 'none' ? !id || OPENABLE_FORMATS.some(held) : !held(format)) return false;
+      }
       if (withNotes && !(work.bookmark_notes ?? '').trim()) return false;
       if (recommended && !work.bookmark_rec) return false;
       if (!matchesTags(work, include, exclude)) return false;
@@ -716,6 +731,7 @@ export class WorkList {
     this.bookmarkedTo.set('');
     this.typeFilter.set('');
     this.originFilter.set('');
+    this.formatFilter.set('');
     this.withNotes.set(false);
     this.recommended.set(false);
     this.includeTags.set([]);
