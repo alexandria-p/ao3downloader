@@ -291,7 +291,10 @@ export class Feedback implements OnDestroy {
   /** opens the form - from the tab, or from the Report a bug page's button */
   show(): void {
     if (this.stage() === 'sent') this.reset();
+    this.visit.note('Feedback form opened');
     this.open.set(true);
+    // a box left ticked from an earlier opening shows the visit as it is now, not as it was then
+    if (this.attachVisit()) this.refreshVisit();
     this.readRunList();
   }
 
@@ -350,8 +353,13 @@ export class Feedback implements OnDestroy {
 
   protected toggleVisit(on: boolean): void {
     this.attachVisit.set(on);
-    // read as the box is ticked: what happened after that is the sending itself
-    this.visitPreview.set(on ? redactLog(this.visit.text(), this.knownNames(), [ao3TimeZone()]) : '');
+    if (on) this.refreshVisit();
+    else this.visitPreview.set('');
+  }
+
+  /** the visit's log as it stands now, as it will be sent */
+  private refreshVisit(): void {
+    this.visitPreview.set(redactLog(this.visit.text(), this.knownNames(), [ao3TimeZone()]));
   }
 
   protected async toggleLog(on: boolean): Promise<void> {
@@ -414,7 +422,8 @@ export class Feedback implements OnDestroy {
           message: this.message().trim(),
           name: this.name().trim(),
           log: this.attachLog() ? this.logPreview() : '',
-          visit: this.attachVisit() ? this.visitPreview() : '',
+          // read again at sending, so it holds everything up to the press of Send
+          visit: this.attachVisit() ? (this.refreshVisit(), this.visitPreview()) : '',
           version: this.helper.settings().version,
           copy: this.helper.isLocal() ? 'on their own computer' : 'the hosted page',
           storage: this.storageKind(),

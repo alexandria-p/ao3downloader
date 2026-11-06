@@ -37,11 +37,15 @@
     </div>
 
     @if (mode() === 'local') {
-      @if (folderName() || sourceName()) {
+      @if (folderName() || openedName() || sourceName()) {
         <span class="source" [title]="sourceName()">
           @if (folderName()) {
             <span class="remembered" title="Remembered - loads automatically next time">&#9679;</span>
             {{ folderName() }}
+          } @else if (openedName()) {
+            <!-- open, but not remembered: a folder handed over as files, or the dummy library -->
+            <span class="remembered" title="Open now - choose it again next time">&#9679;</span>
+            {{ openedName() }}
           } @else {
             {{ sourceName() }}
           }

@@ -316,6 +316,7 @@ export class App {
   }
   protected readonly sourceName = this.library.sourceName;
   protected readonly folderName = this.library.folderName;
+  protected readonly openedName = this.library.openedName;
   protected readonly needsReconnect = this.library.needsReconnect;
   protected readonly canPickFolder = this.library.canPickFolder;
 

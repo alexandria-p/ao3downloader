@@ -34,11 +34,11 @@ settings come from its deployment, so the tab does not offer them there.
   window says so), saved as UTC, and compared as dates in this zone again. Every time the page
   shows - the run window's log, History, *List refreshed* - is in this zone. Reset to defaults
   puts it back to this browser's.
-- **Debug mode** - shows a banner at the top and a **DEBUG** tab, for trying the app out. Its
+- **Debug mode** - shows a banner at the top and a **DEBUG** tab, for trying the app out. In the downloaded app it only appears once `EnableDebugTools=true` is set in `settings.ini`. Its
   **Mock Resolve issues** opens the Resolve issues window on made-up files - choose duplicates,
   index issues and/or dating issues, and how many - that live only in memory: nothing in your
   library is renamed, deleted or written, and no run starts. This browser only.
-  With debug mode on, **Use dummy data instead of my library** shows a made-up library - works,
+  The DEBUG tab's **Use dummy data instead of my library** shows a made-up library - works,
   collections and run history - one for *This computer* and a different one for *Dropbox*, so you
   can tell which is in use. Nothing real is read or written, and runs are held while it is on.
 - **Exclusion lists for imports** - **Reset exclusion lists for imports** empties every list in

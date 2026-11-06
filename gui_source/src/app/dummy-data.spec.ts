@@ -1,3 +1,4 @@
+import { BUILT_IN_CONFIG, Jobs, ServerConfig } from './jobs';
 import { TestBed } from '@angular/core/testing';
 import { DebugMode } from './debug-mode';
 import { DUMMY_DATA_KEY, DummyData, dummyLibrary } from './dummy-data';
@@ -27,6 +28,17 @@ describe('dummyLibrary', () => {
     }
   });
 
+  it('gives every dummy work an html copy of its title over lorem ipsum', async () => {
+    const store = dummyLibrary('local');
+    const html = (await store.list('works')).filter((p) => p.endsWith('.html'));
+    expect(html.length).toBe((await store.list('indexing')).length);
+    const page = (await store.read(html[0])) ?? '';
+    expect(page).toContain('<h1>');
+    expect(page).toContain('Lorem ipsum');
+    // nothing but its title and lorem ipsum
+    expect(page).not.toContain('Chapter');
+  });
+
   it('gives every work file an index entry, so nothing offers to repair it', async () => {
     const store = dummyLibrary('dropbox');
     const indexed = new Set((await store.list('indexing')).map((p) => workIdFromFilename(p.split('/').pop()!)));
@@ -42,6 +54,7 @@ describe('DummyData', () => {
   it('is only in force while debug mode is on', () => {
     const dummy = TestBed.inject(DummyData);
     const debug = TestBed.inject(DebugMode);
+    TestBed.inject(Jobs).config.set({ ...BUILT_IN_CONFIG, settings: { debugTools: true } } as ServerConfig);
     dummy.set(true);
     expect(localStorage.getItem(DUMMY_DATA_KEY)).toBe('on');
     expect(dummy.active()).toBe(false);

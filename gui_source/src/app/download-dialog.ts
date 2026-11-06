@@ -8,6 +8,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { WorkLink } from './work-link';
 import { DecimalPipe } from '@angular/common';
 import {
   ActiveRun,
@@ -148,7 +149,7 @@ const MAX_LOG = 200;
 
 @Component({
   selector: 'app-download-dialog',
-  imports: [DecimalPipe],
+  imports: [DecimalPipe, WorkLink],
   templateUrl: './download-dialog.html',
   styleUrl: './download-dialog.css',
 })

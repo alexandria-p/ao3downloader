@@ -387,6 +387,32 @@ describe('WorkList, bookmarks of every kind', () => {
       .toEqual(['Series', 'External work']);
   });
 
+  it('narrows to the works downloaded in a format, or to those with no copy at all', async () => {
+    const two = { ...work({ id: '222', title: 'Part Two', bookmarked: '11 Sep 2026' }), bookmark_type: 'individual work' } as Bookmark;
+    TestBed.inject(Library).copies.update((c) => ({ ...c, html: new Map([
+      ['555', new File(['<p>x</p>'], '555 On Its Own.html')],
+    ]), epub: new Map([['222', new File(['x'], '222 Part Two.epub')]]) }));
+    await listing([series, external, single, two]);
+    const choose = async (value: string) => {
+      const select = element.querySelector<HTMLSelectElement>('select[name="formatFilter"]')!;
+      select.value = value;
+      select.dispatchEvent(new Event('change'));
+      await fixture.whenStable();
+    };
+
+    await choose('html');
+    expect(shownTitles()).toEqual(['On Its Own']);
+    await choose('epub');
+    expect(shownTitles()).toEqual(['Part Two']);
+    await choose('pdf');
+    expect(shownTitles()).toEqual([]);
+    // a series or an external work is never 'downloaded', nor counted as not
+    await choose('none');
+    expect(shownTitles()).toEqual([]);
+    await choose('');
+    expect(shownTitles()).toHaveLength(4);
+  });
+
   it('narrows to one kind of bookmark', async () => {
     await listing([series, external, single]);
 

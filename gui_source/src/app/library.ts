@@ -174,6 +174,12 @@ export class Library {
   readonly collections = signal<Collection[]>([]);
   readonly sourceName = signal('');
   readonly folderName = signal('');
+  /**
+   * The name of a library open on this computer that is not a remembered folder - one handed
+   * over as a list of files, or debug mode's dummy library - for the top bar to show in place
+   * of a count. Never remembered, so it has no Forget.
+   */
+  readonly openedName = signal('');
   /** each work's newest downloaded copy in every format, by work number */
   readonly copies = signal<Copies>(emptyCopies());
   readonly htmlFiles = computed(() => this.copies().html);
@@ -279,6 +285,7 @@ export class Library {
       // Dropbox's library, and the means of writing to it, go with it
       this.clearLibrary();
       this.store.set(null);
+      this.openedName.set('');
     }
     this.showing = 'local';
     const generation = ++this.generation;
@@ -394,6 +401,42 @@ export class Library {
    * The contents of a downloaded work, to open it - typed as the format it is, so a tab
    * shows it rather than offering to save it. Dropbox sends every file as octet-stream.
    */
+  /**
+   * Show a downloaded copy in a new tab.
+   *
+   * A copy in Dropbox has to be fetched first. The tab is opened straight away, while the
+   * click still counts as the user's - opened after the download it would be a popup, and
+   * blocked - and pointed at the file once it arrives. If it cannot be fetched, the tab goes
+   * to `fallback` (the work on AO3) rather than staying blank.
+   */
+  openCopy(copy: LocalCopy, format: OpenableFormat, fallback: string | null): void {
+    const tab = window.open('', '_blank');
+    void this.readCopy(copy, format).then(
+      (blob) => {
+        const url = URL.createObjectURL(blob);
+        if (tab) tab.location.href = url;
+        else window.open(url, '_blank');
+        // the tab keeps its own copy once loaded, so the handle can be released
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      },
+      () => {
+        if (tab && fallback) tab.location.href = fallback;
+        else tab?.close();
+      },
+    );
+  }
+
+  /**
+   * Open a work's downloaded html in a new tab, if this library holds one, and say whether it
+   * did - so a link to the work on AO3 opens your own copy first, wherever it is shown.
+   */
+  openWorkCopy(id: string | null | undefined, fallback: string | null): boolean {
+    const copy = id ? this.htmlFiles().get(id) : undefined;
+    if (!copy) return false;
+    this.openCopy(copy, 'html', fallback);
+    return true;
+  }
+
   async readCopy(copy: LocalCopy, format: OpenableFormat = 'html'): Promise<Blob> {
     const type = SHOWN_AS[format];
     if (copy instanceof Blob) return copy.type === type ? copy : new Blob([copy], { type });
@@ -449,6 +492,7 @@ export class Library {
     await this.folders.forget();
     this.handle = null;
     this.folderName.set('');
+    this.openedName.set('');
     this.needsReconnect.set(false);
     this.store.set(null);
     this.lastRead.set(null);
@@ -481,6 +525,7 @@ export class Library {
   private async showDummy(kind: DummyKind): Promise<void> {
     this.showing = kind;
     this.showingDummy = true;
+    this.openedName.set(kind === 'local' ? 'Dummy library (this computer)' : '');
     const generation = ++this.generation;
     this.notReading();
     this.clearLibrary();
@@ -515,6 +560,7 @@ export class Library {
   private leaveDummy(): void {
     if (!this.showingDummy) return;
     this.showingDummy = false;
+    this.openedName.set('');
     this.clearLibrary();
     this.store.set(null);
     this.lastRead.set(null);
@@ -591,6 +637,9 @@ export class Library {
   async load(fileList: FileList | null): Promise<void> {
     const files = Array.from(fileList ?? []);
     if (files.length === 0) return;
+    // the folder chosen is the first part of every file's path within it
+    const parts = relativePath(files[0]).split(/[\\/]/);
+    this.openedName.set(parts.length > 1 ? parts[0] : '');
     await this.ingest(files);
   }
 
@@ -599,6 +648,7 @@ export class Library {
    * any step of that finishes, in which case nothing of it is kept.
    */
   private async readHandle(handle: DirectoryHandle, generation: number): Promise<void> {
+    this.openedName.set('');
     const current = () => generation === this.generation;
     this.loading.set(true);
     this.readFailure.set(null);

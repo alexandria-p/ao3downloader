@@ -1,3 +1,4 @@
+import { BUILT_IN_CONFIG, Jobs, ServerConfig } from './jobs';
 import { DebugMode } from './debug-mode';
 import { DummyData } from './dummy-data';
 import { TestBed } from '@angular/core/testing';
@@ -133,6 +134,8 @@ describe('Library', () => {
 
   it('shows debug mode\'s dummy data instead of the real library, a different set per choice', async () => {
     store.recalled = handle();
+    // a downloaded app offers debug mode only with settings.ini's EnableDebugTools on
+    TestBed.inject(Jobs).config.set({ ...BUILT_IN_CONFIG, settings: { debugTools: true } } as ServerConfig);
     TestBed.inject(DebugMode).set(true);
     TestBed.inject(DummyData).set(true);
 
@@ -140,6 +143,8 @@ describe('Library', () => {
     const local = library.data()?.works.map((w) => w.title) ?? [];
     expect(local).toContain('Steeped in Starlight');
     expect(library.store()?.label).toContain('this computer');
+    // the top bar names it, in place of a count
+    expect(library.openedName()).toBe('Dummy library (this computer)');
     expect(library.collections().length).toBe(2);
     expect(library.htmlFiles().size).toBe(local.length);
     // every one a work, so no file reads as unindexed and nothing offers to repair it
@@ -158,6 +163,7 @@ describe('Library', () => {
     await library.showLocal();
     expect(library.data()?.works.length).toBe(1);
     expect(library.store()?.label ?? '').not.toContain('dummy');
+    expect(library.openedName()).toBe('');
     TestBed.inject(DebugMode).set(false);
   });
 
@@ -268,6 +274,19 @@ describe('Library', () => {
 
     expect(library.data()?.works.length).toBe(1);
     expect(library.htmlFiles().get('111')).toBeTruthy();
+  });
+
+  it('names a folder handed over as a file list, so the top bar shows it rather than a count', async () => {
+    const inFolder = (file: File, path: string) => Object.defineProperty(file, 'webkitRelativePath', { value: path });
+    await library.load([
+      inFolder(recordFile('111', 1), 'My library/indexing/111.json'),
+      inFolder(new File(['<html></html>'], '111 Work 111 - X.html'), 'My library/works/111 Work 111 - X.html'),
+    ] as unknown as FileList);
+    expect(library.openedName()).toBe('My library');
+
+    // files with no folder path name nothing
+    await library.load(folderFiles() as unknown as FileList);
+    expect(library.openedName()).toBe('');
   });
 
   it('explains itself when the folder holds no export', async () => {

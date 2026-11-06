@@ -1,3 +1,4 @@
+import { DebugMode } from './debug-mode';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PAGE_CONFIG, HelperConnection } from './helper-connection';
@@ -489,7 +490,23 @@ describe('UserSettings', () => {
   // endregion
   // region where it is kept, and putting it all back
 
+  it('offers debug mode on a downloaded app only when settings.ini turns on EnableDebugTools', async () => {
+    localStorage.setItem('ao3.debugMode', 'on');
+    await open();
+    expect(element.querySelector('.group.debug-mode')).toBeNull();
+    // what this browser saved is not in force where it is not allowed
+    expect(TestBed.inject(DebugMode).on()).toBe(false);
+
+    TestBed.inject(Jobs).config.set({ ...CONFIG, settings: { debugTools: true } } as ServerConfig);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(element.querySelector('.group.debug-mode')).not.toBeNull();
+    expect(TestBed.inject(DebugMode).on()).toBe(true);
+    localStorage.removeItem('ao3.debugMode');
+  });
+
   it('says at the top right of every section where it is saved, Debug mode always last', async () => {
+    TestBed.inject(Jobs).config.set({ ...CONFIG, settings: { ...CONFIG.settings!, debugTools: true } });
     await open();
 
     const sections = [...element.querySelectorAll('.group')];

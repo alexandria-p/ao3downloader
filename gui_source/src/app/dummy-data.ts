@@ -202,7 +202,7 @@ export function dummyLibrary(kind: DummyKind): MemoryStore {
       put(
         `works/${id} ${title} - ${author} ${updated}.${format}`,
         format === 'html'
-          ? `<!doctype html><title>${title}</title><h1>${title}</h1><p>${theme.tag}. A made-up work.</p>`
+          ? workHtml({ title, n })
           : `${theme.tag} - a made-up ${format} of ${title}`,
         NOW - (3 + n * 9) * DAY,
       );
@@ -290,4 +290,24 @@ export function dummyLibrary(kind: DummyKind): MemoryStore {
   });
 
   return store;
+}
+
+/** the text of every dummy work: lorem ipsum, and nothing that reads as anybody's story */
+const LOREM = [
+  'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
+  'Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+  'Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.',
+  'Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.',
+];
+
+/** a dummy work's html: its title, then lorem ipsum - so opening one shows it opened, and nothing more */
+function workHtml(work: { title: string; n: number }): string {
+  const paragraphs = Array.from({ length: 6 }, (_, p) => `<p>${LOREM[(work.n + p) % LOREM.length]}</p>`).join('\n');
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>${work.title}</title>
+<style>body{font:16px/1.6 Georgia,serif;max-width:40em;margin:2em auto;padding:0 1em;color:#222}</style></head>
+<body>
+<h1>${work.title}</h1>
+${paragraphs}
+</body></html>`;
 }

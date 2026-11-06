@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2109 python passed; 1065 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2109 python passed; 1074 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -485,12 +485,15 @@ with `linux` as its third argument and starts the launcher with `setsid -f` inst
   opening reads afresh. *Attach what I did on this visit* is the **visit log** (`visit-log.ts`,
   `VisitLog`): in memory only, the last `VISIT_LOG_LIMIT` (300) entries, gone on a reload, and
   never written anywhere. It notes tabs, the storage switch, library reads and how they ended,
-  windows opened, each run's start - every option and the file types as *left as the default*
+  windows opened, **every click** on a button, link, tab or folding section and every tick,
+  radio or dropdown choice (`noteClick`, `noteChange`: document listeners in capture, named by
+  `aria-label`/text and the window they were in - **never a text box's value**), each run's start - every option and the file types as *left as the default*
   or *changed from* what the run window opened with (`DownloadDialog.openedWith`, `noteStart`)
   - and end, every User settings change with its value (through `say`), and every error
   (`VisitErrorHandler`, the app's `ErrorHandler`; `provideBrowserGlobalErrorListeners` hands it
   the window's errors and unhandled rejections). **Never what was typed in the login boxes** -
-  `noteStart` takes only `filetypes` and `options` from the start request. It goes through the
+  `noteStart` takes only `filetypes` and `options` from the start request. The form reads it
+  again on every opening and at sending (`refreshVisit`), since an unsent form keeps its ticks. It goes through the
   same `redactLog`, and the Worker puts it in a folded section of its own (`visit`,
   `LIMITS.visit`, kept to its end like the run log).
 - **The deploy makes the labels** (`gh label create --force`): GitHub drops an unknown label
@@ -958,7 +961,10 @@ offers are deliberately different in kind:
 ### Debug mode is the page's, and its mock touches nothing real
 
 `debug.ts`, `debug-tab.ts`. **Debug mode** (`DebugMode`, `ao3.debugMode`, this browser's
-alone, from User settings' *Debug mode*) is not `EnableDebugTools` (settings.ini, the run
+alone, from User settings' *Debug mode* - **offered on a downloaded app only with settings.ini's
+`EnableDebugTools` on** (`DebugMode.allowed`: always on the hosted copy, else
+`settings.debugTools`), and off wherever it is not allowed, whatever the browser saved (`on` is
+`chosen` and `allowed`)) is not `EnableDebugTools` (settings.ini, the run
 window's panel): it shows `.debug-banner` first among the notices, the reminder included, and a
 **DEBUG** tab (`view` `debug`), and changes nothing else. The tab's **Mock Resolve issues**
 builds made-up files for the issues ticked, as many as asked (`mockPaths`: index issues from
@@ -970,11 +976,11 @@ of making it and refreshes no listing; *never ask me again* is not bound; and st
 request back to the tab, which shows it and starts nothing. Only `POST /api/file-names` reaches
 the helper, which writes nothing. Keep any new write the window learns behind `sandbox()`.
 
-**Dummy data** (`dummy-data.ts`, `DummyData`, `ao3.dummyData`, a box under *Debug mode* in User
-settings, in force only while debug mode is on - `active`) shows a made-up library instead of the
+**Dummy data** (`dummy-data.ts`, `DummyData`, `ao3.dummyData`, a box on the **DEBUG** tab, in force
+only while debug mode is on - `active`) shows a made-up library instead of the
 real one: works, collections and run history. **One per storage choice** (`dummyLibrary(kind)`):
 *This computer* a small tea-shop set from 9100001, *Dropbox* a larger space-station one from
-9200001, every title, fandom, tag and run naming which it is, and the debug banner says so too
+9200001, every title, fandom, tag and run naming which it is, each work's html only its title over lorem ipsum (`workHtml`), and the debug banner says so too
 (`.dummy-note`). `Library.showLocal`/`showDropbox` hand over to `showDummy`, which reads a
 `MemoryStore` (`memory-store.ts`, kept per kind while on) through the same `ingestRecords` and
 `mapCopies` a real read uses - so History, hiding and custom collections work on it, in memory -
@@ -2712,7 +2718,12 @@ folder with nothing to read yet, left *Reading files...* up for ever.
 `Library.copies` holds each work's newest copy in **every** format ao3 offers (`OPENABLE`:
 html, pdf, epub, mobi, azw3), by the date in its name; `htmlFiles`/`pdfFiles` are computed views
 of it. The title opens the html; `formatsOf` puts one button per other format beside it, in that
-order. **Only html and pdf open in a tab** (`viewableInBrowser`): no browser shows an e-book, and
+order. **Every link to a work by number opens your copy first** (`WorkLink`,
+`[appWorkLink]="id"`: History's lists, the run window's, a collection's unindexed works,
+series parts) - a plain click opens the html through `Library.openWorkCopy` when the library
+holds one, a modified click (ctrl, cmd, shift, middle) is left to the browser and goes to AO3.
+**Downloaded as** in the Filter panel (`formatFilter`) narrows to works with a copy in one
+format, or with none (`none`); a series or an external work is neither. **Only html and pdf open in a tab** (`viewableInBrowser`): no browser shows an e-book, and
 a tab handed a blob of one only saves it under a made-up name - so `saveCopy` saves it under its
 own file name (`copyName`) for an e-reader. Specs set copies with `copies.update`, since a
 computed cannot be set.
@@ -2855,7 +2866,12 @@ Three rules worth keeping:
   with `# region` / `# endregion`.
 - **The root `README.md` is a short front page, at the user's request**: download links for each
   system, a few lines on what the app does, and mocked screenshots (`docs/screenshots/`, a
-  made-up safe-for-work library - never a real account or username). Keep it that short; detail
+  made-up safe-for-work library - never a real account or username). **They are made by
+  `docs/screenshots/make-screenshots.js`** (build the page, then `node docs/screenshots/make-screenshots.js`
+  from the root), which holds the library they show - the works, collections and runs the user
+  chose - in Strawberry milk and Lexend (`LOOK`), but for the customisation strip, which keeps its
+  three looks. Change the data there, never in a one-off script, so every set shows the same library.
+  Keep it that short; detail
   goes in the wiki. The old full README is `helper_files/README_OBSOLETE.md`, kept for reference and still
   marker-checked. The bundle's own `build/README.md` (the `README` string in
   `build_artifacts.py`) is the full guide that ships in a build: file naming, the matching rule

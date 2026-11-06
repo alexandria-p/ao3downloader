@@ -1,5 +1,6 @@
 import { HIDE_WARNING_KEY } from './preferences';
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
+import { WorkLink } from './work-link';
 import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Library, LocalCopy, OPENABLE_FORMATS, OpenableFormat, copyName, hiddenKey, viewableInBrowser } from './library';
 import { safeGet, safeSet } from './storage';
@@ -62,7 +63,7 @@ export const DEFAULT_SORT: WorkSort = 'bookmarked-desc';
 @Component({
   selector: 'app-work-list',
   host: { '(document:click)': 'closeMenu()', '(document:keydown.escape)': 'closeMenu()' },
-  imports: [DecimalPipe, NgTemplateOutlet, CollectionEditor, TagFilter],
+  imports: [DecimalPipe, NgTemplateOutlet, CollectionEditor, TagFilter, WorkLink],
   styleUrl: './work-list.css',
   templateUrl: './work-list.html',
 })
@@ -102,6 +103,12 @@ export class WorkList {
   protected readonly typeFilter = signal<'' | BookmarkType>('');
   /** where a work came from - your bookmarks, a collection, anything else - or '' for all */
   protected readonly originFilter = signal<'' | Origin>('');
+  /**
+   * Works with a downloaded copy in one format, or with none at all ('none') - read from the
+   * files in the library, by work number; '' for any.
+   */
+  protected readonly formatFilter = signal<'' | 'none' | OpenableFormat>('');
+  protected readonly formats = OPENABLE_FORMATS;
   /** bookmarks you wrote a note on, and bookmarks you marked as a rec */
   protected readonly withNotes = signal(false);
   protected readonly recommended = signal(false);
@@ -147,6 +154,7 @@ export class WorkList {
         this.bookmarkedTo() ||
         this.typeFilter() ||
         this.originFilter() ||
+        this.formatFilter() ||
         this.withNotes() ||
         this.recommended() ||
         this.includeTags().length ||
@@ -179,12 +187,20 @@ export class WorkList {
     const include = this.includeTags();
     const exclude = this.excludeTags();
     const origin = this.originFilter();
+    const format = this.formatFilter();
+    const copies = this.copies();
     const withNotes = this.withNotes();
     const recommended = this.recommended();
 
     return this.visibleWorks().filter((work) => {
       if (type && bookmarkTypeOf(work) !== type) return false;
       if (origin && originOf(work) !== origin) return false;
+      if (format) {
+        // a series or an external work has no copy of its own to be downloaded as
+        const id = isWorkEntry(work) ? work.id : null;
+        const held = (f: OpenableFormat) => !!id && copies[f].has(id);
+        if (format === 'none' ? !id || OPENABLE_FORMATS.some(held) : !held(format)) return false;
+      }
       if (withNotes && !(work.bookmark_notes ?? '').trim()) return false;
       if (recommended && !work.bookmark_rec) return false;
       if (!matchesTags(work, include, exclude)) return false;
@@ -715,6 +731,7 @@ export class WorkList {
     this.bookmarkedTo.set('');
     this.typeFilter.set('');
     this.originFilter.set('');
+    this.formatFilter.set('');
     this.withNotes.set(false);
     this.recommended.set(false);
     this.includeTags.set([]);
@@ -776,7 +793,7 @@ export class WorkList {
 
     const copy = isWorkEntry(work) && work.id ? this.htmlFiles().get(work.id) : undefined;
     if (copy) {
-      this.openCopy(copy, 'html', work.link);
+      this.library.openCopy(copy, 'html', work.link);
       return;
     }
     if (work.link) window.open(work.link, '_blank', 'noopener');
@@ -804,7 +821,7 @@ export class WorkList {
     event.preventDefault();
     const copy = isWorkEntry(work) && work.id ? this.copies()[format].get(work.id) : undefined;
     if (!copy) return;
-    if (viewableInBrowser(format)) this.openCopy(copy, format, null);
+    if (viewableInBrowser(format)) this.library.openCopy(copy, format, null);
     else this.saveCopy(copy, format);
   }
 
@@ -820,31 +837,6 @@ export class WorkList {
       },
       () => {
         // the file has gone since the folder was read; the button stays, nothing is saved
-      },
-    );
-  }
-
-  /**
-   * Show a downloaded copy in a new tab.
-   *
-   * A copy in Dropbox has to be fetched first. The tab is opened straight away, while the
-   * click still counts as the user's - opened after the download it would be a popup, and
-   * blocked - and pointed at the file once it arrives. If it cannot be fetched, the tab goes
-   * to `fallback` (the work on AO3) rather than staying blank.
-   */
-  private openCopy(copy: LocalCopy, format: OpenableFormat, fallback: string | null): void {
-    const tab = window.open('', '_blank');
-    void this.library.readCopy(copy, format).then(
-      (blob) => {
-        const url = URL.createObjectURL(blob);
-        if (tab) tab.location.href = url;
-        else window.open(url, '_blank');
-        // the tab keeps its own copy once loaded, so the handle can be released
-        setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      },
-      () => {
-        if (tab && fallback) tab.location.href = fallback;
-        else tab?.close();
       },
     );
   }
