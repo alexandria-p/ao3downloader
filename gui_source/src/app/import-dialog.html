@@ -32,14 +32,13 @@
           <input type="radio" name="firstChoice" value="exclude" [checked]="firstChoice() === 'exclude'" (change)="firstChoice.set('exclude')" />
           <span>
             No, do not ask me again for these files
-            <span class="hint">They are added to <code>import-excluded.json</code> at the top of your library and left out from now on. The files stay as they are.</span>
           </span>
         </label>
         <label class="check">
           <input type="radio" name="firstChoice" value="never" [checked]="firstChoice() === 'never'" (change)="firstChoice.set('never')" />
           <span>
             No, never ask me again
-            <span class="hint">This window and the reminder above the tabs stop for good. User settings turns them back on.</span>
+            <span class="hint">This can be undone in the User settings tab if you change your mind later</span>
           </span>
         </label>
       </fieldset>
