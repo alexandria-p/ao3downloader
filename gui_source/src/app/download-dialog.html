@@ -1699,7 +1699,8 @@
             @if (askedDefault()) {
               <p class="hint question-default">
                 If nobody answers within {{ askedTimeout() | number }} minute{{ askedTimeout() === 1 ? '' : 's' }},
-                the run carries on with: <strong>{{ askedDefault() }}</strong>
+                the run carries on with: <strong>{{ askedDefault() === 'yes'
+                  ? (askedFormats().length > 1 ? 'Replace them' : 'Replace it') : 'Keep mine' }}</strong>
                 (change this in User settings).
               </p>
             }

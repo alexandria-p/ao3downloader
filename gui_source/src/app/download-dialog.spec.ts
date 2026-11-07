@@ -1627,7 +1627,7 @@ describe('DownloadDialog', () => {
     // the wait is said once, inside the panel and above its buttons - not above the panel too
     const panel = element.querySelector('[data-question="inferred-date"]')!;
     const wait = panel.querySelector('.question-default');
-    expect(wait?.textContent?.replace(/\s+/g, ' ')).toContain('If nobody answers within 1 minute, the run carries on with: no');
+    expect(wait?.textContent?.replace(/\s+/g, ' ')).toContain('If nobody answers within 1 minute, the run carries on with: Keep mine');
     expect(wait!.compareDocumentPosition(panel.querySelector('.question-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(element.querySelectorAll('.question-default')).toHaveLength(1);
     expect(said).not.toContain('Left unanswered');
