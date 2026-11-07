@@ -1173,37 +1173,6 @@
                     </div>
                   }
 
-                  @if (backgroundQuestions().includes('undated')) {
-                    <div class="answer" data-question="undated">
-                      <p>
-                        <strong>Downloaded files with no date in their name</strong> - their
-                        version cannot be told from the name. What should happen to them?
-                      </p>
-                      <label class="check">
-                        <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'skip'"
-                               (change)="undatedAnswer.set('skip')" />
-                        <span>Leave them as they are (changes nothing)</span>
-                      </label>
-                      <label class="check">
-                        <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'stamp'"
-                               (change)="undatedAnswer.set('stamp')" />
-                        <span>Give them a date, without downloading anything</span>
-                      </label>
-                      @if (undatedAnswer() === 'stamp') {
-                        <label class="field indented">
-                          <span>The date to give them - the version you believe they hold</span>
-                          <input type="date" name="bg-undated-date" [value]="undatedDate()"
-                                 (input)="undatedDate.set($any($event.target).value)" />
-                        </label>
-                      }
-                      <label class="check">
-                        <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'refresh'"
-                               (change)="undatedAnswer.set('refresh')" />
-                        <span>Download them all again (a request per work per format)</span>
-                      </label>
-                    </div>
-                  }
-
                   @if (backgroundQuestions().includes('duplicates')) {
                     <div class="answer" data-question="duplicates">
                       <p>
@@ -1696,7 +1665,7 @@
         }
 
         @if (asking() && question() === 'inferred-date') {
-          <div class="question" data-question="inferred-date">
+          <div class="question" data-question="inferred-date" [attr.data-scenario]="askedScenario()">
             <p class="question-text">
               Your <strong>{{ askedFormats().join(', ') }}</strong> of work
               @for (id of askedIds(); track id) {
@@ -1705,38 +1674,57 @@
               {{ askedFormats().length === 1 ? 'has' : 'have' }} no date in
               {{ askedFormats().length === 1 ? 'its name' : 'their names' }} written the way this
               app writes one, so we can't be sure which version
-              {{ askedFormats().length === 1 ? 'it holds' : 'they hold' }}. Replace
-              {{ askedFormats().length === 1 ? 'it' : 'them' }} with the version from
-              {{ askedSource() || 'AO3' }} ({{ askedDate() || 'no date' }})?
+              {{ askedFormats().length === 1 ? 'it holds' : 'they hold' }}.
+              @if (askedScenario().endsWith('older')) {
+                We <strong>think</strong> {{ askedSource() || 'AO3' }}'s version
+                ({{ askedDate() }}) is newer, so we recommend replacing
+                {{ askedFormats().length === 1 ? 'it' : 'them' }}.
+              } @else if (askedScenario().endsWith('newer')) {
+                We <strong>think</strong> yours {{ askedFormats().length === 1 ? 'is' : 'are' }}
+                as new as {{ askedSource() || 'AO3' }}'s version ({{ askedDate() }}) or newer, so
+                we recommend keeping {{ askedFormats().length === 1 ? 'it' : 'them' }}.
+              } @else {
+                We can't tell which is newer than {{ askedSource() || 'AO3' }}'s version
+                ({{ askedDate() || 'no date' }}), so we recommend keeping
+                {{ askedFormats().length === 1 ? 'it' : 'them' }}.
+              }
             </p>
             <ul class="file-dates">
               @for (format of askedFormats(); track format) {
-                <li [attr.data-recommended]="askedRecommendedFormats().includes(format) ? 'yes' : 'no'">
-                  <strong>{{ format }}</strong> - {{ sentence(askedReasons()[format]) }}
-                </li>
+                <li><strong>{{ format }}</strong> - {{ sentence(askedReasons()[format]) }}</li>
               }
             </ul>
 
             <div class="question-actions">
-              @if (askedRecommended() === 'recommended') {
-                <button type="button" class="button" [disabled]="answering()"
-                        (click)="replaceRecommendedCopies()">
-                  Replace only {{ askedRecommendedFormats().join(', ') }}
-                </button>
-              }
-              <button type="button" class="button" [disabled]="answering()"
-                      (click)="replaceInferredFile()">
-                {{ askedFormats().length > 1 ? 'Yes, replace them all' : 'Yes, replace it' }}
+              <button type="button" class="button" [class.recommended]="askedRecommended() === 'yes'"
+                      [disabled]="answering()" (click)="answerUnsure('yes')">
+                {{ askedFormats().length > 1 ? 'Replace them' : 'Replace it' }}{{ askedRecommended() === 'yes' ? ' (recommended)' : '' }}
               </button>
-              <button type="button" class="button primary" [disabled]="answering()"
-                      (click)="keepInferredFile()">
-                {{ askedFormats().length > 1 ? 'No, keep them all' : 'No, keep mine' }}
+              <button type="button" class="button" [class.recommended]="askedRecommended() === 'no'"
+                      [disabled]="answering()" (click)="answerUnsure('no')">
+                Keep mine{{ askedRecommended() === 'no' ? ' (recommended)' : '' }}
               </button>
             </div>
+            <label class="check always-case">
+              <input type="checkbox" name="alwaysThisCase" [checked]="alwaysThisCase()"
+                     (change)="alwaysThisCase.set($any($event.target).checked)" />
+              <span>
+                Always choose this
+                @if (askedScenario().endsWith('older')) {
+                  when an existing file is guessed to be older than the incoming one
+                } @else if (askedScenario().endsWith('newer')) {
+                  when an existing file is guessed to be as new as the incoming one, or newer
+                } @else {
+                  when the date of an existing file cannot be judged
+                }
+                from {{ askedSource() || 'AO3' }}
+              </span>
+            </label>
 
             <p class="hint">
-              We only guess what is recommended - the choice is yours. Left unanswered, the run
-              keeps your {{ askedFormats().length > 1 ? 'files' : 'file' }} after 30 minutes.
+              Left unanswered, the run takes the default for this case after
+              {{ askedTimeout() | number }} minutes - keeping your file, unless you changed it in User
+              settings. That is also where to change or forget an answer you chose to always use.
             </p>
           </div>
         }
@@ -1820,79 +1808,6 @@
               run keeps every copy.
             </p>
           </div>
-        }
-
-        <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
-        @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub' &&
-             question() !== 'fichub-outdated' && question() !== 'overwrite-older' &&
-             question() !== 'unindexed-copy' && question() !== 'inferred-date') {
-        @if (asking(); as count) {
-          <div class="question">
-            <p class="question-text">
-              <strong>{{ count | number }}</strong>
-              {{ count === 1 ? 'work you have downloaded was' : 'works you have downloaded were' }}
-              saved before file names carried a date. There is no way to tell whether
-              {{ count === 1 ? 'it is' : 'they are' }} still current, so the run has stopped
-              to ask what to do with {{ count === 1 ? 'it' : 'them' }}.
-            </p>
-
-            @if (!choosingDate()) {
-              <div class="question-actions">
-                <button type="button" class="button" [disabled]="answering()"
-                        (click)="choosingDate.set(true)">
-                  Give {{ count === 1 ? 'it' : 'them' }} a date
-                </button>
-                <button type="button" class="button" [disabled]="answering()"
-                        (click)="refreshUndatedWorks()">
-                  Re-download {{ count === 1 ? 'it' : 'them' }}
-                </button>
-                <button type="button" class="button" [disabled]="answering()"
-                        (click)="skipUndatedWorks()">
-                  Ignore and skip {{ count === 1 ? 'it' : 'them' }}
-                </button>
-              </div>
-              <p class="hint">
-                <strong>Give a date</strong> renames the files where they are - no downloads
-                at all - and the run then treats anything AO3 has updated since that date as
-                out of date. <strong>Re-download</strong> fetches all
-                {{ count | number }} again and removes the old copies.
-                <strong>Ignore</strong> leaves them alone and downloads nothing for them.
-              </p>
-            } @else {
-              <label class="field">
-                <span>Treat these files as the version from</span>
-                <input
-                  type="date"
-                  name="stampDate"
-                  [value]="stampDate()"
-                  (input)="setStampDate($any($event.target).value)"
-                />
-              </label>
-              <p class="hint">
-                Today means "what I have is current" - nothing is fetched for them now, and
-                you are told when AO3 next updates any of them. An earlier date means "my
-                copies are from back then", so anything updated since is fetched on this run.
-              </p>
-              @if (!stampDateIsValid()) {
-                <p class="error">That is not a date this can be run with.</p>
-              }
-              <div class="question-actions">
-                <button type="button" class="button subtle" [disabled]="answering()"
-                        (click)="choosingDate.set(false)">
-                  Back
-                </button>
-                <button
-                  type="button"
-                  class="button primary"
-                  [disabled]="!stampDateIsValid() || answering()"
-                  (click)="dateUndatedWorks()"
-                >
-                  Date {{ count === 1 ? 'it' : 'them' }} and continue
-                </button>
-              </div>
-            }
-          </div>
-        }
         }
 
         <div

@@ -137,7 +137,7 @@ def test_yes_replaces_a_copy_the_version_check_would_have_kept():
     assert link in plan['stale']
 
 
-def test_an_undated_copy_is_asked_about_here_rather_than_by_the_undated_question():
+def test_an_undated_copy_is_asked_about_here_rather_than_by_the_guessed_date_question():
     link, records, existing, plan = a_plan({'EPUB': '1 A.epub'})
     job, asked = answering_job()
 
@@ -360,7 +360,7 @@ def test_the_run_s_record_keeps_how_each_question_was_answered(fake_fileops, mon
     record.pending_how = server.ANSWERED_TIMED_OUT
 
     record.choice({'question': server.FICHUB_QUESTION, 'choice': 'yes'})
-    record.choice({'question': server.UNDATED_QUESTION, 'choice': 'skip'})
+    record.choice({'question': server.DUPLICATES_QUESTION, 'choice': 'leave'})
 
     assert record.data['choices'][0]['how'] == 'timed-out'
     # said once, for the answer it was about
@@ -529,9 +529,11 @@ def test_scenario_4_the_quick_scan_after_it_judges_by_that_entry_and_asks_nothin
 
     plan = server.plan_refresh(job, library, records, FORMATS, MagicMock())
 
-    # the pdf and epub are behind 8 Nov and replaced. the undated html is left as it is: a
-    # work behind in one format counts as behind, not undated, so nothing asks about it
-    assert asked == []
+    # the pdf and epub are behind 8 Nov and replaced, unasked. the undated html cannot be judged,
+    # so it is asked about - and nobody answering keeps it
+    [(question, default)] = asked
+    assert question['scenario'] == 'ao3-unknown' and question['formats'] == ['HTML']
+    assert default == {'choice': 'no'}
     assert sorted(plan['superseded'][LINK]) == ['EPUB', 'PDF']
     assert LINK in plan['stale'] and LINK not in plan['undated']
 

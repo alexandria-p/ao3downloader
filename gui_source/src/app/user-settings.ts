@@ -1,6 +1,6 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { HelperConnection } from './helper-connection';
-import { Jobs, QuestionName, ServerConfig } from './jobs';
+import { DefaultName, Jobs, Scenario, ServerConfig } from './jobs';
 import {
   BUILT_IN_ANSWERS,
   BUILT_IN_QUESTION_TIMEOUT,
@@ -23,6 +23,9 @@ import {
   savedQuestionTimeout,
   setPromptAsks,
   startingFiletypes,
+  SCENARIO_LABELS,
+  saveAlwaysAnswer,
+  savedAlwaysAnswers,
 } from './preferences';
 import { UpdateCheck } from './updates';
 import { LibraryImports } from './imports';
@@ -53,7 +56,7 @@ interface IniFile {
 
 /** one value Reset to defaults would change, as its window lists it */
 export interface ResetChange {
-  group: 'Appearance' | 'Prompts' | 'Download formats' | 'AO3 time zone' | 'Questions' | 'settings.ini';
+  group: 'Appearance' | 'Prompts' | 'Answers to always use' | 'Download formats' | 'AO3 time zone' | 'Questions' | 'settings.ini';
   name: string;
   current: string;
   default: string;
@@ -192,16 +195,32 @@ export class UserSettings implements OnDestroy {
   protected readonly questions = QUESTION_DEFAULTS;
   private readonly savedAnswers = signal(savedAnswerDefaults());
   private readonly savedTimeout = signal(savedQuestionTimeout());
-  protected helperAnswer(name: QuestionName): string {
+  protected helperAnswer(name: DefaultName): string {
     return this.config()?.settings?.answerDefaults?.[name] ?? BUILT_IN_ANSWERS[name];
   }
-  protected answer(name: QuestionName): string {
+  protected answer(name: DefaultName): string {
     return this.savedAnswers()[name] ?? this.helperAnswer(name);
   }
   protected helperTimeout(): number {
     return this.config()?.settings?.questionTimeoutMinutes ?? BUILT_IN_QUESTION_TIMEOUT;
   }
   protected readonly questionTimeout = computed(() => this.savedTimeout() ?? this.helperTimeout());
+  /**
+   * Answers chosen to always use for a file without the app's own date, by case - ticked on a
+   * question during a run, or set here. Every page sends them with every run, local or hosted.
+   */
+  protected readonly scenarios = SCENARIO_LABELS;
+  protected readonly alwaysAnswers = signal(savedAlwaysAnswers());
+  protected alwaysWords(choice: string | undefined): string {
+    return choice === 'yes' ? 'Always replace it' : choice === 'no' ? 'Always keep my file' : 'Ask every time';
+  }
+  protected setAlways(scenario: Scenario, label: string, value: string): void {
+    const choice = value === 'yes' || value === 'no' ? value : null;
+    saveAlwaysAnswer(scenario, choice);
+    this.alwaysAnswers.set(savedAlwaysAnswers());
+    this.say(`${label}: ${this.alwaysWords(choice ?? undefined).toLowerCase()}`);
+  }
+
   protected choiceLabel(question: QuestionDefault, value: string): string {
     return question.choices.find((c) => c.value === value)?.label ?? value;
   }
@@ -265,6 +284,13 @@ export class UserSettings implements OnDestroy {
           changes.push({ group: 'Questions', name: question.label,
                          current: this.choiceLabel(question, now), default: this.choiceLabel(question, fresh) });
         }
+      }
+    }
+    const always = this.alwaysAnswers();
+    for (const { name, label } of SCENARIO_LABELS) {
+      if (always[name]) {
+        changes.push({ group: 'Answers to always use', name: label,
+                       current: this.alwaysWords(always[name]), default: this.alwaysWords(undefined) });
       }
     }
     const file = this.ini();
@@ -403,6 +429,8 @@ export class UserSettings implements OnDestroy {
     saveDefaultFiletypes(null);
     saveAnswerDefaults(null);
     saveQuestionTimeout(null);
+    for (const { name } of SCENARIO_LABELS) saveAlwaysAnswer(name, null);
+    this.alwaysAnswers.set({});
     saveAo3TimeZone(null);
     this.ao3Zone.set(this.browserZone);
     this.savedAnswers.set({});

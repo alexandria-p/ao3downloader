@@ -445,7 +445,7 @@ describe('UserSettings', () => {
     expect(questions.open).toBe(false);
     // under Appearance, above Prompts
     const order = [...element.querySelectorAll('.group')].map((g) => g.classList[1]);
-    expect(order.slice(0, 5)).toEqual(['formats', 'ao3-zone', 'appearance', 'questions', 'prompts']);
+    expect(order.slice(0, 6)).toEqual(['formats', 'ao3-zone', 'appearance', 'questions', 'always-answers', 'prompts']);
     expect(questions.querySelector('summary .saved-to')?.textContent?.trim()).toBe('Saved to this browser');
 
     const fichub = element.querySelector<HTMLSelectElement>('[data-question-setting="fichub"] select')!;
@@ -462,6 +462,22 @@ describe('UserSettings', () => {
     await settle();
     const listed = element.querySelector('.reset-window, [role="dialog"]')?.textContent ?? '';
     expect(listed).toContain('Minutes a question waits for you');
+  });
+
+  it('lists the six cases a run can always answer, changes one, and forgets one so it asks again', async () => {
+    localStorage.setItem('ao3.alwaysAnswers', JSON.stringify({ 'ao3-older': 'yes' }));
+    await open();
+    const rows = [...element.querySelectorAll('[data-always]')].map((r) => r.getAttribute('data-always'));
+    expect(rows).toEqual(['ao3-older', 'ao3-newer', 'ao3-unknown', 'fichub-older', 'fichub-newer', 'fichub-unknown']);
+    expect(element.querySelector<HTMLSelectElement>('[data-always="ao3-older"] select')!.value).toBe('yes');
+
+    choose('[data-always="fichub-unknown"] select', 'no');
+    await settle();
+    expect(JSON.parse(localStorage.getItem('ao3.alwaysAnswers')!)).toEqual({ 'ao3-older': 'yes', 'fichub-unknown': 'no' });
+
+    choose('[data-always="ao3-older"] select', '');
+    await settle();
+    expect(JSON.parse(localStorage.getItem('ao3.alwaysAnswers')!)).toEqual({ 'fichub-unknown': 'no' });
   });
 
   it('starts the AO3 time zone at this browser\'s own, keeps another when chosen, and Reset puts it back', async () => {

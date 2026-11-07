@@ -25,6 +25,7 @@ import {
   baselineOf,
   RunStep,
   QuestionName,
+  Scenario,
   RescuedWork,
   RunInProgressError,
   StartRequest,
@@ -42,7 +43,7 @@ import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, attemptIssues, issueCount, issuesReport } from './issues';
 import { ImportRequest, LONG_IMPORT_REQUESTS, importRequests } from './imports';
-import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes } from './preferences';
+import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes, savedAlwaysAnswers, saveAlwaysAnswer } from './preferences';
 
 type Step =
   /**
@@ -555,8 +556,9 @@ export class DownloadDialog implements OnDestroy {
   protected readonly askedDefault = signal('');
   protected readonly askedTimeout = signal(0);
   /** whether the 'give them a date' half of the question is showing */
-  protected readonly choosingDate = signal(false);
-  protected readonly stampDate = signal(today());
+  /** on an `inferred-date` question: its case, and whether to always answer it this way */
+  protected readonly askedScenario = signal('');
+  protected readonly alwaysThisCase = signal(false);
   /** set once an answer has gone back, so it cannot be sent twice */
   protected readonly answering = signal(false);
 
@@ -1173,17 +1175,13 @@ export class DownloadDialog implements OnDestroy {
    * library and on AO3 - these are answers held ready, used only if it does.
    */
   protected readonly backgroundQuestions = computed<QuestionName[]>(() => {
-    if (this.resuming()) return ['undated', 'duplicates', 'fichub', 'fichub-outdated', 'overwrite-older'];
+    if (this.resuming()) return ['duplicates', 'fichub', 'fichub-outdated', 'overwrite-older'];
     const asked: QuestionName[] = [];
     if (this.action() === 'quick' && this.coverage() !== 'run' && this.coverage() !== 'dates') {
       asked.push('quick-floor');
     }
     // `downloads` already says no for a collections run not downloading their works
-    if (this.downloads()) {
-      // an import leaves undated files alone without asking: the import window offered to date them
-      if (!this.overwrites() && this.action() !== 'import') asked.push('undated');
-      asked.push('duplicates');
-    }
+    if (this.downloads()) asked.push('duplicates');
     // a collections run that reads no works fetches none, so none can fail
     const readsWorks = this.picksFiletypes() || this.action() === 'import';
     if (readsWorks) asked.push('fichub');
@@ -1194,9 +1192,6 @@ export class DownloadDialog implements OnDestroy {
     return asked;
   });
 
-  /** what to do about files with no date in their name - nothing, by default */
-  protected readonly undatedAnswer = signal<'skip' | 'refresh' | 'stamp'>('skip');
-  protected readonly undatedDate = signal(today());
   /** what to do about older copies beside the newest - leave them, by default */
   protected readonly duplicatesAnswer = signal<'leave' | 'newest'>('leave');
   /** whether to try FicHub for works AO3 would not give us - yes, by default */
@@ -1216,8 +1211,6 @@ export class DownloadDialog implements OnDestroy {
   private startFromDefaults(defaults: Partial<Record<QuestionName, string>>): void {
     const pick = <T extends string>(value: string | undefined, allowed: readonly T[]) =>
       allowed.find((x) => x === value);
-    const undated = pick(defaults.undated, ['skip', 'refresh'] as const);
-    if (undated) this.undatedAnswer.set(undated);
     const duplicates = pick(defaults.duplicates, ['leave', 'newest'] as const);
     if (duplicates) this.duplicatesAnswer.set(duplicates);
     const yesNo = ['yes', 'no'] as const;
@@ -1237,13 +1230,20 @@ export class DownloadDialog implements OnDestroy {
   }
 
   /** what a hosted copy's User settings say about questions, sent with every run */
-  private questionSettings(): Pick<StartRequest, 'answerDefaults' | 'questionTimeoutMinutes' | 'ao3TimeZone'> {
-    // every page sends the AO3 zone: it is this browser's setting wherever the helper is
-    if (this.helper.isLocal()) return { ao3TimeZone: ao3TimeZone() };
+  private questionSettings(): Pick<StartRequest,
+      'answerDefaults' | 'questionTimeoutMinutes' | 'ao3TimeZone' | 'alwaysAnswers'> {
+    // every page sends the AO3 zone and the answers to always use: they are this browser's
+    // settings wherever the helper is
+    const always = savedAlwaysAnswers();
+    const everyPage = {
+      ao3TimeZone: ao3TimeZone(),
+      ...(Object.keys(always).length ? { alwaysAnswers: always } : {}),
+    };
+    if (this.helper.isLocal()) return everyPage;
     const answers = savedAnswerDefaults();
     const timeout = savedQuestionTimeout();
     return {
-      ao3TimeZone: ao3TimeZone(),
+      ...everyPage,
       ...(Object.keys(answers).length ? { answerDefaults: answers } : {}),
       ...(timeout === null ? {} : { questionTimeoutMinutes: timeout }),
     };
@@ -1253,11 +1253,6 @@ export class DownloadDialog implements OnDestroy {
   private readonly backgroundAnswers = computed<BackgroundAnswers>(() => {
     const answers: BackgroundAnswers = {};
     for (const name of this.backgroundQuestions()) {
-      if (name === 'undated') {
-        answers.undated = this.undatedAnswer() === 'stamp'
-          ? { choice: 'stamp', date: this.undatedDate() }
-          : { choice: this.undatedAnswer() };
-      }
       if (name === 'duplicates') answers.duplicates = { choice: this.duplicatesAnswer() };
       if (name === 'fichub') answers.fichub = { choice: this.fichubAnswer() };
       if (name === 'fichub-outdated') {
@@ -1271,11 +1266,8 @@ export class DownloadDialog implements OnDestroy {
     return answers;
   });
 
-  /** a stamp needs a real date, or the run would be refused before it started */
-  protected readonly backgroundAnswersReady = computed(
-    () => !this.background() || this.undatedAnswer() !== 'stamp' ||
-      !this.backgroundQuestions().includes('undated') || isDate(this.undatedDate()),
-  );
+  /** every up-front answer is a choice, so there is nothing that could be left unready */
+  protected readonly backgroundAnswersReady = computed(() => true);
 
   protected setBackground(value: boolean): void {
     this.background.set(value && !this.backgroundBlocked());
@@ -1917,7 +1909,6 @@ export class DownloadDialog implements OnDestroy {
     this.wasCancelled.set(false);
     this.staleCount.set(0);
     this.stampedCount.set(0);
-    this.choosingDate.set(false);
     this.asking.set(0);
     this.answering.set(false);
     this.failures.set([]);
@@ -2137,12 +2128,13 @@ export class DownloadDialog implements OnDestroy {
         this.askedFileDates.set(event.fileDates ?? {});
         this.askedSource.set(event.source ?? '');
         this.askedRecommended.set(event.recommended ?? '');
+        this.askedScenario.set(event.scenario ?? '');
+        this.alwaysThisCase.set(false);
         this.askedRecommendedFormats.set(event.recommendedFormats ?? []);
         this.askedReasons.set(event.reasons ?? {});
         this.askedDefault.set(event.default ?? '');
         this.askedTimeout.set(event.timeoutMinutes ?? 0);
-        this.choosingDate.set(false);
-        this.answering.set(false);
+            this.answering.set(false);
         break;
       case 'message':
         if (event.text) this.append(event.text, event.at);
@@ -2340,11 +2332,11 @@ export class DownloadDialog implements OnDestroy {
    * for a second run: everything after this point - which works count as out of date, and
    * therefore what gets downloaded - depends on it.
    */
-  private async answerQuestion(choice: AnswerChoice, date = ''): Promise<void> {
+  private async answerQuestion(choice: AnswerChoice, date = '', always = false): Promise<void> {
     if (!this.jobId || this.answering()) return;
     this.answering.set(true);
     try {
-      await this.jobs.answer(this.jobId, choice, date);
+      await this.jobs.answer(this.jobId, choice, date, always);
       this.asking.set(0);
       this.question.set('');
     } catch (e) {
@@ -2394,14 +2386,16 @@ export class DownloadDialog implements OnDestroy {
     void this.answerQuestion('no');
   }
 
-  /** a file whose date was only inferred from its name: keep it */
-  protected keepInferredFile(): void {
-    void this.answerQuestion('no');
-  }
-
-  /** a file whose date was only inferred from its name: replace it */
-  protected replaceInferredFile(): void {
-    void this.answerQuestion('yes');
+  /**
+   * A file without the app's own date: keep it, or replace it. With *always* ticked, this
+   * browser keeps the answer for the case and sends it with every later run, and the run
+   * takes it for every other work in the same case from now on - no more questions about it.
+   */
+  protected answerUnsure(choice: 'yes' | 'no'): void {
+    const scenario = this.askedScenario();
+    const always = this.alwaysThisCase() && !!scenario;
+    if (always) saveAlwaysAnswer(scenario as Scenario, choice);
+    void this.answerQuestion(choice, '', always);
   }
 
 
@@ -2427,35 +2421,6 @@ export class DownloadDialog implements OnDestroy {
   /** read the whole listing, as a first scan would */
   protected quickScanWholeListing(): void {
     void this.answerQuestion('full');
-  }
-
-  /** fetch them all again, replacing whatever is there */
-  protected refreshUndatedWorks(): void {
-    void this.answerQuestion('refresh');
-  }
-
-  /** leave them exactly as they are */
-  protected skipUndatedWorks(): void {
-    void this.answerQuestion('skip');
-  }
-
-  protected setStampDate(value: string): void {
-    this.stampDate.set(value);
-  }
-
-  /** whether what has been typed is a date this can actually be run with */
-  protected readonly stampDateIsValid = computed(() => isDate(this.stampDate()));
-
-  /**
-   * Write the chosen date onto them instead of fetching them again.
-   *
-   * Nothing is downloaded to do this - the files are renamed where they sit - and the run
-   * carries straight on, so anything ao3 has updated since that date is fetched on this
-   * same pass rather than a later one.
-   */
-  protected dateUndatedWorks(): void {
-    if (!this.stampDateIsValid()) return;
-    void this.answerQuestion('stamp', this.stampDate());
   }
 
   /** everything this run reported, by kind, as the report builds it */

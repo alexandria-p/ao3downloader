@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2199 python passed; 1104 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2180 python passed; 1098 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -599,7 +599,7 @@ just before the login) starts a run the helper finishes with the page closed. Th
   all on an ordinary run - a spec holds that.
 - **Questions are answered before it starts.** Nobody will be there, so the background step lists
   the questions the workflow could ask (`backgroundQuestions`, mirroring when the helper asks:
-  undated and duplicates when it downloads, not undated when it overwrites, quick-floor on a
+  duplicates when it downloads, quick-floor on a
   quick scan with nothing chosen to measure to) and sends them as `answers`.
   `background_answers` checks them against `CHOICES_FOR` before the run exists. They become
   `Job.prior_answers` - the mechanism a resumed run already used - and a resume merges the
@@ -851,11 +851,10 @@ The flow, in the order the ui narrates it:
    (`scanning`)
 2. `shared.scan_downloaded_works` - what is already in the folder for those works
    (`checking_files`)
-3. `settle_undated` - the question about files with no date in the name, asked **here**,
-   before a single request, because the answer decides which copies count as behind
-4. then one fic at a time (`updating`), through `update_one_work`: `Ao3.refresh_one`
+3. then one fic at a time (`updating`), through `update_one_work`: `Ao3.refresh_one`
    re-reads it and rewrites its entry, `shared.plan_downloads` judges that one work, and
-   `Ao3.download_one_indexed` fetches it only if it has to
+   `Ao3.download_one_indexed` fetches it only if it has to - a file without the app's own
+   date asked about as that work is judged (`ask_about_unsure_copies`)
 
 `fill_missing_formats` re-reads its fics the same way, for the same reason: a file written
 from a stale entry is named with a stale date, and would read as current for ever after.
@@ -904,9 +903,10 @@ points at the bookmarks run instead, which re-reads the listing and catches thos
 ### Question defaults and time limits are settings
 
 Every question's unanswered answer is a settings.ini key (`strings.INI_ANSWER_CHOICES`,
-`server.ANSWER_SETTING_FOR`, `configured_answer`): `UndatedFilesAnswer` skip,
-`QuickScanFloorAnswer` full, `DuplicateCopiesAnswer` leave, `FicHubAnswer` yes,
-`FicHubOlderCopyAnswer` yes, `OverwriteNewerCopyAnswer` no. Each is the `choice` kind
+`server.ANSWER_SETTING_FOR`, `configured_answer`): `QuickScanFloorAnswer` full, `DuplicateCopiesAnswer` leave, `FicHubAnswer` yes,
+`FicHubOlderCopyAnswer` yes, `OverwriteNewerCopyAnswer` no, and the six cases of a file
+without the app's own date (`SCENARIO_SETTINGS`: `AO3GuessedOlderAnswer`,
+`AO3GuessedNewerAnswer`, `AO3UnknownDateAnswer` and the three `FicHub...` ones), all no. Each is the `choice` kind
 (`settings_file.CHOICE`, a select in User settings, checked by `checked_value` and by
 `deploy_config.checked`); the built-in default is the first of its choices and the
 template's, so Reset to defaults restores it. `Job.ask` takes it on a timeout, on a
@@ -1813,17 +1813,6 @@ unmarks it: `save_series_work` and `as_not_yours` keep an existing entry's own f
 It is a snapshot field, not identity: a fic becoming your bookmark is a real change worth a
 history entry.
 
-### The undated question names works, and dating names files
-
-`settle_undated` counts **works** (the question is about works) but a work saved in two
-formats is two files, so it says both - `12 works (24 files)` - and prints the work numbers.
-Without that, `dated 24 files` straight after `12 works` read as a miscount. The run
-record's choice carries `works` and `files` when asked, and `RunRecord.amend_choice` adds
-`renamed` (`{id, from, to}` per file, from `stamp_undated_works`'s `files`) once the renames
-are done - the choice is written first so a run that dies mid-rename still shows the answer.
-The history tab lists both, and describes the quick-floor question as itself rather than as
-undated files.
-
 ### Versioned json
 
 `indexing.py` splits a document into identity (never versioned) and snapshot. `merge`
@@ -1846,27 +1835,27 @@ comparison is correct because both sides are `YYYY-MM-DD`, which sorts lexically
 Three things follow from it, and each is load-bearing somewhere else:
 
 - **A file with no date in its name cannot be judged at all** - there is nothing to compare.
-  Those are `undated`, never `stale`, and the run stops and asks what to do about them
-  rather than guessing.
+  Those are `undated`, never `stale`, and the run asks about them per work rather than
+  guessing (below).
 - **Only a date in the app's own form replaces a file unasked - overwriting or not.**
   `get_date_from_filename` takes only a space, then a real `YYYY-MM-DD`, ending the name. Any
-  other file is never replaced on the version check alone: `ask_about_unsure_copies` asks per
-  work, `INFERRED_DATE_QUESTION` (`inferred-date`), from AO3 or FicHub, after planning
+  other file is never replaced on the version check alone: `ask_about_unsure_copies` asks,
+  `INFERRED_DATE_QUESTION` (`inferred-date`), from AO3 or FicHub, after planning
   (`plan_refresh`, `update_one_work`, `rescue_one`, `older_fichub_formats`, and the long way's
   `judge_long_way` through `Ao3.judge_copy`). It guesses a date the *Infer date* way
-  (`infer_date_from_filename`) and recommends (`unsure_copy_advice`): it *thinks* the incoming
-  version is newer - replace; the same - keep, or replace on an overwriting run; older - keep;
-  no date it can read, or none incoming - keep. Choices `recommended` (when only some are) /
-  `yes` / `no`; **default no whatever is recommended**, never from settings.ini or up front
-  (`ASKED_PER_WORK`). On an overwriting run it pulls these files back out of the `superseded`
-  `plan_downloads` put them in, so an overwrite replaces only files with the app's own date no
-  later than the incoming one (later ones go to `keep_newer_copies`, default no). Files with
-  **no readable date** are asked about here on an overwriting run, by FicHub, and on the long
-  way (`include_undated`); a scan or update of AO3 that does not overwrite still asks
-  `settle_undated`, which can date them. `settle_undated` leaves out a work whose undated files
-  all have a guessable date, and its re-download answer names the works it was about
-  (`refresh_undated` a set), so such a work is never re-downloaded on that answer. Not on an
-  import, whose own window decided. `test_inferred_dates.py` holds it.
+  (`infer_date_from_filename`), and each file is one of **six cases** (`SCENARIOS`,
+  `unsure_scenario`): from `ao3` or `fichub`, and `older` (the guess is before the incoming
+  date - we *think* the incoming version is newer; replacing recommended), `newer` (the same or
+  later; keeping recommended) or `unknown` (no date can be read, or none comes in; keeping
+  recommended). **One question per work and case**, `yes` / `no`, carrying `scenario`; each
+  case has its own default (`SCENARIO_SETTINGS` in settings.ini, or the hosted page's
+  *Defaults used during a run*), **no** unless changed, and may have an answer you chose to
+  always use (see **A run can stop and ask a question**). Never answered up front or reused
+  from an earlier attempt (`ASKED_PER_WORK`). On an overwriting run it pulls these files back
+  out of the `superseded` `plan_downloads` put them in, so an overwrite replaces only files
+  with the app's own date no later than the incoming one (later ones go to
+  `keep_newer_copies`, default no). Not on an import, whose own window decided
+  (`AO3_INFO_IMPORT_UNDATED_KEPT`). `test_inferred_dates.py` holds it.
 - **The index has to be current before the comparison is worth anything.** An entry that has
   not been re-read cannot say ao3 has moved on. This is why the update pass re-reads a fic
   before judging it, and why the gap pass re-reads one before writing a file - a file named
@@ -1908,9 +1897,9 @@ that, and putting the option there would invite it to be left on.
 
 Two things follow, and both are in `plan_refresh` and `refresh_and_download`:
 
-- **the undated question is not asked.** It exists to decide what happens to copies that
-  cannot be judged, and this has decided it - for those and for every other copy. Stopping
-  to ask would be asking about works the run is about to fetch again anyway.
+- **only files with the app's own date are replaced unasked.** One without it - guessed date
+  or none - is still asked about (`ask_about_unsure_copies`), and one newer than the version
+  written too (`keep_newer_copies`).
 - **the wording changes.** `AO3_INFO_OVERWRITING` replaces `AO3_INFO_OUT_OF_DATE`, and
   `AO3_INFO_FORMAT_REPLACING` replaces `AO3_INFO_FORMAT_OUTDATED`, because most of what an
   overwrite replaces is perfectly current and calling it outdated would read as the version
@@ -1945,8 +1934,8 @@ the default whatever is recommended**: not from settings.ini, not offered up fro
 run, never reused from an earlier attempt (`ASKED_PER_WORK`). A copy to replace goes in
 `superseded` (and the work in `stale`); one kept leaves it, into `plan['keep']`, and `keptSaid`
 stops the downloader saying *keeping your newer copy* after it. It runs in `plan_refresh` (every
-scan, the fic runs), `update_one_work` and `rescue_one`; `settle_undated` and `keep_newer_copies`
-leave those works to it. In `rescue_one` the older-copy questions still ask about the formats
+scan, the fic runs), `update_one_work` and `rescue_one`; `ask_about_unsure_copies` and
+`keep_newer_copies` leave those works to it. In `rescue_one` the older-copy questions still ask about the formats
 there is no file of; a work whose copies are all kept and gets nothing from an older FicHub copy
 stays a failure. `test_unindexed_copies.py` holds it, with the scenarios it was built for.
 
@@ -2008,8 +1997,8 @@ and two that operate on real files.
 `shared.scan_downloaded_works` reads the folder as it is (matching by leading work number,
 skipping `indexing/`, `collections/` and `images/`) rather than trusting the log, and
 `shared.plan_downloads` turns that plus the index into `{stale, undated, superseded}`.
-Undated files are counted but never refetched unless `refreshUndated` is set, which only
-the ui's post-run offer does - it is a full re-download of a library.
+Undated files are never refetched by the plan itself: each is asked about per work
+(`ask_about_unsure_copies`).
 
 **Every file a download writes is announced, once.** Both download paths
 (`download_one_indexed` and `try_download`) save through `Ao3.save_download`, which prints
@@ -2065,11 +2054,6 @@ the last step of **every** plan - there is a test over `ACTIONS` asserting it.
 
 ### A run can stop and ask a question
 
-Undated files are the one thing a run cannot decide for itself, so it **stops and asks**.
-`server.settle_undated` is called from `plan_refresh`, which both `run_bookmarks` and
-`run_update` go through, and it runs *before* planning - the answer decides which works
-count as out of date, and asking afterwards would be too late to act on.
-
 `Job.ask` emits a `question` event and blocks; the ui replies through
 `POST /api/jobs/<id>/answer`, which `Job.reply` hands back. Three things keep that from
 hanging, and all three matter:
@@ -2078,26 +2062,23 @@ hanging, and all three matter:
   releases a run nobody is answering
 - `QuestionTimeoutMinutes` (settings.ini, `question_timeout_seconds`; 30 by default, `ANSWER_TIMEOUT_SECONDS` the fallback) gives up after that long, so a closed tab cannot leave a thread
   waiting for an answer that can never arrive
-- **the default is always `skip`** - the option that changes nothing. Whatever goes wrong,
-  a run must not rename or refetch a library on its own
+- **the default is the option that changes nothing** (bar FicHub's two, see below). Whatever
+  goes wrong, a run must not delete or refetch a library on its own
 
-`answer_job` rejects a choice outside `UNDATED_CHOICES` and runs the date through
-`parse_text.get_date_stamp`, so a run waiting on an answer is never handed something it
-cannot act on, and a library is never renamed after a half-understood date.
+**There used to be a batch question for undated files** (`settle_undated`: date them all,
+re-download them all, or skip, asked before planning). It was removed at the user's request
+once every file without the app's own date got its own per-work question with a
+recommendation (`ask_about_unsure_copies`) - don't put it back. Dating files now happens only
+on the *Resolve issues* window's dates page, before a run.
 
-**The answer applies to the works the question was asked about, and nothing else.**
-`stamp_undated_works` takes a required `works` set for this reason. `existing` is the whole
-downloads folder - `scan_downloaded_works` reads all of it, because a work's copy has to be
-found wherever it sits - while `plan_downloads(records, ...)` narrows that to the run's own
-records. Handing the folder scan straight to the renamer was a real bug, hit for real: an
-update run reported a few hundred undated works and then dated 1,690 files across the whole
-library. The scope is the works in `undated`, not in `records` - a work that is stale in one
-format and undated in another counts as stale, so it is not in the number the user was shown
-and is about to be refetched anyway. The file types are already narrowed, by the scan.
-
-This was `refreshUndated` / `stampUndated` job options, decided up front and acted on after
-the downloads. Don't put it back: the count is not known until the folder has been read, and
-by the time the downloads are done there is nothing left to act on.
+**Per-work questions are kept from stalling a run.** One a work can mean hundreds a run, so:
+an answer you chose to **always** use for a case (`Job.always_answers`, from the page's
+`alwaysAnswers` - User settings' *Answers to always use*, or the question's own *Always
+choose this* box, which also stands for the rest of the run) is taken without asking (`how`
+`always`); and once one goes unanswered (`went_unanswered`, by case), the rest of that case
+take their default at once rather than half an hour each (`how` `nobody-answering`). A
+per-work question is answered, defaulted and remembered by its **case** (`scenario` on the
+question, `kind` in `Job.ask`), not by its name.
 
 **There is more than one question now.** `settle_quick_floor` asks a quick scan how far
 back to go when no run qualifies as a floor but the index already holds something - a full
@@ -2107,14 +2088,13 @@ offered rather than taken: `last_indexed` says when an entry was last written, n
 everything was seen, so **the default is the whole listing** - the answer that cannot leave
 a gap.
 
-`answer_job` validates against `ANSWER_CHOICES`, the union of both questions' answers. The
+`answer_job` validates against `ANSWER_CHOICES`, the union of every question's answers. The
 run only reads the reply to the question it actually asked, so one list is enough to keep
 nonsense out at the door. The ui keys its panel on the question **name**, not on the count:
-both arrive as a `question` event with a count, and keying on that alone showed the undated
-buttons for whichever question asked last.
+keying on the count alone once showed one question's buttons for whichever asked last.
 
-A test that drives `run_bookmarks`, `run_update` **or `run_quick`** for real **must** stub
-`Job.ask` or the suite hangs - that is what `updating()` in `test_server.py` does, and what
+A test that drives `run_bookmarks`, `run_update` **or `run_quick`** for real over a library
+holding a file without the app's own date **must** stub `Job.ask` or the suite hangs - that is what `updating()` in `test_server.py` does, and what
 `asked_quick()` does for the quick scan. `run_quick` only reaches the question when the
 index is non-empty and no run qualifies, which is why the existing no-floor tests pass
 without stubbing: their `downloadfolder` is an empty tmp path, so `read_index` returns
@@ -2284,7 +2264,7 @@ window finishes after dating (`afterDating`). What not to break:
   in `IDENTITY_FIELDS` - unless the work turns out to be your bookmark; it **never overwrites**
   (`overwrite` false), and with `replaceOutdated` off `keep_existing_copies` moves every held
   format into `plan['keep']` (said as `AO3_INFO_KEEPING_YOURS`, through `Ao3.keep_message`), so
-  only missing formats are fetched; and `settle_undated` asks nothing on an import
+  only missing formats are fetched; and nothing is asked about undated files on an import
   (`AO3_INFO_IMPORT_UNDATED_KEPT`) - the page offered to date them, so one left undated was left
   so on purpose. No series walk. `replaceOutdated` is clamped off for every other action.
   **Once indexed, each work's files are named from its entry** (`name_files_from_index`, the
@@ -2678,6 +2658,8 @@ not to break:
   `settings.ini`* for the helper's file (a helper on this computer only; a hosted one's comes from
   its deployment and is not shown). Order: Default download formats first, AO3 time zone, Appearance
   (a `details`, closed to begin with, Font above Palette), Questions (hosted; a `details` too),
+  *Answers to always use* (every page, a `details`: the six cases, each *Ask every time* /
+  *Always replace it* / *Always keep my file*, `ao3.alwaysAnswers`, in Reset to defaults),
   'Ask again' Prompts (a `details` too), exclusion lists, settings.ini (local), and **Debug mode always last**. A prompt
   with `listed: false` (the browser notice) is kept off the tab but still reset.
 - **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)

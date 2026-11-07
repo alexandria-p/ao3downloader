@@ -55,21 +55,33 @@ INI_QUESTION_TIMEOUT = 'QuestionTimeoutMinutes'
 INI_DEFAULT_QUESTION_TIMEOUT = 30
 # what each question answers itself with when nobody does - on a timeout, a stop, and a
 # background run that was not told. today's answers are the template's defaults
-INI_UNDATED_ANSWER = 'UndatedFilesAnswer'
 INI_QUICK_FLOOR_ANSWER = 'QuickScanFloorAnswer'
 INI_DUPLICATES_ANSWER = 'DuplicateCopiesAnswer'
 INI_FICHUB_ANSWER = 'FicHubAnswer'
 INI_FICHUB_OUTDATED_ANSWER = 'FicHubOlderCopyAnswer'
 INI_OVERWRITE_OLDER_ANSWER = 'OverwriteNewerCopyAnswer'
+# a file without the app's own date in its name, by where the incoming version is from and
+# what the date guessed from its name says: no keeps the file, yes replaces it
+INI_AO3_GUESSED_OLDER_ANSWER = 'AO3GuessedOlderAnswer'
+INI_AO3_GUESSED_NEWER_ANSWER = 'AO3GuessedNewerAnswer'
+INI_AO3_UNKNOWN_DATE_ANSWER = 'AO3UnknownDateAnswer'
+INI_FICHUB_GUESSED_OLDER_ANSWER = 'FicHubGuessedOlderAnswer'
+INI_FICHUB_GUESSED_NEWER_ANSWER = 'FicHubGuessedNewerAnswer'
+INI_FICHUB_UNKNOWN_DATE_ANSWER = 'FicHubUnknownDateAnswer'
 # each of those settings, the answers it may be, and the one it is when unset or misread
 INI_ANSWER_CHOICES = {
     # not 'stamp': dating files needs a date, which only someone answering can give
-    INI_UNDATED_ANSWER: ('skip', 'refresh'),
     INI_QUICK_FLOOR_ANSWER: ('full', 'since'),
     INI_DUPLICATES_ANSWER: ('leave', 'newest'),
     INI_FICHUB_ANSWER: ('yes', 'no'),
     INI_FICHUB_OUTDATED_ANSWER: ('yes', 'no'),
     INI_OVERWRITE_OLDER_ANSWER: ('no', 'yes'),
+    INI_AO3_GUESSED_OLDER_ANSWER: ('no', 'yes'),
+    INI_AO3_GUESSED_NEWER_ANSWER: ('no', 'yes'),
+    INI_AO3_UNKNOWN_DATE_ANSWER: ('no', 'yes'),
+    INI_FICHUB_GUESSED_OLDER_ANSWER: ('no', 'yes'),
+    INI_FICHUB_GUESSED_NEWER_ANSWER: ('no', 'yes'),
+    INI_FICHUB_UNKNOWN_DATE_ANSWER: ('no', 'yes'),
 }
 # how long one request to ao3 may take in all, and how often a run says it is still waiting
 INI_REQUEST_TIMEOUT = 'RequestTimeoutSeconds'
@@ -235,8 +247,6 @@ SAVED_FINE_ON_SECOND_LOOK = 'did not match the downloaded size when first checke
 AO3_INFO_KEPT_COPIES = '{} works were downloaded but need checking by hand'
 ERROR_REPLACE_OLD_COPY = 'Problem removing the copy a download replaced. The old file is still there.'
 AO3_INFO_OUT_OF_DATE = '{} downloaded works have been updated on ao3 since you saved them'
-AO3_INFO_UNDATED = '{} downloaded works ({} files between them) were saved before file names carried a date'
-AO3_INFO_UNDATED_WORKS = 'works with undated files: {}'
 # an index entry's field saying whether the logged-in user has bookmarked the fic: True off
 # their own bookmarks listing or a work page saying 'Edit Bookmark', False off a page saying
 # 'Bookmark', and absent when nothing has been able to tell
@@ -267,13 +277,8 @@ BOOKMARK_OWN_FIELDS = ('date_bookmarked', 'bookmark_notes', 'bookmark_tags',
                        BOOKMARKED_FIELD)
 AO3_INFO_CHECKING_FILES = 'checking which of these you have already downloaded'
 AO3_INFO_CHECKING_VERSIONS = 'checking which of your downloads ao3 has a newer version of'
-AO3_INFO_UNDATED_WAITING = 'waiting for you to say what to do about them'
-AO3_INFO_UNDATED_REFRESH = 'treating all {} as out of date, so they will be downloaded again'
-AO3_INFO_UNDATED_SKIPPED = 'leaving all {} as they are'
 AO3_INFO_UP_TO_DATE = 'everything else you have is already the current version'
 AO3_INFO_OVERWRITING = 'overwriting {} downloaded works at your request, current or not'
-AO3_INFO_STAMPED = 'dated {} existing files, across {} works, as {}'
-AO3_INFO_STAMPED_FILE = '    renamed {} -> {}'
 AO3_INFO_FROM_INDEX = 'downloading {} works directly, without re-indexing'
 AO3_INFO_FROM_INDEX_NEW = '  {} new - not downloaded before'
 AO3_INFO_FROM_INDEX_UPDATING = '  {} already downloaded, updating to the newest version'
@@ -460,6 +465,9 @@ AO3_INFO_FICHUB_FAILED_TOO = '  not on FicHub either: {}'
 # FicHub's copy is a cache, and can be older than what the index already says of the work
 AO3_INFO_FICHUB_OUTDATED = ('  FicHub\'s copy of work {} was last updated {}, older than your '
                             'index ({}) - each file you have is judged against it by the date in its own name')
+AO3_INFO_IMPORT_UNDATED_KEPT = 'files with no date in their names were left undated before the import started, so they are kept as they are'
+AO3_INFO_ALWAYS_ANSWER = '  you chose to always answer this the same way: {}'
+AO3_INFO_NOBODY_ANSWERING = '  nobody answered the last question like this, so the rest take the default without waiting: {}'
 AO3_INFO_FICHUB_OUTDATED_NOTHING = '  nothing FicHub has is newer than what you have, so nothing is taken from FicHub'
 AO3_INFO_FICHUB_NEWER_THAN_FILE = '  {}: FicHub\'s copy ({}) is newer than yours ({}), though older than the index - replacing it'
 AO3_INFO_FICHUB_SAME_AS_FILE = '  {}: yours is the same version as FicHub\'s ({}) - keeping it'
@@ -470,9 +478,7 @@ AO3_INFO_UNSURE_COPIES = ('  work {}: your {} - no date written the way this app
 UNSURE_CANNOT_INFER = 'no date can be read from your file\'s name, so we cannot tell which is newer - we recommend keeping yours'
 UNSURE_NO_INCOMING_DATE = 'your file\'s name looks dated {} (a guess), but {} gives no date to compare it with - we recommend keeping yours'
 UNSURE_THINK_OLDER = 'your file\'s name looks dated {} (a guess), so we think {}\'s version ({}) is newer - we recommend replacing it'
-UNSURE_THINK_SAME = 'your file\'s name looks dated {} (a guess), the same as {}\'s version - we recommend keeping yours'
-UNSURE_THINK_SAME_OVERWRITING = ('your file\'s name looks dated {} (a guess), the same as {}\'s version - '
-                                 'this run overwrites, so we recommend replacing it')
+UNSURE_THINK_SAME = 'your file\'s name looks dated {} (a guess), the same as {}\'s version ({}) - we recommend keeping yours'
 UNSURE_THINK_NEWER = 'your file\'s name looks dated {} (a guess), so we think yours is newer than {}\'s version ({}) - we recommend keeping yours'
 AO3_INFO_FICHUB_OUTDATED_ASK = ('  no {} of work {} on disk - waiting for you to choose whether '
                                 'to take FicHub\'s older version...')
@@ -506,7 +512,6 @@ AO3_INFO_IMPORT_NAMES_UNREADABLE = 'could not list your works folder to name the
 IMPORT_EXCLUDED_FILE_NAME = 'import-excluded.json'
 AO3_INFO_IMPORT_EXCLUDED_RENAMED = 'exclusion list updated for {} renamed {}'
 AO3_INFO_IMPORT_EXCLUDED_UNSAVED = 'could not update the exclusion list for the renamed files: {}'
-AO3_INFO_IMPORT_UNDATED_KEPT = 'left undated before the import started, so kept as they are'
 AO3_INFO_IMPORT_KEEPING = 'not replacing outdated copies: only formats you do not have are fetched'
 AO3_INFO_IMPORT_INDEX_ONLY = '{} of these works are only indexed: no format is fetched for them'
 ERROR_NO_IMPORT_WORKS = 'There are no works to import.'
@@ -561,7 +566,6 @@ ERROR_NOT_A_WORK_FILE_STATUS = 'status {}'
 INFO_FORMAT_FAILED = '    {} could not be downloaded: {}'
 ERROR_FORMAT_FAILED = '{}: {}'
 ERROR_NOT_A_WORK_FILE_TYPE = 'status {}, but the content was a web page'
-AO3_INFO_STAMP_SKIPPED = '{} files were left as they were - a file of that name already existed'
 
 # how many entries ao3 puts on a page of a listing. only used to work out how many works
 # sit before a run that starts partway through, so its positions carry on from there.

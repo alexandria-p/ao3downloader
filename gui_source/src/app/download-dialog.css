@@ -973,3 +973,12 @@ fieldset.bare:disabled {
   padding-left: 20px;
   color: var(--text-dim);
 }
+
+/* the answer recommended for a file without the app's own date - only a recommendation */
+.question-actions .button.recommended {
+  border-color: var(--accent-line);
+}
+
+.always-case {
+  margin-top: 8px;
+}

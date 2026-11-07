@@ -280,13 +280,13 @@ describe('Running in the background', () => {
 
   // region asked up front
 
-  it('asks a full scan what to do about undated files and older copies', async () => {
+  it('asks a full scan what to do about older copies and FicHub', async () => {
     inDropbox();
     await open('bookmarks');
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['undated', 'duplicates', 'fichub', 'fichub-outdated']);
+    expect(questionsOffered()).toEqual(['duplicates', 'fichub', 'fichub-outdated']);
   });
 
   it('also asks a quick scan how far back to go with nothing to measure to', async () => {
@@ -295,10 +295,10 @@ describe('Running in the background', () => {
     await toCredentials();
     await tickBackground();
 
-    expect(questionsOffered()).toEqual(['quick-floor', 'undated', 'duplicates', 'fichub', 'fichub-outdated']);
+    expect(questionsOffered()).toEqual(['quick-floor', 'duplicates', 'fichub', 'fichub-outdated']);
   });
 
-  it('does not ask about undated files on a run that fetches every copy again anyway', async () => {
+  it('asks a run that overwrites before it replaces a newer copy', async () => {
     inDropbox();
     await open('work');
     await toCredentials();
@@ -325,7 +325,6 @@ describe('Running in the background', () => {
 
     expect(jobs.started[0].answers).toEqual({
       'quick-floor': { choice: 'full' },
-      undated: { choice: 'skip' },
       duplicates: { choice: 'leave' },
       // the one that does something: the works it asks about are missing anyway
       fichub: { choice: 'yes' },
@@ -334,8 +333,7 @@ describe('Running in the background', () => {
   });
 
   it('starts from the default answers settings.ini gives, where it gives them', async () => {
-    jobs.answerDefaults = { fichub: 'no', 'quick-floor': 'since', undated: 'refresh',
-                            duplicates: 'nonsense' };
+    jobs.answerDefaults = { fichub: 'no', 'quick-floor': 'since', duplicates: 'nonsense' };
     inDropbox();
     await open('quick');
     await toCredentials();
@@ -344,7 +342,6 @@ describe('Running in the background', () => {
 
     expect(jobs.started[0].answers).toEqual({
       'quick-floor': { choice: 'since' },
-      undated: { choice: 'refresh' },
       // a value the question does not have leaves the built-in default
       duplicates: { choice: 'leave' },
       fichub: { choice: 'no' },
@@ -354,7 +351,7 @@ describe('Running in the background', () => {
 
   it('starts from this browser\'s default answers before the helper\'s, and sends them with the run', async () => {
     jobs.answerDefaults = { fichub: 'no', duplicates: 'newest' };
-    localStorage.setItem(ANSWER_DEFAULTS_KEY, JSON.stringify({ fichub: 'yes', undated: 'refresh' }));
+    localStorage.setItem(ANSWER_DEFAULTS_KEY, JSON.stringify({ fichub: 'yes', 'ao3-older': 'yes' }));
     localStorage.setItem(QUESTION_TIMEOUT_KEY, '5');
     inDropbox();
     await open('quick');
@@ -364,25 +361,19 @@ describe('Running in the background', () => {
 
     expect(jobs.started[0].answers).toEqual({
       'quick-floor': { choice: 'full' },
-      undated: { choice: 'refresh' },
       duplicates: { choice: 'newest' },
       fichub: { choice: 'yes' },
       'fichub-outdated': { choice: 'yes' },
     });
-    expect(jobs.started[0].answerDefaults).toEqual({ fichub: 'yes', undated: 'refresh' });
+    expect(jobs.started[0].answerDefaults).toEqual({ fichub: 'yes', 'ao3-older': 'yes' });
     expect(jobs.started[0].questionTimeoutMinutes).toBe(5);
   });
 
-  it('sends the answers given, and the date undated files are to be given', async () => {
+  it('sends the answers given', async () => {
     inDropbox();
     await open('bookmarks');
     await toCredentials();
     await tickBackground();
-    checkbox('Give them a date')!.click();
-    await fixture.whenStable();
-    const date = element.querySelector<HTMLInputElement>('input[name="bg-undated-date"]')!;
-    date.value = '2024-05-06';
-    date.dispatchEvent(new Event('input'));
     checkbox('Keep the newest')!.click();
     checkbox('No - leave them listed as failures')!.click();
     checkbox('No - leave the work listed as a failure')!.click();
@@ -390,27 +381,21 @@ describe('Running in the background', () => {
     await startIt();
 
     expect(jobs.started[0].answers).toEqual({
-      undated: { choice: 'stamp', date: '2024-05-06' },
       duplicates: { choice: 'newest' },
       fichub: { choice: 'no' },
       'fichub-outdated': { choice: 'no' },
     });
   });
 
-  it('will not start with a date that is not one', async () => {
+  it('sends the answers chosen to always use with every run, background or not', async () => {
+    localStorage.setItem('ao3.alwaysAnswers', JSON.stringify({ 'ao3-older': 'yes', 'fichub-unknown': 'no', bad: 'yes' }));
     inDropbox();
     await open('bookmarks');
     await toCredentials();
     await tickBackground();
-    checkbox('Give them a date')!.click();
-    await fixture.whenStable();
-    const date = element.querySelector<HTMLInputElement>('input[name="bg-undated-date"]')!;
-    date.value = '';
-    date.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
+    await startIt();
 
-    // the answers are on their own page, which cannot be left with one that will not do
-    expect(button('Continue')!.disabled).toBe(true);
+    expect(jobs.started[0].alwaysAnswers).toEqual({ 'ao3-older': 'yes', 'fichub-unknown': 'no' });
   });
 
   // endregion

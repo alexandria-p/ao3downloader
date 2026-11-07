@@ -215,6 +215,37 @@
   }
 
   <!-- collapsible: a long list, seldom changed -->
+  <details class="group always-answers">
+    <summary class="group-head">
+      <h3>Answers to always use</h3>
+      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+    </summary>
+    <p class="hint">
+      A file whose name has no date written the way this app writes one is never replaced
+      without asking. When a run asks, you can tick <em>Always choose this</em> - and that case
+      is never asked about again, the answer you gave taken instead. Change one here, or choose
+      <em>Ask every time</em> to be asked again.
+    </p>
+    <ul class="rows">
+      @for (scenario of scenarios; track scenario.name) {
+        <li class="row" [attr.data-always]="scenario.name">
+          <div class="about">
+            <span class="name">{{ scenario.label }}</span>
+          </div>
+          <select
+            [attr.aria-label]="scenario.label"
+            (change)="setAlways(scenario.name, scenario.label, $any($event.target).value)"
+          >
+            <option value="" [selected]="!alwaysAnswers()[scenario.name]">Ask every time</option>
+            <option value="yes" [selected]="alwaysAnswers()[scenario.name] === 'yes'">Always replace it</option>
+            <option value="no" [selected]="alwaysAnswers()[scenario.name] === 'no'">Always keep my file</option>
+          </select>
+        </li>
+      }
+    </ul>
+  </details>
+
+  <!-- collapsible: a long list, seldom changed -->
   <details class="group prompts">
     <summary class="group-head">
       <h3>'Ask again' Prompts</h3>

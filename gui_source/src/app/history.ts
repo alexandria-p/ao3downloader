@@ -26,6 +26,8 @@ const HOW_ANSWERED: Record<string, string> = {
   'up-front': 'Answered before this background run started.',
   earlier: 'Taken from the earlier attempt this run retried.',
   stopped: 'The run was stopped while it waited, so it took the answer that changes nothing.',
+  always: 'Not asked: you chose to always answer this case this way (User settings).',
+  'nobody-answering': 'Not asked: an earlier question like it went unanswered, so it took the default at once.',
 };
 
 @Component({

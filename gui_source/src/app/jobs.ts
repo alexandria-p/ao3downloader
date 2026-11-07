@@ -67,7 +67,7 @@ export interface ServerSettings {
   /** minutes a question waits for its answer before taking its default; 0 is at once */
   questionTimeoutMinutes?: number;
   /** what each question answers itself with when nobody answers it, from settings.ini */
-  answerDefaults?: Partial<Record<QuestionName, string>>;
+  answerDefaults?: Partial<Record<DefaultName, string>>;
 }
 
 export interface ServerConfig {
@@ -308,7 +308,9 @@ export interface RunChoice {
    * kept. `answered` you chose; `timed-out` nobody answered in time; `not-asked` settings.ini
    * says to take the default at once; `background-default` a background run not told;
    * `up-front` a background run told before it started; `earlier` an earlier attempt's answer;
-   * `stopped` the run was stopped while it waited.
+   * `stopped` the run was stopped while it waited; `always` an answer you chose to always
+   * use for that case; `nobody-answering` an earlier one like it went unanswered, so this
+   * took its default at once.
    */
   how?: string;
   /** on an `unindexed-copy` answer: what was recommended, where the incoming version was
@@ -316,6 +318,8 @@ export interface RunChoice {
   recommended?: string;
   source?: string;
   replaced?: string[];
+  /** on an `inferred-date` answer: which of the six cases it was */
+  scenario?: Scenario;
 }
 
 /** one past run, as the helper wrote it down */
@@ -512,6 +516,8 @@ export interface JobEvent {
   /** 'yes', 'no', or 'recommended' when only some copies are worth replacing */
   recommended?: string;
   recommendedFormats?: string[];
+  /** on an `inferred-date` question: which of the six cases it is */
+  scenario?: Scenario;
   /** why each copy is or is not recommended for replacing */
   reasons?: Record<string, string>;
   overwriting?: boolean;
@@ -558,16 +564,30 @@ export interface StartRequest {
    * What unanswered questions take, and after how many minutes, from this browser's User
    * settings - sent only by a page whose helper's settings.ini it cannot edit (a hosted copy)
    */
-  answerDefaults?: Partial<Record<QuestionName, string>>;
+  answerDefaults?: Partial<Record<DefaultName, string>>;
   questionTimeoutMinutes?: number;
+  /** answers you chose to always use, by case - taken without asking (User settings) */
+  alwaysAnswers?: Partial<Record<Scenario, 'yes' | 'no'>>;
   /** the zone AO3 shows this person's dates in (User settings; the browser's own by default) */
   ao3TimeZone?: string;
 }
 
 /** the questions a run can stop to ask, by the name the helper gives them */
 export type QuestionName =
-  'undated' | 'quick-floor' | 'duplicates' | 'fichub' | 'fichub-outdated' | 'overwrite-older' |
+  'quick-floor' | 'duplicates' | 'fichub' | 'fichub-outdated' | 'overwrite-older' |
   'unindexed-copy' | 'inferred-date';
+
+/**
+ * The six cases of a file whose name has no date written the app's way, asked about one work
+ * at a time: where the incoming version is from, and what the date guessed from the name says
+ * (older than it, the same or newer, or none can be read). Each has its own default, and may
+ * have an answer you chose to always use (`ao3.alwaysAnswers`).
+ */
+export type Scenario =
+  'ao3-older' | 'ao3-newer' | 'ao3-unknown' | 'fichub-older' | 'fichub-newer' | 'fichub-unknown';
+
+/** what has a default answer: a question, or one of the cases of `inferred-date` */
+export type DefaultName = QuestionName | Scenario;
 
 /** answers given before a background run starts, since nobody will be there to give them */
 export type BackgroundAnswers = Partial<Record<QuestionName, { choice: AnswerChoice; date?: string }>>;
@@ -948,11 +968,11 @@ export class Jobs {
    * than swallowed, and the helper gives up on its own after a while so nothing hangs for
    * ever if this never arrives.
    */
-  async answer(jobId: string, choice: AnswerChoice, date = ''): Promise<void> {
+  async answer(jobId: string, choice: AnswerChoice, date = '', always = false): Promise<void> {
     const response = await this.helper.call(`/api/jobs/${jobId}/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ choice, date }),
+      body: JSON.stringify(always ? { choice, date, always } : { choice, date }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => null);

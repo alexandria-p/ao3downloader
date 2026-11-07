@@ -68,9 +68,9 @@ Each format is judged on its own, so a work can have a current HTML and an outda
 | **App's own date**, the same | Kept | Replaced |
 | **App's own date**, newer than AO3's | Kept | Asks (default: keep) |
 | **Guessed date**, looks older than AO3's | Asks - we think AO3's is newer, recommend replacing (default: keep) | Same |
-| **Guessed date**, looks the same | Asks - recommend keeping (default: keep) | Asks - recommend replacing, since you chose to overwrite (default: keep) |
+| **Guessed date**, looks the same | Asks - recommend keeping (default: keep) | Same |
 | **Guessed date**, looks newer than AO3's | Asks - we think yours is newer, recommend keeping (default: keep) | Same |
-| **No readable date** | Asks once for all such works: date them, re-download them, or skip (default: skip) | Asks per work - we can't tell, recommend keeping (default: keep) |
+| **No readable date** | Asks - we can't tell, recommend keeping (default: keep) | Same |
 
 The index is updated with a new reading whenever AO3's details have changed - whatever happens to the files.
 
@@ -78,7 +78,7 @@ The index is updated with a new reading whenever AO3's details have changed - wh
 
 FicHub is only asked at the end of a run, for works AO3 wouldn't give. What happens depends on how FicHub's copy compares with your **index**.
 
-**FicHub's copy is as new as your index, or newer** (or the work has no indexed date): the AO3 table above, with FicHub's date - except a file with **no readable date**, which is asked about per work on every run (we can't tell, recommend keeping; default: keep). If the run writes JSON, the index gets a new reading from FicHub, marked **From FicHub**.
+**FicHub's copy is as new as your index, or newer** (or the work has no indexed date): the AO3 table above, with FicHub's date. If the run writes JSON, the index gets a new reading from FicHub, marked **From FicHub**.
 
 **FicHub's copy is older than your index** (AO3 had a newer version that FicHub never caught): each file is still compared with FicHub's date, and **the index is left alone** - its reading is newer.
 
@@ -103,14 +103,13 @@ A repair started from *Resolve issues* asks none of these questions about your f
 
 ## Questions a run may stop to ask
 
-- **Undated files** - files saved before names carried a date. Give them a date (renamed, nothing downloaded), re-download them, or skip them.
 - **Older copies** - two copies of one work and format. Keep only the newest, or leave them.
 - **How far back to go** - a Quick Scan with no earlier scan, but an index already there.
 - **Try FicHub?** - at the end, when AO3 wouldn't give the run some works. Try FicHub, or leave them as failures.
 - **Replace a copy of a work your index has no entry for?** - when a file in your library is for a work the index did not know when the run began, there is nothing to tell which version it holds. The run reads the date in each file's name (as *Infer date* does) and recommends replacing a copy only if the incoming version from AO3 or FicHub is newer - or the same, on a run that overwrites - saying why for each. You can replace only the recommended ones, all, or none. **None** if you don't answer.
 - **Replace a newer copy with an older version?** - on a run that replaces files, when the copy you have is newer than what would replace it (from AO3 or FicHub). **No** if you don't answer.
 - **Take FicHub's older version?** - when FicHub's copy is older than your index says the fic is, and you have no file at all in a format you asked for. Yes takes the older version of just that format.
-- **Replace a file whose date we can't be sure of?** - when your file's name has no date written the way this app writes one: either a date we had to guess, or none at all. The run says what it thinks (yours looks older, the same, or newer - or it can't tell) and what it recommends, and you decide. You can replace only the recommended files, all, or none. **Keep** if you don't answer, whatever is recommended.
+- **Replace a file whose date we can't be sure of?** - when your file's name has no date written the way this app writes one. One question per work and case - from AO3 or FicHub, and whether the date we guessed from the name looks **older** (we recommend replacing), **the same or newer** (we recommend keeping), or **can't be read** (we recommend keeping). **Keep** if you don't answer, unless you changed that case's default in Settings. Tick **Always choose this...** to have every later file in that case answered the same way, without asking - in this run and every run after. Change or forget it in User settings' **Answers to always use**. If one goes unanswered, the rest of that case in the run take the default without waiting.
 
 Closing the page or stopping takes the answer that changes nothing - except for the two FicHub questions, where it is yes.
 
