@@ -1699,11 +1699,11 @@
             <div class="question-actions">
               <button type="button" class="button" [class.recommended]="askedRecommended() === 'yes'"
                       [disabled]="answering()" (click)="answerUnsure('yes')">
-                {{ askedFormats().length > 1 ? 'Replace them' : 'Replace it' }}{{ askedRecommended() === 'yes' ? ' (recommended)' : '' }}
+                {{ askedFormats().length > 1 ? 'Replace them' : 'Replace it' }}@if (askedRecommended() === 'yes') {<strong>{{ ' (recommended)' }}</strong>}
               </button>
               <button type="button" class="button" [class.recommended]="askedRecommended() === 'no'"
                       [disabled]="answering()" (click)="answerUnsure('no')">
-                Keep mine{{ askedRecommended() === 'no' ? ' (recommended)' : '' }}
+                Keep mine@if (askedRecommended() === 'no') {<strong>{{ ' (recommended)' }}</strong>}
               </button>
             </div>
             <label class="check always-case">
