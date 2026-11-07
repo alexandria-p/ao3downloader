@@ -1614,7 +1614,8 @@ describe('DownloadDialog', () => {
                  ids: ['75354806'], formats: ['EPUB'], date: '2026-04-27', source: 'FicHub',
                  fileDates: { EPUB: '2024-12-14' },
                  fileNames: { EPUB: '75354806 Wolfbird - OpalApparition (14 Dec 2024).epub' },
-                 reasons: {}, recommended: 'yes', choices: ['yes', 'no'] } as JobEvent);
+                 reasons: {}, recommended: 'yes', choices: ['yes', 'no'],
+                 default: 'no', timeoutMinutes: 1 } as JobEvent);
     await fixture.whenStable();
 
     const said = (element.querySelector('[data-question="inferred-date"]')?.textContent ?? '').replace(/\s+/g, ' ');
@@ -1623,7 +1624,13 @@ describe('DownloadDialog', () => {
     // dates written as a reader writes them
     expect(said).toContain("looks dated 14 December 2024 (a guess), so we think FicHub's version (27 April 2026) is newer");
     expect(said).toContain('We recommend replacing it');
-    expect(said).toContain('keeping your file');
+    // the wait is said once, inside the panel and above its buttons - not above the panel too
+    const panel = element.querySelector('[data-question="inferred-date"]')!;
+    const wait = panel.querySelector('.question-default');
+    expect(wait?.textContent?.replace(/\s+/g, ' ')).toContain('If nobody answers within 1 minute, the run carries on with: no');
+    expect(wait!.compareDocumentPosition(panel.querySelector('.question-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(element.querySelectorAll('.question-default')).toHaveLength(1);
+    expect(said).not.toContain('Left unanswered');
     expect(element.querySelectorAll('.question')).toHaveLength(1);
     expect(button('Replace it (recommended)')).toBeTruthy();
     expect(alwaysLabel()).toContain('Always choose this when an existing file is guessed to be older than the incoming one from FicHub');

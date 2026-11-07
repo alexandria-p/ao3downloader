@@ -1525,7 +1525,8 @@
           more than one question can stop a run, and they are answered through the same
           endpoint - so the panel is keyed on which one is being asked, not on the count
         -->
-        @if (asking() && askedDefault()) {
+        <!-- the guessed-date question says this inside its own panel, above its buttons -->
+        @if (asking() && askedDefault() && question() !== 'inferred-date') {
           <p class="question-default">
             If nobody answers within {{ askedTimeout() | number }} minute{{ askedTimeout() === 1 ? '' : 's' }},
             the run carries on with: <strong>{{ askedDefault() }}</strong>
@@ -1695,6 +1696,13 @@
                 We recommend keeping it.
               }
             </p>
+            @if (askedDefault()) {
+              <p class="hint question-default">
+                If nobody answers within {{ askedTimeout() | number }} minute{{ askedTimeout() === 1 ? '' : 's' }},
+                the run carries on with: <strong>{{ askedDefault() }}</strong>
+                (change this in User settings).
+              </p>
+            }
 
             <div class="question-actions">
               <button type="button" class="button" [class.recommended]="askedRecommended() === 'yes'"
@@ -1722,11 +1730,6 @@
               </span>
             </label>
 
-            <p class="hint">
-              Left unanswered, the run takes the default for this case after
-              {{ askedTimeout() | number }} {{ askedTimeout() === 1 ? 'minute' : 'minutes' }} - keeping your file, unless you changed it in User
-              settings. That is also where to change or forget an answer you chose to always use.
-            </p>
           </div>
         }
 
