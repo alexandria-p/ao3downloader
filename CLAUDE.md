@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2180 python passed; 1098 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2181 python passed; 1098 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1847,7 +1847,7 @@ Three things follow from it, and each is load-bearing somewhere else:
   `unsure_scenario`): from `ao3` or `fichub`, and `older` (the guess is before the incoming
   date - we *think* the incoming version is newer; replacing recommended), `newer` (the same or
   later; keeping recommended) or `unknown` (no date can be read, or none comes in; keeping
-  recommended). **One question per work and case**, `yes` / `no`, carrying `scenario`; each
+  recommended). **One question per work and format** (each file is its own version, and its own case), `yes` / `no`, carrying `scenario`; each
   case has its own default (`SCENARIO_SETTINGS` in settings.ini, or the hosted page's
   *Defaults used during a run*), **no** unless changed, and may have an answer you chose to
   always use (see **A run can stop and ask a question**). Never answered up front or reused

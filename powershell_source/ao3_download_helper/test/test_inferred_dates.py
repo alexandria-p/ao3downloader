@@ -94,15 +94,28 @@ def test_a_file_without_the_apps_own_date_is_asked_about_by_its_case_and_kept_by
     assert LINK not in plan['undated']
 
 
-def test_a_work_with_files_in_two_cases_is_asked_once_for_each():
+def test_each_format_of_a_work_is_asked_about_on_its_own_even_in_the_same_case():
     records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird (14 Dec 2024).epub',
+                                      'PDF': '75354806 Wolfbird (1 Jan 2025).pdf',
                                       'HTML': '75354806 Wolfbird.html'})
     job, asked = answering_job()
 
-    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB', 'HTML'])
+    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB', 'PDF', 'HTML'])
 
     assert [(q['scenario'], q['formats']) for q, _ in asked] == \
-        [('ao3-older', ['EPUB']), ('ao3-unknown', ['HTML'])]
+        [('ao3-older', ['EPUB']), ('ao3-older', ['PDF']), ('ao3-unknown', ['HTML'])]
+
+
+def test_each_formats_answer_decides_that_format_alone():
+    records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird (14 Dec 2024).epub',
+                                      'PDF': '75354806 Wolfbird (1 Jan 2025).pdf'})
+    job, asked = answering_job()
+    job.ask = lambda q, d: asked.append((q, d)) or {'choice': 'yes' if q['formats'] == ['PDF'] else 'no'}
+
+    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB', 'PDF'])
+
+    assert list(plan['superseded'][LINK]) == ['PDF']
+    assert plan['keep'][LINK] == {'EPUB'}
 
 
 @pytest.mark.parametrize('answer, replaced', [('no', False), ('yes', True)])

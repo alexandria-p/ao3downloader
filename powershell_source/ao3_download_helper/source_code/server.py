@@ -3445,10 +3445,10 @@ def ask_about_unsure_copies(job: 'Job | None', records: list[dict], existing: di
 
     Only a date written the app's way (`get_date_from_filename`) is a version the run can trust.
     Every other file is one of six scenarios (`SCENARIOS`: AO3 or FicHub, and `unsure_scenario`'s
-    older / newer / unknown), and the run asks **once per work and scenario**
-    (`INFERRED_DATE_QUESTION`, carrying `scenario`), saying what it thinks and recommending -
-    replace when it thinks yours is older, keep otherwise. `yes` replaces those files, `no`
-    keeps them. The default is the scenario's own (`SCENARIO_SETTINGS` in settings.ini, or the
+    older / newer / unknown), and the run asks **once per work and format** - each file is its
+    own version, and its own case - (`INFERRED_DATE_QUESTION`, carrying `scenario`), saying what
+    it thinks and recommending: replace when it thinks yours is older, keep otherwise. `yes`
+    replaces that file, `no` keeps it. The default is the scenario's own (`SCENARIO_SETTINGS` in settings.ini, or the
     page's *Defaults used during a run*) - keep unless changed - and an answer you chose to
     **always** use for a scenario (`Job.always_answers`, from the page's User settings) is taken
     without asking. A file to replace goes in `superseded` (the work in `stale`); one kept
@@ -3484,10 +3484,10 @@ def ask_about_unsure_copies(job: 'Job | None', records: list[dict], existing: di
         plan.setdefault('keptSaid', set()).add(link)
 
         replace: list[str] = []
-        for scenario in SCENARIOS:
-            formats = [x for x in candidates if judged[x][0] == scenario]
-            if not formats: continue
-            recommended = judged[formats[0]][1]
+        # one question per work and format: each file is its own version, and its own case
+        for filetype in candidates:
+            scenario, recommended = judged[filetype][0], judged[filetype][1]
+            formats = [filetype]
             choice = INFERRED_DATE_NO
             if job is not None:
                 answer = job.ask({'name': INFERRED_DATE_QUESTION, 'scenario': scenario, 'count': 1,
