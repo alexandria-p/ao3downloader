@@ -76,6 +76,7 @@ message at the bottom says so. Prompts and formats are kept in this browser only
 | `FicHubAnswer` | `yes` | Ask FicHub for works AO3 would not give. |
 | `FicHubOlderCopyAnswer` | `yes` | Take a format FicHub only has an older version of, when you have no copy at all. |
 | `OverwriteNewerCopyAnswer` | `no` | Let an overwriting run replace a copy newer than the one it is writing. |
+| `GuessedDateQuestionTimeoutMinutes` | `1` | How long a question about a file with no date in its name waits before taking its default. `0` takes it at once. |
 | `AO3GuessedOlderAnswer` | `no` | A file without the app's own date, whose guessed date looks older than AO3's version: `no` keeps it, `yes` replaces it. |
 | `AO3GuessedNewerAnswer` | `no` | The same, when the guessed date looks the same as AO3's or newer. |
 | `AO3UnknownDateAnswer` | `no` | The same, when no date can be read from the name. |

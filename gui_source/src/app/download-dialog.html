@@ -1667,33 +1667,34 @@
         @if (asking() && question() === 'inferred-date') {
           <div class="question" data-question="inferred-date" [attr.data-scenario]="askedScenario()">
             <p class="question-text">
-              Your <strong>{{ askedFormats().join(', ') }}</strong> of work
-              @for (id of askedIds(); track id) {
-                <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
-              }
-              {{ askedFormats().length === 1 ? 'has' : 'have' }} no date in
-              {{ askedFormats().length === 1 ? 'its name' : 'their names' }} written the way this
-              app writes one, so we can't be sure which version
-              {{ askedFormats().length === 1 ? 'it holds' : 'they hold' }}.
-              @if (askedScenario().endsWith('older')) {
-                We <strong>think</strong> {{ askedSource() || 'AO3' }}'s version
-                ({{ askedDate() }}) is newer, so we recommend replacing
-                {{ askedFormats().length === 1 ? 'it' : 'them' }}.
-              } @else if (askedScenario().endsWith('newer')) {
-                We <strong>think</strong> yours {{ askedFormats().length === 1 ? 'is' : 'are' }}
-                as new as {{ askedSource() || 'AO3' }}'s version ({{ askedDate() }}) or newer, so
-                we recommend keeping {{ askedFormats().length === 1 ? 'it' : 'them' }}.
-              } @else {
-                We can't tell which is newer than {{ askedSource() || 'AO3' }}'s version
-                ({{ askedDate() || 'no date' }}), so we recommend keeping
-                {{ askedFormats().length === 1 ? 'it' : 'them' }}.
+              @for (format of askedFormats(); track format) {
+                Your {{ format }} of work
+                @for (id of askedIds(); track id) {
+                  <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
+                }
+                has no date in its name written the way this app writes one, so we can't be sure
+                which version it holds:
               }
             </p>
-            <ul class="file-dates">
-              @for (format of askedFormats(); track format) {
-                <li><strong>{{ format }}</strong> - {{ sentence(askedReasons()[format]) }}</li>
+            @for (format of askedFormats(); track format) {
+              <p class="file-name"><code>{{ askedFileNames()[format] || format }}</code></p>
+            }
+            <p class="question-text">
+              @if (askedScenario().endsWith('older')) {
+                Its name looks dated <strong>{{ writtenDate(askedFileDates()[askedFormats()[0]]) }}</strong> (a guess),
+                so we <strong>think</strong> {{ askedSource() || 'AO3' }}'s version
+                (<strong>{{ writtenDate(askedDate()) }}</strong>) is newer. We recommend replacing it.
+              } @else if (askedScenario().endsWith('newer')) {
+                Its name looks dated <strong>{{ writtenDate(askedFileDates()[askedFormats()[0]]) }}</strong> (a guess),
+                so we <strong>think</strong> yours is as new as {{ askedSource() || 'AO3' }}'s version
+                (<strong>{{ writtenDate(askedDate()) }}</strong>) or newer. We recommend keeping it.
+              } @else {
+                No date can be read from its name, so we can't tell whether
+                {{ askedSource() || 'AO3' }}'s version
+                (<strong>{{ askedDate() ? writtenDate(askedDate()) : 'no date' }}</strong>) is newer.
+                We recommend keeping it.
               }
-            </ul>
+            </p>
 
             <div class="question-actions">
               <button type="button" class="button" [class.recommended]="askedRecommended() === 'yes'"
@@ -1723,7 +1724,7 @@
 
             <p class="hint">
               Left unanswered, the run takes the default for this case after
-              {{ askedTimeout() | number }} minutes - keeping your file, unless you changed it in User
+              {{ askedTimeout() | number }} {{ askedTimeout() === 1 ? 'minute' : 'minutes' }} - keeping your file, unless you changed it in User
               settings. That is also where to change or forget an answer you chose to always use.
             </p>
           </div>

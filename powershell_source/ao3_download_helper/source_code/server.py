@@ -230,6 +230,14 @@ def question_timeout_seconds() -> float:
     return setting_integer(strings.INI_QUESTION_TIMEOUT, ANSWER_TIMEOUT_SECONDS // 60) * 60
 
 
+def unsure_question_timeout_seconds() -> float:
+    """How long a question about a file without the app's own date waits
+    (`GuessedDateQuestionTimeoutMinutes`, 1 by default); 0 is at once."""
+
+    return setting_integer(strings.INI_UNSURE_QUESTION_TIMEOUT,
+                           strings.INI_DEFAULT_UNSURE_QUESTION_TIMEOUT) * 60
+
+
 def configured_answer(name: str, builtin: dict, chosen: str | None = None) -> dict:
     """The default a question takes when nobody answers it, as settings.ini says.
 
@@ -534,6 +542,7 @@ def read_settings(fileops: FileOps) -> dict:
         # with this number before a background run is paused
         'pausedRunTimeoutMinutes': paused_run_timeout(),
         'questionTimeoutMinutes': question_timeout_seconds() // 60,
+        'guessedDateTimeoutMinutes': unsure_question_timeout_seconds() // 60,
         # what each question answers itself with - the page starts a background run's
         # up-front answers from these
         'answerDefaults': {
@@ -638,6 +647,8 @@ class Job:
         # None leaves settings.ini in force. see `run_question_settings`
         self.answer_defaults: dict[str, str] = {}
         self.question_timeout_minutes: int | None = None
+        # the page's own for a file without the app's own date (a hosted copy's User settings)
+        self.unsure_timeout_minutes: int | None = None
         # the zone AO3 shows this person's dates in, from the page (`ao3_zone`); None is UTC.
         # every floor and ceiling is turned into a date in it before AO3's dates are compared
         self.ao3_zone = None
@@ -721,8 +732,12 @@ class Job:
             self.answered_how(ANSWERED_BACKGROUND_DEFAULT)
             return dict(default)
 
-        timeout = (question_timeout_seconds() if self.question_timeout_minutes is None
-                   else self.question_timeout_minutes * 60)
+        if name == INFERRED_DATE_QUESTION:
+            timeout = (unsure_question_timeout_seconds() if self.unsure_timeout_minutes is None
+                       else self.unsure_timeout_minutes * 60)
+        else:
+            timeout = (question_timeout_seconds() if self.question_timeout_minutes is None
+                       else self.question_timeout_minutes * 60)
         if timeout <= 0:
             # set to take the default at once: said, so the log shows why nobody was asked
             print(strings.AO3_INFO_QUESTION_NOT_ASKED.format(default.get('choice')))
@@ -3425,15 +3440,16 @@ def unsure_scenario(guessed: str, incoming: str, source: str) -> tuple[str, bool
     side = 'fichub' if source == strings.SOURCE_FICHUB else 'ao3'
     if not guessed:
         return f'{side}-{SCENARIO_UNKNOWN}', False, strings.UNSURE_CANNOT_INFER
+    said, theirs = parse_text.written_date(guessed), parse_text.written_date(incoming)
     if not incoming:
         return (f'{side}-{SCENARIO_UNKNOWN}', False,
-                strings.UNSURE_NO_INCOMING_DATE.format(guessed, source))
+                strings.UNSURE_NO_INCOMING_DATE.format(said, source))
     if guessed < incoming:
         return (f'{side}-{SCENARIO_OLDER}', True,
-                strings.UNSURE_THINK_OLDER.format(guessed, source, incoming))
+                strings.UNSURE_THINK_OLDER.format(said, source, theirs))
     return (f'{side}-{SCENARIO_NEWER}', False,
             (strings.UNSURE_THINK_SAME if guessed == incoming
-             else strings.UNSURE_THINK_NEWER).format(guessed, source, incoming))
+             else strings.UNSURE_THINK_NEWER).format(said, source, theirs))
 
 
 def ask_about_unsure_copies(job: 'Job | None', records: list[dict], existing: dict, plan: dict,
@@ -3477,7 +3493,9 @@ def ask_about_unsure_copies(job: 'Job | None', records: list[dict], existing: di
         incoming = parse_text.get_date_stamp(
             incoming_date if incoming_date is not None else (record.get('date_updated') or ''))
         judged = {x: unsure_scenario(guessed[x], incoming, source) for x in candidates}
-        print(strings.AO3_INFO_UNSURE_COPIES.format(work, ', '.join(candidates), source, incoming or '?'))
+        print(strings.AO3_INFO_UNSURE_COPIES.format(
+            work, ', '.join(candidates), source, parse_text.written_date(incoming) if incoming else '?'))
+        names = {x: os.path.basename(str(have[x.upper()]['path']).replace('\\', '/')) for x in candidates}
         for filetype in candidates:
             print(strings.AO3_INFO_UNINDEXED_FORMAT.format(filetype, judged[filetype][2]))
         asked.add(work)
@@ -3493,6 +3511,7 @@ def ask_about_unsure_copies(job: 'Job | None', records: list[dict], existing: di
                 answer = job.ask({'name': INFERRED_DATE_QUESTION, 'scenario': scenario, 'count': 1,
                                   'ids': [work], 'formats': formats, 'date': incoming,
                                   'source': source, 'fileDates': {x: guessed[x] for x in formats},
+                                  'fileNames': {x: names[x] for x in formats},
                                   'reasons': {x: judged[x][2] for x in formats},
                                   'recommended': INFERRED_DATE_YES if recommended else INFERRED_DATE_NO,
                                   'overwriting': overwrites,
@@ -3504,6 +3523,9 @@ def ask_about_unsure_copies(job: 'Job | None', records: list[dict], existing: di
                 if job.record:
                     job.record.choice({'question': INFERRED_DATE_QUESTION, 'scenario': scenario,
                                        'count': 1, 'works': [work], 'formats': formats,
+                                       'fileNames': [names[x] for x in formats],
+                                       'fileDates': {x: guessed[x] for x in formats},
+                                       'date': incoming, 'reasons': [judged[x][2] for x in formats],
                                        'choice': choice, 'source': source,
                                        'recommended': INFERRED_DATE_YES if recommended else INFERRED_DATE_NO})
             if choice == INFERRED_DATE_YES: replace += formats
@@ -5568,6 +5590,7 @@ class Handler(BaseHTTPRequestHandler):
             answer_defaults, question_timeout = run_question_settings(
                 body.get('answerDefaults'), body.get('questionTimeoutMinutes'))
             always = always_answers(body.get('alwaysAnswers'))
+            _, unsure_timeout = run_question_settings(None, body.get('guessedDateTimeoutMinutes'))
             zone_name = str(body.get('ao3TimeZone') or '')
             zone = ao3_zone(zone_name)
         except ValueError as e:
@@ -5579,6 +5602,7 @@ class Handler(BaseHTTPRequestHandler):
         job.answer_defaults = answer_defaults
         job.always_answers = always
         job.question_timeout_minutes = question_timeout
+        job.unsure_timeout_minutes = unsure_timeout
         job.ao3_zone = zone
         job.ao3_zone_name = zone_name if zone is not None else ''
         # a name this computer could not look up is said in the run's log once it starts

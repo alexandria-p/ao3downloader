@@ -23,6 +23,8 @@ export const UPDATE_BANNER_KEY = 'ao3.updateCheckDismissed';
 export const DEFAULT_FILETYPES_KEY = 'ao3.defaultFiletypes';
 export const ANSWER_DEFAULTS_KEY = 'ao3.answerDefaults';
 export const QUESTION_TIMEOUT_KEY = 'ao3.questionTimeoutMinutes';
+export const GUESSED_DATE_TIMEOUT_KEY = 'ao3.guessedDateTimeoutMinutes';
+export const BUILT_IN_GUESSED_DATE_TIMEOUT = 1;
 /** answers you chose to always use for a case of a file without the app's own date */
 export const ALWAYS_ANSWERS_KEY = 'ao3.alwaysAnswers';
 export const AO3_TIME_ZONE_KEY = 'ao3.ao3TimeZone';
@@ -258,6 +260,28 @@ export function savedQuestionTimeout(): number | null {
   if (raw === null || raw === '') return null;
   const minutes = Number(raw);
   return Number.isInteger(minutes) && minutes >= 0 ? minutes : null;
+}
+
+/** this browser's wait for a question about a file without the app's own date, or null */
+export function savedGuessedDateTimeout(): number | null {
+  const raw = safeGet(GUESSED_DATE_TIMEOUT_KEY);
+  if (raw === null || raw === '') return null;
+  const minutes = Number(raw);
+  return Number.isInteger(minutes) && minutes >= 0 ? minutes : null;
+}
+
+export function saveGuessedDateTimeout(minutes: number | null): void {
+  if (minutes === null) safeRemove(GUESSED_DATE_TIMEOUT_KEY);
+  else safeSet(GUESSED_DATE_TIMEOUT_KEY, String(minutes));
+}
+
+/** a YYYY-MM-DD date as a reader writes it - 13 May 2026 - or as it was if it is not one */
+export function writtenDate(stamp: string | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(stamp ?? '');
+  if (!m) return stamp ?? '';
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+    'September', 'October', 'November', 'December'];
+  return `${Number(m[3])} ${months[Number(m[2]) - 1]} ${m[1]}`;
 }
 
 export function saveQuestionTimeout(minutes: number | null): void {

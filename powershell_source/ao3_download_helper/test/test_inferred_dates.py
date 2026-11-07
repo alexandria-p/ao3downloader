@@ -67,11 +67,11 @@ def a_plan(copies: dict, date='2026-04-27', overwrite=False):
 
 @pytest.mark.parametrize('name, scenario, recommended, why', [
     ('75354806 Wolfbird (14 Dec 2024).epub', 'ao3-older', 'yes',
-     "looks dated 2024-12-14 (a guess), so we think AO3's version (2026-04-27) is newer - we recommend replacing it"),
+     "looks dated 14 December 2024 (a guess), so we think AO3's version (27 April 2026) is newer - we recommend replacing it"),
     ('75354806 Wolfbird (27 Apr 2026).epub', 'ao3-newer', 'no',
-     "looks dated 2026-04-27 (a guess), the same as AO3's version (2026-04-27) - we recommend keeping yours"),
+     "looks dated 27 April 2026 (a guess), the same as AO3's version (27 April 2026) - we recommend keeping yours"),
     ('75354806 Wolfbird (1 Oct 2026).epub', 'ao3-newer', 'no',
-     "so we think yours is newer than AO3's version (2026-04-27) - we recommend keeping yours"),
+     "so we think yours is newer than AO3's version (27 April 2026) - we recommend keeping yours"),
     ('75354806 Wolfbird.epub', 'ao3-unknown', 'no',
      "no date can be read from your file's name, so we cannot tell which is newer"),
 ])
@@ -184,7 +184,7 @@ def test_ticking_always_during_a_run_answers_the_rest_of_that_case():
 
 
 def test_each_case_takes_its_own_default_from_settings_ini(monkeypatch):
-    monkeypatch.setattr(server, 'question_timeout_seconds', lambda: 0)
+    monkeypatch.setattr(server, 'unsure_question_timeout_seconds', lambda: 0)
     monkeypatch.setattr(server, 'configured_answer',
                         lambda name, builtin, chosen=None:
                         {**builtin, 'choice': 'yes'} if name == 'ao3-older' else dict(builtin))
@@ -343,5 +343,57 @@ def test_fichub_always_asks_before_replacing_a_file_without_the_apps_own_date(
     assert question['recommended'] == ('yes' if '14 Dec' in name else 'no')
     assert default == {'choice': 'no'}
     assert fetched == (['EPUB'] if replaced else [])
+
+# endregion
+
+
+# region what the question shows, and how long it waits
+
+def test_the_question_names_each_file_whole_and_writes_dates_as_a_reader_would():
+    records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird (14 Dec 2024).epub'})
+    job, asked = answering_job()
+
+    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB'])
+
+    [(question, _)] = asked
+    assert question['fileNames'] == {'EPUB': '75354806 Wolfbird (14 Dec 2024).epub'}
+    assert '14 December 2024' in question['reasons']['EPUB']
+    assert '27 April 2026' in question['reasons']['EPUB']
+
+
+def test_the_history_keeps_the_file_its_dates_and_the_answer():
+    records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird (14 Dec 2024).epub'})
+    job, asked = answering_job('yes')
+    job.record = MagicMock()
+
+    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB'])
+
+    kept = job.record.choice.call_args.args[0]
+    assert kept['fileNames'] == ['75354806 Wolfbird (14 Dec 2024).epub']
+    assert kept['fileDates'] == {'EPUB': '2024-12-14'} and kept['date'] == '2026-04-27'
+    assert kept['scenario'] == 'ao3-older' and kept['choice'] == 'yes'
+
+
+def test_a_guessed_date_question_waits_one_minute_by_default_and_others_keep_theirs():
+    assert server.unsure_question_timeout_seconds() == 60
+    assert server.question_timeout_seconds() == 30 * 60
+
+
+def test_a_guessed_date_question_takes_its_own_timeout_from_the_page():
+    job = a_real_job()
+    job.unsure_timeout_minutes = 0
+    job.question_timeout_minutes = 30
+
+    got = job.ask({'name': server.INFERRED_DATE_QUESTION, 'scenario': 'ao3-unknown'}, {'choice': 'no'})
+
+    # 0 is at once: not asked, the default taken
+    assert got == {'choice': 'no'}
+    assert not [e for e in job.history if e['type'] == 'question']
+
+
+@pytest.mark.parametrize('stamp, said', [
+    ('2026-05-13', '13 May 2026'), ('2024-12-01', '1 December 2024'), ('', ''), ('soon', 'soon')])
+def test_a_date_is_written_day_month_year(stamp, said):
+    assert parse_text.written_date(stamp) == said
 
 # endregion

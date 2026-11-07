@@ -1613,13 +1613,16 @@ describe('DownloadDialog', () => {
     jobs.push!({ type: 'question', name: 'inferred-date', scenario: 'fichub-older', count: 1,
                  ids: ['75354806'], formats: ['EPUB'], date: '2026-04-27', source: 'FicHub',
                  fileDates: { EPUB: '2024-12-14' },
-                 reasons: { EPUB: "your file's name looks dated 2024-12-14 (a guess), so we think FicHub's version (2026-04-27) is newer - we recommend replacing it" },
-                 recommended: 'yes', choices: ['yes', 'no'] } as JobEvent);
+                 fileNames: { EPUB: '75354806 Wolfbird - OpalApparition (14 Dec 2024).epub' },
+                 reasons: {}, recommended: 'yes', choices: ['yes', 'no'] } as JobEvent);
     await fixture.whenStable();
 
     const said = (element.querySelector('[data-question="inferred-date"]')?.textContent ?? '').replace(/\s+/g, ' ');
-    expect(said).toContain("We think FicHub's version (2026-04-27) is newer");
-    expect(said).toContain('we recommend replacing it');
+    // the whole file name, so it can be judged by eye
+    expect(said).toContain('75354806 Wolfbird - OpalApparition (14 Dec 2024).epub');
+    // dates written as a reader writes them
+    expect(said).toContain("looks dated 14 December 2024 (a guess), so we think FicHub's version (27 April 2026) is newer");
+    expect(said).toContain('We recommend replacing it');
     expect(said).toContain('keeping your file');
     expect(element.querySelectorAll('.question')).toHaveLength(1);
     expect(button('Replace it (recommended)')).toBeTruthy();

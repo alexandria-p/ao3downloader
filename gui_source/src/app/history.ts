@@ -1,4 +1,4 @@
-import { inAo3Zone, shownTime } from './preferences';
+import { inAo3Zone, shownTime, writtenDate } from './preferences';
 import { Component, effect, inject, signal, untracked, output } from '@angular/core';
 import { WorkLink } from './work-link';
 import { DecimalPipe } from '@angular/common';
@@ -38,6 +38,7 @@ const HOW_ANSWERED: Record<string, string> = {
 })
 export class History {
   private readonly jobs = inject(Jobs);
+  protected readonly writtenDate = writtenDate;
   private readonly library = inject(Library);
   /** dummy data on screen: a retry would start a real run, so it is held as every run is */
   protected readonly dummy = inject(DummyData).active;

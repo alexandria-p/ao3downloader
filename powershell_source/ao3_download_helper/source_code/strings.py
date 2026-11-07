@@ -53,6 +53,10 @@ INI_DEFAULT_PAUSED_RUN_TIMEOUT = 10
 # how long a question waits for an answer before taking its default; 0 takes it at once
 INI_QUESTION_TIMEOUT = 'QuestionTimeoutMinutes'
 INI_DEFAULT_QUESTION_TIMEOUT = 30
+# how long a question about a file with no date in the app's own form waits: shorter, since a
+# run can ask one per work and format
+INI_UNSURE_QUESTION_TIMEOUT = 'GuessedDateQuestionTimeoutMinutes'
+INI_DEFAULT_UNSURE_QUESTION_TIMEOUT = 1
 # what each question answers itself with when nobody does - on a timeout, a stop, and a
 # background run that was not told. today's answers are the template's defaults
 INI_QUICK_FLOOR_ANSWER = 'QuickScanFloorAnswer'

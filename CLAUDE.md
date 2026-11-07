@@ -99,7 +99,7 @@ powershell.exe -ExecutionPolicy Bypass -File ./generate_build_artifacts.ps1
 (cp1252 on Windows), and the first non-ascii character in a real ao3 page fails with
 `UnicodeDecodeError`. That is what broke the 4 `test_ao3.py::test_proceed_*` tests, which
 failed on unmodified upstream code too, until `get_soup_from_fixture` was given it.
-Current: **2181 python passed; 1098 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
+Current: **2189 python passed; 1099 gui passed; 17 feedback worker passed**, on Windows and on Linux alike - the hosted
 helper runs on Linux, and so does CI (`.github/workflows/test.yml`, which runs both suites).
 **Build test paths with `os.path.join`, not as `C:\` literals**: a test about how paths
 resolve (`sub/..`, `abspath`) written with Windows paths is one long file name on Linux and
@@ -1851,7 +1851,14 @@ Three things follow from it, and each is load-bearing somewhere else:
   case has its own default (`SCENARIO_SETTINGS` in settings.ini, or the hosted page's
   *Defaults used during a run*), **no** unless changed, and may have an answer you chose to
   always use (see **A run can stop and ask a question**). Never answered up front or reused
-  from an earlier attempt (`ASKED_PER_WORK`). On an overwriting run it pulls these files back
+  from an earlier attempt (`ASKED_PER_WORK`). **It waits 1 minute, not 30**
+  (`GuessedDateQuestionTimeoutMinutes`, `unsure_question_timeout_seconds`; the hosted page's
+  *Defaults used during a run* sends `guessedDateTimeoutMinutes`, `Job.unsure_timeout_minutes`),
+  since a run can ask one per work and format. The question names each file whole
+  (`fileNames`), and every date a person reads is written `13 May 2026`
+  (`parse_text.written_date`, the page's `writtenDate`). The run record keeps the case, the file
+  names, the guessed and incoming dates and the answer, which History's *Questions asked* says
+  in words. On an overwriting run it pulls these files back
   out of the `superseded` `plan_downloads` put them in, so an overwrite replaces only files
   with the app's own date no later than the incoming one (later ones go to
   `keep_newer_copies`, default no). Not on an import, whose own window decided

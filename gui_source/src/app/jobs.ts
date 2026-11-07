@@ -66,6 +66,8 @@ export interface ServerSettings {
   pausedRunTimeoutMinutes?: number;
   /** minutes a question waits for its answer before taking its default; 0 is at once */
   questionTimeoutMinutes?: number;
+  /** the same, for a question about a file without the app's own date (1 by default) */
+  guessedDateTimeoutMinutes?: number;
   /** what each question answers itself with when nobody answers it, from settings.ini */
   answerDefaults?: Partial<Record<DefaultName, string>>;
 }
@@ -318,8 +320,10 @@ export interface RunChoice {
   recommended?: string;
   source?: string;
   replaced?: string[];
-  /** on an `inferred-date` answer: which of the six cases it was */
+  /** on an `inferred-date` answer: which of the six cases it was, the file and the dates */
   scenario?: Scenario;
+  fileNames?: string[];
+  fileDates?: Record<string, string>;
 }
 
 /** one past run, as the helper wrote it down */
@@ -516,8 +520,9 @@ export interface JobEvent {
   /** 'yes', 'no', or 'recommended' when only some copies are worth replacing */
   recommended?: string;
   recommendedFormats?: string[];
-  /** on an `inferred-date` question: which of the six cases it is */
+  /** on an `inferred-date` question: which of the six cases it is, and each file's whole name */
   scenario?: Scenario;
+  fileNames?: Record<string, string>;
   /** why each copy is or is not recommended for replacing */
   reasons?: Record<string, string>;
   overwriting?: boolean;
@@ -566,6 +571,8 @@ export interface StartRequest {
    */
   answerDefaults?: Partial<Record<DefaultName, string>>;
   questionTimeoutMinutes?: number;
+  /** a hosted copy's wait for a question about a file without the app's own date */
+  guessedDateTimeoutMinutes?: number;
   /** answers you chose to always use, by case - taken without asking (User settings) */
   alwaysAnswers?: Partial<Record<Scenario, 'yes' | 'no'>>;
   /** the zone AO3 shows this person's dates in (User settings; the browser's own by default) */

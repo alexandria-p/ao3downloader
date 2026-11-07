@@ -43,7 +43,7 @@ import { Library } from './library';
 import { DropboxLibraryStore, LibraryStore, StorageRequest } from './library-store';
 import { RunIssues, attemptIssues, issueCount, issuesReport } from './issues';
 import { ImportRequest, LONG_IMPORT_REQUESTS, importRequests } from './imports';
-import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes, savedAlwaysAnswers, saveAlwaysAnswer } from './preferences';
+import { SYNC_ACK_KEY, ao3TimeZone, inAo3Zone, utcToZonedDay, zonedDayToUtc, savedAnswerDefaults, savedQuestionTimeout, startingFiletypes, savedAlwaysAnswers, saveAlwaysAnswer, savedGuessedDateTimeout, writtenDate } from './preferences';
 
 type Step =
   /**
@@ -558,6 +558,8 @@ export class DownloadDialog implements OnDestroy {
   /** whether the 'give them a date' half of the question is showing */
   /** on an `inferred-date` question: its case, and whether to always answer it this way */
   protected readonly askedScenario = signal('');
+  protected readonly askedFileNames = signal<Record<string, string>>({});
+  protected readonly writtenDate = writtenDate;
   protected readonly alwaysThisCase = signal(false);
   /** set once an answer has gone back, so it cannot be sent twice */
   protected readonly answering = signal(false);
@@ -1231,7 +1233,7 @@ export class DownloadDialog implements OnDestroy {
 
   /** what a hosted copy's User settings say about questions, sent with every run */
   private questionSettings(): Pick<StartRequest,
-      'answerDefaults' | 'questionTimeoutMinutes' | 'ao3TimeZone' | 'alwaysAnswers'> {
+      'answerDefaults' | 'questionTimeoutMinutes' | 'ao3TimeZone' | 'alwaysAnswers' | 'guessedDateTimeoutMinutes'> {
     // every page sends the AO3 zone and the answers to always use: they are this browser's
     // settings wherever the helper is
     const always = savedAlwaysAnswers();
@@ -1242,10 +1244,12 @@ export class DownloadDialog implements OnDestroy {
     if (this.helper.isLocal()) return everyPage;
     const answers = savedAnswerDefaults();
     const timeout = savedQuestionTimeout();
+    const guessed = savedGuessedDateTimeout();
     return {
       ...everyPage,
       ...(Object.keys(answers).length ? { answerDefaults: answers } : {}),
       ...(timeout === null ? {} : { questionTimeoutMinutes: timeout }),
+      ...(guessed === null ? {} : { guessedDateTimeoutMinutes: guessed }),
     };
   }
 
@@ -2129,6 +2133,7 @@ export class DownloadDialog implements OnDestroy {
         this.askedSource.set(event.source ?? '');
         this.askedRecommended.set(event.recommended ?? '');
         this.askedScenario.set(event.scenario ?? '');
+        this.askedFileNames.set(event.fileNames ?? {});
         this.alwaysThisCase.set(false);
         this.askedRecommendedFormats.set(event.recommendedFormats ?? []);
         this.askedReasons.set(event.reasons ?? {});

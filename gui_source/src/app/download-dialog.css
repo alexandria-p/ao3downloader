@@ -982,3 +982,9 @@ fieldset.bare:disabled {
 .always-case {
   margin-top: 8px;
 }
+
+/* the whole name of the file a question is about, so it can be judged by eye */
+.question .file-name {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}

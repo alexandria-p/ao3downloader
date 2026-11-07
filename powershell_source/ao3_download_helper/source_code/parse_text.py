@@ -202,6 +202,17 @@ _DATE_PATTERNS = [
 ]
 
 
+def written_date(stamp: str) -> str:
+    """A YYYY-MM-DD date as a reader writes it - '13 May 2026' - for questions and lines a
+    person reads. Anything that is not a real day comes back as it was."""
+
+    try:
+        day = datetime.date.fromisoformat(str(stamp or ''))
+    except ValueError:
+        return str(stamp or '')
+    return f'{day.day} {day.strftime("%B")} {day.year}'
+
+
 def infer_date_from_filename(name: str) -> str:
     """A date read out of a file's name, written any of the ways in `_DATE_PATTERNS` and
     anywhere in the name - or '' when there is none. The work number the name starts with is

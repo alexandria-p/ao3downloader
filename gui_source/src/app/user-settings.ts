@@ -24,6 +24,9 @@ import {
   setPromptAsks,
   startingFiletypes,
   SCENARIO_LABELS,
+  BUILT_IN_GUESSED_DATE_TIMEOUT,
+  saveGuessedDateTimeout,
+  savedGuessedDateTimeout,
   saveAlwaysAnswer,
   savedAlwaysAnswers,
 } from './preferences';
@@ -205,6 +208,12 @@ export class UserSettings implements OnDestroy {
     return this.config()?.settings?.questionTimeoutMinutes ?? BUILT_IN_QUESTION_TIMEOUT;
   }
   protected readonly questionTimeout = computed(() => this.savedTimeout() ?? this.helperTimeout());
+  /** the same, for a question about a file without the app's own date (1 minute built in) */
+  private readonly savedGuessedTimeout = signal(savedGuessedDateTimeout());
+  protected helperGuessedTimeout(): number {
+    return this.config()?.settings?.guessedDateTimeoutMinutes ?? BUILT_IN_GUESSED_DATE_TIMEOUT;
+  }
+  protected readonly guessedTimeout = computed(() => this.savedGuessedTimeout() ?? this.helperGuessedTimeout());
   /**
    * Answers chosen to always use for a file without the app's own date, by case - ticked on a
    * question during a run, or set here. Every page sends them with every run, local or hosted.
@@ -273,6 +282,10 @@ export class UserSettings implements OnDestroy {
                      default: `${this.browserZone} (this browser)` });
     }
     if (!this.local) {
+      if (this.guessedTimeout() !== this.helperGuessedTimeout()) {
+        changes.push({ group: 'Questions', name: 'Minutes a question about a file with no date in its name waits',
+                       current: String(this.guessedTimeout()), default: String(this.helperGuessedTimeout()) });
+      }
       if (this.questionTimeout() !== this.helperTimeout()) {
         changes.push({ group: 'Questions', name: 'Minutes a question waits for you',
                        current: String(this.questionTimeout()), default: String(this.helperTimeout()) });
@@ -389,6 +402,19 @@ export class UserSettings implements OnDestroy {
     this.say(`Saved: questions wait ${minutes} minute${minutes === 1 ? '' : 's'} - from the next run`);
   }
 
+  protected setGuessedTimeout(value: string, input?: HTMLInputElement): void {
+    const minutes = Number(value);
+    if (value.trim() === '' || !Number.isInteger(minutes) || minutes < 0) {
+      if (input) input.value = String(this.guessedTimeout());
+      this.say('Not saved: the wait is a whole number of minutes, 0 or more', 'problem');
+      return;
+    }
+    const kept = minutes === this.helperGuessedTimeout() ? null : minutes;
+    saveGuessedDateTimeout(kept);
+    this.savedGuessedTimeout.set(kept);
+    this.say(`Saved: questions about a file with no date in its name wait ${minutes} minute${minutes === 1 ? '' : 's'} - from the next run`);
+  }
+
   protected isForced(filetype: string): boolean {
     return this.config()?.forced.includes(filetype) ?? false;
   }
@@ -429,6 +455,8 @@ export class UserSettings implements OnDestroy {
     saveDefaultFiletypes(null);
     saveAnswerDefaults(null);
     saveQuestionTimeout(null);
+    saveGuessedDateTimeout(null);
+    this.savedGuessedTimeout.set(null);
     for (const { name } of SCENARIO_LABELS) saveAlwaysAnswer(name, null);
     this.alwaysAnswers.set({});
     saveAo3TimeZone(null);

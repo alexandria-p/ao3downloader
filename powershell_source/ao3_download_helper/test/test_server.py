@@ -664,8 +664,9 @@ KEEP = {'choice': 'no'}
 
 def test_once_a_per_work_question_goes_unanswered_the_rest_are_not_waited_on(monkeypatch):
     # one a work: half an hour each would hold an unattended run for days
-    monkeypatch.setattr(server, 'ANSWER_TIMEOUT_SECONDS', 0)
+    monkeypatch.setattr(server, 'unsure_question_timeout_seconds', lambda: 0.01)
     job = a_job()
+    job.unsure_timeout_minutes = None
 
     assert job.ask(PER_WORK, KEEP) == KEEP
     asked = len([e for e in job.history if e['type'] == progress.QUESTION])

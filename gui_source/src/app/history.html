@@ -321,10 +321,21 @@
                   <strong>{{ choice.choice === 'no' ? 'not to take it' : 'to take the older version' }}</strong>.
                 </p>
               } @else if (choice.question === 'inferred-date') {
-                <p>
-                  The {{ choice.formats?.join(', ') }} of work {{ choice.works?.join(', ') }} on disk
-                  had no date in its name written the way this app writes one, so which version it
-                  held was only a guess. Chose
+                <p class="inferred-choice">
+                  The {{ choice.formats?.join(', ') }} of work {{ choice.works?.join(', ') }}
+                  @for (file of choice.fileNames ?? []; track file) { - <code>{{ file }}</code> }
+                  - had no date in its name written the way this app writes one.
+                  @if (choice.formats?.length && choice.fileDates?.[choice.formats![0]]) {
+                    Its name looked dated {{ writtenDate(choice.fileDates![choice.formats![0]]) }} (a guess);
+                  } @else {
+                    No date could be read from its name;
+                  }
+                  {{ choice.source || 'AO3' }}'s version was dated
+                  {{ choice.date ? writtenDate(choice.date) : 'nothing' }}.
+                  @if (choice.recommended) {
+                    We recommended {{ choice.recommended === 'yes' ? 'replacing' : 'keeping' }} it.
+                  }
+                  Chose
                   <strong>{{ choice.choice === 'no' ? 'to keep it'
                     : choice.choice === 'recommended' ? 'to replace only what was recommended'
                     : 'to replace it with ' + (choice.source || 'AO3') + '\'s version' }}</strong>.

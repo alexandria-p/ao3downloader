@@ -190,6 +190,23 @@
             (change)="setQuestionTimeout($any($event.target).value, $any($event.target))"
           />
         </li>
+        <li class="row" data-question-setting="guessed-timeout">
+          <div class="about">
+            <span class="name">
+              Minutes a question about a file with no date in its name waits
+              <span class="default">default: {{ helperGuessedTimeout() }}</span>
+            </span>
+            <span class="description">Replace it, or keep it? A run can ask one for every work and format, so these wait less. 0 takes the default at once.</span>
+          </div>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            aria-label="Minutes a question about a file with no date in its name waits"
+            [value]="guessedTimeout()"
+            (change)="setGuessedTimeout($any($event.target).value, $any($event.target))"
+          />
+        </li>
         @for (question of questions; track question.name) {
           <li class="row" [attr.data-question-setting]="question.name">
             <div class="about">
