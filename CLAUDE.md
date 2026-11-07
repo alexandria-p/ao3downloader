@@ -2666,7 +2666,7 @@ not to break:
   its deployment and is not shown). Order: Default download formats first, AO3 time zone, Appearance
   (a `details`, closed to begin with, Font above Palette), Questions (hosted; a `details` too),
   *Answers to always use* (every page, a `details`: the six cases, each *Ask every time* /
-  *Always replace it* / *Always keep my file*, `ao3.alwaysAnswers`, in Reset to defaults),
+  *Always: Replace it* / *Always: Keep mine*, worded as the question's buttons, `ao3.alwaysAnswers`, in Reset to defaults),
   'Ask again' Prompts (a `details` too), exclusion lists, settings.ini (local), and **Debug mode always last**. A prompt
   with `listed: false` (the browser notice) is kept off the tab but still reset.
 - **Reset exclusion lists for imports** (`.import-exclusions`, `LibraryImports.resetExclusions`)

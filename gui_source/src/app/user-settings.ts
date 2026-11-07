@@ -89,6 +89,12 @@ export const PROBLEM_TOAST_MS = 6000;
  * computer and says it may be edited (`editable`): a hosted copy's file is written by its
  * deployment, and an edit there would be lost on the next restart.
  */
+/** settings.ini's answers for a file without the app's own date (the helper's SCENARIO_SETTINGS) */
+const KEEP_OR_REPLACE_SETTINGS = new Set([
+  'AO3GuessedOlderAnswer', 'AO3GuessedNewerAnswer', 'AO3UnknownDateAnswer',
+  'FicHubGuessedOlderAnswer', 'FicHubGuessedNewerAnswer', 'FicHubUnknownDateAnswer',
+]);
+
 @Component({
   selector: 'app-user-settings',
   templateUrl: './user-settings.html',
@@ -221,13 +227,22 @@ export class UserSettings implements OnDestroy {
   protected readonly scenarios = SCENARIO_LABELS;
   protected readonly alwaysAnswers = signal(savedAlwaysAnswers());
   protected alwaysWords(choice: string | undefined): string {
-    return choice === 'yes' ? 'Always replace it' : choice === 'no' ? 'Always keep my file' : 'Ask every time';
+    return choice === 'yes' ? 'Always: Replace it' : choice === 'no' ? 'Always: Keep mine' : 'Ask every time';
   }
   protected setAlways(scenario: Scenario, label: string, value: string): void {
     const choice = value === 'yes' || value === 'no' ? value : null;
     saveAlwaysAnswer(scenario, choice);
     this.alwaysAnswers.set(savedAlwaysAnswers());
-    this.say(`${label}: ${this.alwaysWords(choice ?? undefined).toLowerCase()}`);
+    this.say(`${label}: ${this.alwaysWords(choice ?? undefined)}`);
+  }
+
+  /**
+   * A settings.ini value as the page words it. The six cases of a file without the app's own
+   * date are kept as no / yes, but shown as the question's own buttons - Keep mine / Replace it.
+   */
+  protected iniWords(key: string, value: string): string {
+    if (!KEEP_OR_REPLACE_SETTINGS.has(key)) return value;
+    return value === 'yes' ? 'Replace it' : value === 'no' ? 'Keep mine' : value;
   }
 
   protected choiceLabel(question: QuestionDefault, value: string): string {
@@ -310,7 +325,7 @@ export class UserSettings implements OnDestroy {
     if (file?.editable) {
       for (const setting of file.settings) {
         if (setting.value !== setting.default) {
-          changes.push({ group: 'settings.ini', name: setting.key, current: setting.value || '(empty)', default: setting.default || '(empty)' });
+          changes.push({ group: 'settings.ini', name: setting.key, current: this.iniWords(setting.key, setting.value) || '(empty)', default: this.iniWords(setting.key, setting.default) || '(empty)' });
         }
       }
     }
@@ -503,7 +518,8 @@ export class UserSettings implements OnDestroy {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `the helper answered ${response.status}`);
       this.ini.set(body as IniFile);
-      this.say(`Saved to settings.ini: ${setting.key}=${value.trim()} - from the next run`);
+      const words = this.iniWords(setting.key, value.trim());
+      this.say(`Saved to settings.ini: ${setting.key}=${value.trim()}${words !== value.trim() ? ` (${words})` : ''} - from the next run`);
       // the run window reads these through the config, so it sees the new value at once
       void this.jobs.loadConfig();
     } catch (e) {

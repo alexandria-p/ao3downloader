@@ -254,8 +254,8 @@
             (change)="setAlways(scenario.name, scenario.label, $any($event.target).value)"
           >
             <option value="" [selected]="!alwaysAnswers()[scenario.name]">Ask every time</option>
-            <option value="yes" [selected]="alwaysAnswers()[scenario.name] === 'yes'">Always replace it</option>
-            <option value="no" [selected]="alwaysAnswers()[scenario.name] === 'no'">Always keep my file</option>
+            <option value="yes" [selected]="alwaysAnswers()[scenario.name] === 'yes'">Always: Replace it</option>
+            <option value="no" [selected]="alwaysAnswers()[scenario.name] === 'no'">Always: Keep mine</option>
           </select>
         </li>
       }
@@ -329,7 +329,7 @@
               <div class="about">
                 <span class="name">
                   <code>{{ setting.key }}</code>
-                  <span class="default">default: {{ setting.default === '' ? '(empty)' : setting.default }}</span>
+                  <span class="default">default: {{ setting.default === '' ? '(empty)' : iniWords(setting.key, setting.default) }}</span>
                 </span>
                 <span class="description">{{ setting.about }}</span>
               </div>
@@ -351,7 +351,7 @@
                     (change)="editIni(setting, $any($event.target).value, $any($event.target))"
                   >
                     @for (choice of setting.choices ?? []; track choice) {
-                      <option [value]="choice" [selected]="setting.value === choice">{{ choice }}</option>
+                      <option [value]="choice" [selected]="setting.value === choice">{{ iniWords(setting.key, choice) }}</option>
                     }
                   </select>
                 }

@@ -405,6 +405,23 @@ describe('UserSettings', () => {
     expect(posted).toEqual([{ FicHubAnswer: 'no' }]);
   });
 
+  it('words settings.ini\'s answers for a file with no date of ours as the question\'s own buttons', async () => {
+    iniAnswer = { editable: true, file: 'settings.ini', settings: [
+      { key: 'AO3GuessedOlderAnswer', value: 'no', default: 'no', kind: 'choice', choices: ['no', 'yes'],
+        about: 'a guessed date older than AO3\'s' },
+    ] };
+    await open();
+
+    const row = element.querySelector('[data-setting="AO3GuessedOlderAnswer"]')!;
+    expect([...row.querySelectorAll('option')].map((x) => x.textContent?.trim())).toEqual(['Keep mine', 'Replace it']);
+    expect(row.querySelector('.default')?.textContent).toContain('default: Keep mine');
+
+    // the file still holds no / yes
+    choose('[data-setting="AO3GuessedOlderAnswer"] select', 'yes');
+    await settle();
+    expect(posted).toEqual([{ AO3GuessedOlderAnswer: 'yes' }]);
+  });
+
   it('says when the helper would not take a value, and puts back what the file still says', async () => {
     await open();
     const helper = TestBed.inject(HelperConnection);
@@ -470,6 +487,9 @@ describe('UserSettings', () => {
     const rows = [...element.querySelectorAll('[data-always]')].map((r) => r.getAttribute('data-always'));
     expect(rows).toEqual(['ao3-older', 'ao3-newer', 'ao3-unknown', 'fichub-older', 'fichub-newer', 'fichub-unknown']);
     expect(element.querySelector<HTMLSelectElement>('[data-always="ao3-older"] select')!.value).toBe('yes');
+    // worded as the question's own buttons
+    expect([...element.querySelectorAll('[data-always="ao3-older"] option')].map((x) => x.textContent?.trim()))
+      .toEqual(['Ask every time', 'Always: Replace it', 'Always: Keep mine']);
 
     choose('[data-always="fichub-unknown"] select', 'no');
     await settle();

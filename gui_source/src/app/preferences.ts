@@ -184,7 +184,8 @@ export const SCENARIO_LABELS: { name: Scenario; label: string }[] = [
   { name: 'fichub-unknown', label: "From FicHub: no date can be read from your file's name" },
 ];
 
-const KEEP_OR_REPLACE = [{ value: 'no', label: 'Keep my file' }, { value: 'yes', label: 'Replace it' }];
+// worded as the question's own buttons are, so a setting reads as the answer it stands for
+const KEEP_OR_REPLACE = [{ value: 'no', label: 'Keep mine' }, { value: 'yes', label: 'Replace it' }];
 
 export const QUESTION_DEFAULTS: QuestionDefault[] = [
   { name: 'quick-floor', label: 'A quick scan with no earlier scan to measure back to',

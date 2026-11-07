@@ -99,7 +99,7 @@ The default answers are also what a background run takes when it was not told. A
 
 **On a hosted copy** the page can't edit settings.ini, so User settings has its own **Defaults used during a run** section instead: the minutes a question waits and each default answer, saved to this browser. They're sent with every run, and a background run's up-front answers start from them. Reset to defaults goes back to the hosted copy's own (the values above unless its deployment changed them).
 
-**Answers to always use** (every copy, saved to this browser): for each of the six cases of a file without the app's own date, *Ask every time*, *Always replace it* or *Always keep my file*. Ticking **Always choose this...** on a question during a run sets the same thing. A case with an answer here is never asked about - the answer is sent with every run. Choose *Ask every time* to be asked again.
+**Answers to always use** (every copy, saved to this browser): for each of the six cases of a file without the app's own date, *Ask every time*, *Always: Replace it* or *Always: Keep mine* (worded as the question's own buttons are). Ticking **Always choose this...** on a question during a run sets the same thing. A case with an answer here is never asked about - the answer is sent with every run. Choose *Ask every time* to be asked again.
 
 ## Your file is only ever added to
 
