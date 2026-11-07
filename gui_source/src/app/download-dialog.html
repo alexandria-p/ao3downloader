@@ -1698,64 +1698,45 @@
         @if (asking() && question() === 'inferred-date') {
           <div class="question" data-question="inferred-date">
             <p class="question-text">
-              We <strong>think</strong> {{ askedSource() || 'AO3' }} has a newer version
-              ({{ askedDate() }}) of work
-              @for (id of askedIds(); track id) {
-                <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
-              }
-              than your <strong>{{ askedFormats().join(', ') }}</strong>, but we can't be sure:
-              the date in your file's name isn't written the way this app writes dates, so we
-              had to guess it.
-            </p>
-            <ul class="question-files">
-              @for (format of askedFormats(); track format) {
-                <li>{{ format }}: looks dated {{ askedFileDates()[format] || 'unknown' }}</li>
-              }
-            </ul>
-
-            <div class="question-actions">
-              <button type="button" class="button primary" [disabled]="answering()"
-                      (click)="keepInferredFile()">
-                No, keep mine
-              </button>
-              <button type="button" class="button" [disabled]="answering()"
-                      (click)="replaceInferredFile()">
-                Yes, replace {{ askedFormats().length === 1 ? 'it' : 'them' }}
-              </button>
-            </div>
-
-            <p class="hint">
-              Left unanswered, the run keeps your file after 30 minutes.
-            </p>
-          </div>
-        }
-
-        @if (asking() && question() === 'fichub-undated') {
-          <div class="question" data-question="fichub-undated">
-            <p class="question-text">
               Your <strong>{{ askedFormats().join(', ') }}</strong> of work
               @for (id of askedIds(); track id) {
                 <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
               }
-              {{ askedFormats().length === 1 ? 'has' : 'have' }} <strong>no date in
-              {{ askedFormats().length === 1 ? 'its name' : 'their names' }}</strong>, so there is
-              no telling whether FicHub's copy ({{ askedDate() }}) is newer. Replace
-              {{ askedFormats().length === 1 ? 'it' : 'them' }} with FicHub's copy?
+              {{ askedFormats().length === 1 ? 'has' : 'have' }} no date in
+              {{ askedFormats().length === 1 ? 'its name' : 'their names' }} written the way this
+              app writes one, so we can't be sure which version
+              {{ askedFormats().length === 1 ? 'it holds' : 'they hold' }}. Replace
+              {{ askedFormats().length === 1 ? 'it' : 'them' }} with the version from
+              {{ askedSource() || 'AO3' }} ({{ askedDate() || 'no date' }})?
             </p>
+            <ul class="file-dates">
+              @for (format of askedFormats(); track format) {
+                <li [attr.data-recommended]="askedRecommendedFormats().includes(format) ? 'yes' : 'no'">
+                  <strong>{{ format }}</strong> - {{ sentence(askedReasons()[format]) }}
+                </li>
+              }
+            </ul>
 
             <div class="question-actions">
-              <button type="button" class="button primary" [disabled]="answering()"
-                      (click)="keepUndatedFile()">
-                No, keep mine
-              </button>
+              @if (askedRecommended() === 'recommended') {
+                <button type="button" class="button" [disabled]="answering()"
+                        (click)="replaceRecommendedCopies()">
+                  Replace only {{ askedRecommendedFormats().join(', ') }}
+                </button>
+              }
               <button type="button" class="button" [disabled]="answering()"
-                      (click)="replaceUndatedFile()">
-                Yes, replace {{ askedFormats().length === 1 ? 'it' : 'them' }}
+                      (click)="replaceInferredFile()">
+                {{ askedFormats().length > 1 ? 'Yes, replace them all' : 'Yes, replace it' }}
+              </button>
+              <button type="button" class="button primary" [disabled]="answering()"
+                      (click)="keepInferredFile()">
+                {{ askedFormats().length > 1 ? 'No, keep them all' : 'No, keep mine' }}
               </button>
             </div>
 
             <p class="hint">
-              Left unanswered, the run keeps your file after 30 minutes.
+              We only guess what is recommended - the choice is yours. Left unanswered, the run
+              keeps your {{ askedFormats().length > 1 ? 'files' : 'file' }} after 30 minutes.
             </p>
           </div>
         }
@@ -1844,8 +1825,7 @@
         <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
         @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub' &&
              question() !== 'fichub-outdated' && question() !== 'overwrite-older' &&
-             question() !== 'unindexed-copy' && question() !== 'fichub-undated' &&
-             question() !== 'inferred-date') {
+             question() !== 'unindexed-copy' && question() !== 'inferred-date') {
         @if (asking(); as count) {
           <div class="question">
             <p class="question-text">

@@ -1601,53 +1601,43 @@ describe('DownloadDialog', () => {
     expect(element.querySelectorAll('.question')).toHaveLength(1);
   });
 
-  /** a file with no date in its name, and FicHub's copy to replace it with */
-  async function askedAboutUndatedFile(): Promise<void> {
-    await open('bookmarks');
-    await advanceTo('running');
-    jobs.push!({ type: 'question', name: 'fichub-undated', count: 1, ids: ['75354806'],
-                 formats: ['EPUB'], date: '2026-04-27', choices: ['yes', 'no'] } as JobEvent);
-    await fixture.whenStable();
-  }
-
-  it('asks before replacing a file whose date was only inferred, saying it only thinks so', async () => {
+  /** files without the app's own date: one guessed older, one that cannot be read */
+  async function askedAboutUnsureFiles(): Promise<void> {
     await open('bookmarks');
     await advanceTo('running');
     jobs.push!({ type: 'question', name: 'inferred-date', count: 1, ids: ['75354806'],
-                 formats: ['EPUB'], date: '2026-04-27', source: 'FicHub',
-                 fileDates: { EPUB: '2024-12-14' }, choices: ['yes', 'no'] } as JobEvent);
+                 formats: ['EPUB', 'HTML'], date: '2026-04-27', source: 'FicHub',
+                 fileDates: { EPUB: '2024-12-14', HTML: '' },
+                 reasons: {
+                   EPUB: "your file's name looks dated 2024-12-14 (a guess), so we think FicHub's version (2026-04-27) is newer - we recommend replacing it",
+                   HTML: "no date can be read from your file's name, so we cannot tell which is newer - we recommend keeping yours",
+                 },
+                 recommended: 'recommended', recommendedFormats: ['EPUB'],
+                 choices: ['recommended', 'yes', 'no'] } as JobEvent);
     await fixture.whenStable();
+  }
+
+  it('asks about files without the app\'s own date, saying what it thinks and recommends', async () => {
+    await askedAboutUnsureFiles();
 
     const said = element.querySelector('[data-question="inferred-date"]')?.textContent ?? '';
-    expect(said).toContain('think');
     expect(said).toContain('FicHub');
-    expect(said).toContain('EPUB: looks dated 2024-12-14');
-    expect(said).toContain('keeps your file');
+    expect(said).toContain('we think FicHub');
+    expect(said).toContain('we recommend replacing it');
+    expect(said).toContain('we cannot tell which is newer');
+    expect(said).toContain('keeps your files');
     expect(element.querySelectorAll('.question')).toHaveLength(1);
+    // keeping is the default, so it is the primary button whatever is recommended
+    expect(button('No, keep them all')!.classList).toContain('primary');
 
-    button('No, keep mine')!.click();
-    await fixture.whenStable();
-    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
-  });
-
-  it('asks before FicHub replaces a file with no date in its name, keeping it by default', async () => {
-    await askedAboutUndatedFile();
-
-    const said = element.querySelector('[data-question="fichub-undated"]')?.textContent ?? '';
-    expect(said).toContain('no date in');
-    expect(said).toContain('EPUB');
-    expect(said).toContain('2026-04-27');
-    expect(said).toContain('keeps your file');
-    expect(element.querySelectorAll('.question')).toHaveLength(1);
-
-    button('No, keep mine')!.click();
+    button('No, keep them all')!.click();
     await fixture.whenStable();
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
 
-    await askedAboutUndatedFile();
-    button('Yes, replace it')!.click();
+    await askedAboutUnsureFiles();
+    button('Replace only EPUB')!.click();
     await fixture.whenStable();
-    expect(jobs.answers.at(-1)).toEqual({ jobId: 'job-1', choice: 'yes', date: '' });
+    expect(jobs.answers.at(-1)).toEqual({ jobId: 'job-1', choice: 'recommended', date: '' });
   });
 
   it('takes the older version, or leaves it, as told', async () => {

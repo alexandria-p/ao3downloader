@@ -62,57 +62,114 @@ def a_plan(copies: dict, date='2026-04-27', overwrite=False):
     return records, existing, plan
 
 
-@pytest.mark.parametrize('answer, replaced', [(None, False), ('no', False), ('yes', True)])
-def test_an_inferred_date_older_than_the_incoming_version_is_asked_about_default_no(
-        answer, replaced, capsys):
-    records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird (14 Dec 2024).epub'})
-    # the version check alone would have left it as undated, not behind
-    assert LINK in plan['undated'] and LINK not in plan['stale']
-    job, asked = answering_job(answer)
+@pytest.mark.parametrize('name, recommended, why', [
+    ('75354806 Wolfbird (14 Dec 2024).epub', 'yes',
+     "looks dated 2024-12-14 (a guess), so we think AO3's version (2026-04-27) is newer - we recommend replacing it"),
+    ('75354806 Wolfbird (27 Apr 2026).epub', 'no',
+     "looks dated 2026-04-27 (a guess), the same as AO3's version - we recommend keeping yours"),
+    ('75354806 Wolfbird (1 Oct 2026).epub', 'no',
+     "looks dated 2026-10-01 (a guess), so we think yours is newer than AO3's version (2026-04-27) - we recommend keeping yours"),
+])
+@pytest.mark.parametrize('overwrite', [False, True])
+def test_a_guessed_date_is_always_asked_about_with_a_recommendation_and_kept_by_default(
+        name, recommended, why, overwrite, capsys):
+    records, existing, plan = a_plan({'EPUB': name}, overwrite=overwrite)
+    job, asked = answering_job()
 
-    server.ask_about_inferred_dates(job, records, existing, plan, ['EPUB'])
+    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB'], overwriting=overwrite)
 
-    question, default = asked[0]
+    [(question, default)] = asked
     assert question['name'] == server.INFERRED_DATE_QUESTION
     assert question['formats'] == ['EPUB'] and question['date'] == '2026-04-27'
-    assert question['fileDates'] == {'EPUB': '2024-12-14'} and question['source'] == 'AO3'
+    # the same date is recommended for replacing on a run that overwrites
+    expected = 'yes' if (overwrite and '27 Apr' in name) else recommended
+    assert question['recommended'] == expected
+    if not (overwrite and '27 Apr' in name):
+        assert why in question['reasons']['EPUB']
     assert default == {'choice': 'no'}
+    # nobody answering keeps the file, whatever was recommended, overwriting or not
+    assert 'EPUB' not in plan['superseded'].get(LINK, {})
+    assert plan['keep'] == {LINK: {'EPUB'}} and LINK not in plan['stale']
+
+
+@pytest.mark.parametrize('answer, replaced', [('no', False), ('yes', True), ('recommended', True)])
+def test_the_answer_decides_whether_a_file_with_a_guessed_date_is_replaced(answer, replaced):
+    records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird (14 Dec 2024).epub'})
+    job, asked = answering_job(answer)
+
+    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB'])
+
     assert (LINK in plan['stale']) is replaced
     assert ('EPUB' in plan['superseded'].get(LINK, {})) is replaced
-    assert ('EPUB' in plan['keep'].get(LINK, set())) is not replaced
     assert LINK not in plan['undated']
-    out = capsys.readouterr().out
-    assert 'only inferred. We think AO3\'s copy (2026-04-27) is newer, but cannot be sure' in out
 
 
-def test_an_inferred_date_not_older_than_the_incoming_version_is_kept_unasked(capsys):
-    records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird (27 Apr 2026).epub'})
-    job, asked = answering_job('yes')
-
-    server.ask_about_inferred_dates(job, records, existing, plan, ['EPUB'])
-
-    assert asked == []
-    assert plan['keep'] == {LINK: {'EPUB'}} and LINK not in plan['stale']
-    assert "AO3's copy (2026-04-27) does not look newer - keeping it" in capsys.readouterr().out
-
-
-def test_a_name_with_no_date_at_all_is_left_to_the_undated_question():
+def test_a_name_with_no_date_at_all_is_left_to_the_undated_question_when_not_overwriting():
     records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird.epub'})
     job, asked = answering_job('yes')
 
-    server.ask_about_inferred_dates(job, records, existing, plan, ['EPUB'])
+    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB'])
 
     assert asked == [] and LINK in plan['undated']
 
 
-def test_a_run_that_overwrites_asks_nothing_about_an_inferred_date():
-    records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird (14 Dec 2024).epub'},
-                                     overwrite=True)
-    job, asked = answering_job('no')
+def test_an_overwriting_run_asks_before_replacing_a_file_with_no_date_at_all():
+    records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird.epub'}, overwrite=True)
+    job, asked = answering_job()
 
-    server.ask_about_inferred_dates(job, records, existing, plan, ['EPUB'], overwriting=True)
+    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB'], overwriting=True)
 
-    assert asked == [] and LINK in plan['stale']
+    [(question, default)] = asked
+    assert question['reasons']['EPUB'].startswith('no date can be read')
+    assert question['recommended'] == 'no' and default == {'choice': 'no'}
+    assert LINK not in plan['stale'] and plan['keep'] == {LINK: {'EPUB'}}
+
+
+def test_an_overwriting_run_still_replaces_a_file_with_the_apps_own_date_unasked():
+    records, existing, plan = a_plan({'EPUB': '75354806 Wolfbird 2026-04-27.epub'}, overwrite=True)
+    job, asked = answering_job()
+
+    server.ask_about_unsure_copies(job, records, existing, plan, ['EPUB'], overwriting=True)
+
+    assert asked == [] and 'EPUB' in plan['superseded'][LINK]
+
+# endregion
+
+# region the long way round (a full scan writing no index)
+
+@pytest.mark.parametrize('overwrite', [False, True])
+@pytest.mark.parametrize('name, date, asks', [
+    ('75354806 Wolfbird (14 Dec 2024).epub', None, True),
+    ('75354806 Wolfbird.epub', None, True),
+    # the app's own date: replaced unasked only when overwriting, or behind
+    ('75354806 Wolfbird 2026-04-27.epub', '2026-04-27', False),
+])
+def test_the_long_way_asks_before_replacing_a_file_without_the_apps_own_date(
+        fake_fileops, overwrite, name, date, asks):
+    job, asked = answering_job()
+    ao3 = Ao3(MagicMock(), fake_fileops, ['EPUB'], None, False, False)
+    ao3.existing_copies = {'75354806': {'EPUB': {'path': f'works/{name}', 'date': date}}}
+    ao3.overwriting = overwrite
+    ao3.judge_copy = lambda *copy: server.judge_long_way(job, ao3, *copy)
+
+    fetch = ao3.page_verdict(LINK, '75354806', 'EPUB', '2026-04-27')
+
+    assert bool(asked) is asks
+    if asks: assert asked[0][0]['name'] == server.INFERRED_DATE_QUESTION
+    # nobody answering keeps it; an app-dated current copy is fetched only to overwrite it
+    assert fetch is (overwrite and not asks)
+
+
+def test_an_overwriting_long_way_asks_before_replacing_a_newer_copy(fake_fileops):
+    job, asked = answering_job()
+    ao3 = Ao3(MagicMock(), fake_fileops, ['EPUB'], None, False, False)
+    ao3.existing_copies = {'75354806': {'EPUB': {'path': 'works/75354806 W 2026-10-01.epub',
+                                                 'date': '2026-10-01'}}}
+    ao3.overwriting = True
+    ao3.judge_copy = lambda *copy: server.judge_long_way(job, ao3, *copy)
+
+    assert ao3.page_verdict(LINK, '75354806', 'EPUB', '2026-04-27') is False
+    assert [q['name'] for q, _ in asked] == [server.OVERWRITE_OLDER_QUESTION]
 
 # endregion
 
@@ -206,20 +263,24 @@ def a_rescue(library, monkeypatch, answer=None):
 
 @pytest.mark.fichub
 @pytest.mark.parametrize('index_date', ['2026-04-27', '2026-05-10'])
+@pytest.mark.parametrize('name', ['75354806 Wolfbird - OpalApparition (14 Dec 2024).epub',
+                                  '75354806 Wolfbird - OpalApparition (1 Oct 2026).epub',
+                                  '75354806 Wolfbird - OpalApparition.epub'])
 @pytest.mark.parametrize('answer, replaced', [(None, False), ('yes', True)])
-def test_fichub_asks_before_replacing_a_file_whose_date_was_only_inferred(
-        library, monkeypatch, index_date, answer, replaced):
-    # FicHub's copy is 2026-04-27: as new as the index, or older than it - asked either way
+def test_fichub_always_asks_before_replacing_a_file_without_the_apps_own_date(
+        library, monkeypatch, index_date, name, answer, replaced):
+    # FicHub's copy is 2026-04-27: as new as the index, or older than it - asked either way,
+    # whether the guessed date is older, newer, or cannot be read
     indexed(library, index_date)
-    a_copy(library, '75354806 Wolfbird - OpalApparition (14 Dec 2024).epub')
+    a_copy(library, name)
 
     fetched, asked = a_rescue(library, monkeypatch, answer)
 
     names = [q['name'] for q, _ in asked]
     assert names[-1] == server.INFERRED_DATE_QUESTION
-    assert server.FICHUB_UNDATED_QUESTION not in names
     question, default = asked[-1]
     assert question['source'] == 'FicHub' and question['date'] == '2026-04-27'
+    assert question['recommended'] == ('yes' if '14 Dec' in name else 'no')
     assert default == {'choice': 'no'}
     assert fetched == (['EPUB'] if replaced else [])
 

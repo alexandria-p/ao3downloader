@@ -408,10 +408,14 @@ def test_scenario_1_an_entry_from_an_earlier_quick_scan_lets_overwriting_replace
 
     plan = server.plan_refresh(job, library, records, FORMATS, MagicMock())
 
-    # the entry judges them, and overwriting replaces them all - the undated html included -
-    # without asking: none is newer than the version written
-    assert asked == []
-    assert sorted(plan['superseded'][LINK]) == ['EPUB', 'HTML', 'PDF']
+    # the entry judges the dated ones, and overwriting replaces them without asking: neither is
+    # newer than the version written. the html's name has no date, so it is never replaced
+    # unasked - and nobody answering keeps it
+    [(question, default)] = asked
+    assert question['name'] == server.INFERRED_DATE_QUESTION and question['formats'] == ['HTML']
+    assert question['recommended'] == 'no' and default == {'choice': 'no'}
+    assert sorted(plan['superseded'][LINK]) == ['EPUB', 'PDF']
+    assert plan['keep'][LINK] == {'HTML'}
     assert LINK in plan['stale']
 
 

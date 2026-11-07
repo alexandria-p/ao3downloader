@@ -1848,18 +1848,25 @@ Three things follow from it, and each is load-bearing somewhere else:
 - **A file with no date in its name cannot be judged at all** - there is nothing to compare.
   Those are `undated`, never `stale`, and the run stops and asks what to do about them
   rather than guessing.
-- **Only a date in the app's own form replaces a file unasked.** `get_date_from_filename`
-  takes only a space, then a real `YYYY-MM-DD`, ending the name. A date written any other way
-  is *inferred* (`infer_date_from_filename`, the *Infer date* rules) and the file is undated to
-  the version check - but judged by it in `ask_about_inferred_dates`, from AO3 or FicHub, after
-  planning (`plan_refresh`, `update_one_work`, `rescue_one`, and `older_fichub_formats`): an
-  incoming version newer than the inferred date is asked about per work,
-  `INFERRED_DATE_QUESTION` (`inferred-date`), saying the run only *thinks* it is newer -
-  **default no**, never from settings.ini or up front (`ASKED_PER_WORK`); one not newer is
-  kept, said. Not on an overwriting run, nor an import. `settle_undated` leaves out a work
-  whose undated files all have an inferred date, and its re-download answer now names the
-  works it was about (`refresh_undated` a set), so such a work is never re-downloaded on that
-  answer. `test_inferred_dates.py` holds it.
+- **Only a date in the app's own form replaces a file unasked - overwriting or not.**
+  `get_date_from_filename` takes only a space, then a real `YYYY-MM-DD`, ending the name. Any
+  other file is never replaced on the version check alone: `ask_about_unsure_copies` asks per
+  work, `INFERRED_DATE_QUESTION` (`inferred-date`), from AO3 or FicHub, after planning
+  (`plan_refresh`, `update_one_work`, `rescue_one`, `older_fichub_formats`, and the long way's
+  `judge_long_way` through `Ao3.judge_copy`). It guesses a date the *Infer date* way
+  (`infer_date_from_filename`) and recommends (`unsure_copy_advice`): it *thinks* the incoming
+  version is newer - replace; the same - keep, or replace on an overwriting run; older - keep;
+  no date it can read, or none incoming - keep. Choices `recommended` (when only some are) /
+  `yes` / `no`; **default no whatever is recommended**, never from settings.ini or up front
+  (`ASKED_PER_WORK`). On an overwriting run it pulls these files back out of the `superseded`
+  `plan_downloads` put them in, so an overwrite replaces only files with the app's own date no
+  later than the incoming one (later ones go to `keep_newer_copies`, default no). Files with
+  **no readable date** are asked about here on an overwriting run, by FicHub, and on the long
+  way (`include_undated`); a scan or update of AO3 that does not overwrite still asks
+  `settle_undated`, which can date them. `settle_undated` leaves out a work whose undated files
+  all have a guessable date, and its re-download answer names the works it was about
+  (`refresh_undated` a set), so such a work is never re-downloaded on that answer. Not on an
+  import, whose own window decided. `test_inferred_dates.py` holds it.
 - **The index has to be current before the comparison is worth anything.** An entry that has
   not been re-read cannot say ao3 has moved on. This is why the update pass re-reads a fic
   before judging it, and why the gap pass re-reads one before writing a file - a file named
@@ -2150,15 +2157,12 @@ holds that - and is skipped when nothing failed. What not to break:
   (`older_on_fichub`, `older_fichub_formats`), never against the index's - at the user's
   request, as AO3's is. When FicHub's `date_updated` is before the index entry's: a file whose
   name is dated **before** FicHub's copy is replaced unasked (`AO3_INFO_FICHUB_NEWER_THAN_FILE`);
-  one dated the same is kept, or replaced on an overwriting run; one dated after it, or
-  undated, is kept - or, on an overwriting run, asked about with `OVERWRITE_OLDER_QUESTION`
-  (default **no**; `newer` empty for an undated file, which the page words as *no date in its
-  name*). Each file's verdict is printed. The index is never rewritten (its reading is newer).
-  **An undated file is never replaced by FicHub unasked**, whether or not FicHub is behind
-  the index: `FICHUB_UNDATED_QUESTION` (`fichub-undated`, per work, default **no**;
-  `ask_about_undated_for_fichub`, `fichub_undated_formats`) - or the inferred-date question,
-  when a date can be read out of its name some other way. Not on an overwriting run (which
-  replaces it, or asks `overwrite-older` when FicHub is behind), nor an import. A requested format with **no file at all** is asked
+  one dated the same is kept, or replaced on an overwriting run; one dated after it is kept -
+  or, on an overwriting run, asked about with `OVERWRITE_OLDER_QUESTION` (default **no**).
+  Each file's verdict is printed. The index is never rewritten (its reading is newer).
+  **A file without the app's own date is never replaced by FicHub unasked**, whether or not
+  FicHub is behind the index, overwriting or not: the `inferred-date` question (see **What
+  "outdated" means, exactly**), guessed date or none. Not on an import. A requested format with **no file at all** is asked
   about per work, `FICHUB_OUTDATED_QUESTION` (`fichub-outdated`), the second question whose
   default is **yes** (an older version beats none; offered up front on a background run that
   downloads). Declined, or nothing missing, the work stays a failure with

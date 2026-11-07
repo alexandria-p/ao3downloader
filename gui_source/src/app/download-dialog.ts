@@ -2404,15 +2404,6 @@ export class DownloadDialog implements OnDestroy {
     void this.answerQuestion('yes');
   }
 
-  /** a file with no date in its name: keep it rather than take FicHub's copy */
-  protected keepUndatedFile(): void {
-    void this.answerQuestion('no');
-  }
-
-  /** replace a file with no date in its name with FicHub's copy */
-  protected replaceUndatedFile(): void {
-    void this.answerQuestion('yes');
-  }
 
   /** a copy of a work with no earlier index entry: replace it, or keep it */
   protected replaceUnindexedCopy(): void {

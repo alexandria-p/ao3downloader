@@ -300,7 +300,7 @@ def test_an_older_fichub_copy_never_replaces_a_file_newer_than_it(library, monke
     # newer than FicHub's copy, the same, and undated: all kept, judged by their own names
     assert fetched == []
     assert [q['name'] for q, _ in asked] == [server.FICHUB_QUESTION,
-                                             server.FICHUB_UNDATED_QUESTION]
+                                             server.INFERRED_DATE_QUESTION]
     assert asked[1][0]['formats'] == ['PDF'] and asked[1][1] == {'choice': 'no'}
     assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.html',
                                    '75354806 Wolfbird - OpalApparition 2026-05-10.epub',
@@ -312,8 +312,8 @@ def test_an_older_fichub_copy_never_replaces_a_file_newer_than_it(library, monke
             "(2026-05-10) - each file you have is judged against it by the date in its own name") in out
     assert "EPUB: yours (2026-05-10) is newer than FicHub's copy - keeping it" in out
     assert "HTML: yours is the same version as FicHub's (2026-04-27) - keeping it" in out
-    assert "PDF: no date in your file's name, so it cannot be told which is newer" in out
-    assert 'PDF: keeping your undated file' in out
+    assert "PDF: no date can be read from your file's name, so we cannot tell which is newer" in out
+    assert 'PDF: keeping your copy' in out
 
 
 @pytest.mark.fichub
@@ -915,13 +915,13 @@ def test_fichub_asks_before_replacing_a_file_with_no_date_in_its_name(
     if answer == 'no':
         # FicHub itself is still tried: only the undated question is answered no
         job.ask = lambda q, d: (asked.append((q, d)) or
-                                ({'choice': 'no'} if q['name'] == server.FICHUB_UNDATED_QUESTION
+                                ({'choice': 'no'} if q['name'] == server.INFERRED_DATE_QUESTION
                                  else {'choice': 'yes'}))
 
     server.rescue_with_fichub(job, library, ao3, MagicMock())
 
     names = [q['name'] for q, _ in asked]
-    assert names == [server.FICHUB_QUESTION, server.FICHUB_UNDATED_QUESTION]
+    assert names == [server.FICHUB_QUESTION, server.INFERRED_DATE_QUESTION]
     question, default = asked[1]
     assert question['ids'] == ['75354806'] and question['formats'] == ['EPUB']
     assert default == {'choice': 'no'}
@@ -931,17 +931,18 @@ def test_fichub_asks_before_replacing_a_file_with_no_date_in_its_name(
 
 
 @pytest.mark.fichub
-def test_fichub_asks_nothing_about_an_undated_file_on_a_run_that_overwrites(library, monkeypatch):
+def test_fichub_asks_about_an_undated_file_on_a_run_that_overwrites_too(library, monkeypatch):
     indexed_as_new_as_fichub(library)
     a_copy(library, '75354806 Wolfbird - OpalApparition.epub')
     fetched = fichub_serving(monkeypatch)
-    job, ao3, asked = a_run(library, ['JSON', 'EPUB'], ao3_failed())
+    job, ao3, asked = a_run(library, ['JSON', 'EPUB'], ao3_failed(), answer=None)
     job.options['overwrite'] = True
 
     server.rescue_with_fichub(job, library, ao3, MagicMock())
 
-    assert server.FICHUB_UNDATED_QUESTION not in [q['name'] for q, _ in asked]
-    assert fetched == ['EPUB']
+    assert [q['name'] for q, _ in asked][-1] == server.INFERRED_DATE_QUESTION
+    # nobody answered: kept
+    assert fetched == []
 
 
 @pytest.mark.fichub
@@ -957,7 +958,7 @@ def test_an_older_fichub_copy_asks_before_replacing_an_undated_file(library, mon
 
     server.rescue_with_fichub(job, library, ao3, MagicMock())
 
-    assert [q['name'] for q, _ in asked] == [server.FICHUB_QUESTION, server.FICHUB_UNDATED_QUESTION]
+    assert [q['name'] for q, _ in asked] == [server.FICHUB_QUESTION, server.INFERRED_DATE_QUESTION]
     assert fetched == ['HTML']
     assert work_files(library) == ['75354806 Wolfbird - OpalApparition 2026-04-27.html']
     assert index_text(library) == before

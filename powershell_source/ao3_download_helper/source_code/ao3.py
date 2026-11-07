@@ -191,6 +191,10 @@ class Ao3:
         # the date each work on the listing says it was updated, and the works reopened
         # though every format was on disk, because a copy was behind
         self.overwriting = False
+        # asks about a copy the long way round cannot judge alone - one whose name has no date
+        # in the app's own form, or (overwriting) is newer than the page - answering whether
+        # to fetch it. Set by the run; with none, such a copy is kept
+        self.judge_copy = None
         self.listing_dates: dict[str, str] = {}
         self.reopened: set[str] = set()
         # formats of a work an overwriting run was told not to replace: the copy on disk is
@@ -2294,12 +2298,17 @@ class Ao3:
         if not copy:
             print(strings.AO3_INFO_FORMAT_MISSING.format(filetype))
             return True
+        date = copy.get('date')
+        # only a date in the app's own form, no later than the page's, is replaced unasked
+        if not date or (self.overwriting and stamp and date > stamp):
+            if self.judge_copy is not None:
+                return bool(self.judge_copy(work_url, number, filetype, stamp, copy))
+            print(strings.AO3_INFO_FORMAT_UNDATED.format(filetype) if not date
+                  else strings.AO3_INFO_KEEPING_NEWER.format(filetype))
+            return False
         if self.overwriting:
             print(strings.AO3_INFO_FORMAT_REPLACING.format(filetype))
-        elif not copy.get('date'):
-            print(strings.AO3_INFO_FORMAT_UNDATED.format(filetype))
-            return False
-        elif stamp and copy['date'] < stamp:
+        elif stamp and date < stamp:
             print(strings.AO3_INFO_FORMAT_OUTDATED.format(filetype))
         else:
             print(strings.AO3_INFO_FORMAT_CURRENT.format(filetype))
