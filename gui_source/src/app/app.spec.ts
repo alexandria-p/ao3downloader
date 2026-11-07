@@ -678,6 +678,17 @@ describe('App', () => {
     expect(heading).toContain('Someone');
   });
 
+  it('says Works, with nobody named, when no entry came off anyone\'s bookmarks', async () => {
+    const { fixture, element, library } = await render(25);
+    library.data.update((d) => d && { ...d, source: '' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const heading = element.querySelector('.listing-heading')?.textContent ?? '';
+    expect(heading).toContain('1 - 20 of 25 Works');
+    expect(heading).not.toContain(' by ');
+  });
+
   it('shows the remainder on the last page', async () => {
     const { fixture, element } = await render(25);
 
@@ -1071,6 +1082,22 @@ describe('App', () => {
     expect(element.querySelector('app-user-settings')).not.toBeNull();
     expect(element.querySelector('.actions')).toBeNull();
     expect(element.textContent).not.toContain('Choose your downloads folder');
+  });
+
+  it('never asks for a folder on the DEBUG tab, where dummy data is turned off with none open', async () => {
+    TestBed.inject(Jobs).config.set({ ...BUILT_IN_CONFIG, settings: { debugTools: true } } as ServerConfig);
+    TestBed.inject(DebugMode).set(true);
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(TestBed.inject(Library).data()).toBeNull();
+
+    tab(element, 'DEBUG')!.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector('app-debug-tab')).not.toBeNull();
+    expect(element.textContent).not.toContain('Choose your downloads folder');
+    TestBed.inject(DebugMode).set(false);
   });
 
   it('says its version and links the repository on every tab', async () => {

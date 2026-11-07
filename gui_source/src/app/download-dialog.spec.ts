@@ -1,3 +1,4 @@
+import { DebugMode } from './debug-mode';
 import { ImportRequest } from './imports';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -95,7 +96,7 @@ class FakeJobs extends Jobs {
   }
 
   cancelled: string[] = [];
-  answers: { jobId: string; choice: AnswerChoice; date: string }[] = [];
+  answers: { jobId: string; choice: AnswerChoice; date: string; always?: boolean }[] = [];
   pauses: { jobId: string; paused: boolean }[] = [];
   /** set by a test that needs answering to fail, leaving the run still waiting */
   answerFails: string | null = null;
@@ -142,9 +143,9 @@ class FakeJobs extends Jobs {
     this.cancelled.push(jobId);
   }
 
-  override async answer(jobId: string, choice: AnswerChoice, date = ''): Promise<void> {
+  override async answer(jobId: string, choice: AnswerChoice, date = '', always = false): Promise<void> {
     if (this.answerFails) throw new Error(this.answerFails);
-    this.answers.push({ jobId, choice, date });
+    this.answers.push(always ? { jobId, choice, date, always } : { jobId, choice, date });
   }
 
   override async setPaused(jobId: string, paused: boolean): Promise<void> {
@@ -180,6 +181,11 @@ function button(text: string): HTMLButtonElement | undefined {
   return Array.from(element.querySelectorAll('button')).find(
     (b) => b.textContent?.trim() === text,
   );
+}
+
+/** the *always choose this* box's words, its spacing squashed */
+function alwaysLabel(): string {
+  return (element.querySelector('label.always-case')?.textContent ?? '').replace(/\s+/g, ' ');
 }
 
 function checkbox(labelText: string): HTMLInputElement | undefined {
@@ -335,7 +341,13 @@ describe('DownloadDialog', () => {
 
   // region file types
 
+  /** JSON is listed only in debug mode, so the specs about its box turn that on first */
+  function debugOn() {
+    TestBed.overrideProvider(DebugMode, { useValue: { on: () => true } });
+  }
+
   it('locks the file types that are always produced', async () => {
+    debugOn();
     await open();
     await advanceTo('filetypes');
 
@@ -445,11 +457,54 @@ describe('DownloadDialog', () => {
     ]);
   });
 
-  it('says what unticking the rest buys, where the choice is made', async () => {
+  for (const action of ['bookmarks', 'quick', 'custom', 'sync', 'new', 'update', 'work', 'works'] as JobAction[]) {
+    it(`lists JSON on a ${action} run's file types in debug mode`, async () => {
+      debugOn();
+      await open(action);
+      await advanceTo('filetypes');
+      expect(currentStep()).toBe('filetypes');
+      expect(checkbox('JSON')).toBeTruthy();
+    });
+
+    it(`lists no JSON on a ${action} run's file types outside debug mode`, async () => {
+      await open(action);
+      await advanceTo('filetypes');
+      expect(currentStep()).toBe('filetypes');
+      expect(checkbox('JSON')).toBeFalsy();
+    });
+  }
+
+  for (const action of ['bookmarks', 'custom'] as JobAction[]) {
+    it(`says a ${action} run's overwrite takes in the non-bookmarks only when both are ticked`, async () => {
+      await open(action);
+      await advanceTo('options');
+      const note = () => element.querySelector('.overwrite-non-bookmarks')?.textContent ?? '';
+      expect(note()).toBe('');
+
+      checkbox('Overwrite existing downloads')!.click();
+      await fixture.whenStable();
+      expect(note()).toBe('');
+
+      checkbox('Check all non-bookmarks for updates too')!.click();
+      await fixture.whenStable();
+      expect(note()).toContain('This will include any non-bookmarks in this scan too.');
+
+      checkbox('Overwrite existing downloads')!.click();
+      await fixture.whenStable();
+      expect(note()).toBe('');
+    });
+  }
+
+  it('lists no JSON outside debug mode, and says nothing about it, but still sends it', async () => {
+    // json is the index - always written by a run that indexes, never one to pick
     await open('bookmarks');
     await advanceTo('filetypes');
 
-    expect(element.textContent).toContain('rate limit');
+    expect(checkbox('JSON')).toBeFalsy();
+    expect(checkbox('HTML')).toBeTruthy();
+    expect(element.querySelector('.body')?.textContent).not.toContain('JSON');
+    await advanceTo('running');
+    expect(jobs.started[0].filetypes).toContain('JSON');
   });
 
   // endregion
@@ -481,11 +536,14 @@ describe('DownloadDialog', () => {
     }
   });
 
-  it('says plainly what saving images costs and what it is not', async () => {
+  it('says plainly what saving images costs and what it is not, once it is ticked', async () => {
     // most people do not want this: the pictures are already inside the downloaded work
     await open('custom');
     await advanceTo('options');
+    expect(element.querySelector('.body')?.textContent).not.toContain('already embedded');
 
+    checkbox('images separately')!.click();
+    await fixture.whenStable();
     const said = element.querySelector('.body')?.textContent ?? '';
     expect(said).toContain('already embedded inside all regular downloaded works');
     expect(said).toContain('their own folder');
@@ -1417,15 +1475,16 @@ describe('DownloadDialog', () => {
 
   // region being asked what to do about undated files
 
-  async function askedAboutUndated(count = 12): Promise<void> {
+  /** a file whose date cannot be read, asked about by its case */
+  async function askedAboutUndated(work = '75354806'): Promise<void> {
     await open('bookmarks');
     await advanceTo('running');
     jobs.push!({
-      type: 'question',
-      name: 'undated',
-      count,
-      choices: ['stamp', 'refresh', 'skip'],
-    });
+      type: 'question', name: 'inferred-date', scenario: 'ao3-unknown', count: 1, ids: [work],
+      formats: ['HTML'], date: '2026-04-27', source: 'AO3', fileDates: { HTML: '' },
+      reasons: { HTML: "no date can be read from your file's name, so we cannot tell which is newer - we recommend keeping yours" },
+      recommended: 'no', choices: ['yes', 'no'],
+    } as JobEvent);
     await fixture.whenStable();
   }
 
@@ -1543,9 +1602,38 @@ describe('DownloadDialog', () => {
     expect(said).toContain('older');
     expect(said).toContain('FicHub: 2026-04-27, your index: 2026-05-10');
     expect(said).toContain('HTML, PDF');
-    expect(said).toContain('never replaced');
+    expect(said).toContain('only replaced where FicHub');
     // its own panel, not the generic one as well
     expect(element.querySelectorAll('.question')).toHaveLength(1);
+  });
+
+  it('asks about a file whose date is only guessed, saying what it thinks and recommends', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'inferred-date', scenario: 'fichub-older', count: 1,
+                 ids: ['75354806'], formats: ['EPUB'], date: '2026-04-27', source: 'FicHub',
+                 fileDates: { EPUB: '2024-12-14' },
+                 fileNames: { EPUB: '75354806 Wolfbird - OpalApparition (14 Dec 2024).epub' },
+                 reasons: {}, recommended: 'yes', choices: ['yes', 'no'],
+                 default: 'no', timeoutMinutes: 1 } as JobEvent);
+    await fixture.whenStable();
+
+    const said = (element.querySelector('[data-question="inferred-date"]')?.textContent ?? '').replace(/\s+/g, ' ');
+    // the whole file name, so it can be judged by eye
+    expect(said).toContain('75354806 Wolfbird - OpalApparition (14 Dec 2024).epub');
+    // dates written as a reader writes them
+    expect(said).toContain("looks dated 14 December 2024 (a guess), so we think FicHub's version (27 April 2026) is newer");
+    expect(said).toContain('We recommend replacing it');
+    // the wait is said once, inside the panel and above its buttons - not above the panel too
+    const panel = element.querySelector('[data-question="inferred-date"]')!;
+    const wait = panel.querySelector('.question-default');
+    expect(wait?.textContent?.replace(/\s+/g, ' ')).toContain('If nobody answers within 1 minute, the run carries on with: Keep mine');
+    expect(wait!.compareDocumentPosition(panel.querySelector('.question-actions')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(element.querySelectorAll('.question-default')).toHaveLength(1);
+    expect(said).not.toContain('Left unanswered');
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+    expect(button('Replace it (recommended)')).toBeTruthy();
+    expect(alwaysLabel()).toContain('Always choose this when an existing file is guessed to be older than the incoming one from FicHub');
   });
 
   it('takes the older version, or leaves it, as told', async () => {
@@ -1577,6 +1665,40 @@ describe('DownloadDialog', () => {
     button('No, keep my newer copy')!.click();
     await fixture.whenStable();
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
+  });
+
+  it('asks about a copy of a work with no earlier index entry, recommending but keeping it by default', async () => {
+    await open('bookmarks');
+    await advanceTo('running');
+    jobs.push!({ type: 'question', name: 'unindexed-copy', count: 1, ids: ['1'],
+                 formats: ['PDF', 'EPUB', 'HTML'], date: '2026-11-06', source: 'AO3',
+                 fileDates: { PDF: '2026-11-06', EPUB: '2026-11-03', HTML: '' },
+                 recommended: 'recommended', recommendedFormats: ['PDF', 'EPUB'],
+                 reasons: {
+                   PDF: 'recommended: yes - the AO3 version is the same date (2026-11-06), and this run overwrites existing downloads',
+                   EPUB: 'recommended: yes - the AO3 version (2026-11-06) is newer than the date in your file name (2026-11-03)',
+                   HTML: 'recommended: no - no date could be read from your file name, so it cannot be told which is newer',
+                 },
+                 default: 'no', choices: ['recommended', 'yes', 'no'] } as JobEvent);
+    await fixture.whenStable();
+
+    const panel = element.querySelector('[data-question="unindexed-copy"]')!;
+    const said = panel.textContent ?? '';
+    expect(said).toContain('had no index entry for it');
+    expect(said).toContain('the version from AO3 (2026-11-06)');
+    const lines = Array.from(panel.querySelectorAll('.file-dates li')).map((li) => li.textContent?.replace(/\s+/g, ' ').trim());
+    expect(lines[0]).toContain('PDF - dated 2026-11-06 in its name. Recommended: yes - the AO3 version is the same date');
+    expect(lines[2]).toContain('HTML - no date in its name. Recommended: no - no date could be read');
+    expect(said).toContain('Left unanswered, the run keeps every copy');
+    expect(element.querySelectorAll('.question')).toHaveLength(1);
+    // only some recommended: replacing just those is offered, and stands out
+    expect(button('Replace only PDF, EPUB')!.classList).toContain('primary');
+    expect(button('Yes, replace them all')!.classList).not.toContain('primary');
+    expect(button('No, keep them all')).toBeTruthy();
+
+    button('Replace only PDF, EPUB')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'recommended', date: '' }]);
   });
 
   it('says how many works came from FicHub at the end', async () => {
@@ -1642,38 +1764,11 @@ describe('DownloadDialog', () => {
     expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'full', date: '' }]);
   });
 
-  it('still shows the undated question its own panel', async () => {
-    await askedAboutUndated();
-
-    const said = element.querySelector('.question')?.textContent ?? '';
-    expect(said).toContain('before file names carried a date');
-    expect(said).not.toContain('no record of a completed scan');
-    expect(button('Ignore and skip them')).toBeTruthy();
-  });
-
   it('asks during the run, not after it', async () => {
-    // the answer decides what counts as out of date, so asking afterwards is too late
     await askedAboutUndated();
 
-    expect(element.querySelector('.question')).toBeTruthy();
+    expect(element.querySelector('[data-question="inferred-date"]')).toBeTruthy();
     expect(element.querySelector('.offer')).toBeNull();
-  });
-
-  it('offers all three ways out', async () => {
-    await askedAboutUndated();
-
-    expect(button('Give them a date')).toBeTruthy();
-    expect(button('Re-download them')).toBeTruthy();
-    expect(button('Ignore and skip them')).toBeTruthy();
-  });
-
-  it('says what each of them costs', async () => {
-    await askedAboutUndated();
-
-    const said = element.querySelector('.question')?.textContent ?? '';
-    expect(said).toContain('12');
-    expect(said).toContain('no downloads');
-    expect(said).toContain('removes the old copies');
   });
 
   it('says nothing when the run has not asked anything', async () => {
@@ -1683,22 +1778,28 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('.question')).toBeNull();
   });
 
-  it('sends the choice to skip them', async () => {
+  it('sends the choice to keep the file, or to replace it', async () => {
     await askedAboutUndated();
-
-    button('Ignore and skip them')!.click();
+    button('Keep mine (recommended)')!.click();
     await fixture.whenStable();
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '' }]);
 
-    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'skip', date: '' }]);
+    await askedAboutUndated();
+    button('Replace it')!.click();
+    await fixture.whenStable();
+    expect(jobs.answers.at(-1)).toEqual({ jobId: 'job-1', choice: 'yes', date: '' });
   });
 
-  it('sends the choice to fetch them all again', async () => {
+  it('can always use the answer for that case, and keeps it for later runs', async () => {
     await askedAboutUndated();
-
-    button('Re-download them')!.click();
+    expect(alwaysLabel()).toContain('Always choose this when the date of an existing file cannot be judged from AO3');
+    element.querySelector<HTMLInputElement>('input[name="alwaysThisCase"]')!.click();
+    await fixture.whenStable();
+    button('Keep mine (recommended)')!.click();
     await fixture.whenStable();
 
-    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'refresh', date: '' }]);
+    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'no', date: '', always: true }]);
+    expect(JSON.parse(localStorage.getItem('ao3.alwaysAnswers')!)).toEqual({ 'ao3-unknown': 'no' });
   });
 
   it('starts with the formats chosen in User settings ticked, and they can still be changed', async () => {
@@ -1706,7 +1807,6 @@ describe('DownloadDialog', () => {
     await open('bookmarks');
     await advanceTo('filetypes');
 
-    expect(checkbox('JSON')!.checked).toBe(true);
     expect(checkbox('EPUB')!.checked).toBe(true);
     expect(checkbox('HTML')!.checked).toBe(false);
 
@@ -1717,63 +1817,11 @@ describe('DownloadDialog', () => {
     expect(jobs.started[0].filetypes).toEqual(['JSON', 'HTML']);
   });
 
-  it('defaults the date to today, meaning what I have is current', async () => {
-    await askedAboutUndated();
-
-    button('Give them a date')!.click();
-    await fixture.whenStable();
-
-    const box = element.querySelector<HTMLInputElement>('input[name="stampDate"]')!;
-    expect(box.value).toBe(new Date().toISOString().slice(0, 10));
-  });
-
-  it('will not answer with something that is not a real date', async () => {
-    await askedAboutUndated();
-    button('Give them a date')!.click();
-    await fixture.whenStable();
-
-    const box = element.querySelector<HTMLInputElement>('input[name="stampDate"]')!;
-    box.value = '2024-02-31';
-    box.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-
-    expect(button('Date them and continue')?.disabled).toBe(true);
-    expect(jobs.answers).toEqual([]);
-  });
-
-  it('sends the chosen date', async () => {
-    await askedAboutUndated();
-    button('Give them a date')!.click();
-    await fixture.whenStable();
-
-    const box = element.querySelector<HTMLInputElement>('input[name="stampDate"]')!;
-    box.value = '2024-06-01';
-    box.dispatchEvent(new Event('input'));
-    await fixture.whenStable();
-
-    button('Date them and continue')!.click();
-    await fixture.whenStable();
-
-    expect(jobs.answers).toEqual([{ jobId: 'job-1', choice: 'stamp', date: '2024-06-01' }]);
-  });
-
-  it('can back out of choosing a date', async () => {
-    await askedAboutUndated();
-    button('Give them a date')!.click();
-    await fixture.whenStable();
-
-    button('Back')!.click();
-    await fixture.whenStable();
-
-    expect(element.querySelector('input[name="stampDate"]')).toBeNull();
-    expect(button('Re-download them')).toBeTruthy();
-  });
-
   it('does not ask the same question twice over', async () => {
     await askedAboutUndated();
 
-    button('Ignore and skip them')!.click();
-    button('Ignore and skip them')?.click();
+    button('Keep mine (recommended)')!.click();
+    button('Keep mine (recommended)')?.click();
     await fixture.whenStable();
 
     expect(jobs.answers).toHaveLength(1);
@@ -1782,7 +1830,7 @@ describe('DownloadDialog', () => {
   it('puts the question away once it has been answered', async () => {
     await askedAboutUndated();
 
-    button('Ignore and skip them')!.click();
+    button('Keep mine (recommended)')!.click();
     await fixture.whenStable();
 
     expect(element.querySelector('.question')).toBeNull();
@@ -1792,7 +1840,7 @@ describe('DownloadDialog', () => {
     await askedAboutUndated();
     jobs.answerFails = 'helper went away';
 
-    button('Ignore and skip them')!.click();
+    button('Keep mine (recommended)')!.click();
     await fixture.whenStable();
 
     expect(element.querySelector('.log')?.textContent).toContain('helper went away');
@@ -1802,15 +1850,17 @@ describe('DownloadDialog', () => {
 
   it('does not carry an answer over from a previous run', async () => {
     await askedAboutUndated();
-    button('Ignore and skip them')!.click();
+    button('Keep mine (recommended)')!.click();
     await fixture.whenStable();
 
-    jobs.push!({ type: 'question', name: 'undated', count: 3, choices: [] });
+    jobs.push!({ type: 'question', name: 'inferred-date', scenario: 'ao3-unknown', count: 1,
+                 ids: ['333'], formats: ['HTML'], date: '2026-04-27', source: 'AO3',
+                 reasons: {}, recommended: 'no', choices: ['yes', 'no'] } as JobEvent);
     await fixture.whenStable();
 
-    expect(element.querySelector('.question')?.textContent).toContain('3');
+    expect(element.querySelector('.question')?.textContent).toContain('333');
     // the buttons are live again, rather than still locked from the last answer
-    expect(button('Ignore and skip them')?.disabled).toBe(false);
+    expect(button('Keep mine (recommended)')?.disabled).toBe(false);
   });
 
   // endregion
@@ -2321,6 +2371,24 @@ describe('DownloadDialog', () => {
     expect(element.querySelector('input[name="password"]')).toBeTruthy();
   });
 
+  it('goes straight past a quick scan’s note once it is turned off', async () => {
+    jobs.floorAhead = Promise.resolve(scanOnRecord('a', '2026-09-02T12:00:00'));
+    await toNote('quick');
+    expect(currentStep()).toBe('acknowledge');
+    element.querySelector<HTMLInputElement>('input[name="acknowledge"]')!.click();
+    element.querySelector<HTMLInputElement>('input[name="dontAskAgain"]')!.click();
+    await fixture.whenStable();
+    button('Continue')!.click();
+    await fixture.whenStable();
+    expect(element.querySelector('input[name="password"]')).toBeTruthy();
+
+    await toNote('quick');
+
+    expect(currentStep()).not.toBe('acknowledge');
+    expect(element.querySelector('.dialog .body')?.textContent).not.toContain('will not be restored by this Quick Scan');
+    expect(element.querySelector('input[name="password"]')).toBeTruthy();
+  });
+
   it('keeps asking when the note is turned off but then backed out of', async () => {
     // ticking the box is not the decision; going through with it is
     await toNote('sync');
@@ -2346,6 +2414,21 @@ describe('DownloadDialog', () => {
     // and not on the acknowledgement page any more
     await walkToNote();
     expect(element.querySelector('.dialog .body')?.textContent).not.toContain('this will perform a full index');
+  });
+
+  it('says what a quick scan does on its first page, above what it covers, and not again after', async () => {
+    jobs.floorAhead = Promise.resolve(scanOnRecord('a', '2026-09-02T12:00:00'));
+    await open('quick');
+    await settled();
+    expect(currentStep()).toBe('options');
+    const body = element.querySelector('.dialog .body')!;
+    const says = body.querySelector('.what-it-does');
+    expect(says?.textContent).toContain('Scans your AO3 Bookmarks and updates anything that has changed');
+    const covers = body.querySelector('fieldset')!;
+    expect(says!.compareDocumentPosition(covers) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await walkToNote();
+    expect(element.querySelector('.dialog .body')?.textContent).not.toContain('updates anything that has changed since the last');
   });
 
   it('says nothing about a full index when a scan is on record', async () => {
@@ -2844,6 +2927,18 @@ describe('DownloadDialog', () => {
     expect(checkbox('Skip indexing')).toBeUndefined();
   });
 
+  it('warns, once indexing is skipped, that files are judged against the last index', async () => {
+    await open('custom');
+    await advanceTo('options');
+    expect(element.querySelector('.skip-index-warning')).toBeNull();
+
+    checkbox('Skip indexing')!.click();
+    fixture.detectChanges();
+    expect(element.querySelector('.skip-index-warning')!.textContent).toContain(
+      'not against live AO3 data',
+    );
+  });
+
   it('asks a custom run its options before its file types', async () => {
     // one of its options decides a file type, so asking which types you want and then
     // changing one behind you would read as the dialog overruling you
@@ -2881,6 +2976,7 @@ describe('DownloadDialog', () => {
 
   it('ties a custom run’s JSON to whether it is indexing', async () => {
     // json *is* the index, so a run that indexes writes it and a run that does not cannot
+    debugOn();
     await open('custom');
     await advanceTo('options');
     button('Continue')!.click();
@@ -2892,6 +2988,7 @@ describe('DownloadDialog', () => {
   });
 
   it('unticks and locks a custom run’s JSON when it is not indexing', async () => {
+    debugOn();
     await open('custom');
     await advanceTo('options');
     checkbox('Skip indexing')!.click();
@@ -2925,6 +3022,7 @@ describe('DownloadDialog', () => {
   });
 
   it('leaves JSON locked on for every other run', async () => {
+    debugOn();
     await open('bookmarks');
     await advanceTo('filetypes');
 
@@ -3675,11 +3773,26 @@ describe('DownloadDialog', () => {
     await fixture.whenStable();
   }
 
-  it('offers retrying an earlier run as an experimental choice on a custom run only',
+  it('puts retrying last among what a custom run covers, and hides the options it takes over', async () => {
+    await open('custom');
+    await advanceTo('options');
+    const radios = Array.from(element.querySelectorAll<HTMLInputElement>('input[name="coverage"]'));
+    const last = radios[radios.length - 1].closest('label')?.textContent ?? '';
+    expect(last).toContain('Retry an earlier run');
+    const options = element.querySelector<HTMLFieldSetElement>('fieldset.bare')!;
+    expect(options.hidden).toBe(false);
+
+    checkbox('Retry an earlier run')!.click();
+    await fixture.whenStable();
+    expect(options.hidden).toBe(true);
+  });
+
+  it('offers retrying an earlier run on a custom run only, with no experimental label',
     async () => {
       await open('custom');
       await advanceTo('options');
-      expect(checkbox('[EXPERIMENTAL] Retry an earlier run')).toBeDefined();
+      expect(checkbox('Retry an earlier run')).toBeDefined();
+      expect(element.querySelector('.body')?.textContent).not.toContain('[EXPERIMENTAL] Retry');
 
       fixture.destroy();
       await open('quick');
@@ -3698,6 +3811,29 @@ describe('DownloadDialog', () => {
       // disabled by the fieldset around them, which the property does not reflect
       expect(checkbox(label)!.matches(':disabled')).toBe(true);
     }
+  });
+
+  it('says under a run that cannot be retried why not, where it is listed', async () => {
+    jobs.retryableOnRecord = [
+      ended({ id: 'r3', actionName: 'Collection',
+              retry: { modes: ALL_MODES({ top: 'It has no link to go back to.', reindex: 'x', index: 'x',
+                                          redownload: 'x', downloads: 'x', failed: 'x' }),
+                       default: '', failedWorks: 0 } }),
+    ];
+    await toRetryPage();
+
+    const row = element.querySelector('.floor-runs label.unavailable')!;
+    expect(row.querySelector('.why-not')?.textContent).toContain('It has no link to go back to.');
+  });
+
+  it('no longer says on the first page that a slice cannot be retried', async () => {
+    await open('custom');
+    await advanceTo('options');
+    checkbox('Retry an earlier run')!.click();
+    await fixture.whenStable();
+    const said = element.querySelector('.body')?.textContent ?? '';
+    expect(said).toContain('Retry a run that was stopped, failed, or interrupted. Some previous runs can be');
+    expect(said).not.toContain('slice of pages');
   });
 
   it('lists every ended run, finished ones included, with any warnings', async () => {

@@ -191,11 +191,17 @@ class Ao3:
         # the date each work on the listing says it was updated, and the works reopened
         # though every format was on disk, because a copy was behind
         self.overwriting = False
+        # asks about a copy the long way round cannot judge alone - one whose name has no date
+        # in the app's own form, or (overwriting) is newer than the page - answering whether
+        # to fetch it. Set by the run; with none, such a copy is kept
+        self.judge_copy = None
         self.listing_dates: dict[str, str] = {}
         self.reopened: set[str] = set()
         # formats of a work an overwriting run was told not to replace: the copy on disk is
         # newer than the version this run would write. by link, formats upper-case
         self.keep_formats: dict[str, set[str]] = {}
+        # the works whose kept formats a question already said were kept - not said twice
+        self.keep_said: set[str] = set()
         # what a kept format is said as: a newer copy kept on an overwriting run, or - on an
         # import told not to replace outdated copies - whatever copy you have
         self.keep_message = strings.AO3_INFO_KEEPING_NEWER
@@ -271,6 +277,9 @@ class Ao3:
         # each index folder's entries by the number their file name starts with - see
         # `entry_path`. listed when first asked for, once per run
         self.entries_by_id: dict[str, dict[str, str]] = {}
+        # the works the index held when this run first looked - before it wrote any entry.
+        # `indexed_before_run`; a work outside it has no entry of its own to judge a copy by
+        self.entries_at_start: set[str] | None = None
         # numbers found with more than one index file, and the one written to
         self.duplicate_entries: list[dict] = []
         # external works this run saved an entry for - its cleanup notes their collections
@@ -909,7 +918,8 @@ class Ao3:
         formats = [x for x in wanted if x.upper() not in kept
                    and not self.format_done(work, x) and x.upper() not in current]
         for filetype in wanted:
-            if filetype.upper() in kept: print(self.keep_message.format(filetype))
+            if filetype.upper() in kept:
+                if record['link'] not in self.keep_said: print(self.keep_message.format(filetype))
             elif self.format_done(work, filetype):
                 print(strings.AO3_INFO_FORMAT_DONE_EARLIER.format(filetype, work))
             elif filetype.upper() in current:
@@ -1227,12 +1237,36 @@ class Ao3:
         if known is None:
             known = self.list_entries(folder)
             self.entries_by_id[folder] = known
+            # the first listing comes before the first write into the folder, so it is the
+            # index as the run found it
+            if folder == strings.INDEXING_FOLDER_NAME and self.entries_at_start is None:
+                self.entries_at_start = set(known)
         number = str(document.get('id') or '')
         if number and number in known: return os.path.join(folder, known[number])
         # not remembered here: a lookup can be made with little more than a number (a
         # series' `series_existing`), and the name built from that is not one to reuse. a
         # name is remembered once a file has been written under it - `remember_entry`
         return self.metadata_path(document, subfolder)
+
+
+    def indexed_before_run(self) -> set[str]:
+        """The works that had an index entry before this run wrote any - by number.
+
+        A work outside it came into the index this run (or not at all), so a copy of it
+        already in the library has no entry of its own to be judged against: the date the run
+        just indexed says what is incoming, not what the copy holds. Every write goes through
+        `entry_path`, which lists the folder before its first write, so that listing is the
+        index as the run found it; with no write yet, a listing now is the same thing.
+        """
+
+        if self.entries_at_start is None:
+            folder = strings.INDEXING_FOLDER_NAME
+            known = self.entries_by_id.get(folder)
+            if known is None:
+                known = self.list_entries(folder)
+                self.entries_by_id[folder] = known
+            self.entries_at_start = set(known)
+        return self.entries_at_start
 
 
     def remember_entry(self, path: str) -> None:
@@ -2264,12 +2298,17 @@ class Ao3:
         if not copy:
             print(strings.AO3_INFO_FORMAT_MISSING.format(filetype))
             return True
+        date = copy.get('date')
+        # only a date in the app's own form, no later than the page's, is replaced unasked
+        if not date or (self.overwriting and stamp and date > stamp):
+            if self.judge_copy is not None:
+                return bool(self.judge_copy(work_url, number, filetype, stamp, copy))
+            print(strings.AO3_INFO_FORMAT_UNDATED.format(filetype) if not date
+                  else strings.AO3_INFO_KEEPING_NEWER.format(filetype))
+            return False
         if self.overwriting:
             print(strings.AO3_INFO_FORMAT_REPLACING.format(filetype))
-        elif not copy.get('date'):
-            print(strings.AO3_INFO_FORMAT_UNDATED.format(filetype))
-            return False
-        elif stamp and copy['date'] < stamp:
+        elif stamp and date < stamp:
             print(strings.AO3_INFO_FORMAT_OUTDATED.format(filetype))
         else:
             print(strings.AO3_INFO_FORMAT_CURRENT.format(filetype))

@@ -221,17 +221,17 @@ def test_the_ordinary_library_rules_sit_in_front_of_it_unchanged(channel, dropbo
 # region answered up front
 
 def test_answers_are_checked_against_the_question_they_answer():
-    assert server.background_answers({'undated': {'choice': 'stamp', 'date': '2024-01-02'},
+    assert server.background_answers({'fichub': {'choice': 'no'},
                                       'duplicates': {'choice': 'newest'}}) == {
-        'undated': {'choice': 'stamp', 'date': '2024-01-02'},
+        'fichub': {'choice': 'no', 'date': ''},
         'duplicates': {'choice': 'newest', 'date': ''}}
 
 
 @pytest.mark.parametrize('answers, reason', [
-    ({'undated': {'choice': 'newest'}}, 'not an answer'),
+    ({'fichub': {'choice': 'newest'}}, 'not an answer'),
     ({'nonsense': {'choice': 'skip'}}, 'no question'),
-    ({'undated': {'choice': 'stamp'}}, 'needs the date'),
-    ({'undated': {'choice': 'stamp', 'date': 'soon'}}, 'needs the date'),
+    # the question that used to ask about every undated file at once is gone
+    ({'undated': {'choice': 'skip'}}, 'no question'),
     (['skip'], 'by question'),
 ])
 def test_an_answer_that_could_not_be_acted_on_is_refused_before_the_run_starts(answers, reason):
@@ -245,11 +245,11 @@ def a_background_job(answers=None):
 
 
 def test_a_background_run_uses_the_answer_it_was_given_up_front(capsys):
-    job = a_background_job({'undated': {'choice': 'refresh', 'date': ''}})
+    job = a_background_job({'duplicates': {'choice': 'newest', 'date': ''}})
 
-    got = job.ask({'name': 'undated', 'count': 3}, {'choice': 'skip', 'date': ''})
+    got = job.ask({'name': 'duplicates', 'count': 3}, {'choice': 'leave'})
 
-    assert got['choice'] == 'refresh'
+    assert got['choice'] == 'newest'
     assert 'before this background run started' in capsys.readouterr().out
 
 
@@ -284,14 +284,14 @@ def starting(body, stub_thread=True):
 
 def test_a_background_run_starts_with_its_own_line_to_dropbox_and_its_answers():
     sent = starting({'background': True, 'dropbox': DROPBOX,
-                     'answers': {'undated': {'choice': 'skip'}}})
+                     'answers': {'duplicates': {'choice': 'leave'}}})
 
     assert sent['status'] == 202, sent
     job = server.Handler.jobs[sent['body']['jobId']]
     assert job.background is True
     assert isinstance(job.library, dropbox_library.DropboxChannel)
     assert job.library.refresh_token == 'refresh-me'
-    assert job.prior_answers == {'undated': {'choice': 'skip', 'date': ''}}
+    assert job.prior_answers == {'duplicates': {'choice': 'leave', 'date': ''}}
 
 
 def test_a_background_run_without_a_dropbox_sign_in_is_refused():
@@ -303,7 +303,7 @@ def test_a_background_run_without_a_dropbox_sign_in_is_refused():
 
 def test_a_background_run_with_answers_it_could_not_act_on_is_refused():
     sent = starting({'background': True, 'dropbox': DROPBOX,
-                     'answers': {'undated': {'choice': 'stamp'}}})
+                     'answers': {'duplicates': {'choice': 'stamp'}}})
     assert sent['status'] == 400
     assert not server.Handler.jobs
 

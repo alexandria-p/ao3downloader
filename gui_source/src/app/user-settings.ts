@@ -1,6 +1,6 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { HelperConnection } from './helper-connection';
-import { Jobs, QuestionName, ServerConfig } from './jobs';
+import { DefaultName, Jobs, Scenario, ServerConfig } from './jobs';
 import {
   BUILT_IN_ANSWERS,
   BUILT_IN_QUESTION_TIMEOUT,
@@ -23,6 +23,12 @@ import {
   savedQuestionTimeout,
   setPromptAsks,
   startingFiletypes,
+  SCENARIO_LABELS,
+  BUILT_IN_GUESSED_DATE_TIMEOUT,
+  saveGuessedDateTimeout,
+  savedGuessedDateTimeout,
+  saveAlwaysAnswer,
+  savedAlwaysAnswers,
 } from './preferences';
 import { UpdateCheck } from './updates';
 import { LibraryImports } from './imports';
@@ -53,7 +59,7 @@ interface IniFile {
 
 /** one value Reset to defaults would change, as its window lists it */
 export interface ResetChange {
-  group: 'Appearance' | 'Prompts' | 'Download formats' | 'AO3 time zone' | 'Questions' | 'settings.ini';
+  group: 'Appearance' | 'Prompts' | 'Answers to always use' | 'Download formats' | 'AO3 time zone' | 'Questions' | 'settings.ini';
   name: string;
   current: string;
   default: string;
@@ -83,6 +89,12 @@ export const PROBLEM_TOAST_MS = 6000;
  * computer and says it may be edited (`editable`): a hosted copy's file is written by its
  * deployment, and an edit there would be lost on the next restart.
  */
+/** settings.ini's answers for a file without the app's own date (the helper's SCENARIO_SETTINGS) */
+const KEEP_OR_REPLACE_SETTINGS = new Set([
+  'AO3GuessedOlderAnswer', 'AO3GuessedNewerAnswer', 'AO3UnknownDateAnswer',
+  'FicHubGuessedOlderAnswer', 'FicHubGuessedNewerAnswer', 'FicHubUnknownDateAnswer',
+]);
+
 @Component({
   selector: 'app-user-settings',
   templateUrl: './user-settings.html',
@@ -192,16 +204,47 @@ export class UserSettings implements OnDestroy {
   protected readonly questions = QUESTION_DEFAULTS;
   private readonly savedAnswers = signal(savedAnswerDefaults());
   private readonly savedTimeout = signal(savedQuestionTimeout());
-  protected helperAnswer(name: QuestionName): string {
+  protected helperAnswer(name: DefaultName): string {
     return this.config()?.settings?.answerDefaults?.[name] ?? BUILT_IN_ANSWERS[name];
   }
-  protected answer(name: QuestionName): string {
+  protected answer(name: DefaultName): string {
     return this.savedAnswers()[name] ?? this.helperAnswer(name);
   }
   protected helperTimeout(): number {
     return this.config()?.settings?.questionTimeoutMinutes ?? BUILT_IN_QUESTION_TIMEOUT;
   }
   protected readonly questionTimeout = computed(() => this.savedTimeout() ?? this.helperTimeout());
+  /** the same, for a question about a file without the app's own date (1 minute built in) */
+  private readonly savedGuessedTimeout = signal(savedGuessedDateTimeout());
+  protected helperGuessedTimeout(): number {
+    return this.config()?.settings?.guessedDateTimeoutMinutes ?? BUILT_IN_GUESSED_DATE_TIMEOUT;
+  }
+  protected readonly guessedTimeout = computed(() => this.savedGuessedTimeout() ?? this.helperGuessedTimeout());
+  /**
+   * Answers chosen to always use for a file without the app's own date, by case - ticked on a
+   * question during a run, or set here. Every page sends them with every run, local or hosted.
+   */
+  protected readonly scenarios = SCENARIO_LABELS;
+  protected readonly alwaysAnswers = signal(savedAlwaysAnswers());
+  protected alwaysWords(choice: string | undefined): string {
+    return choice === 'yes' ? 'Always: Replace it' : choice === 'no' ? 'Always: Keep mine' : 'Ask every time';
+  }
+  protected setAlways(scenario: Scenario, label: string, value: string): void {
+    const choice = value === 'yes' || value === 'no' ? value : null;
+    saveAlwaysAnswer(scenario, choice);
+    this.alwaysAnswers.set(savedAlwaysAnswers());
+    this.say(`${label}: ${this.alwaysWords(choice ?? undefined)}`);
+  }
+
+  /**
+   * A settings.ini value as the page words it. The six cases of a file without the app's own
+   * date are kept as no / yes, but shown as the question's own buttons - Keep mine / Replace it.
+   */
+  protected iniWords(key: string, value: string): string {
+    if (!KEEP_OR_REPLACE_SETTINGS.has(key)) return value;
+    return value === 'yes' ? 'Replace it' : value === 'no' ? 'Keep mine' : value;
+  }
+
   protected choiceLabel(question: QuestionDefault, value: string): string {
     return question.choices.find((c) => c.value === value)?.label ?? value;
   }
@@ -254,6 +297,10 @@ export class UserSettings implements OnDestroy {
                      default: `${this.browserZone} (this browser)` });
     }
     if (!this.local) {
+      if (this.guessedTimeout() !== this.helperGuessedTimeout()) {
+        changes.push({ group: 'Questions', name: 'Minutes a question about a file with no date in its name waits',
+                       current: String(this.guessedTimeout()), default: String(this.helperGuessedTimeout()) });
+      }
       if (this.questionTimeout() !== this.helperTimeout()) {
         changes.push({ group: 'Questions', name: 'Minutes a question waits for you',
                        current: String(this.questionTimeout()), default: String(this.helperTimeout()) });
@@ -267,11 +314,18 @@ export class UserSettings implements OnDestroy {
         }
       }
     }
+    const always = this.alwaysAnswers();
+    for (const { name, label } of SCENARIO_LABELS) {
+      if (always[name]) {
+        changes.push({ group: 'Answers to always use', name: label,
+                       current: this.alwaysWords(always[name]), default: this.alwaysWords(undefined) });
+      }
+    }
     const file = this.ini();
     if (file?.editable) {
       for (const setting of file.settings) {
         if (setting.value !== setting.default) {
-          changes.push({ group: 'settings.ini', name: setting.key, current: setting.value || '(empty)', default: setting.default || '(empty)' });
+          changes.push({ group: 'settings.ini', name: setting.key, current: this.iniWords(setting.key, setting.value) || '(empty)', default: this.iniWords(setting.key, setting.default) || '(empty)' });
         }
       }
     }
@@ -363,6 +417,19 @@ export class UserSettings implements OnDestroy {
     this.say(`Saved: questions wait ${minutes} minute${minutes === 1 ? '' : 's'} - from the next run`);
   }
 
+  protected setGuessedTimeout(value: string, input?: HTMLInputElement): void {
+    const minutes = Number(value);
+    if (value.trim() === '' || !Number.isInteger(minutes) || minutes < 0) {
+      if (input) input.value = String(this.guessedTimeout());
+      this.say('Not saved: the wait is a whole number of minutes, 0 or more', 'problem');
+      return;
+    }
+    const kept = minutes === this.helperGuessedTimeout() ? null : minutes;
+    saveGuessedDateTimeout(kept);
+    this.savedGuessedTimeout.set(kept);
+    this.say(`Saved: questions about a file with no date in its name wait ${minutes} minute${minutes === 1 ? '' : 's'} - from the next run`);
+  }
+
   protected isForced(filetype: string): boolean {
     return this.config()?.forced.includes(filetype) ?? false;
   }
@@ -403,6 +470,10 @@ export class UserSettings implements OnDestroy {
     saveDefaultFiletypes(null);
     saveAnswerDefaults(null);
     saveQuestionTimeout(null);
+    saveGuessedDateTimeout(null);
+    this.savedGuessedTimeout.set(null);
+    for (const { name } of SCENARIO_LABELS) saveAlwaysAnswer(name, null);
+    this.alwaysAnswers.set({});
     saveAo3TimeZone(null);
     this.ao3Zone.set(this.browserZone);
     this.savedAnswers.set({});
@@ -447,7 +518,8 @@ export class UserSettings implements OnDestroy {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `the helper answered ${response.status}`);
       this.ini.set(body as IniFile);
-      this.say(`Saved to settings.ini: ${setting.key}=${value.trim()} - from the next run`);
+      const words = this.iniWords(setting.key, value.trim());
+      this.say(`Saved to settings.ini: ${setting.key}=${value.trim()}${words !== value.trim() ? ` (${words})` : ''} - from the next run`);
       // the run window reads these through the config, so it sees the new value at once
       void this.jobs.loadConfig();
     } catch (e) {

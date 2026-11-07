@@ -259,16 +259,6 @@ def test_the_index_is_read_through_the_page(page):
     assert [x['id'] for x in shared.read_index(fileops)] == ['111', '222']
 
 
-def test_undated_files_are_dated_where_they_sit(page):
-    page.put('works/34816549 No Paths - Cal.html', b'fic')
-    fileops = library(page)
-    existing = shared.scan_downloaded_works(fileops.worksfolder, ['HTML'], storage=fileops.storage)
-
-    result = shared.stamp_undated_works(fileops, existing, {'34816549'}, '2024-06-01', 50)
-
-    assert (result['renamed'], result['skipped']) == (1, 0)
-    assert page.names() == ['works/34816549 No Paths - Cal 2024-06-01.html']
-
 # endregion
 
 

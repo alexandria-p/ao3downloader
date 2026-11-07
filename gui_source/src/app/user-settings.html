@@ -164,12 +164,13 @@
     <!-- collapsible: a long list, seldom changed -->
     <details class="group questions">
       <summary class="group-head">
-        <h3>Questions a run may ask</h3>
+        <h3>Defaults used during a run</h3>
         <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
       </summary>
       <p class="hint">
-        What a run takes when nobody answers a question in time. A background run starts with
-        these as its answers, and you can still change them in the run's own window.
+        What happens when a run comes across a question, but you don't answer before it times
+        out. Note that the answers you choose while setting up a background run will override
+        these.
       </p>
       <ul class="rows">
         <li class="row" data-question-setting="timeout">
@@ -187,6 +188,23 @@
             aria-label="Minutes a question waits for you"
             [value]="questionTimeout()"
             (change)="setQuestionTimeout($any($event.target).value, $any($event.target))"
+          />
+        </li>
+        <li class="row" data-question-setting="guessed-timeout">
+          <div class="about">
+            <span class="name">
+              Minutes a question about a file with no date in its name waits
+              <span class="default">default: {{ helperGuessedTimeout() }}</span>
+            </span>
+            <span class="description">Replace it, or keep it? A run can ask one for every work and format, so these wait less. 0 takes the default at once.</span>
+          </div>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            aria-label="Minutes a question about a file with no date in its name waits"
+            [value]="guessedTimeout()"
+            (change)="setGuessedTimeout($any($event.target).value, $any($event.target))"
           />
         </li>
         @for (question of questions; track question.name) {
@@ -212,6 +230,37 @@
       </ul>
     </details>
   }
+
+  <!-- collapsible: a long list, seldom changed -->
+  <details class="group always-answers">
+    <summary class="group-head">
+      <h3>Answers to always use</h3>
+      <span class="saved-to" title="Kept in this browser's own storage, on this computer - another browser, or another computer, has its own">Saved to this browser</span>
+    </summary>
+    <p class="hint">
+      A file whose name has no date written the way this app writes one is never replaced
+      without asking. When a run asks, you can tick <em>Always choose this</em> - and that case
+      is never asked about again, the answer you gave taken instead. Change one here, or choose
+      <em>Ask every time</em> to be asked again.
+    </p>
+    <ul class="rows">
+      @for (scenario of scenarios; track scenario.name) {
+        <li class="row" [attr.data-always]="scenario.name">
+          <div class="about">
+            <span class="name">{{ scenario.label }}</span>
+          </div>
+          <select
+            [attr.aria-label]="scenario.label"
+            (change)="setAlways(scenario.name, scenario.label, $any($event.target).value)"
+          >
+            <option value="" [selected]="!alwaysAnswers()[scenario.name]">Ask every time</option>
+            <option value="yes" [selected]="alwaysAnswers()[scenario.name] === 'yes'">Always: Replace it</option>
+            <option value="no" [selected]="alwaysAnswers()[scenario.name] === 'no'">Always: Keep mine</option>
+          </select>
+        </li>
+      }
+    </ul>
+  </details>
 
   <!-- collapsible: a long list, seldom changed -->
   <details class="group prompts">
@@ -280,7 +329,7 @@
               <div class="about">
                 <span class="name">
                   <code>{{ setting.key }}</code>
-                  <span class="default">default: {{ setting.default === '' ? '(empty)' : setting.default }}</span>
+                  <span class="default">default: {{ setting.default === '' ? '(empty)' : iniWords(setting.key, setting.default) }}</span>
                 </span>
                 <span class="description">{{ setting.about }}</span>
               </div>
@@ -302,7 +351,7 @@
                     (change)="editIni(setting, $any($event.target).value, $any($event.target))"
                   >
                     @for (choice of setting.choices ?? []; track choice) {
-                      <option [value]="choice" [selected]="setting.value === choice">{{ choice }}</option>
+                      <option [value]="choice" [selected]="setting.value === choice">{{ iniWords(setting.key, choice) }}</option>
                     }
                   </select>
                 }

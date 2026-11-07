@@ -10,7 +10,7 @@
  * only means a prompt is shown again, or the helper's own default file types are ticked.
  */
 
-import type { QuestionName } from './jobs';
+import type { DefaultName, Scenario } from './jobs';
 import { safeGet, safeRemove, safeSet } from './storage';
 
 export const BROWSER_NOTICE_KEY = 'ao3.browserNoticeSeen';
@@ -23,6 +23,10 @@ export const UPDATE_BANNER_KEY = 'ao3.updateCheckDismissed';
 export const DEFAULT_FILETYPES_KEY = 'ao3.defaultFiletypes';
 export const ANSWER_DEFAULTS_KEY = 'ao3.answerDefaults';
 export const QUESTION_TIMEOUT_KEY = 'ao3.questionTimeoutMinutes';
+export const GUESSED_DATE_TIMEOUT_KEY = 'ao3.guessedDateTimeoutMinutes';
+export const BUILT_IN_GUESSED_DATE_TIMEOUT = 1;
+/** answers you chose to always use for a case of a file without the app's own date */
+export const ALWAYS_ANSWERS_KEY = 'ao3.alwaysAnswers';
 export const AO3_TIME_ZONE_KEY = 'ao3.ao3TimeZone';
 
 export type PromptArea = 'File imports' | 'Your library' | 'Runs' | 'Updates';
@@ -165,14 +169,25 @@ export function startingFiletypes(config: { filetypes: string[]; forced: string[
  * fill a background run's up-front answers.
  */
 export interface QuestionDefault {
-  name: QuestionName;
+  name: DefaultName;
   label: string;
   choices: { value: string; label: string }[];
 }
 
+/** the six cases of a file without the app's own date, as User settings words them */
+export const SCENARIO_LABELS: { name: Scenario; label: string }[] = [
+  { name: 'ao3-older', label: "From AO3: your file's date is guessed, and looks older than AO3's version" },
+  { name: 'ao3-newer', label: "From AO3: your file's date is guessed, and looks the same as AO3's version or newer" },
+  { name: 'ao3-unknown', label: "From AO3: no date can be read from your file's name" },
+  { name: 'fichub-older', label: "From FicHub: your file's date is guessed, and looks older than FicHub's copy" },
+  { name: 'fichub-newer', label: "From FicHub: your file's date is guessed, and looks the same as FicHub's copy or newer" },
+  { name: 'fichub-unknown', label: "From FicHub: no date can be read from your file's name" },
+];
+
+// worded as the question's own buttons are, so a setting reads as the answer it stands for
+const KEEP_OR_REPLACE = [{ value: 'no', label: 'Keep mine' }, { value: 'yes', label: 'Replace it' }];
+
 export const QUESTION_DEFAULTS: QuestionDefault[] = [
-  { name: 'undated', label: 'Files with no date in their name',
-    choices: [{ value: 'skip', label: 'Leave them as they are' }, { value: 'refresh', label: 'Download them again' }] },
   { name: 'quick-floor', label: 'A quick scan with no earlier scan to measure back to',
     choices: [{ value: 'full', label: 'Read the whole listing' }, { value: 'since', label: 'Go back to when the index was last written' }] },
   { name: 'duplicates', label: 'Older copies beside the newest',
@@ -183,22 +198,23 @@ export const QUESTION_DEFAULTS: QuestionDefault[] = [
     choices: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
   { name: 'overwrite-older', label: 'Let an overwriting run replace a copy newer than the one it writes',
     choices: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes' }] },
+  ...SCENARIO_LABELS.map(({ name, label }) => ({ name, label, choices: KEEP_OR_REPLACE })),
 ];
 
 /** the built-in default of each question: what it took before any of this was a setting */
 export const BUILT_IN_ANSWERS = Object.fromEntries(
   QUESTION_DEFAULTS.map((q) => [q.name, q.choices[0].value]),
-) as Record<QuestionName, string>;
+) as Record<DefaultName, string>;
 export const BUILT_IN_QUESTION_TIMEOUT = 30;
 
 /** this browser's default answers, only those that are real answers to their question */
-export function savedAnswerDefaults(): Partial<Record<QuestionName, string>> {
+export function savedAnswerDefaults(): Partial<Record<DefaultName, string>> {
   const raw = safeGet(ANSWER_DEFAULTS_KEY);
   if (!raw) return {};
   try {
     const saved = JSON.parse(raw);
     if (!saved || typeof saved !== 'object') return {};
-    const kept: Partial<Record<QuestionName, string>> = {};
+    const kept: Partial<Record<DefaultName, string>> = {};
     for (const q of QUESTION_DEFAULTS) {
       if (q.choices.some((c) => c.value === saved[q.name])) kept[q.name] = saved[q.name];
     }
@@ -208,9 +224,35 @@ export function savedAnswerDefaults(): Partial<Record<QuestionName, string>> {
   }
 }
 
-export function saveAnswerDefaults(answers: Partial<Record<QuestionName, string>> | null): void {
+export function saveAnswerDefaults(answers: Partial<Record<DefaultName, string>> | null): void {
   if (answers === null || Object.keys(answers).length === 0) safeRemove(ANSWER_DEFAULTS_KEY);
   else safeSet(ANSWER_DEFAULTS_KEY, JSON.stringify(answers));
+}
+
+/** the answers this browser always uses, by case - only real ones */
+export function savedAlwaysAnswers(): Partial<Record<Scenario, 'yes' | 'no'>> {
+  const raw = safeGet(ALWAYS_ANSWERS_KEY);
+  if (!raw) return {};
+  try {
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object') return {};
+    const kept: Partial<Record<Scenario, 'yes' | 'no'>> = {};
+    for (const { name } of SCENARIO_LABELS) {
+      if (saved[name] === 'yes' || saved[name] === 'no') kept[name] = saved[name];
+    }
+    return kept;
+  } catch {
+    return {};
+  }
+}
+
+/** always use `choice` for a case from now on, or (null) ask again every time */
+export function saveAlwaysAnswer(scenario: Scenario, choice: 'yes' | 'no' | null): void {
+  const answers = savedAlwaysAnswers();
+  if (choice === null) delete answers[scenario];
+  else answers[scenario] = choice;
+  if (Object.keys(answers).length === 0) safeRemove(ALWAYS_ANSWERS_KEY);
+  else safeSet(ALWAYS_ANSWERS_KEY, JSON.stringify(answers));
 }
 
 /** this browser's question timeout in minutes, or null for the helper's */
@@ -219,6 +261,28 @@ export function savedQuestionTimeout(): number | null {
   if (raw === null || raw === '') return null;
   const minutes = Number(raw);
   return Number.isInteger(minutes) && minutes >= 0 ? minutes : null;
+}
+
+/** this browser's wait for a question about a file without the app's own date, or null */
+export function savedGuessedDateTimeout(): number | null {
+  const raw = safeGet(GUESSED_DATE_TIMEOUT_KEY);
+  if (raw === null || raw === '') return null;
+  const minutes = Number(raw);
+  return Number.isInteger(minutes) && minutes >= 0 ? minutes : null;
+}
+
+export function saveGuessedDateTimeout(minutes: number | null): void {
+  if (minutes === null) safeRemove(GUESSED_DATE_TIMEOUT_KEY);
+  else safeSet(GUESSED_DATE_TIMEOUT_KEY, String(minutes));
+}
+
+/** a YYYY-MM-DD date as a reader writes it - 13 May 2026 - or as it was if it is not one */
+export function writtenDate(stamp: string | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(stamp ?? '');
+  if (!m) return stamp ?? '';
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
+    'September', 'October', 'November', 'December'];
+  return `${Number(m[3])} ${months[Number(m[2]) - 1]} ${m[1]}`;
 }
 
 export function saveQuestionTimeout(minutes: number | null): void {

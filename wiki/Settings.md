@@ -71,12 +71,18 @@ message at the bottom says so. Prompts and formats are kept in this browser only
 | `EnableConsoleLogging` | `false` | Prints every request and every line a run says to the helper's window. Always on in the Windows/Mac/Linux app. Never prints your password or passcode. |
 | `PausedRunTimeoutMinutes` | `10` | Minutes a paused background run waits before it's abandoned. `0` never. |
 | `QuestionTimeoutMinutes` | `30` | Minutes a question a run stops to ask waits for you before it takes its default answer (below). `0` takes the default at once. |
-| `UndatedFilesAnswer` | `skip` | Files with no date in their name: `skip` leaves them, `refresh` downloads them again. |
 | `QuickScanFloorAnswer` | `full` | A quick scan with nothing to measure back to: `full` reads the whole listing, `since` goes back to when the index was last written. |
 | `DuplicateCopiesAnswer` | `leave` | Older copies beside the newest: `leave` keeps them, `newest` deletes the older ones. |
 | `FicHubAnswer` | `yes` | Ask FicHub for works AO3 would not give. |
 | `FicHubOlderCopyAnswer` | `yes` | Take a format FicHub only has an older version of, when you have no copy at all. |
 | `OverwriteNewerCopyAnswer` | `no` | Let an overwriting run replace a copy newer than the one it is writing. |
+| `GuessedDateQuestionTimeoutMinutes` | `1` | How long a question about a file with no date in its name waits before taking its default. `0` takes it at once. |
+| `AO3GuessedOlderAnswer` | `no` | A file without the app's own date, whose guessed date looks older than AO3's version: `no` keeps it, `yes` replaces it. |
+| `AO3GuessedNewerAnswer` | `no` | The same, when the guessed date looks the same as AO3's or newer. |
+| `AO3UnknownDateAnswer` | `no` | The same, when no date can be read from the name. |
+| `FicHubGuessedOlderAnswer` | `no` | As `AO3GuessedOlderAnswer`, for FicHub's copy. |
+| `FicHubGuessedNewerAnswer` | `no` | As `AO3GuessedNewerAnswer`, for FicHub's copy. |
+| `FicHubUnknownDateAnswer` | `no` | As `AO3UnknownDateAnswer`, for FicHub's copy. |
 | `RequestTimeoutSeconds` | `60` | How long one request to AO3 may take before it's tried again. |
 | `StillWaitingSeconds` | `15` | How often the log says "still waiting" while a request is slow. |
 | `MaintenanceRetries` | `2` | Extra tries when AO3 shows its maintenance page. |
@@ -91,7 +97,9 @@ message at the bottom says so. Prompts and formats are kept in this browser only
 
 The default answers are also what a background run takes when it was not told. A stop always takes the answer that changes nothing. **Reset to defaults** puts all of these back to the values above.
 
-**On a hosted copy** the page can't edit settings.ini, so User settings has its own **Questions a run may ask** section instead: the minutes a question waits and each default answer, saved to this browser. They're sent with every run, and a background run's up-front answers start from them. Reset to defaults goes back to the hosted copy's own (the values above unless its deployment changed them).
+**On a hosted copy** the page can't edit settings.ini, so User settings has its own **Defaults used during a run** section instead: the minutes a question waits and each default answer, saved to this browser. They're sent with every run, and a background run's up-front answers start from them. Reset to defaults goes back to the hosted copy's own (the values above unless its deployment changed them).
+
+**Answers to always use** (every copy, saved to this browser): for each of the six cases of a file without the app's own date, *Ask every time*, *Always: Replace it* or *Always: Keep mine* (worded as the question's own buttons are). Ticking **Always choose this...** on a question during a run sets the same thing. A case with an answer here is never asked about - the answer is sent with every run. Choose *Ask every time* to be asked again.
 
 ## Your file is only ever added to
 

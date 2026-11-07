@@ -405,6 +405,23 @@ describe('UserSettings', () => {
     expect(posted).toEqual([{ FicHubAnswer: 'no' }]);
   });
 
+  it('words settings.ini\'s answers for a file with no date of ours as the question\'s own buttons', async () => {
+    iniAnswer = { editable: true, file: 'settings.ini', settings: [
+      { key: 'AO3GuessedOlderAnswer', value: 'no', default: 'no', kind: 'choice', choices: ['no', 'yes'],
+        about: 'a guessed date older than AO3\'s' },
+    ] };
+    await open();
+
+    const row = element.querySelector('[data-setting="AO3GuessedOlderAnswer"]')!;
+    expect([...row.querySelectorAll('option')].map((x) => x.textContent?.trim())).toEqual(['Keep mine', 'Replace it']);
+    expect(row.querySelector('.default')?.textContent).toContain('default: Keep mine');
+
+    // the file still holds no / yes
+    choose('[data-setting="AO3GuessedOlderAnswer"] select', 'yes');
+    await settle();
+    expect(posted).toEqual([{ AO3GuessedOlderAnswer: 'yes' }]);
+  });
+
   it('says when the helper would not take a value, and puts back what the file still says', async () => {
     await open();
     const helper = TestBed.inject(HelperConnection);
@@ -445,7 +462,7 @@ describe('UserSettings', () => {
     expect(questions.open).toBe(false);
     // under Appearance, above Prompts
     const order = [...element.querySelectorAll('.group')].map((g) => g.classList[1]);
-    expect(order.slice(0, 5)).toEqual(['formats', 'ao3-zone', 'appearance', 'questions', 'prompts']);
+    expect(order.slice(0, 6)).toEqual(['formats', 'ao3-zone', 'appearance', 'questions', 'always-answers', 'prompts']);
     expect(questions.querySelector('summary .saved-to')?.textContent?.trim()).toBe('Saved to this browser');
 
     const fichub = element.querySelector<HTMLSelectElement>('[data-question-setting="fichub"] select')!;
@@ -462,6 +479,25 @@ describe('UserSettings', () => {
     await settle();
     const listed = element.querySelector('.reset-window, [role="dialog"]')?.textContent ?? '';
     expect(listed).toContain('Minutes a question waits for you');
+  });
+
+  it('lists the six cases a run can always answer, changes one, and forgets one so it asks again', async () => {
+    localStorage.setItem('ao3.alwaysAnswers', JSON.stringify({ 'ao3-older': 'yes' }));
+    await open();
+    const rows = [...element.querySelectorAll('[data-always]')].map((r) => r.getAttribute('data-always'));
+    expect(rows).toEqual(['ao3-older', 'ao3-newer', 'ao3-unknown', 'fichub-older', 'fichub-newer', 'fichub-unknown']);
+    expect(element.querySelector<HTMLSelectElement>('[data-always="ao3-older"] select')!.value).toBe('yes');
+    // worded as the question's own buttons
+    expect([...element.querySelectorAll('[data-always="ao3-older"] option')].map((x) => x.textContent?.trim()))
+      .toEqual(['Ask every time', 'Always: Replace it', 'Always: Keep mine']);
+
+    choose('[data-always="fichub-unknown"] select', 'no');
+    await settle();
+    expect(JSON.parse(localStorage.getItem('ao3.alwaysAnswers')!)).toEqual({ 'ao3-older': 'yes', 'fichub-unknown': 'no' });
+
+    choose('[data-always="ao3-older"] select', '');
+    await settle();
+    expect(JSON.parse(localStorage.getItem('ao3.alwaysAnswers')!)).toEqual({ 'fichub-unknown': 'no' });
   });
 
   it('starts the AO3 time zone at this browser\'s own, keeps another when chosen, and Reset puts it back', async () => {

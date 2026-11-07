@@ -607,8 +607,8 @@ def test_run_bookmarks_walks_the_listing_when_images_were_asked_for(fake_environ
 
 # region stopping mid-run to ask a question
 
-QUESTION = {'name': 'undated', 'count': 12, 'choices': list(server.UNDATED_CHOICES)}
-DEFAULT = {'choice': server.UNDATED_SKIP, 'date': ''}
+QUESTION = {'name': 'duplicates', 'count': 12, 'choices': list(server.DUPLICATES_CHOICES)}
+DEFAULT = {'choice': server.DUPLICATES_LEAVE}
 
 
 def a_job() -> server.Job:
@@ -618,11 +618,11 @@ def a_job() -> server.Job:
 def test_a_question_gets_the_answer_that_comes_back():
     job = a_job()
     threading.Timer(
-        0.05, lambda: job.reply({'choice': server.UNDATED_REFRESH, 'date': ''})).start()
+        0.05, lambda: job.reply({'choice': server.DUPLICATES_NEWEST, 'date': ''})).start()
 
     answer = job.ask(QUESTION, DEFAULT)
 
-    assert answer['choice'] == server.UNDATED_REFRESH
+    assert answer['choice'] == server.DUPLICATES_NEWEST
 
 
 def test_asking_tells_the_ui_what_is_being_asked():
@@ -633,7 +633,7 @@ def test_asking_tells_the_ui_what_is_being_asked():
 
     asked = [e for e in job.history if e['type'] == progress.QUESTION]
     assert asked[0]['count'] == 12
-    assert asked[0]['choices'] == list(server.UNDATED_CHOICES)
+    assert asked[0]['choices'] == list(server.DUPLICATES_CHOICES)
 
 
 def test_a_stop_releases_a_run_waiting_on_a_question():
@@ -653,8 +653,33 @@ def test_a_question_nobody_answers_gives_up_rather_than_waiting_for_ever(monkeyp
 
 
 def test_the_default_is_always_the_option_that_changes_nothing():
-    # whatever goes wrong, a run must not rename or refetch a library on its own
-    assert DEFAULT['choice'] == server.UNDATED_SKIP
+    # whatever goes wrong, a run must not delete or refetch a library on its own
+    assert DEFAULT['choice'] == server.DUPLICATES_LEAVE
+
+
+PER_WORK = {'name': server.INFERRED_DATE_QUESTION, 'scenario': 'ao3-unknown', 'count': 1,
+            'choices': ['yes', 'no']}
+KEEP = {'choice': 'no'}
+
+
+def test_once_a_per_work_question_goes_unanswered_the_rest_are_not_waited_on(monkeypatch):
+    # one a work: half an hour each would hold an unattended run for days
+    monkeypatch.setattr(server, 'unsure_question_timeout_seconds', lambda: 0.01)
+    job = a_job()
+    job.unsure_timeout_minutes = None
+
+    assert job.ask(PER_WORK, KEEP) == KEEP
+    asked = len([e for e in job.history if e['type'] == progress.QUESTION])
+    assert job.ask(PER_WORK, KEEP) == KEEP
+    assert len([e for e in job.history if e['type'] == progress.QUESTION]) == asked
+
+
+def test_ticking_always_means_nothing_to_a_question_asked_once():
+    job = a_job()
+    threading.Timer(0.05, lambda: job.reply({'choice': 'newest', 'always': True})).start()
+    job.ask(QUESTION, DEFAULT)
+
+    assert job.always_answers == {}
 
 
 def answering(job_id, body) -> dict:
@@ -735,10 +760,10 @@ def test_a_new_run_does_not_start_out_paused():
 
 def test_an_answer_reaches_the_run_that_asked():
     with registered(a_job()) as job:
-        sent = answering(job.id, {'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
+        sent = answering(job.id, {'choice': 'yes', 'date': '2024-06-01', 'always': True})
 
         assert sent['status'] == 202
-        assert job.answer == {'choice': server.UNDATED_STAMP, 'date': '2024-06-01'}
+        assert job.answer == {'choice': 'yes', 'date': '2024-06-01', 'always': True}
 
 
 @pytest.mark.parametrize('choice', ['', None, 'delete everything', 'Stamp'])
@@ -755,170 +780,13 @@ def test_an_answer_that_is_not_one_of_the_choices_is_refused(choice):
 def test_a_date_that_cannot_be_read_does_not_reach_the_run(given):
     # renaming a library after a half-understood date would be worse than doing nothing
     with registered(a_job()) as job:
-        answering(job.id, {'choice': server.UNDATED_STAMP, 'date': given})
+        answering(job.id, {'choice': 'yes', 'date': given})
 
         assert job.answer['date'] == ''
 
 
 def test_answering_a_job_that_is_gone_says_so():
-    assert answering('no-such-job', {'choice': server.UNDATED_SKIP})['status'] == 404
-
-# endregion
-
-
-# region what to do about files with no date
-
-def asked_job(answer: dict) -> MagicMock:
-    job = MagicMock()
-    job.ask.return_value = answer
-    return job
-
-
-def undated_plan(links):
-    return {'stale': [], 'undated': list(links), 'superseded': {}}
-
-
-def test_nothing_is_asked_when_every_file_already_has_a_date(fake_environment):
-    job = asked_job(DEFAULT)
-
-    with patch.object(server.shared, 'plan_downloads', return_value=undated_plan([])):
-        refresh, stamped = server.settle_undated(
-            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
-
-    job.ask.assert_not_called()
-    assert (refresh, stamped) == (False, 0)
-
-
-def test_choosing_to_skip_leaves_them_exactly_as_they_are(fake_environment):
-    job = asked_job({'choice': server.UNDATED_SKIP, 'date': ''})
-
-    with patch.object(server.shared, 'plan_downloads', return_value=undated_plan(['a'])), \
-         patch.object(server.shared, 'stamp_undated_works') as stamp:
-        refresh, stamped = server.settle_undated(
-            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
-
-    stamp.assert_not_called()
-    assert (refresh, stamped) == (False, 0)
-
-
-def test_choosing_to_refetch_makes_them_count_as_out_of_date(fake_environment):
-    job = asked_job({'choice': server.UNDATED_REFRESH, 'date': ''})
-
-    with patch.object(server.shared, 'plan_downloads', return_value=undated_plan(['a'])), \
-         patch.object(server.shared, 'stamp_undated_works') as stamp:
-        refresh, stamped = server.settle_undated(
-            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
-
-    stamp.assert_not_called()
-    assert refresh is True
-
-
-def test_choosing_to_date_them_renames_them_and_asks_for_no_downloads(fake_environment):
-    job = asked_job({'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
-
-    with patch.object(server.shared, 'plan_downloads',
-                      return_value=undated_plan([RECORDS[0]['link']])), \
-         patch.object(server.shared, 'stamp_undated_works',
-                      return_value={'renamed': 7, 'skipped': 0}) as stamp:
-        refresh, stamped = server.settle_undated(
-            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
-
-    assert stamp.call_args.args[3] == '2024-06-01'
-    assert (refresh, stamped) == (False, 7)
-
-
-def test_only_the_works_that_were_asked_about_are_dated(fake_environment):
-    # what is handed over to be renamed is the works the question named, not the whole
-    # folder scan it was planned from - which holds every download, not just this run's
-    job = asked_job({'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
-    whole_folder = {'111': {'HTML': {'path': 'a.html', 'date': None}},
-                    '999': {'HTML': {'path': 'b.html', 'date': None}}}
-
-    with patch.object(server.shared, 'plan_downloads',
-                      return_value=undated_plan([RECORDS[0]['link']])), \
-         patch.object(server.shared, 'stamp_undated_works',
-                      return_value={'renamed': 1, 'skipped': 0}) as stamp:
-        server.settle_undated(
-            job, fake_environment['fileops'], RECORDS, whole_folder, ['HTML'])
-
-    assert stamp.call_args.args[2] == {'111'}
-
-
-def test_a_work_the_run_is_refetching_anyway_is_not_dated(fake_environment):
-    # a work behind in one format and undated in another counts as stale, not undated, so
-    # it is not in the count the user was shown and must not be renamed under their answer
-    job = asked_job({'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
-    records = RECORDS + [{'id': '222', 'link': 'https://archiveofourown.org/works/222'}]
-
-    with patch.object(server.shared, 'plan_downloads',
-                      return_value={'stale': [records[1]['link']],
-                                    'undated': [records[0]['link']], 'superseded': {}}), \
-         patch.object(server.shared, 'stamp_undated_works',
-                      return_value={'renamed': 1, 'skipped': 0}) as stamp:
-        server.settle_undated(job, fake_environment['fileops'], records, {}, ['HTML'])
-
-    assert stamp.call_args.args[2] == {'111'}
-
-
-def test_choosing_to_date_them_without_a_usable_date_changes_nothing(fake_environment):
-    job = asked_job({'choice': server.UNDATED_STAMP, 'date': ''})
-
-    with patch.object(server.shared, 'plan_downloads', return_value=undated_plan(['a'])), \
-         patch.object(server.shared, 'stamp_undated_works') as stamp:
-        refresh, stamped = server.settle_undated(
-            job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
-
-    stamp.assert_not_called()
-    assert (refresh, stamped) == (False, 0)
-
-
-def test_the_question_is_asked_before_anything_is_downloaded(fake_environment):
-    # asking afterwards would be too late to act on
-    order: list[str] = []
-    job = MagicMock()
-    # real options, because a mock answers every option with something truthy - and one of
-    # them decides whether the question is asked at all
-    job.options = server.resolve_options(None)
-    job.ask.side_effect = lambda q, d: order.append('asked') or DEFAULT
-
-    with patch.object(server.shared, 'scan_downloaded_works', return_value={}), \
-         patch.object(server.shared, 'plan_downloads',
-                      side_effect=lambda *a, **k: order.append('planned') or undated_plan(['a'])):
-        server.plan_refresh(job, fake_environment['fileops'], RECORDS, ['HTML'], MagicMock())
-
-    assert order.index('asked') < order.index('planned', order.index('asked'))
-
-
-def overwriting_job():
-    job = MagicMock()
-    job.options = server.resolve_options({'overwrite': True})
-    return job
-
-
-def test_a_run_told_to_overwrite_never_stops_to_ask_about_undated_files(fake_environment):
-    # the question decides what happens to copies that cannot be judged, and overwriting
-    # has already decided it - for those and for every other copy
-    job = overwriting_job()
-
-    with patch.object(server.shared, 'scan_downloaded_works', return_value={}), \
-         patch.object(server.shared, 'plan_downloads', return_value=undated_plan([])), \
-         patch.object(server, 'settle_undated') as ask:
-        server.plan_refresh(job, fake_environment['fileops'], RECORDS, ['HTML'], MagicMock())
-
-    ask.assert_not_called()
-
-
-def test_a_run_told_to_overwrite_says_so_when_it_plans(fake_environment):
-    job = overwriting_job()
-
-    with patch.object(server.shared, 'scan_downloaded_works', return_value={}), \
-         patch.object(server.shared, 'plan_downloads',
-                      return_value=undated_plan([])) as planned:
-        plan = server.plan_refresh(job, fake_environment['fileops'], RECORDS, ['HTML'],
-                                   MagicMock())
-
-    assert planned.call_args.kwargs['overwrite'] is True
-    assert plan['overwrite'] is True
+    assert answering('no-such-job', {'choice': 'no'})['status'] == 404
 
 # endregion
 
@@ -1099,7 +967,7 @@ FINISHED = {'id': '222', 'link': 'https://archiveofourown.org/works/222',
             'title': 'Done', 'chapters_published': 5, 'chapters_total': 5}
 
 
-SKIP_UNDATED = {'choice': server.UNDATED_SKIP, 'date': ''}
+KEEP_ANSWER = {'choice': 'no', 'date': ''}
 
 
 def updating(ao3, index, **patches):
@@ -1113,9 +981,9 @@ def updating(ao3, index, **patches):
         patch.object(server.shared, 'plan_downloads',
                      return_value=patches.get('plan',
                                               {'stale': [], 'undated': [], 'superseded': {}})),
-        # a run asking about undated files waits for a reply, which would hang a test that
-        # is not about the question. the ones that are drive Job.ask directly.
-        patch.object(server.Job, 'ask', return_value=patches.get('answer', SKIP_UNDATED)),
+        # a run asking about a file with no date waits for a reply, which would hang a test
+        # that is not about the question. the ones that are drive Job.ask directly.
+        patch.object(server.Job, 'ask', return_value=patches.get('answer', KEEP_ANSWER)),
     ]
 
 
@@ -1166,7 +1034,7 @@ def test_run_update_asks_ao3_for_nothing_when_the_index_lists_nothing_unfinished
 def test_run_update_downloads_an_undated_copy_when_that_is_what_was_asked_for(
         fake_environment):
     # an undated file has no date to compare against, so nothing can judge it. the answer
-    # to the question decides, and 'refresh' means treat every one of them as behind
+    # to the per-work question decides
     ao3 = MagicMock()
     ao3.refresh_one.side_effect = lambda record: record
     ao3.failures = []
@@ -1174,11 +1042,9 @@ def test_run_update_downloads_an_undated_copy_when_that_is_what_was_asked_for(
     run_update_with(
         fake_environment, ao3, [INCOMPLETE],
         existing={'111': {'HTML': {'path': 'a.html', 'date': None}}},
-        answer={'choice': server.UNDATED_REFRESH, 'date': ''},
-        # stale and superseded always move together in a real plan - the second names the
-        # exact files the first decided to replace, which is what says *which format*
-        plan={'stale': ['https://archiveofourown.org/works/111'], 'undated': [],
-              'superseded': {'https://archiveofourown.org/works/111': {'HTML': 'a.html'}}})
+        answer={'choice': 'yes', 'date': ''},
+        plan={'stale': [], 'undated': ['https://archiveofourown.org/works/111'],
+              'superseded': {}})
 
     fetched = ao3.download_one_indexed.call_args.args[0]
     assert fetched['id'] == '111'
@@ -1186,7 +1052,7 @@ def test_run_update_downloads_an_undated_copy_when_that_is_what_was_asked_for(
 
 def test_run_update_leaves_an_undated_copy_alone_when_that_is_what_was_asked_for(
         fake_environment):
-    # 'skip' is the default and the safe answer: an undated copy is left exactly as it is
+    # keeping it is the default and the safe answer: an undated copy is left exactly as it is
     ao3 = MagicMock()
     ao3.refresh_one.side_effect = lambda record: record
     ao3.failures = []
@@ -2288,25 +2154,6 @@ def test_a_quick_scan_says_it_is_indexing_since_the_last_run():
     assert dict(server.step_plan(job))['index'] == strings.STEP_INDEX_SINCE
 
 
-def test_a_quick_scan_settles_undated_files_after_it_has_indexed(fake_environment):
-    # the answer decides which copies count as behind, so it has to be asked before
-    # anything is fetched - and it can only be asked once there is an index to ask about
-    order: list[str] = []
-    job = server.Job(server.ACTION_QUICK, ['JSON', 'HTML'], 'Someone')
-    ao3 = MagicMock()
-    ao3.get_metadata.side_effect = lambda *a, **k: order.append('indexed') or RECORDS
-
-    with patch.object(server, 'Ao3', return_value=ao3), \
-         patch.object(server.runs, 'last_successful', return_value=None), \
-         patch.object(server.shared, 'scan_downloaded_works', return_value={}), \
-         patch.object(server.shared, 'plan_downloads', return_value=undated_plan(['a'])), \
-         patch.object(server, 'settle_undated',
-                      side_effect=lambda *a: order.append('asked') or (False, 0)):
-        server.run_quick(job, fake_environment['fileops'], fake_environment['repo'], None)
-
-    assert order == ['indexed', 'asked']
-
-
 def test_a_quick_scan_given_a_date_range_uses_it_instead_of_the_last_run(fake_environment):
     # the two are the same mechanism given a different number; measuring back to both
     # would mean measuring back to neither
@@ -3376,69 +3223,6 @@ def test_an_unknown_action_names_what_this_helper_does_understand():
     assert 'bookmarks' in error
     # the usual cause is an old helper, not a malformed request
     assert 'older code' in error
-
-# endregion
-
-
-# region undated files are named, and so are the files dated
-
-def test_the_undated_count_says_works_and_files_apart(fake_environment, capsys):
-    # a work saved in two formats is two files - '12 works' then 'dated 24 files' read as
-    # a miscount when only one of the two numbers was ever said
-    job = asked_job({'choice': server.UNDATED_SKIP, 'date': ''})
-    folder = {'111': {'HTML': {'path': 'a.html', 'date': None},
-                      'PDF': {'path': 'a.pdf', 'date': None}}}
-
-    with patch.object(server.shared, 'plan_downloads',
-                      return_value=undated_plan([RECORDS[0]['link']])):
-        server.settle_undated(job, fake_environment['fileops'], RECORDS, folder,
-                              ['HTML', 'PDF'])
-
-    out = capsys.readouterr().out
-    assert strings.AO3_INFO_UNDATED.format(1, 2) in out
-    assert strings.AO3_INFO_UNDATED_WORKS.format('111') in out
-
-
-def test_the_history_names_the_undated_works_and_the_files_given_a_date(fake_environment,
-                                                                        capsys):
-    job = asked_job({'choice': server.UNDATED_STAMP, 'date': '2024-06-01'})
-    folder = {'111': {'HTML': {'path': 'a.html', 'date': None}}}
-    renamed = [{'id': '111', 'from': 'a.html', 'to': 'a 2024-06-01.html'}]
-
-    with patch.object(server.shared, 'plan_downloads',
-                      return_value=undated_plan([RECORDS[0]['link']])), \
-         patch.object(server.shared, 'stamp_undated_works',
-                      return_value={'renamed': 1, 'skipped': 0, 'files': renamed}):
-        server.settle_undated(job, fake_environment['fileops'], RECORDS, folder, ['HTML'])
-
-    asked = job.record.choice.call_args.args[0]
-    assert asked['works'] == ['111']
-    assert asked['files'] == 1
-    job.record.amend_choice.assert_called_once_with({'renamed': renamed, 'renameSkipped': 0})
-    out = capsys.readouterr().out
-    assert strings.AO3_INFO_STAMPED.format(1, 1, '2024-06-01') in out
-    assert strings.AO3_INFO_STAMPED_FILE.format('a.html', 'a 2024-06-01.html') in out
-
-
-def test_a_choice_not_to_date_them_records_no_renames(fake_environment):
-    job = asked_job({'choice': server.UNDATED_SKIP, 'date': ''})
-
-    with patch.object(server.shared, 'plan_downloads',
-                      return_value=undated_plan([RECORDS[0]['link']])):
-        server.settle_undated(job, fake_environment['fileops'], RECORDS, {}, ['HTML'])
-
-    job.record.amend_choice.assert_not_called()
-
-
-def test_every_walk_down_your_bookmarks_marks_what_it_finds_as_bookmarked():
-    # the one place the answer is certain. a walk that forgot to say so would leave its
-    # fics looking as though nothing knew whether they were yours
-    import inspect
-    source = inspect.getsource(server)
-    # a walk goes through walk_listing, which hands its arguments on to get_metadata - so
-    # that call and walk_listing's own definition are the two not counted
-    calls = source.count('ao3.get_metadata(') - 1 + source.count('walk_listing(') - 1
-    assert calls > 1 and source.count('own_bookmarks=True') == calls
 
 # endregion
 

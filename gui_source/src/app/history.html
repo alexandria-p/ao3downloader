@@ -258,7 +258,9 @@
 
         @if (run.choices.length) {
           <div class="run-choices">
+            <p class="choices-head"><strong>Questions asked</strong> ({{ run.choices.length | number }})</p>
             @for (choice of run.choices; track $index) {
+              <div class="run-choice">
               @if (choice.question === 'undated') {
                 <p>
                   Asked about <strong>{{ choice.count | number }}</strong> undated
@@ -318,11 +320,39 @@
                   {{ choice.formats?.join(', ') }} on disk, and chose
                   <strong>{{ choice.choice === 'no' ? 'not to take it' : 'to take the older version' }}</strong>.
                 </p>
+              } @else if (choice.question === 'inferred-date') {
+                <p class="inferred-choice">
+                  The {{ choice.formats?.join(', ') }} of work {{ choice.works?.join(', ') }}
+                  @for (file of choice.fileNames ?? []; track file) { - <code>{{ file }}</code> }
+                  - had no date in its name written the way this app writes one.
+                  @if (choice.formats?.length && choice.fileDates?.[choice.formats![0]]) {
+                    Its name looked dated {{ writtenDate(choice.fileDates![choice.formats![0]]) }} (a guess);
+                  } @else {
+                    No date could be read from its name;
+                  }
+                  {{ choice.source || 'AO3' }}'s version was dated
+                  {{ choice.date ? writtenDate(choice.date) : 'nothing' }}.
+                  @if (choice.recommended) {
+                    We recommended {{ choice.recommended === 'yes' ? 'replacing' : 'keeping' }} it.
+                  }
+                  Chose
+                  <strong>{{ choice.choice === 'no' ? 'to keep it'
+                    : choice.choice === 'recommended' ? 'to replace only what was recommended'
+                    : 'to replace it with ' + (choice.source || 'AO3') + '\'s version' }}</strong>.
+                </p>
               } @else if (choice.question === 'overwrite-older') {
                 <p>
                   The {{ choice.formats?.join(', ') }} of work {{ choice.works?.join(', ') }} on disk
                   was newer than the version this run would write, and chose
                   <strong>{{ choice.choice === 'yes' ? 'to replace it anyway' : 'to keep the newer copy' }}</strong>.
+                </p>
+              } @else if (choice.question === 'unindexed-copy') {
+                <p>
+                  Work {{ choice.works?.join(', ') }} had no index entry, so its
+                  {{ choice.formats?.join(', ') }} could not be judged by one. With the version from
+                  {{ choice.source || 'AO3' }} on offer@if (choice.recommended) { (recommended:
+                  {{ choice.recommended === 'recommended' ? 'some' : choice.recommended }})}, chose
+                  <strong>@if (choice.replaced?.length && choice.replaced!.length < (choice.formats?.length ?? 0)) {to replace only {{ choice.replaced!.join(', ') }}} @else if (choice.choice === 'yes' || choice.replaced?.length) {to replace it} @else {to keep the copy}</strong>.
                 </p>
               } @else if (choice.question === 'quick-floor') {
                 <p>
@@ -336,6 +366,11 @@
                   <strong>{{ choice.choice }}</strong>@if (choice.date) { ({{ choice.date }})}.
                 </p>
               }
+              <!-- whether you chose, or a default was taken and why - kept since the record learnt it -->
+              @if (howWords(choice); as how) {
+                <p class="how" [attr.data-how]="choice.how">{{ how }}</p>
+              }
+              </div>
             }
           </div>
         }

@@ -306,7 +306,8 @@
     <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('quick')">
       Quick Scan
     </button>
-    <button type="button" class="button" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('bookmarks')">
+    <!-- the two scans are the runs people should reach for, so both wear the accent -->
+    <button type="button" class="button primary" [disabled]="runsHeld()" [attr.title]="runsTitle()" (click)="openRun('bookmarks')">
       (Full scan) Reindex &amp; Update All
     </button>
 
@@ -410,8 +411,9 @@
   }
 
   <!-- the faq is worth reading before a folder is chosen, so it is not held behind one - nor
-       are the user settings, which belong to this browser and not to any folder -->
-  @if (isEmpty() && view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings') {
+       are the user settings, which belong to this browser and not to any folder, nor the DEBUG
+       tab, which is where dummy data is turned off with no folder open -->
+  @if (isEmpty() && view() !== 'faq' && view() !== 'history' && view() !== 'bug' && view() !== 'settings' && view() !== 'debug') {
     <section class="empty">
       <h2>Choose your downloads folder</h2>
       <p>
@@ -516,7 +518,7 @@
     <app-work-list
       [works]="works()"
       [owner]="owner()"
-      label="Bookmarks"
+      [label]="owner() || !data() ? 'Bookmarks' : 'Works'"
       [loading]="firstRead()"
       [note]="listingNote() || 'List not yet loaded'"
       [selectable]="true"

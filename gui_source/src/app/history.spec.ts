@@ -439,6 +439,63 @@ describe('History', () => {
     expect(said).toContain('the whole listing');
   });
 
+  it('lists the questions a run asked, each with how it was answered', async () => {
+    await show([
+      aRun({
+        choices: [
+          { at: '2026-09-13T12:05:00', question: 'unindexed-copy', choice: 'no', count: 1,
+            works: ['1'], formats: ['EPUB'], recommended: 'yes', source: 'AO3', how: 'timed-out',
+            replaced: [] },
+          { at: '2026-09-13T12:05:30', question: 'unindexed-copy', choice: 'recommended', count: 1,
+            works: ['2'], formats: ['PDF', 'HTML'], recommended: 'recommended', source: 'FicHub',
+            how: 'answered', replaced: ['PDF'] },
+          { at: '2026-09-13T12:06:00', question: 'fichub', choice: 'yes', count: 2, how: 'answered' },
+          // from before the record kept how
+          { at: '2026-09-13T12:07:00', question: 'quick-floor', choice: 'full', count: 40 },
+        ],
+      }),
+    ]);
+
+    const block = element.querySelector('.run-choices')!;
+    expect(block.querySelector('.choices-head')?.textContent).toContain('Questions asked');
+    const said = block.textContent ?? '';
+    expect(said).toContain('Work 1 had no index entry');
+    expect(said).toContain('recommended: yes');
+    expect(said).toContain('to keep the copy');
+    expect(said).toContain('recommended: some');
+    expect(said).toContain('to replace only PDF');
+    const hows = Array.from(block.querySelectorAll('.how')).map((x) => x.textContent?.trim());
+    expect(hows).toEqual(['Nobody answered in time, so it took the default.', 'You answered.',
+                          'You answered.']);
+  });
+
+  it('lists a question about a file with no date, naming the file, its dates and the answer', async () => {
+    await show([
+      aRun({
+        choices: [
+          { at: '2026-09-13T12:05:00', question: 'inferred-date', scenario: 'ao3-older', choice: 'yes',
+            count: 1, works: ['75354806'], formats: ['EPUB'], source: 'AO3', recommended: 'yes',
+            fileNames: ['75354806 Wolfbird (14 Dec 2024).epub'], fileDates: { EPUB: '2024-12-14' },
+            date: '2026-04-27', how: 'answered' },
+          { at: '2026-09-13T12:06:00', question: 'inferred-date', scenario: 'fichub-unknown', choice: 'no',
+            count: 1, works: ['75354806'], formats: ['HTML'], source: 'FicHub', recommended: 'no',
+            fileNames: ['75354806 Wolfbird.html'], fileDates: { HTML: '' }, date: '2026-04-27',
+            how: 'always' },
+        ],
+      }),
+    ]);
+
+    const said = (element.querySelector('.run-choices')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(said).toContain('75354806 Wolfbird (14 Dec 2024).epub');
+    expect(said).toContain('looked dated 14 December 2024 (a guess)');
+    expect(said).toContain("AO3's version was dated 27 April 2026");
+    expect(said).toContain('We recommended replacing it');
+    expect(said).toContain("to replace it with AO3's version");
+    expect(said).toContain('No date could be read from its name');
+    expect(said).toContain('to keep it');
+    expect(said).toContain('you chose to always answer this case this way');
+  });
+
   it('lists every run it was given', async () => {
     await show([aRun({ file: 'a.json' }), aRun({ file: 'b.json' })]);
 

@@ -41,12 +41,13 @@ def template() -> dict[str, str]:
 
 def test_the_template_keeps_todays_answers_and_time_limits():
     assert {key: template()[key] for key in strings.INI_ANSWER_CHOICES} == {
-        strings.INI_UNDATED_ANSWER: server.UNDATED_SKIP,
         strings.INI_QUICK_FLOOR_ANSWER: server.QUICK_FULL,
         strings.INI_DUPLICATES_ANSWER: server.DUPLICATES_LEAVE,
         strings.INI_FICHUB_ANSWER: 'yes',
         strings.INI_FICHUB_OUTDATED_ANSWER: 'yes',
         strings.INI_OVERWRITE_OLDER_ANSWER: 'no',
+        # a file without the app's own date is kept, whichever of the six cases it is
+        **{key: 'no' for key in server.SCENARIO_SETTINGS.values()},
     }
     assert template()[strings.INI_QUESTION_TIMEOUT] == str(server.ANSWER_TIMEOUT_SECONDS // 60)
     assert template()[strings.INI_REQUEST_TIMEOUT] == str(Repository.timeout)
@@ -60,7 +61,10 @@ def test_the_template_keeps_todays_answers_and_time_limits():
 
 def test_every_answer_setting_offers_only_answers_its_question_has():
     for name, key in server.ANSWER_SETTING_FOR.items():
-        assert set(strings.INI_ANSWER_CHOICES[key]) <= set(server.CHOICES_FOR[name])
+        # a case of the guessed-date question is answered as that question is
+        offered = server.CHOICES_FOR.get(name) or (
+            server.INFERRED_DATE_CHOICES if name in server.SCENARIOS else ())
+        assert set(strings.INI_ANSWER_CHOICES[key]) <= set(offered)
         # the built-in default comes first, and is the template's
         assert strings.INI_ANSWER_CHOICES[key][0] == template()[key]
 
@@ -96,12 +100,12 @@ def test_a_background_run_not_told_takes_settings_ini_s_answer():
 
 
 def test_a_stop_still_takes_the_answer_that_changes_nothing():
-    settings(UndatedFilesAnswer='refresh')
+    settings(AO3GuessedOlderAnswer='yes')
     job = a_job()
     job.cancel.set()
 
-    assert job.ask({'name': server.UNDATED_QUESTION}, {'choice': 'skip', 'date': ''}) == \
-        {'choice': 'skip', 'date': ''}
+    assert job.ask({'name': server.INFERRED_DATE_QUESTION, 'scenario': 'ao3-older'},
+                   {'choice': 'no'}) == {'choice': 'no'}
 
 
 def test_a_misspelt_answer_leaves_the_built_in_default():
@@ -205,7 +209,8 @@ def test_what_the_page_sends_is_checked_before_the_run_starts():
     assert server.run_question_settings({'fichub': 'no'}, 5) == ({'fichub': 'no'}, 5)
     assert server.run_question_settings(None, None) == ({}, None)
     for defaults, timeout in [({'fichub': 'maybe'}, None), ({'nothing': 'yes'}, None),
-                              ({'undated': 'stamp'}, None), (None, -1), (None, '5'),
+                              ({'undated': 'skip'}, None), ({'ao3-older': 'maybe'}, None),
+                              (None, -1), (None, '5'),
                               (None, True), ('yes', None)]:
         with pytest.raises(ValueError):
             server.run_question_settings(defaults, timeout)

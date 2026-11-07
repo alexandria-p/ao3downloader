@@ -186,12 +186,14 @@
     <!-- step 1: what to download -->
     @if (step() === 'filetypes') {
       <section class="body">
-        <p>{{ blurb() }}</p>
+        @if (blurb()) {
+          <p>{{ blurb() }}</p>
+        }
         <p class="hint">Files are saved to <code>{{ folder() }}</code>.</p>
 
         <fieldset>
           <legend>File types</legend>
-          @for (filetype of config()?.filetypes ?? []; track filetype) {
+          @for (filetype of shownFiletypes(); track filetype) {
             <label class="check" [class.locked]="isLocked(filetype)">
               <input
                 type="checkbox"
@@ -207,7 +209,9 @@
           }
         </fieldset>
 
-        @if (picksReindex()) {
+        <!-- JSON is only listed in debug mode, so only then is there anything to say about it -->
+        @if (!debugMode.on()) {
+        } @else if (picksReindex()) {
           <p class="hint">
             @if (reindex()) {
               JSON is the index itself, so it is written whenever a run indexes - which this
@@ -223,12 +227,6 @@
             JSON metadata comes from the bookmarks listing, so this run won't rewrite it - it
             updates the works themselves.
           </p>
-        } @else {
-          <p class="hint">
-            JSON is indexed first and cannot be turned off - it is read off the listing pages,
-            one request per 20 works. Every other type is fetched per work instead, so leaving
-            them all unticked gives a metadata-only run that is far lighter on ao3's rate limit.
-          </p>
         }
       </section>
       <footer>
@@ -242,6 +240,19 @@
     <!-- step 2: the questions the console menu asks -->
     @if (step() === 'options') {
       <section class="body">
+        <!-- what a scan is for, before what it covers - said here, not on the file types page -->
+        @if (action() === 'quick') {
+          <p class="what-it-does">
+            Scans your AO3 Bookmarks and updates anything that has changed since the last
+            successful run.
+          </p>
+        } @else if (action() === 'bookmarks') {
+          <p class="what-it-does">
+            Walks every page of your AO3 bookmarks, reindexes all of them, and downloads
+            anything missing or out of date. Thorough, and slow.
+          </p>
+        }
+
         <!-- a quick scan's first page, only while no earlier scan is on record to measure back to -->
         @if (firstScan()) {
           <p class="warning first-scan">
@@ -287,14 +298,6 @@
               </label>
             }
 
-            @if (action() === 'custom') {
-              <label class="check">
-                <input type="radio" name="coverage" [checked]="coverage() === 'resume'"
-                       (change)="coverage.set('resume')" />
-                <span>[EXPERIMENTAL] Retry an earlier run</span>
-              </label>
-            }
-
             @if (picksDates()) {
               <label class="check">
                 <input type="radio" name="coverage" [checked]="coverage() === 'dates'"
@@ -309,14 +312,21 @@
                 </span>
               </label>
             }
+
+            <!-- last: it takes every other choice from the run it retries -->
+            @if (action() === 'custom') {
+              <label class="check">
+                <input type="radio" name="coverage" [checked]="coverage() === 'resume'"
+                       (change)="coverage.set('resume')" />
+                <span>Retry an earlier run</span>
+              </label>
+            }
           </fieldset>
 
           @if (resuming()) {
             <p class="hint">
-              Carries on a full scan, quick scan or custom run that was stopped, failed, or
-              interrupted - as that run, with its settings, so everything else here is taken
-              from it. You pick the run on the next page. A custom run over a slice of pages
-              cannot be resumed.
+              Retry a run that was stopped, failed, or interrupted. Some previous runs can be
+              continued from a check-point.
             </p>
           }
 
@@ -428,8 +438,9 @@
           }
         }
 
-        <!-- a resumed run's settings are the earlier run's, so none of these is a choice -->
-        <fieldset class="bare" [disabled]="resuming()">
+        <!-- a resumed run's settings are the earlier run's, so none of these is a choice - and
+             a box that cannot be ticked is not shown at all -->
+        <fieldset class="bare" [disabled]="resuming()" [hidden]="resuming()">
 
         @if (picksPages()) {
           <label class="field">
@@ -482,24 +493,13 @@
             Useful for downloading your fics in a new format, or to fill in any blanks in
             your downloaded files if your index is already up-to-date
           </p>
-        }
-
-        @if (picksOverwrite()) {
-          <label class="check">
-            <input
-              type="checkbox"
-              name="overwrite"
-              [checked]="overwrite()"
-              (change)="overwrite.set($any($event.target).checked)"
-            />
-            <span>Overwrite existing downloads, even if there has been no update</span>
-          </label>
-          <p class="hint">
-            Check this if you are concerned about file integrity issues and would like to
-            simply download the file again. Every format you ask for is fetched afresh for
-            every work this run covers, whether or not AO3 has a newer version than the copy
-            you hold.
-          </p>
+          @if (!reindex()) {
+            <p class="hint warn skip-index-warning">
+              Your files are only checked against your last index, not against live AO3 data:
+              a fic AO3 has updated since it was last indexed will not be seen as needing an
+              update.
+            </p>
+          }
         }
 
         @if (picksCollectionWorks()) {
@@ -596,17 +596,41 @@
           </p>
         }
 
+        <!-- after series and non-bookmarks: the last choice on a full scan; a custom run's images follow it -->
+        @if (picksOverwrite()) {
+          <label class="check">
+            <input
+              type="checkbox"
+              name="overwrite"
+              [checked]="overwrite()"
+              (change)="overwrite.set($any($event.target).checked)"
+            />
+            <span>Overwrite existing downloads, even if there has been no update</span>
+          </label>
+          <p class="hint">
+            Check this if you are concerned about file integrity issues and would like to
+            re-download each file again, in the formats you ask for.
+          </p>
+          <!-- the non-bookmarks it re-reads are downloaded with the rest, so they are overwritten too -->
+          @if (overwrite() && picksNonBookmarks() && nonBookmarks()) {
+            <p class="hint overwrite-non-bookmarks">This will include any non-bookmarks in this scan too.</p>
+          }
+        }
+
         @if (picksImages()) {
           <label class="check">
             <input type="checkbox" [checked]="images()" (change)="images.set($any($event.target).checked)" />
             <span>Also save embedded images separately</span>
           </label>
-          <p class="hint">
-            <strong>Please note:</strong> images are already embedded inside all regular
-            downloaded works, and display when you read them. This option just also exports
-            any images to their own folder in your downloads directory, for you to look at
-            separately. It will make the download longer.
-          </p>
+          <!-- only once ticked: a note about a choice not made yet is one more thing to read -->
+          @if (images()) {
+            <p class="hint">
+              <strong>Please note:</strong> images are already embedded inside all regular
+              downloaded works, and display when you read them. This option just also exports
+              any images to their own folder in your downloads directory, for you to look at
+              separately. It will make the download longer.
+            </p>
+          }
         }
 
         </fieldset>
@@ -710,7 +734,7 @@
     @if (step() === 'resume') {
       <section class="body retry">
         <p class="warning">
-          <strong>[EXPERIMENTAL]</strong> Runs an earlier run again, as that run, with its
+          Runs an earlier run again, as that run, with its
           settings - from the top, or carrying on from where it stopped. See helper_files/RESUMING.md.
         </p>
 
@@ -723,7 +747,7 @@
             <legend>Earlier runs</legend>
             @for (run of retryableRuns(); track run.id) {
               <label class="check" [class.unavailable]="!run.retry.default"
-                     [title]="run.retry.default ? '' : 'It cannot be retried'">
+                     [title]="run.retry.default ? '' : whyNotRetryable(run)">
                 <input type="radio" name="resumeRun" [value]="run.id"
                        [disabled]="!run.retry.default"
                        [checked]="resumeRun() === run.id"
@@ -734,6 +758,10 @@
                     - started {{ run.started.slice(0, 10) }} {{ run.started.slice(11, 16) }},
                     {{ statusWord(run.status) }}
                   </span>
+                  <!-- a run that cannot be picked says why where it is listed, not only on hover -->
+                  @if (!run.retry.default) {
+                    <span class="hint why-not">{{ whyNotRetryable(run) }}</span>
+                  }
                   @for (warning of run.warnings; track $index) {
                     <span class="hint warn">{{ warning }}</span>
                   }
@@ -971,15 +999,13 @@
                 index. Both walks start at your newest bookmark whatever the newer end is.
               </p>
             } @else {
-              <p>
-                @if (chosenFloorRun(); as chosen) {
+              <!-- what it does in general is said on the options page; only a chosen scan is new here -->
+              @if (chosenFloorRun(); as chosen) {
+                <p>
                   Scans for and updates anything that has changed since the scan you chose,
                   which started on {{ chosen.started.slice(0, 10) }}.
-                } @else {
-                  Scans for and updates anything that has changed since the last successful
-                  run.
-                }
-              </p>
+                </p>
+              }
 
               <p class="warning">
                 Files missing from earlier runs due to an incomplete or damaged index - for
@@ -1143,37 +1169,6 @@
                         <input type="radio" name="bg-quick" [checked]="quickFloorAnswer() === 'since'"
                                (change)="quickFloorAnswer.set('since')" />
                         <span>Only back to when the index was last written</span>
-                      </label>
-                    </div>
-                  }
-
-                  @if (backgroundQuestions().includes('undated')) {
-                    <div class="answer" data-question="undated">
-                      <p>
-                        <strong>Downloaded files with no date in their name</strong> - their
-                        version cannot be told from the name. What should happen to them?
-                      </p>
-                      <label class="check">
-                        <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'skip'"
-                               (change)="undatedAnswer.set('skip')" />
-                        <span>Leave them as they are (changes nothing)</span>
-                      </label>
-                      <label class="check">
-                        <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'stamp'"
-                               (change)="undatedAnswer.set('stamp')" />
-                        <span>Give them a date, without downloading anything</span>
-                      </label>
-                      @if (undatedAnswer() === 'stamp') {
-                        <label class="field indented">
-                          <span>The date to give them - the version you believe they hold</span>
-                          <input type="date" name="bg-undated-date" [value]="undatedDate()"
-                                 (input)="undatedDate.set($any($event.target).value)" />
-                        </label>
-                      }
-                      <label class="check">
-                        <input type="radio" name="bg-undated" [checked]="undatedAnswer() === 'refresh'"
-                               (change)="undatedAnswer.set('refresh')" />
-                        <span>Download them all again (a request per work per format)</span>
                       </label>
                     </div>
                   }
@@ -1530,7 +1525,8 @@
           more than one question can stop a run, and they are answered through the same
           endpoint - so the panel is keyed on which one is being asked, not on the count
         -->
-        @if (asking() && askedDefault()) {
+        <!-- the guessed-date question says this inside its own panel, above its buttons -->
+        @if (asking() && askedDefault() && question() !== 'inferred-date') {
           <p class="question-default">
             If nobody answers within {{ askedTimeout() | number }} minute{{ askedTimeout() === 1 ? '' : 's' }},
             the run carries on with: <strong>{{ askedDefault() }}</strong>
@@ -1662,9 +1658,79 @@
             </div>
 
             <p class="hint">
-              Files you already have are never replaced by an older copy, and the index is left
-              as it is. Left unanswered, the run takes the older version after 30 minutes.
+              A file you already have is only replaced where FicHub's copy is newer than the date
+              in its name, and the index is left as it is. Left unanswered, the run takes the
+              older version after 30 minutes.
             </p>
+          </div>
+        }
+
+        @if (asking() && question() === 'inferred-date') {
+          <div class="question" data-question="inferred-date" [attr.data-scenario]="askedScenario()">
+            <p class="question-text">
+              @for (format of askedFormats(); track format) {
+                Your {{ format }} of work
+                @for (id of askedIds(); track id) {
+                  <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
+                }
+                has no date in its name written the way this app writes one, so we can't be sure
+                which version it holds:
+              }
+            </p>
+            @for (format of askedFormats(); track format) {
+              <p class="file-name"><code>{{ askedFileNames()[format] || format }}</code></p>
+            }
+            <p class="question-text">
+              @if (askedScenario().endsWith('older')) {
+                Its name looks dated <strong>{{ writtenDate(askedFileDates()[askedFormats()[0]]) }}</strong> (a guess),
+                so we <strong>think</strong> {{ askedSource() || 'AO3' }}'s version
+                (<strong>{{ writtenDate(askedDate()) }}</strong>) is newer. We recommend replacing it.
+              } @else if (askedScenario().endsWith('newer')) {
+                Its name looks dated <strong>{{ writtenDate(askedFileDates()[askedFormats()[0]]) }}</strong> (a guess),
+                so we <strong>think</strong> yours is as new as {{ askedSource() || 'AO3' }}'s version
+                (<strong>{{ writtenDate(askedDate()) }}</strong>) or newer. We recommend keeping it.
+              } @else {
+                No date can be read from its name, so we can't tell whether
+                {{ askedSource() || 'AO3' }}'s version
+                (<strong>{{ askedDate() ? writtenDate(askedDate()) : 'no date' }}</strong>) is newer.
+                We recommend keeping it.
+              }
+            </p>
+            @if (askedDefault()) {
+              <p class="hint question-default">
+                If nobody answers within {{ askedTimeout() | number }} minute{{ askedTimeout() === 1 ? '' : 's' }},
+                the run carries on with: <strong>{{ askedDefault() === 'yes'
+                  ? (askedFormats().length > 1 ? 'Replace them' : 'Replace it') : 'Keep mine' }}</strong>
+                (change this in User settings).
+              </p>
+            }
+
+            <div class="question-actions">
+              <button type="button" class="button" [class.recommended]="askedRecommended() === 'yes'"
+                      [disabled]="answering()" (click)="answerUnsure('yes')">
+                {{ askedFormats().length > 1 ? 'Replace them' : 'Replace it' }}@if (askedRecommended() === 'yes') {<strong>{{ ' (recommended)' }}</strong>}
+              </button>
+              <button type="button" class="button" [class.recommended]="askedRecommended() === 'no'"
+                      [disabled]="answering()" (click)="answerUnsure('no')">
+                Keep mine@if (askedRecommended() === 'no') {<strong>{{ ' (recommended)' }}</strong>}
+              </button>
+            </div>
+            <label class="check always-case">
+              <input type="checkbox" name="alwaysThisCase" [checked]="alwaysThisCase()"
+                     (change)="alwaysThisCase.set($any($event.target).checked)" />
+              <span>
+                Always choose this
+                @if (askedScenario().endsWith('older')) {
+                  when an existing file is guessed to be older than the incoming one
+                } @else if (askedScenario().endsWith('newer')) {
+                  when an existing file is guessed to be as new as the incoming one, or newer
+                } @else {
+                  when the date of an existing file cannot be judged
+                }
+                from {{ askedSource() || 'AO3' }}
+              </span>
+            </label>
+
           </div>
         }
 
@@ -1676,8 +1742,14 @@
               @for (id of askedIds(); track id) {
                 <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
               }
-              is <strong>newer</strong> ({{ askedNewer() }}) than the version it would be replaced
-              with ({{ askedDate() }}). Replace it with what could be an older, outdated version?
+              @if (askedNewer()) {
+                is <strong>newer</strong> ({{ askedNewer() }}) than the version it would be replaced
+                with ({{ askedDate() }}). Replace it with what could be an older, outdated version?
+              } @else {
+                has <strong>no date in its name</strong>, so it cannot be told whether it is newer
+                than the version it would be replaced with ({{ askedDate() }}). Replace it with
+                what could be an older, outdated version?
+              }
             </p>
 
             <div class="question-actions">
@@ -1698,76 +1770,49 @@
           </div>
         }
 
-        <!-- `as count` has to bind the number, so the discriminator is a wrapper -->
-        @if (question() !== 'quick-floor' && question() !== 'duplicates' && question() !== 'fichub' &&
-             question() !== 'fichub-outdated' && question() !== 'overwrite-older') {
-        @if (asking(); as count) {
-          <div class="question">
+        @if (asking() && question() === 'unindexed-copy') {
+          <div class="question" data-question="unindexed-copy">
             <p class="question-text">
-              <strong>{{ count | number }}</strong>
-              {{ count === 1 ? 'work you have downloaded was' : 'works you have downloaded were' }}
-              saved before file names carried a date. There is no way to tell whether
-              {{ count === 1 ? 'it is' : 'they are' }} still current, so the run has stopped
-              to ask what to do with {{ count === 1 ? 'it' : 'them' }}.
-            </p>
-
-            @if (!choosingDate()) {
-              <div class="question-actions">
-                <button type="button" class="button" [disabled]="answering()"
-                        (click)="choosingDate.set(true)">
-                  Give {{ count === 1 ? 'it' : 'them' }} a date
-                </button>
-                <button type="button" class="button" [disabled]="answering()"
-                        (click)="refreshUndatedWorks()">
-                  Re-download {{ count === 1 ? 'it' : 'them' }}
-                </button>
-                <button type="button" class="button" [disabled]="answering()"
-                        (click)="skipUndatedWorks()">
-                  Ignore and skip {{ count === 1 ? 'it' : 'them' }}
-                </button>
-              </div>
-              <p class="hint">
-                <strong>Give a date</strong> renames the files where they are - no downloads
-                at all - and the run then treats anything AO3 has updated since that date as
-                out of date. <strong>Re-download</strong> fetches all
-                {{ count | number }} again and removes the old copies.
-                <strong>Ignore</strong> leaves them alone and downloads nothing for them.
-              </p>
-            } @else {
-              <label class="field">
-                <span>Treat these files as the version from</span>
-                <input
-                  type="date"
-                  name="stampDate"
-                  [value]="stampDate()"
-                  (input)="setStampDate($any($event.target).value)"
-                />
-              </label>
-              <p class="hint">
-                Today means "what I have is current" - nothing is fetched for them now, and
-                you are told when AO3 next updates any of them. An earlier date means "my
-                copies are from back then", so anything updated since is fetched on this run.
-              </p>
-              @if (!stampDateIsValid()) {
-                <p class="error">That is not a date this can be run with.</p>
+              Your library has
+              <strong>{{ askedFormats().join(', ') }}</strong> of work
+              @for (id of askedIds(); track id) {
+                <a [href]="'https://archiveofourown.org/works/' + id" [appWorkLink]="id" target="_blank" rel="noopener">{{ id }}</a>
               }
-              <div class="question-actions">
-                <button type="button" class="button subtle" [disabled]="answering()"
-                        (click)="choosingDate.set(false)">
-                  Back
+              but had no index entry for it, so there is nothing to tell which version each copy
+              holds. Replace them with the version from {{ askedSource() }}
+              ({{ askedDate() || 'no date' }})?
+            </p>
+            <ul class="file-dates">
+              @for (format of askedFormats(); track format) {
+                <li [attr.data-recommended]="askedRecommendedFormats().includes(format) ? 'yes' : 'no'">
+                  <strong>{{ format }}</strong> - {{ askedFileDates()[format] ? 'dated ' + askedFileDates()[format] + ' in its name' : 'no date in its name' }}.
+                  {{ sentence(askedReasons()[format]) }}
+                </li>
+              }
+            </ul>
+
+            <div class="question-actions">
+              @if (askedRecommended() === 'recommended') {
+                <button type="button" class="button primary" [disabled]="answering()"
+                        (click)="replaceRecommendedCopies()">
+                  Replace only {{ askedRecommendedFormats().join(', ') }}
                 </button>
-                <button
-                  type="button"
-                  class="button primary"
-                  [disabled]="!stampDateIsValid() || answering()"
-                  (click)="dateUndatedWorks()"
-                >
-                  Date {{ count === 1 ? 'it' : 'them' }} and continue
-                </button>
-              </div>
-            }
+              }
+              <button type="button" class="button" [class.primary]="askedRecommended() === 'yes'"
+                      [disabled]="answering()" (click)="replaceUnindexedCopy()">
+                {{ askedFormats().length > 1 ? 'Yes, replace them all' : 'Yes, replace it' }}
+              </button>
+              <button type="button" class="button" [class.primary]="askedRecommended() === 'no'"
+                      [disabled]="answering()" (click)="keepUnindexedCopy()">
+                {{ askedFormats().length > 1 ? 'No, keep them all' : 'No, keep my copy' }}
+              </button>
+            </div>
+
+            <p class="hint">
+              Formats you do not have yet are still downloaded either way. Left unanswered, the
+              run keeps every copy.
+            </p>
           </div>
-        }
         }
 
         <div

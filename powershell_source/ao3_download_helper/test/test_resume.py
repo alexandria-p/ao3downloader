@@ -553,8 +553,7 @@ def test_fics_the_earlier_attempt_finished_are_not_gone_over_again(library):
     records = [{'id': '1', 'link': 'l1'}, {'id': '2', 'link': 'l2'}]
 
     with patch.object(server, 'update_one_work', return_value=0) as one, \
-         patch.object(server.shared, 'scan_downloaded_works', return_value={}), \
-         patch.object(server, 'settle_undated', return_value=(False, 0)):
+         patch.object(server.shared, 'scan_downloaded_works', return_value={}):
         server.refresh_and_download(job, library, MagicMock(reindexed=set()), records,
                                     ['HTML'], None)
 

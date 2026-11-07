@@ -99,7 +99,7 @@ order is not the same:
 - **A downloaded app, the bundle, a dev build:** settings.ini only. User settings edits it,
   and the browser keeps nothing but the prompts and the default formats.
 - **A hosted copy:** settings.ini comes from the deployment's variables and the page cannot
-  edit it. So *Questions a run may ask* (`QuestionTimeoutMinutes` and the six default answers)
+  edit it. So *Defaults used during a run* (`QuestionTimeoutMinutes` and the six default answers)
   is kept in the browser (`ao3.answerDefaults`, `ao3.questionTimeoutMinutes`), sent with each
   run, and used **ahead of** settings.ini (`run_question_settings`, `Job.answer_defaults`).
   Every other setting stays deployment-only.

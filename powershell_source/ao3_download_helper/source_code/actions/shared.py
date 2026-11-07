@@ -484,67 +484,8 @@ def older_copies(existing: dict[str, dict[str, dict]], works: set[str],
     return found
 
 
-def stamp_undated_works(fileops: FileOps, existing: dict[str, dict[str, dict]],
-                        works: set[str], stamp: str, maximum: int) -> dict:
-    """Write a date onto the files that have none, by renaming them where they sit.
-
-    This is the middle road between leaving files that predate dated names alone and
-    fetching every one of them again: it says "treat what I have as the version from this
-    date". Nothing is downloaded, nothing leaves the machine, and once the files carry a
-    date the ordinary rule takes over - anything ao3 has updated since then is fetched
-    again on this same run.
-
-    `works` is the work numbers to touch, and is **not** optional. `existing` is the whole
-    downloads folder, which is far more than any one run asked about - an update run asks
-    about the couple of hundred fics the index calls unfinished, not the thousands of files
-    sitting next to them. Renaming the lot was a real bug: the run reported a few hundred
-    undated works and then dated every file in the library. Only what the caller asked
-    about, and only in the types it scanned for, may be renamed here.
-
-    `existing` is updated in place, so the caller can plan from it straight afterwards.
-
-    Two things it will not do: overwrite a file that is already there, and lose characters
-    without saying so. The base name is cut to leave room for the date, exactly as a fresh
-    download would be, so a long name comes out shorter than it went in.
-    """
-
-    suffix = ' ' + stamp
-    renamed = 0
-    skipped = 0
-    # which files, by name, so a library renamed months ago can be traced back file by file
-    files = []
-
-    for work, types in existing.items():
-        if work not in works: continue
-        for filetype, entry in types.items():
-            if entry['date'] is not None: continue
-
-            old = entry['path']
-            folder, name = os.path.split(old)
-            base, extension = os.path.splitext(name)
-            room = max(1, maximum - len(suffix)) if maximum > 0 else 0
-            trimmed = base[:room].strip() if room else base.strip()
-            new = os.path.join(folder, trimmed + suffix + extension)
-
-            if fileops.exists(new):
-                # something is already called that. renaming would destroy it
-                skipped += 1
-                continue
-            if not fileops.rename_file(old, new):
-                skipped += 1
-                continue
-
-            entry['path'] = new
-            entry['date'] = stamp
-            renamed += 1
-            files.append({'id': work, 'from': name,
-                          'to': os.path.basename(new)})
-
-    return {'renamed': renamed, 'skipped': skipped, 'files': files}
-
-
 def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
-                   filetypes: list[str], refresh_undated: bool = False,
+                   filetypes: list[str], refresh_undated: bool | set[str] = False,
                    overwrite: bool | set[str] = False) -> dict:
     """Work out which already-downloaded works this run should fetch again.
 
@@ -594,7 +535,11 @@ def plan_downloads(records: list[dict], existing: dict[str, dict[str, dict]],
                 replacing[filetype] = copy['path']
             elif copy['date'] is None:
                 is_undated = True
-                if refresh_undated: replacing[filetype] = copy['path']
+                # a set names the works the undated question was asked about: the rest
+                # were not part of the answer
+                if refresh_undated is True or (isinstance(refresh_undated, (set, frozenset))
+                                               and str(work) in refresh_undated):
+                    replacing[filetype] = copy['path']
             elif current and copy['date'] < current:
                 replacing[filetype] = copy['path']
 
